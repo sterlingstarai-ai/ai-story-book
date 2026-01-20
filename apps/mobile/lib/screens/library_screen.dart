@@ -104,7 +104,7 @@ class _LibraryBottomNavBar extends StatelessWidget {
         color: AppColors.surface,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: AppColors.blackOverlayLight,
             blurRadius: 10,
             offset: const Offset(0, -4),
           ),

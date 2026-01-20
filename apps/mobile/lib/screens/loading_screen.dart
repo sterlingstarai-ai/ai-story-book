@@ -117,7 +117,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
         Container(
           padding: const EdgeInsets.all(AppSpacing.md),
           decoration: BoxDecoration(
-            color: AppColors.primary.withOpacity(0.1),
+            color: AppColors.primaryLight,
             borderRadius: BorderRadius.circular(AppRadius.md),
           ),
           child: Row(
@@ -279,7 +279,7 @@ class _AnimatedBookIconState extends State<_AnimatedBookIcon>
           borderRadius: BorderRadius.circular(AppRadius.xl),
           boxShadow: [
             BoxShadow(
-              color: AppColors.primary.withOpacity(0.3),
+              color: AppColors.primaryStrong,
               blurRadius: 30,
               offset: const Offset(0, 10),
             ),

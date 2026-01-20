@@ -28,7 +28,7 @@ class PrimaryButton extends StatelessWidget {
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.primary,
           foregroundColor: Colors.white,
-          disabledBackgroundColor: AppColors.primary.withOpacity(0.5),
+          disabledBackgroundColor: AppColors.primaryHalf,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppRadius.md),
           ),
@@ -104,7 +104,7 @@ class BookCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(AppRadius.lg),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.08),
+              color: AppColors.blackOverlayShadow,
               blurRadius: 10,
               offset: const Offset(0, 4),
             ),
@@ -184,7 +184,7 @@ class CharacterCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(AppSpacing.md),
         decoration: BoxDecoration(
-          color: isSelected ? AppColors.primary.withOpacity(0.1) : AppColors.surface,
+          color: isSelected ? AppColors.primaryLight : AppColors.surface,
           borderRadius: BorderRadius.circular(AppRadius.md),
           border: Border.all(
             color: isSelected ? AppColors.primary : AppColors.divider,
@@ -197,7 +197,7 @@ class CharacterCard extends StatelessWidget {
             Row(
               children: [
                 CircleAvatar(
-                  backgroundColor: AppColors.secondary.withOpacity(0.2),
+                  backgroundColor: AppColors.secondaryLight,
                   child: Text(
                     name.isNotEmpty ? name[0] : '?',
                     style: TextStyle(
@@ -240,7 +240,7 @@ class LoadingOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      color: Colors.black.withOpacity(0.5),
+      color: AppColors.blackOverlay,
       child: Center(
         child: Container(
           padding: const EdgeInsets.all(AppSpacing.lg),
