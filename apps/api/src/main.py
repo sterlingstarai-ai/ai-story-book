@@ -63,8 +63,62 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
-    description="AI 동화책 생성 API",
+    description="""
+# AI Story Book API
+
+AI 기반 맞춤형 동화책 생성 API입니다.
+
+## 주요 기능
+
+* **책 생성**: 주제, 연령대, 스타일을 입력하면 AI가 동화책을 생성합니다
+* **캐릭터 관리**: 사진에서 캐릭터를 추출하거나 직접 생성할 수 있습니다
+* **시리즈 생성**: 같은 캐릭터로 연속된 이야기를 만들 수 있습니다
+* **PDF/오디오 내보내기**: 완성된 책을 PDF나 오디오로 내보낼 수 있습니다
+
+## 인증
+
+모든 API는 `X-User-Key` 헤더가 필요합니다.
+중복 요청 방지를 위해 `X-Idempotency-Key` 헤더 사용을 권장합니다.
+
+## Rate Limiting
+
+- 기본: 분당 10회 요청 제한
+- 초과 시 429 Too Many Requests 응답
+
+## 크레딧 시스템
+
+책 1권 생성에 크레딧 1개가 소모됩니다.
+    """,
     lifespan=lifespan,
+    openapi_tags=[
+        {
+            "name": "Books",
+            "description": "동화책 생성 및 조회 API",
+        },
+        {
+            "name": "Characters",
+            "description": "캐릭터 관리 API",
+        },
+        {
+            "name": "Library",
+            "description": "사용자 서재 API",
+        },
+        {
+            "name": "Credits",
+            "description": "크레딧 및 구독 관리 API",
+        },
+        {
+            "name": "Streak",
+            "description": "오늘의 동화 및 스트릭 API",
+        },
+    ],
+    contact={
+        "name": "AI Story Book Team",
+        "email": "support@aistorybook.com",
+    },
+    license_info={
+        "name": "MIT",
+    },
 )
 
 # Security headers middleware
