@@ -86,11 +86,13 @@ class PageResult {
   final int pageNumber;
   final String text;
   final String imageUrl;
+  final String? audioUrl;
 
   PageResult({
     required this.pageNumber,
     required this.text,
     required this.imageUrl,
+    this.audioUrl,
   });
 
   factory PageResult.fromJson(Map<String, dynamic> json) {
@@ -98,6 +100,7 @@ class PageResult {
       pageNumber: json['page_number'] as int,
       text: json['text'] as String,
       imageUrl: json['image_url'] as String,
+      audioUrl: json['audio_url'] as String?,
     );
   }
 }

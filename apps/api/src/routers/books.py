@@ -510,9 +510,9 @@ async def generate_book_audio(
 
 async def _generate_audio_for_book(book_id: str, pages: list[dict]):
     """책 오디오 생성 백그라운드 태스크"""
-    from src.core.database import async_session_maker
+    from src.core.database import AsyncSessionLocal
 
-    async with async_session_maker() as db:
+    async with AsyncSessionLocal() as db:
         for page_data in pages:
             try:
                 # TTS 생성
