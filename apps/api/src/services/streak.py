@@ -2,12 +2,11 @@
 Streak Service
 오늘의 동화 스트릭 시스템
 """
-from datetime import datetime, timedelta, date
-from typing import Optional
+from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
-from ..models.db import DailyStreak, DailyStory, ReadingLog, Book
+from ..models.db import DailyStreak, DailyStory, ReadingLog
 
 # 오늘의 동화 테마 목록
 DAILY_THEMES = [
@@ -239,7 +238,6 @@ class StreakService:
             }
 
         # 없으면 오늘의 테마/주제 생성
-        import random
         day_of_year = today.timetuple().tm_yday
         theme_index = day_of_year % len(DAILY_THEMES)
         theme_data = DAILY_THEMES[theme_index]

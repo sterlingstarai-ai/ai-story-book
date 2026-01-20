@@ -5,9 +5,6 @@ import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
 import httpx
-from typing import Optional
-import uuid
-from datetime import datetime
 import structlog
 
 from src.core.config import settings

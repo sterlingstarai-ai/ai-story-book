@@ -7,7 +7,7 @@ import structlog
 
 from src.core.config import settings
 from src.routers import books, characters, library, credits, streak
-from src.core.database import engine, Base
+from src.core.database import get_db  # noqa: F401
 from src.core.rate_limit import check_rate_limit, rate_limiter
 from src.core.exceptions import APIError, api_exception_handler
 

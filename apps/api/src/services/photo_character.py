@@ -7,7 +7,6 @@ import httpx
 from typing import Optional
 import os
 
-from ..models.dto import CharacterSheet
 
 
 class PhotoCharacterService:

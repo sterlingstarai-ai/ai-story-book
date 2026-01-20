@@ -4,15 +4,14 @@ LLM Service: 텍스트 생성 (스토리, 캐릭터 시트, 이미지 프롬프�
 import json
 import httpx
 from pathlib import Path
-from typing import Optional
 from jinja2 import Environment, FileSystemLoader
 import structlog
 
 from src.core.config import settings
-from src.core.errors import LLMError, ErrorCode, SafetyError
+from src.core.errors import LLMError, ErrorCode
 from src.models.dto import (
     BookSpec, StoryDraft, CharacterSheet, ImagePrompts,
-    ModerationResult, Language, TargetAge
+    ModerationResult
 )
 
 logger = structlog.get_logger()

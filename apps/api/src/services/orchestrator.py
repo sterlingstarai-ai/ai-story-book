@@ -21,7 +21,7 @@ import structlog
 from src.core.config import settings
 from src.core.errors import (
     StoryBookError, ErrorCode, TransientError,
-    get_retry_count, get_backoff
+    get_backoff
 )
 from src.models.dto import (
     BookSpec, StoryDraft, CharacterSheet, ImagePrompts,
@@ -363,7 +363,6 @@ async def generate_all_images(
     Returns:
         dict mapping page number to image URL (0 = cover)
     """
-    from src.services.image import generate_image
 
     image_urls = {}
 
@@ -372,7 +371,7 @@ async def generate_all_images(
     current_progress = PROGRESS_IMAGES_START
 
     # Generate cover
-    await update_job_status(job_id, f"표지 그리는 중...", int(current_progress))
+    await update_job_status(job_id, "표지 그리는 중...", int(current_progress))
     cover_url = await generate_image_with_retry(image_prompts.cover, job_id, 0)
     image_urls[0] = cover_url
     current_progress += progress_per_image
@@ -409,7 +408,6 @@ async def generate_all_images(
 async def generate_image_with_retry(prompt, job_id: str, page: int) -> str:
     """이미지 생성 (재시도 포함)"""
     from src.services.image import generate_image
-    from src.core.errors import ImageError
 
     max_retries = settings.image_max_retries
     for attempt in range(max_retries):
@@ -574,7 +572,7 @@ async def regenerate_page(
     """페이지 재생성"""
     from src.core.database import AsyncSessionLocal
     from src.models.db import Book, Page, StoryDraftDB
-    from src.services.llm import call_text_rewrite, call_image_prompts_generation
+    from src.services.llm import call_text_rewrite
     from src.services.image import generate_image
     from src.services.storage import storage_service
     from sqlalchemy import select

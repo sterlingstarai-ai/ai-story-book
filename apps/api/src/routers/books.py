@@ -1,12 +1,11 @@
 from fastapi import APIRouter, Depends, Header, HTTPException, BackgroundTasks
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from typing import Optional
 import uuid
 from datetime import datetime
 import structlog
-
-logger = structlog.get_logger()
 
 from src.core.database import get_db
 from src.core.config import settings
@@ -22,7 +21,8 @@ from src.services.pdf import pdf_service
 from src.services.tts import tts_service
 from src.services.storage import storage_service
 from src.services.credits import credits_service
-from sqlalchemy import select
+
+logger = structlog.get_logger()
 
 router = APIRouter()
 

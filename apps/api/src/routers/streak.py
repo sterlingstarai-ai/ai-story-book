@@ -6,7 +6,6 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from typing import Optional
-from datetime import datetime
 
 from src.core.database import get_db
 from src.core.dependencies import get_user_key
