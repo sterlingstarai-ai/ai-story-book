@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 from contextlib import asynccontextmanager
 import structlog
 
@@ -9,6 +10,27 @@ from src.routers import books, characters, library, credits, streak
 from src.core.database import engine, Base
 from src.core.rate_limit import check_rate_limit, rate_limiter
 from src.core.exceptions import APIError, api_exception_handler
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Add security headers to all responses."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        # Prevent clickjacking
+        response.headers["X-Frame-Options"] = "DENY"
+        # Prevent MIME type sniffing
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        # XSS protection (legacy but still useful)
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        # Referrer policy
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        # Content Security Policy
+        response.headers["Content-Security-Policy"] = "default-src 'self'"
+        # Remove server header for security
+        if "server" in response.headers:
+            del response.headers["server"]
+        return response
 
 # Configure structured logging
 structlog.configure(
@@ -45,6 +67,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Security headers middleware
+app.add_middleware(SecurityHeadersMiddleware)
+
 # CORS - Configurable via CORS_ORIGINS env var
 cors_origins = (
     ["*"] if settings.cors_origins == "*"
@@ -55,7 +80,7 @@ app.add_middleware(
     allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
+    allow_headers=["X-User-Key", "X-Idempotency-Key", "Content-Type", "Authorization"],
 )
 
 
@@ -100,9 +125,24 @@ app.include_router(
     tags=["Characters"],
     dependencies=[Depends(check_rate_limit)],
 )
-app.include_router(library.router, prefix="/v1/library", tags=["Library"])
-app.include_router(credits.router, prefix="/v1/credits", tags=["Credits"])
-app.include_router(streak.router, prefix="/v1/streak", tags=["Streak"])
+app.include_router(
+    library.router,
+    prefix="/v1/library",
+    tags=["Library"],
+    dependencies=[Depends(check_rate_limit)],
+)
+app.include_router(
+    credits.router,
+    prefix="/v1/credits",
+    tags=["Credits"],
+    dependencies=[Depends(check_rate_limit)],
+)
+app.include_router(
+    streak.router,
+    prefix="/v1/streak",
+    tags=["Streak"],
+    dependencies=[Depends(check_rate_limit)],
+)
 
 
 if __name__ == "__main__":

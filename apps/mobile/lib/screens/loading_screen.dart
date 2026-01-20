@@ -6,14 +6,21 @@ import '../utils/constants.dart';
 import '../widgets/common_widgets.dart';
 
 /// 로딩 화면 (책 생성 진행 상황)
-class LoadingScreen extends ConsumerWidget {
+class LoadingScreen extends ConsumerStatefulWidget {
   final String jobId;
 
   const LoadingScreen({super.key, required this.jobId});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final jobStatusAsync = ref.watch(jobPollingProvider(jobId));
+  ConsumerState<LoadingScreen> createState() => _LoadingScreenState();
+}
+
+class _LoadingScreenState extends ConsumerState<LoadingScreen> {
+  bool _hasNavigated = false;  // Prevent double navigation
+
+  @override
+  Widget build(BuildContext context) {
+    final jobStatusAsync = ref.watch(jobPollingProvider(widget.jobId));
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -22,15 +29,18 @@ class LoadingScreen extends ConsumerWidget {
           padding: const EdgeInsets.all(AppSpacing.lg),
           child: jobStatusAsync.when(
             data: (status) {
-              // 완료 시 뷰어로 이동
-              if (status.isComplete && status.result != null) {
+              // 완료 시 뷰어로 이동 (guard against double navigation)
+              if (status.isComplete && status.result != null && !_hasNavigated) {
+                _hasNavigated = true;
                 WidgetsBinding.instance.addPostFrameCallback((_) {
-                  ref.invalidate(libraryProvider);
-                  Navigator.pushReplacementNamed(
-                    context,
-                    '/viewer',
-                    arguments: status.result!.bookId,
-                  );
+                  if (mounted) {
+                    ref.invalidate(libraryProvider);
+                    Navigator.pushReplacementNamed(
+                      context,
+                      '/viewer',
+                      arguments: status.result!.bookId,
+                    );
+                  }
                 });
                 return _buildCompletedContent();
               }
@@ -45,7 +55,7 @@ class LoadingScreen extends ConsumerWidget {
             },
             loading: () => _buildProgressContent(
               JobStatus(
-                jobId: jobId,
+                jobId: widget.jobId,
                 status: JobState.queued,
                 progress: 0,
                 currentStep: '대기 중...',
@@ -54,7 +64,7 @@ class LoadingScreen extends ConsumerWidget {
             error: (error, _) => _buildErrorContent(
               context,
               JobStatus(
-                jobId: jobId,
+                jobId: widget.jobId,
                 status: JobState.failed,
                 progress: 0,
                 errorMessage: error.toString(),

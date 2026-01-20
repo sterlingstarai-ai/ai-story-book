@@ -427,24 +427,25 @@ async def export_book_pdf(
     pages = pages_result.scalars().all()
 
     # Build BookResult for PDF generation
+    from src.models.dto import Language, TargetAge
     book_data = BookResult(
         book_id=book.id,
         title=book.title,
-        language=book.language,
-        target_age=book.target_age,
+        language=Language(book.language),
+        target_age=TargetAge(book.target_age),
         style=book.style,
-        cover_image_url=book.cover_image_url,
+        cover_image_url=book.cover_image_url or "",
         pages=[
             PageResult(
                 page_number=p.page_number,
                 text=p.text,
-                image_url=p.image_url,
-                image_prompt=p.image_prompt,
+                image_url=p.image_url or "",
+                image_prompt=p.image_prompt or "",
                 audio_url=p.audio_url
             )
             for p in pages
         ],
-        created_at=book.created_at.isoformat()
+        created_at=book.created_at
     )
 
     # Generate PDF
