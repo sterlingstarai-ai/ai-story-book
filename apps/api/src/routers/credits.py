@@ -2,7 +2,7 @@
 Credits Router
 크레딧 및 구독 관련 API
 """
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from typing import Optional
