@@ -425,3 +425,81 @@ flutter test
 | 이미지 (cover+8p) | $0.03×9 | $0.27 |
 | **합계** | | **~$0.32** |
 | 재생성 포함 (×1.5) | | **~$0.48** |
+
+---
+
+## 🔴 최근 세션 (2026-01-21)
+
+### 코드 리뷰 30개 이슈 수정 완료
+
+외부 코드 리뷰 2건을 받아 분석 후, 총 30개 이슈를 모두 수정함.
+
+**커밋**: `537a5e2` - `fix: 코드 리뷰 30개 이슈 수정`
+**GitHub**: Push 완료 → CI/CD 파이프라인 자동 실행 중
+
+### 수정된 이슈 목록
+
+#### P0 Critical (7개) ✅
+| 이슈 | 파일 | 수정 내용 |
+|-----|------|----------|
+| P0-1 | `routers/books.py` | `use_credit()` 호출 추가 (크레딧 차감 누락) |
+| P0-2 | `routers/books.py` | `/v1/books/{book_id}/detail` 엔드포인트 추가 |
+| P0-3 | `services/orchestrator.py` | `character_id=spec.character_id` 저장 |
+| P0-4 | `services/orchestrator.py` | `generate_series_book()` 구현 (TODO였음) |
+| P0-5 | `services/orchestrator.py` | `regenerate_page()` 구현 (TODO였음) |
+| P0-6 | `docker-compose.prod.yml` | init-db.sql 참조 제거 |
+| P0-7 | `core/database.py` | sync/async URL 분리 함수 추가 |
+
+#### P1 Runtime Risk (8개) ✅
+| 이슈 | 파일 | 수정 내용 |
+|-----|------|----------|
+| P1-1 | `routers/characters.py` | from-photo 스키마 정규화 |
+| P1-2 | `core/rate_limit.py` (신규) | Redis 기반 Rate Limiter |
+| P1-3 | `services/storage.py` | bucket 체크 캐싱 (`_bucket_verified`) |
+| P1-4 | `mobile/lib/core/env_config.dart` (신규) | 환경별 baseUrl 분리 |
+| P1-5 | `mobile/lib/services/api_client.dart` | `response.data!` 안전 처리 |
+| P1-6 | `main.py`, `core/config.py` | CORS 설정 환경변수화 |
+| P1-7 | `services/orchestrator.py` | 출력 모더레이션 구현 |
+| P1-8 | `services/tasks.py` (신규) | Celery task 래퍼 |
+
+#### P2 Code Quality (9개) ✅
+| 이슈 | 파일 | 수정 내용 |
+|-----|------|----------|
+| P2-1 | `core/dependencies.py` (신규) | `get_user_key` 공통 모듈 |
+| P2-2 | `routers/books.py` | print문 → logger 교체 |
+| P2-4 | `.env.example` | 보안 경고 추가 |
+| P2-5 | `mobile/assets/images/.gitkeep` | 폴더 유지 파일 |
+| P2-7 | `tests/conftest.py` | credits mock 추가 |
+
+#### P3 Improvements (6개) ✅
+| 이슈 | 파일 | 수정 내용 |
+|-----|------|----------|
+| P3-1 | `core/exceptions.py` (신규) | 표준화된 에러 응답 |
+| P3-2 | `models/db.py` | Page에 UniqueConstraint 추가 |
+| P3-3 | `core/config.py` | `image_max_retries` 설정 추가 |
+| P3-4 | `services/tts.py`, `core/config.py` | TTS provider 설정화 |
+| P3-6 | `mobile/lib/core/api_error.dart` (신규) | 모바일 에러 핸들링 |
+
+### 신규 생성된 파일 (8개)
+```
+apps/api/src/core/rate_limit.py      # Redis Rate Limiter
+apps/api/src/core/dependencies.py    # 공통 의존성
+apps/api/src/core/exceptions.py      # 표준 에러 응답
+apps/api/src/services/tasks.py       # Celery task 래퍼
+apps/mobile/lib/core/env_config.dart # 환경 설정
+apps/mobile/lib/core/api_error.dart  # API 에러 핸들링
+apps/mobile/assets/images/.gitkeep   # assets 폴더 유지
+apps/mobile/pubspec.lock             # 의존성 잠금
+```
+
+### 다음 단계
+1. **CI/CD 확인**: GitHub Actions 빌드/테스트 결과 확인
+2. **서버 설정** (미완료 시):
+   - GitHub Secrets 설정: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_KEY`
+   - 서버에 `.env` 파일 생성
+3. **프로덕션 배포**: CI/CD 통과 시 자동 배포
+
+### GitHub Actions URL
+```
+https://github.com/sterlingstarai-ai/ai-story-book/actions
+```
