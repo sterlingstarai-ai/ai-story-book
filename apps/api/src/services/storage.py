@@ -15,6 +15,9 @@ from src.core.errors import StorageError
 
 logger = structlog.get_logger()
 
+# Cache for bucket existence check
+_bucket_verified = False
+
 
 def get_s3_client():
     """Get S3 client configured for Minio or AWS S3"""
@@ -28,14 +31,21 @@ def get_s3_client():
 
 
 async def ensure_bucket_exists():
-    """Ensure the bucket exists, create if not"""
+    """Ensure the bucket exists, create if not. Cached after first check."""
+    global _bucket_verified
+
+    if _bucket_verified:
+        return
+
     client = get_s3_client()
     try:
         client.head_bucket(Bucket=settings.s3_bucket)
+        _bucket_verified = True
     except ClientError:
         try:
             client.create_bucket(Bucket=settings.s3_bucket)
             # Set bucket policy for public read
+            import json
             policy = {
                 "Version": "2012-10-17",
                 "Statement": [
@@ -47,12 +57,12 @@ async def ensure_bucket_exists():
                     }
                 ]
             }
-            import json
             client.put_bucket_policy(
                 Bucket=settings.s3_bucket,
                 Policy=json.dumps(policy)
             )
             logger.info(f"Created bucket: {settings.s3_bucket}")
+            _bucket_verified = True
         except ClientError as e:
             logger.error(f"Failed to create bucket: {e}")
             raise StorageError(f"Failed to create bucket: {e}")

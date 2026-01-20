@@ -36,6 +36,13 @@ class Settings(BaseSettings):
     image_api_key: Optional[str] = None
     image_timeout: int = 90
     image_max_concurrent: int = 3
+    image_max_retries: int = 3  # Maximum retries for image generation
+
+    # TTS (Text-to-Speech)
+    tts_provider: str = "mock"  # mock, google, elevenlabs
+    google_tts_api_key: Optional[str] = None
+    elevenlabs_api_key: Optional[str] = None
+    elevenlabs_voice_id: str = "21m00Tcm4TlvDq8ikWAM"
 
     # Rate Limiting
     rate_limit_requests: int = 10
@@ -44,6 +51,10 @@ class Settings(BaseSettings):
     # Job Settings
     job_max_retries: int = 3
     job_sla_seconds: int = 600  # 10 minutes
+    use_celery: bool = False  # Use Celery for background tasks (True for production)
+
+    # CORS
+    cors_origins: str = "*"  # Comma-separated origins or "*" for all
 
     class Config:
         env_file = ".env"

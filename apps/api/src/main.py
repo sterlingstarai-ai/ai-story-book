@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
@@ -7,6 +7,8 @@ import structlog
 from src.core.config import settings
 from src.routers import books, characters, library, credits, streak
 from src.core.database import engine, Base
+from src.core.rate_limit import check_rate_limit, rate_limiter
+from src.core.exceptions import APIError, api_exception_handler
 
 # Configure structured logging
 structlog.configure(
@@ -33,6 +35,7 @@ async def lifespan(app: FastAPI):
     yield
     # Shutdown
     logger.info("Shutting down AI Story Book API")
+    await rate_limiter.close()
 
 
 app = FastAPI(
@@ -42,14 +45,22 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS
+# CORS - Configurable via CORS_ORIGINS env var
+cors_origins = (
+    ["*"] if settings.cors_origins == "*"
+    else [origin.strip() for origin in settings.cors_origins.split(",")]
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+
+
+# API error handler for standardized responses
+app.add_exception_handler(APIError, api_exception_handler)
 
 
 # Global exception handler
@@ -58,7 +69,12 @@ async def global_exception_handler(request: Request, exc: Exception):
     logger.error("Unhandled exception", error=str(exc), path=request.url.path)
     return JSONResponse(
         status_code=500,
-        content={"error": "Internal server error", "message": str(exc) if settings.debug else "Something went wrong"}
+        content={
+            "error": {
+                "code": "INTERNAL_ERROR",
+                "message": str(exc) if settings.debug else "Something went wrong",
+            }
+        }
     )
 
 
@@ -71,9 +87,19 @@ async def health_check():
     }
 
 
-# Include routers
-app.include_router(books.router, prefix="/v1/books", tags=["Books"])
-app.include_router(characters.router, prefix="/v1/characters", tags=["Characters"])
+# Include routers with rate limiting
+app.include_router(
+    books.router,
+    prefix="/v1/books",
+    tags=["Books"],
+    dependencies=[Depends(check_rate_limit)],
+)
+app.include_router(
+    characters.router,
+    prefix="/v1/characters",
+    tags=["Characters"],
+    dependencies=[Depends(check_rate_limit)],
+)
 app.include_router(library.router, prefix="/v1/library", tags=["Library"])
 app.include_router(credits.router, prefix="/v1/credits", tags=["Credits"])
 app.include_router(streak.router, prefix="/v1/streak", tags=["Streak"])

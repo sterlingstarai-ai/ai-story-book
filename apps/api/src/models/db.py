@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import Column, String, Integer, Text, DateTime, Boolean, ForeignKey, JSON
+from sqlalchemy import Column, String, Integer, Text, DateTime, Boolean, ForeignKey, JSON, UniqueConstraint
 from sqlalchemy.orm import relationship
 
 from src.core.database import Base
@@ -77,6 +77,9 @@ class Book(Base):
 
 class Page(Base):
     __tablename__ = "pages"
+    __table_args__ = (
+        UniqueConstraint("book_id", "page_number", name="uq_page_book_number"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     book_id = Column(String(60), ForeignKey("books.id"), nullable=False)

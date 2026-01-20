@@ -1,11 +1,12 @@
-from fastapi import APIRouter, Depends, Header, HTTPException, File, UploadFile, Form
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from typing import List, Optional
+from typing import Optional
 import uuid
 from datetime import datetime
 
 from src.core.database import get_db
+from src.core.dependencies import get_user_key
 from src.models.dto import (
     CreateCharacterRequest, CharacterResponse, CharacterListResponse,
     CharacterAppearance, CharacterClothing
@@ -15,13 +16,6 @@ from src.services.photo_character import photo_character_service
 from src.services.storage import storage_service
 
 router = APIRouter()
-
-
-def get_user_key(x_user_key: str = Header(..., description="User identification key")) -> str:
-    """Extract user key from header"""
-    if not x_user_key or len(x_user_key) < 10:
-        raise HTTPException(status_code=400, detail="Invalid X-User-Key header")
-    return x_user_key
 
 
 @router.post("", response_model=CharacterResponse)
@@ -210,26 +204,34 @@ async def create_character_from_photo(
             content_type=photo.content_type or "image/jpeg",
         )
 
-        # 캐릭터 생성
+        # 캐릭터 생성 - CharacterResponse 스키마에 맞게 정규화
         appearance = character_data.get("appearance", {})
         clothing = character_data.get("clothing", {})
+
+        # Convert from-photo format to standard CharacterAppearance format
+        normalized_appearance = {
+            "age_visual": appearance.get("age_visual", "알 수 없음"),
+            "face": f"{appearance.get('eye_color', '')} 눈, {appearance.get('distinctive_features', [''])[0] if appearance.get('distinctive_features') else ''}".strip(", ") or "알 수 없음",
+            "hair": f"{appearance.get('hair_color', '')} {appearance.get('hair_style', '')}".strip() or "알 수 없음",
+            "skin": appearance.get("skin_tone", "알 수 없음"),
+            "body": appearance.get("body_type", "알 수 없음"),
+        }
+
+        # Convert clothing - accessories as string, not list
+        accessories_list = clothing.get("accessories", [])
+        normalized_clothing = {
+            "top": clothing.get("top", "알 수 없음"),
+            "bottom": clothing.get("bottom", "알 수 없음"),
+            "shoes": clothing.get("shoes", "알 수 없음"),
+            "accessories": ", ".join(accessories_list) if isinstance(accessories_list, list) else str(accessories_list) or "없음",
+        }
 
         character = Character(
             id=character_id,
             name=character_data["name"],
             master_description=character_data["master_description"],
-            appearance={
-                "hair_color": appearance.get("hair_color", ""),
-                "hair_style": appearance.get("hair_style", ""),
-                "eye_color": appearance.get("eye_color", ""),
-                "skin_tone": appearance.get("skin_tone", ""),
-                "distinctive_features": appearance.get("distinctive_features", []),
-            },
-            clothing={
-                "top": clothing.get("top", ""),
-                "bottom": clothing.get("bottom", ""),
-                "accessories": clothing.get("accessories", []),
-            },
+            appearance=normalized_appearance,
+            clothing=normalized_clothing,
             personality_traits=character_data.get("personality_traits", []),
             visual_style_notes=character_data.get("visual_style_notes", ""),
             user_key=user_key,

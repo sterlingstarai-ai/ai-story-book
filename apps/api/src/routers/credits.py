@@ -2,23 +2,17 @@
 Credits Router
 크레딧 및 구독 관련 API
 """
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
 
 from src.core.database import get_db
+from src.core.dependencies import get_user_key
 from src.services.credits import credits_service, SUBSCRIPTION_PLANS
 
 router = APIRouter()
-
-
-def get_user_key(x_user_key: str = Header(..., description="User identification key")) -> str:
-    """Extract user key from header"""
-    if not x_user_key or len(x_user_key) < 10:
-        raise HTTPException(status_code=400, detail="Invalid X-User-Key header")
-    return x_user_key
 
 
 # ==================== Response Models ====================

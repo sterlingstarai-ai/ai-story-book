@@ -11,7 +11,7 @@ from src.models.dto import JobState
 
 @pytest.fixture
 def user_key():
-    return "test-user-key-12345"
+    return "test-user-key-12345678901234567890"
 
 
 @pytest.fixture
@@ -64,34 +64,31 @@ async def test_create_book_invalid_user_key(valid_book_spec):
 
 
 @pytest.mark.asyncio
-async def test_create_book_success(valid_book_spec, user_key):
+async def test_create_book_success(client, valid_book_spec, user_key):
     """Create book with valid input"""
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        with patch("src.services.orchestrator.start_book_generation", new_callable=AsyncMock):
-            response = await client.post(
-                "/v1/books",
-                json=valid_book_spec,
-                headers={"X-User-Key": user_key}
-            )
-            # Note: This will fail without DB, but tests the endpoint structure
-            assert response.status_code in [200, 201, 500]
-
-
-@pytest.mark.asyncio
-async def test_get_book_not_found(user_key):
-    """Get non-existent book should return 404"""
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.get(
-            "/v1/books/non-existent-job",
+    with patch("src.services.orchestrator.start_book_generation", new_callable=AsyncMock):
+        response = await client.post(
+            "/v1/books",
+            json=valid_book_spec,
             headers={"X-User-Key": user_key}
         )
-        assert response.status_code in [404, 500]  # 500 if DB not available
+        assert response.status_code in [200, 201]
+        data = response.json()
+        assert "job_id" in data
 
 
 @pytest.mark.asyncio
-async def test_create_character(user_key):
+async def test_get_book_not_found(client, user_key):
+    """Get non-existent book should return 404"""
+    response = await client.get(
+        "/v1/books/non-existent-job",
+        headers={"X-User-Key": user_key}
+    )
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_create_character(client, user_key):
     """Create character endpoint test"""
     character_data = {
         "name": "토리",
@@ -113,39 +110,38 @@ async def test_create_character(user_key):
         "visual_style_notes": "수채화 스타일"
     }
 
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.post(
-            "/v1/characters",
-            json=character_data,
-            headers={"X-User-Key": user_key}
-        )
-        # Will fail without DB
-        assert response.status_code in [200, 201, 500]
+    response = await client.post(
+        "/v1/characters",
+        json=character_data,
+        headers={"X-User-Key": user_key}
+    )
+    assert response.status_code in [200, 201]
+    data = response.json()
+    assert "character_id" in data
 
 
 @pytest.mark.asyncio
-async def test_list_characters(user_key):
+async def test_list_characters(client, user_key):
     """List characters endpoint test"""
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.get(
-            "/v1/characters",
-            headers={"X-User-Key": user_key}
-        )
-        assert response.status_code in [200, 500]
+    response = await client.get(
+        "/v1/characters",
+        headers={"X-User-Key": user_key}
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "characters" in data
 
 
 @pytest.mark.asyncio
-async def test_library(user_key):
+async def test_library(client, user_key):
     """Library endpoint test"""
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.get(
-            "/v1/library",
-            headers={"X-User-Key": user_key}
-        )
-        assert response.status_code in [200, 500]
+    response = await client.get(
+        "/v1/library",
+        headers={"X-User-Key": user_key}
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "books" in data
 
 
 # ==================== Validation Tests ====================

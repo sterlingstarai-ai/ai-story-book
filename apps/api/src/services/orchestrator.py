@@ -411,7 +411,8 @@ async def generate_image_with_retry(prompt, job_id: str, page: int) -> str:
     from src.services.image import generate_image
     from src.core.errors import ImageError
 
-    for attempt in range(3):
+    max_retries = settings.image_max_retries
+    for attempt in range(max_retries):
         try:
             url = await asyncio.wait_for(
                 generate_image(prompt),
@@ -421,12 +422,12 @@ async def generate_image_with_retry(prompt, job_id: str, page: int) -> str:
 
         except asyncio.TimeoutError:
             logger.warning(f"Image generation timeout for page {page}, attempt {attempt + 1}")
-            if attempt < 2:
+            if attempt < max_retries - 1:
                 await asyncio.sleep(get_backoff(ErrorCode.IMAGE_TIMEOUT, attempt))
 
         except Exception as e:
             logger.warning(f"Image generation failed for page {page}: {e}, attempt {attempt + 1}")
-            if attempt < 2:
+            if attempt < max_retries - 1:
                 await asyncio.sleep(get_backoff(ErrorCode.IMAGE_FAILED, attempt))
 
     # 실패 시 placeholder
@@ -434,8 +435,29 @@ async def generate_image_with_retry(prompt, job_id: str, page: int) -> str:
 
 
 async def moderate_output(story: StoryDraft, image_urls: dict) -> bool:
-    """G. 출력 안전성 검사"""
-    # TODO: Implement output moderation
+    """G. 출력 안전성 검사 - 생성된 콘텐츠 검증"""
+    # 금지 키워드 목록 (아동 부적절 콘텐츠)
+    forbidden_patterns = [
+        "죽이", "살인", "폭력", "피", "술", "담배", "마약",
+        "성인", "섹스", "야한", "총", "칼로 찔",
+        "kill", "murder", "blood", "sex", "drug", "alcohol",
+        "violence", "weapon", "gun", "knife",
+    ]
+
+    # 모든 페이지 텍스트 검사
+    all_text = story.title.lower()
+    for page in story.pages:
+        all_text += " " + page.text.lower()
+
+    for pattern in forbidden_patterns:
+        if pattern.lower() in all_text:
+            logger.warning(
+                "Output moderation failed",
+                pattern=pattern,
+                title=story.title,
+            )
+            return False
+
     return True
 
 
@@ -465,6 +487,7 @@ async def package_book(
             target_age=story.target_age.value,
             style=spec.style.value,
             theme=story.theme,
+            character_id=spec.character_id,
             cover_image_url=image_urls.get(0, ""),
             user_key=user_key,
         )
@@ -549,7 +572,13 @@ async def regenerate_page(
     feedback: Optional[str] = None
 ):
     """페이지 재생성"""
-    # TODO: Implement page regeneration
+    from src.core.database import AsyncSessionLocal
+    from src.models.db import Book, Page, StoryDraftDB
+    from src.services.llm import call_text_rewrite, call_image_prompts_generation
+    from src.services.image import generate_image
+    from src.services.storage import storage_service
+    from sqlalchemy import select
+
     logger.info(
         "Regenerating page",
         job_id=job_id,
@@ -557,7 +586,74 @@ async def regenerate_page(
         page=page_number,
         mode=mode
     )
-    pass
+
+    async with AsyncSessionLocal() as session:
+        # Load book and page
+        book_result = await session.execute(
+            select(Book).where(Book.id == book_id)
+        )
+        book = book_result.scalar_one_or_none()
+        if not book:
+            raise ValueError(f"Book {book_id} not found")
+
+        page_result = await session.execute(
+            select(Page).where(
+                Page.book_id == book_id,
+                Page.page_number == page_number
+            )
+        )
+        page = page_result.scalar_one_or_none()
+        if not page:
+            raise ValueError(f"Page {page_number} not found")
+
+        # Regenerate based on mode
+        if mode in ["text", "both"]:
+            # Load story draft for context
+            draft_result = await session.execute(
+                select(StoryDraftDB).where(StoryDraftDB.job_id == job_id)
+            )
+            draft_db = draft_result.scalar_one_or_none()
+
+            if draft_db and feedback:
+                from src.models.dto import BookSpec, StoryDraft
+                spec = BookSpec(
+                    topic=book.title,
+                    language=book.language,
+                    target_age=book.target_age,
+                    style=book.style
+                )
+                story = StoryDraft.model_validate(draft_db.draft)
+
+                # Rewrite text with feedback
+                rewrite_result = await call_text_rewrite(
+                    spec, story, page_number, feedback
+                )
+                page.text = rewrite_result.get("revised_text", page.text)
+
+        if mode in ["image", "both"]:
+            # Generate new image
+            if page.image_prompt:
+                image_data = await generate_image(
+                    page.image_prompt,
+                    seed=None  # New random seed
+                )
+                if image_data:
+                    # Upload new image
+                    image_url = await storage_service.upload_image(
+                        image_data,
+                        f"{book_id}/page_{page_number}_v2.png"
+                    )
+                    page.image_url = image_url
+
+        page.updated_at = datetime.utcnow()
+        await session.commit()
+
+    logger.info(
+        "Page regeneration complete",
+        book_id=book_id,
+        page=page_number,
+        mode=mode
+    )
 
 
 # ==================== Series Generation ====================
@@ -569,12 +665,36 @@ async def start_series_generation(
     character,
     prev_book
 ):
-    """시리즈 다음 권 생성"""
-    # TODO: Implement series generation
+    """시리즈 다음 권 생성 - 기존 캐릭터로 새 이야기"""
+    from src.models.dto import CharacterSpec
+
     logger.info(
         "Starting series generation",
         job_id=job_id,
         character_id=request.character_id,
         prev_book_id=request.previous_book_id
     )
-    pass
+
+    # Build topic from previous book and hint
+    topic = request.new_topic_hint or f"{character.name}의 새로운 모험"
+
+    # Create BookSpec for series
+    series_spec = BookSpec(
+        topic=topic,
+        language=prev_book.language,
+        target_age=request.target_age,
+        style=request.style,
+        page_count=request.page_count,
+        theme=request.theme,
+        character_id=request.character_id,
+        character=CharacterSpec(
+            name=character.name,
+            appearance=character.master_description,
+            personality=", ".join(character.personality_traits) if character.personality_traits else None
+        ),
+        forbidden_elements=request.forbidden_elements,
+        series_context=f"이전 책 '{prev_book.title}'의 후속편입니다."
+    )
+
+    # Use existing book generation pipeline
+    await start_book_generation(job_id, series_spec, user_key)

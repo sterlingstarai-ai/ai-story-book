@@ -213,7 +213,7 @@ class TestQAP0CharacterSave:
         )
         assert response.status_code in [200, 201]
         data = response.json()
-        assert "id" in data
+        assert "character_id" in data
         assert data["name"] == valid_character["name"]
 
     @pytest.mark.asyncio
@@ -230,7 +230,7 @@ class TestQAP0CharacterSave:
             json=valid_character,
             headers=headers,
         )
-        character_id = char_response.json()["id"]
+        character_id = char_response.json()["character_id"]
 
         # Use in series
         series_response = await client.post(
@@ -261,7 +261,7 @@ class TestQAP0CharacterConsistency:
             json=valid_character,
             headers=headers,
         )
-        character_id = create_response.json()["id"]
+        character_id = create_response.json()["character_id"]
 
         # Retrieve character
         get_response = await client.get(

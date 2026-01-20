@@ -1,4 +1,5 @@
 import pytest
+import pytest_asyncio
 import asyncio
 import os
 from typing import AsyncGenerator
@@ -27,15 +28,7 @@ TestSessionLocal = async_sessionmaker(
 )
 
 
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create an instance of the default event loop for the test session."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
-
-
-@pytest.fixture(scope="function")
+@pytest_asyncio.fixture(scope="function")
 async def db_session() -> AsyncGenerator[AsyncSession, None]:
     """Create a fresh database for each test."""
     async with test_engine.begin() as conn:
@@ -48,12 +41,26 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
         await conn.run_sync(Base.metadata.drop_all)
 
 
-@pytest.fixture(scope="function")
+@pytest_asyncio.fixture(scope="function")
 async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     """Create a test client with database session override."""
+    from src.services.credits import credits_service
 
     async def override_get_db():
         yield db_session
+
+    # Mock credits service to always allow
+    original_has_credits = credits_service.has_credits
+    original_use_credit = credits_service.use_credit
+
+    async def mock_has_credits(*args, **kwargs):
+        return True
+
+    async def mock_use_credit(*args, **kwargs):
+        return True
+
+    credits_service.has_credits = mock_has_credits
+    credits_service.use_credit = mock_use_credit
 
     app.dependency_overrides[get_db] = override_get_db
 
@@ -61,6 +68,9 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
 
+    # Restore original methods
+    credits_service.has_credits = original_has_credits
+    credits_service.use_credit = original_use_credit
     app.dependency_overrides.clear()
 
 

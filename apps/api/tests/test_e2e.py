@@ -59,7 +59,7 @@ class TestBookCreationFlow:
             headers=headers,
         )
         assert char_response.status_code in [200, 201]
-        character_id = char_response.json()["id"]
+        character_id = char_response.json()["character_id"]
 
         # Step 2: Create book with character
         book_spec_with_char = {
@@ -91,7 +91,7 @@ class TestSeriesFlow:
             json=valid_character,
             headers=headers,
         )
-        character_id = char_response.json()["id"]
+        character_id = char_response.json()["character_id"]
 
         # Step 2: Create first book in series
         series_response1 = await client.post(
@@ -140,7 +140,7 @@ class TestCharacterManagementFlow:
             headers=headers,
         )
         assert create_response.status_code in [200, 201]
-        character_id = create_response.json()["id"]
+        character_id = create_response.json()["character_id"]
 
         # Read single
         get_response = await client.get(
@@ -155,7 +155,7 @@ class TestCharacterManagementFlow:
         assert list_response.status_code == 200
         characters = list_response.json()["characters"]
         assert len(characters) == 1
-        assert characters[0]["id"] == character_id
+        assert characters[0]["character_id"] == character_id
 
     @pytest.mark.asyncio
     async def test_multiple_characters(

@@ -1,20 +1,13 @@
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from typing import List
 
 from src.core.database import get_db
+from src.core.dependencies import get_user_key
 from src.models.dto import LibraryResponse, BookSummary, TargetAge
 from src.models.db import Book
 
 router = APIRouter()
-
-
-def get_user_key(x_user_key: str = Header(..., description="User identification key")) -> str:
-    """Extract user key from header"""
-    if not x_user_key or len(x_user_key) < 10:
-        raise HTTPException(status_code=400, detail="Invalid X-User-Key header")
-    return x_user_key
 
 
 @router.get("", response_model=LibraryResponse)

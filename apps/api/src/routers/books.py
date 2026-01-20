@@ -4,8 +4,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 import uuid
 from datetime import datetime
+import structlog
+
+logger = structlog.get_logger()
 
 from src.core.database import get_db
+from src.core.config import settings
+from src.core.dependencies import get_user_key
 from src.models.dto import (
     BookSpec, CreateBookResponse, JobStatus, JobState,
     RegeneratePageRequest, RegeneratePageResponse,
@@ -20,13 +25,6 @@ from src.services.credits import credits_service
 from sqlalchemy import select
 
 router = APIRouter()
-
-
-def get_user_key(x_user_key: str = Header(..., description="User identification key")) -> str:
-    """Extract user key from header"""
-    if not x_user_key or len(x_user_key) < 10:
-        raise HTTPException(status_code=400, detail="Invalid X-User-Key header")
-    return x_user_key
 
 
 def get_idempotency_key(x_idempotency_key: Optional[str] = Header(None)) -> Optional[str]:
@@ -87,8 +85,27 @@ async def create_book(
     db.add(job)
     await db.commit()
 
-    # Start background task
-    background_tasks.add_task(start_book_generation, job_id, spec, user_key)
+    # Deduct credit
+    credit_used = await credits_service.use_credit(
+        db, user_key, amount=1,
+        description="책 생성",
+        reference_id=job_id
+    )
+    if not credit_used:
+        # Rollback job if credit deduction fails
+        await db.delete(job)
+        await db.commit()
+        raise HTTPException(
+            status_code=402,
+            detail="크레딧 차감에 실패했습니다."
+        )
+
+    # Start background task (Celery or FastAPI BackgroundTasks)
+    if settings.use_celery:
+        from src.services.tasks import generate_book_task
+        generate_book_task.delay(job_id, spec.model_dump(), user_key)
+    else:
+        background_tasks.add_task(start_book_generation, job_id, spec, user_key)
 
     return CreateBookResponse(
         job_id=job_id,
@@ -175,6 +192,61 @@ async def get_book_status(
             }
 
     return response
+
+
+@router.get("/{book_id}/detail")
+async def get_book_detail(
+    book_id: str,
+    db: AsyncSession = Depends(get_db),
+    user_key: str = Depends(get_user_key),
+):
+    """
+    책 상세 정보 조회 (완료된 책)
+
+    - 서재에서 책 상세 조회 시 사용
+    - book_id 기반으로 조회
+    """
+    # Fetch book
+    result = await db.execute(
+        select(Book).where(Book.id == book_id)
+    )
+    book = result.scalar_one_or_none()
+
+    if not book:
+        raise HTTPException(status_code=404, detail="Book not found")
+
+    if book.user_key != user_key:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Fetch pages
+    pages_result = await db.execute(
+        select(Page).where(Page.book_id == book.id).order_by(Page.page_number)
+    )
+    pages = pages_result.scalars().all()
+
+    return {
+        "book_id": book.id,
+        "title": book.title,
+        "language": book.language,
+        "target_age": book.target_age,
+        "style": book.style,
+        "theme": book.theme,
+        "character_id": book.character_id,
+        "cover_image_url": book.cover_image_url or "",
+        "pdf_url": book.pdf_url,
+        "audio_url": book.audio_url,
+        "pages": [
+            {
+                "page_number": p.page_number,
+                "text": p.text,
+                "image_url": p.image_url or "",
+                "image_prompt": p.image_prompt,
+                "audio_url": p.audio_url
+            }
+            for p in pages
+        ],
+        "created_at": book.created_at.isoformat()
+    }
 
 
 @router.post("/{job_id}/pages/{page_number}/regenerate", response_model=RegeneratePageResponse)
@@ -278,6 +350,14 @@ async def create_series_next(
     if not prev_book:
         raise HTTPException(status_code=404, detail="Previous book not found")
 
+    # Check and deduct credits
+    has_credits = await credits_service.has_credits(db, user_key, required=1)
+    if not has_credits:
+        raise HTTPException(
+            status_code=402,
+            detail="크레딧이 부족합니다. 크레딧을 충전해주세요."
+        )
+
     # Create new job for series
     job_id = f"series_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
 
@@ -290,6 +370,13 @@ async def create_series_next(
     )
     db.add(job)
     await db.commit()
+
+    # Deduct credit
+    await credits_service.use_credit(
+        db, user_key, amount=1,
+        description="시리즈 생성",
+        reference_id=job_id
+    )
 
     # Start background task for series generation
     from src.services.orchestrator import start_series_generation
@@ -449,7 +536,11 @@ async def _generate_audio_for_book(book_id: str, pages: list[dict]):
                     await db.commit()
 
             except Exception as e:
-                print(f"Audio generation failed for page {page_data['page_number']}: {e}")
+                logger.warning(
+                    "Audio generation failed for page",
+                    page_number=page_data['page_number'],
+                    error=str(e),
+                )
                 continue
 
 

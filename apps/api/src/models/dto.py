@@ -80,6 +80,7 @@ class BookSpec(BaseModel):
     character_id: Optional[str] = Field(default=None, max_length=60, description="기존 캐릭터 ID")
     forbidden_elements: Optional[List[str]] = Field(default=None, max_length=20)
     reference_image_base64: Optional[str] = Field(default=None, max_length=5_000_000)
+    series_context: Optional[str] = Field(default=None, max_length=500, description="시리즈 컨텍스트")
 
 
 # ==================== Story Models ====================

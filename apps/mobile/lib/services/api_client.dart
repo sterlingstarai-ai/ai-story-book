@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:dio/dio.dart';
+import '../core/api_error.dart';
 import '../models/models.dart';
 
 /// API 클라이언트
@@ -22,6 +23,19 @@ class ApiClient {
     _dio.interceptors.add(LogInterceptor(
       requestBody: true,
       responseBody: true,
+    ));
+
+    // Error handling interceptor
+    _dio.interceptors.add(InterceptorsWrapper(
+      onError: (error, handler) {
+        // Convert to standardized ApiError
+        final apiError = ApiError.fromDioException(error);
+        handler.reject(DioException(
+          requestOptions: error.requestOptions,
+          error: apiError,
+          message: apiError.userMessage,
+        ));
+      },
     ));
   }
 
@@ -194,7 +208,14 @@ class ApiClient {
       ),
     );
 
-    return response.data!;
+    final data = response.data;
+    if (data == null) {
+      throw DioException(
+        requestOptions: response.requestOptions,
+        message: 'PDF download returned empty response',
+      );
+    }
+    return data;
   }
 
   /// 책 전체 오디오 생성 요청

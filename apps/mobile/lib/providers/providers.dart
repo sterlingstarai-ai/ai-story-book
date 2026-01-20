@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../core/env_config.dart';
 import '../models/models.dart';
 import '../services/api_client.dart';
 import '../services/user_service.dart';
@@ -20,9 +21,7 @@ final userServiceProvider = Provider<UserService>((ref) {
 
 /// API Base URL
 final apiBaseUrlProvider = Provider<String>((ref) {
-  // 개발 환경에서는 localhost 사용
-  // 프로덕션에서는 실제 서버 URL 사용
-  return 'http://localhost:8000';
+  return EnvConfig.apiBaseUrl;
 });
 
 /// API Client Provider

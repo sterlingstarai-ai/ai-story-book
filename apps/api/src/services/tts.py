@@ -2,11 +2,9 @@
 TTS (Text-to-Speech) Service
 책 페이지를 오디오로 변환
 """
-import io
 import httpx
 from typing import Optional
 from abc import ABC, abstractmethod
-import os
 
 from ..core.config import settings
 
@@ -24,7 +22,7 @@ class GoogleTTSProvider(BaseTTSProvider):
     """Google Cloud TTS Provider"""
 
     def __init__(self):
-        self.api_key = os.getenv("GOOGLE_TTS_API_KEY")
+        self.api_key = settings.google_tts_api_key
         self.base_url = "https://texttospeech.googleapis.com/v1/text:synthesize"
 
     async def synthesize(self, text: str, voice: str = "ko-KR-Neural2-A") -> bytes:
@@ -63,10 +61,10 @@ class ElevenLabsProvider(BaseTTSProvider):
     """ElevenLabs TTS Provider"""
 
     def __init__(self):
-        self.api_key = os.getenv("ELEVENLABS_API_KEY")
+        self.api_key = settings.elevenlabs_api_key
         self.base_url = "https://api.elevenlabs.io/v1/text-to-speech"
         # ElevenLabs의 한국어 지원 음성 ID
-        self.voice_id = os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
+        self.voice_id = settings.elevenlabs_voice_id
 
     async def synthesize(self, text: str, voice: str = "default") -> bytes:
         """ElevenLabs로 오디오 생성"""
@@ -119,7 +117,7 @@ class TTSService:
 
     def _get_provider(self) -> BaseTTSProvider:
         """환경 변수에 따라 TTS 제공자 선택"""
-        provider_name = os.getenv("TTS_PROVIDER", "mock").lower()
+        provider_name = settings.tts_provider.lower()
 
         if provider_name == "google":
             return GoogleTTSProvider()
