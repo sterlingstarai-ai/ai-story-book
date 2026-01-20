@@ -1,0 +1,6 @@
+검사 대상:
+- topic: {{ topic }}
+- target_age: {{ target_age }}
+- theme: {{ theme | default('없음', true) }}
+- forbidden_elements: {{ forbidden_elements | tojson }}
+- character_spec: {{ character_spec | tojson if character_spec else 'null' }}

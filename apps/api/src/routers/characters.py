@@ -1,0 +1,256 @@
+from fastapi import APIRouter, Depends, Header, HTTPException, File, UploadFile, Form
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from typing import List, Optional
+import uuid
+from datetime import datetime
+
+from src.core.database import get_db
+from src.models.dto import (
+    CreateCharacterRequest, CharacterResponse, CharacterListResponse,
+    CharacterAppearance, CharacterClothing
+)
+from src.models.db import Character
+from src.services.photo_character import photo_character_service
+from src.services.storage import storage_service
+
+router = APIRouter()
+
+
+def get_user_key(x_user_key: str = Header(..., description="User identification key")) -> str:
+    """Extract user key from header"""
+    if not x_user_key or len(x_user_key) < 10:
+        raise HTTPException(status_code=400, detail="Invalid X-User-Key header")
+    return x_user_key
+
+
+@router.post("", response_model=CharacterResponse)
+async def create_character(
+    request: CreateCharacterRequest,
+    db: AsyncSession = Depends(get_db),
+    user_key: str = Depends(get_user_key),
+):
+    """
+    새 캐릭터 저장
+
+    - 책 생성 후 캐릭터 시트를 저장하여 재사용
+    - 시리즈 생성 시 character_id로 참조
+    """
+    character_id = f"char_{datetime.utcnow().strftime('%Y%m%d')}_{uuid.uuid4().hex[:8]}"
+
+    character = Character(
+        id=character_id,
+        name=request.name,
+        master_description=request.master_description,
+        appearance=request.appearance.model_dump(),
+        clothing=request.clothing.model_dump(),
+        personality_traits=request.personality_traits,
+        visual_style_notes=request.visual_style_notes,
+        user_key=user_key,
+    )
+
+    db.add(character)
+    await db.commit()
+    await db.refresh(character)
+
+    return CharacterResponse(
+        character_id=character.id,
+        name=character.name,
+        master_description=character.master_description,
+        appearance=CharacterAppearance(**character.appearance),
+        clothing=CharacterClothing(**character.clothing),
+        personality_traits=character.personality_traits,
+        visual_style_notes=character.visual_style_notes,
+        created_at=character.created_at,
+    )
+
+
+@router.get("", response_model=CharacterListResponse)
+async def list_characters(
+    db: AsyncSession = Depends(get_db),
+    user_key: str = Depends(get_user_key),
+    limit: int = 20,
+    offset: int = 0,
+):
+    """
+    내 캐릭터 목록 조회
+    """
+    # Get total count
+    count_result = await db.execute(
+        select(Character).where(Character.user_key == user_key)
+    )
+    total = len(count_result.scalars().all())
+
+    # Get paginated results
+    result = await db.execute(
+        select(Character)
+        .where(Character.user_key == user_key)
+        .order_by(Character.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    characters = result.scalars().all()
+
+    return CharacterListResponse(
+        characters=[
+            CharacterResponse(
+                character_id=c.id,
+                name=c.name,
+                master_description=c.master_description,
+                appearance=CharacterAppearance(**c.appearance),
+                clothing=CharacterClothing(**c.clothing),
+                personality_traits=c.personality_traits,
+                visual_style_notes=c.visual_style_notes,
+                created_at=c.created_at,
+            )
+            for c in characters
+        ],
+        total=total
+    )
+
+
+@router.get("/{character_id}", response_model=CharacterResponse)
+async def get_character(
+    character_id: str,
+    db: AsyncSession = Depends(get_db),
+    user_key: str = Depends(get_user_key),
+):
+    """
+    캐릭터 상세 조회
+    """
+    result = await db.execute(
+        select(Character).where(Character.id == character_id)
+    )
+    character = result.scalar_one_or_none()
+
+    if not character:
+        raise HTTPException(status_code=404, detail="Character not found")
+
+    if character.user_key != user_key:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    return CharacterResponse(
+        character_id=character.id,
+        name=character.name,
+        master_description=character.master_description,
+        appearance=CharacterAppearance(**character.appearance),
+        clothing=CharacterClothing(**character.clothing),
+        personality_traits=character.personality_traits,
+        visual_style_notes=character.visual_style_notes,
+        created_at=character.created_at,
+    )
+
+
+@router.delete("/{character_id}")
+async def delete_character(
+    character_id: str,
+    db: AsyncSession = Depends(get_db),
+    user_key: str = Depends(get_user_key),
+):
+    """
+    캐릭터 삭제
+    """
+    result = await db.execute(
+        select(Character).where(Character.id == character_id)
+    )
+    character = result.scalar_one_or_none()
+
+    if not character:
+        raise HTTPException(status_code=404, detail="Character not found")
+
+    if character.user_key != user_key:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    await db.delete(character)
+    await db.commit()
+
+    return {"message": "Character deleted successfully"}
+
+
+@router.post("/from-photo")
+async def create_character_from_photo(
+    photo: UploadFile = File(..., description="캐릭터 생성용 사진"),
+    name: Optional[str] = Form(None, description="캐릭터 이름 (없으면 AI 제안)"),
+    style: str = Form("cartoon", description="스타일"),
+    db: AsyncSession = Depends(get_db),
+    user_key: str = Depends(get_user_key),
+):
+    """
+    사진에서 캐릭터 생성
+
+    - 사진을 분석하여 캐릭터 특성 추출
+    - AI가 동화 스타일로 변환
+    - 자동으로 캐릭터 시트 생성
+    """
+    # 파일 검증
+    if not photo.content_type or not photo.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="이미지 파일만 업로드 가능합니다.")
+
+    # 파일 크기 제한 (10MB)
+    contents = await photo.read()
+    if len(contents) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="파일 크기는 10MB 이하여야 합니다.")
+
+    try:
+        # 사진 분석 및 캐릭터 데이터 생성
+        character_data = await photo_character_service.create_character_from_photo(
+            image_data=contents,
+            user_name=name,
+            style=style,
+        )
+
+        # 캐릭터 ID 생성
+        character_id = f"char_{datetime.utcnow().strftime('%Y%m%d')}_{uuid.uuid4().hex[:8]}"
+
+        # 원본 사진 저장
+        photo_key = f"characters/{character_id}/photo.jpg"
+        photo_url = await storage_service.upload_bytes(
+            data=contents,
+            key=photo_key,
+            content_type=photo.content_type or "image/jpeg",
+        )
+
+        # 캐릭터 생성
+        appearance = character_data.get("appearance", {})
+        clothing = character_data.get("clothing", {})
+
+        character = Character(
+            id=character_id,
+            name=character_data["name"],
+            master_description=character_data["master_description"],
+            appearance={
+                "hair_color": appearance.get("hair_color", ""),
+                "hair_style": appearance.get("hair_style", ""),
+                "eye_color": appearance.get("eye_color", ""),
+                "skin_tone": appearance.get("skin_tone", ""),
+                "distinctive_features": appearance.get("distinctive_features", []),
+            },
+            clothing={
+                "top": clothing.get("top", ""),
+                "bottom": clothing.get("bottom", ""),
+                "accessories": clothing.get("accessories", []),
+            },
+            personality_traits=character_data.get("personality_traits", []),
+            visual_style_notes=character_data.get("visual_style_notes", ""),
+            user_key=user_key,
+        )
+
+        db.add(character)
+        await db.commit()
+        await db.refresh(character)
+
+        return {
+            "character_id": character.id,
+            "name": character.name,
+            "master_description": character.master_description,
+            "appearance": character.appearance,
+            "clothing": character.clothing,
+            "personality_traits": character.personality_traits,
+            "visual_style_notes": character.visual_style_notes,
+            "photo_url": photo_url,
+            "photo_analysis": character_data.get("photo_analysis", {}),
+            "created_at": character.created_at.isoformat(),
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"캐릭터 생성 실패: {str(e)}")

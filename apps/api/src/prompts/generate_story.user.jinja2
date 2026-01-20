@@ -1,0 +1,12 @@
+입력:
+- topic: {{ topic }}
+- language: {{ language }}
+- target_age: {{ target_age }}
+- theme: {{ theme | default('null', true) }}
+- style: {{ style }}
+- page_count: {{ page_count }}
+- character_spec: {{ character_spec | tojson if character_spec else 'null' }}
+- forbidden_elements: {{ forbidden_elements | tojson }}
+
+요청:
+위 입력으로 그림책 스토리를 생성하라.

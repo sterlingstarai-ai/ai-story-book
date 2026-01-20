@@ -1,0 +1,10 @@
+입력:
+- story_title: {{ title }}
+- target_age: {{ target_age }}
+- style: {{ style }}
+- character_spec: {{ character_spec | tojson if character_spec else 'null' }}
+- story_characters: {{ characters | tojson }}
+- continuity_notes: {{ continuity_notes }}
+
+요청:
+주인공(hero)을 중심으로 캐릭터 시트를 생성하라.

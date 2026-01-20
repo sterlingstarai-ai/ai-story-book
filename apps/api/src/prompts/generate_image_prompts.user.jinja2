@@ -1,0 +1,10 @@
+입력:
+- target_age: {{ target_age }}
+- style: {{ style }}
+- character_sheet: {{ character_sheet | tojson }}
+- story_cover: {{ cover | tojson }}
+- story_pages: {{ pages | tojson }}
+
+요청:
+표지(cover, page=0)와 각 페이지별 image prompt를 생성하라.
+seed는 페이지마다 다르게 주되, 일관성을 위해 좁은 범위로 변주하라(예: base_seed + page).

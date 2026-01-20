@@ -1,0 +1,41 @@
+# FastAPI
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+python-multipart==0.0.12
+
+# Database
+sqlalchemy==2.0.36
+alembic==1.14.0
+psycopg2-binary==2.9.10
+asyncpg==0.30.0
+
+# Celery
+celery[redis]==5.4.0
+redis==5.2.0
+
+# Pydantic
+pydantic==2.10.0
+pydantic-settings==2.6.0
+
+# S3
+boto3==1.35.0
+
+# HTTP Client
+httpx==0.28.0
+aiohttp==3.11.0
+
+# Templating
+jinja2==3.1.4
+
+# Utils
+python-dotenv==1.0.1
+structlog==24.4.0
+
+# PDF Generation
+reportlab==4.2.5
+
+# Testing
+pytest==8.3.0
+pytest-asyncio==0.24.0
+pytest-cov==6.0.0
+aiosqlite==0.20.0
