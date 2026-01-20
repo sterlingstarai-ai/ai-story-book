@@ -229,7 +229,7 @@ class BookResult(BaseModel):
     style: str
     cover_image_url: str = Field(min_length=8, max_length=500)
     pages: List[PageResult] = Field(min_length=4, max_length=12)
-    character_sheet: CharacterSheet
+    character_sheet: Optional[CharacterSheet] = None  # Made optional for API responses without full sheet
     pdf_url: Optional[str] = Field(default=None, max_length=500)
     audio_url: Optional[str] = Field(default=None, max_length=500)
     created_at: datetime

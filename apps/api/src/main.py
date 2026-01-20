@@ -1,14 +1,36 @@
 from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 from contextlib import asynccontextmanager
 import structlog
 
 from src.core.config import settings
 from src.routers import books, characters, library, credits, streak
-from src.core.database import engine, Base
+from src.core.database import get_db  # noqa: F401
 from src.core.rate_limit import check_rate_limit, rate_limiter
 from src.core.exceptions import APIError, api_exception_handler
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Add security headers to all responses."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        # Prevent clickjacking
+        response.headers["X-Frame-Options"] = "DENY"
+        # Prevent MIME type sniffing
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        # XSS protection (legacy but still useful)
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        # Referrer policy
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        # Content Security Policy
+        response.headers["Content-Security-Policy"] = "default-src 'self'"
+        # Remove server header for security
+        if "server" in response.headers:
+            del response.headers["server"]
+        return response
 
 # Configure structured logging
 structlog.configure(
@@ -41,9 +63,66 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
-    description="AI 동화책 생성 API",
+    description="""
+# AI Story Book API
+
+AI 기반 맞춤형 동화책 생성 API입니다.
+
+## 주요 기능
+
+* **책 생성**: 주제, 연령대, 스타일을 입력하면 AI가 동화책을 생성합니다
+* **캐릭터 관리**: 사진에서 캐릭터를 추출하거나 직접 생성할 수 있습니다
+* **시리즈 생성**: 같은 캐릭터로 연속된 이야기를 만들 수 있습니다
+* **PDF/오디오 내보내기**: 완성된 책을 PDF나 오디오로 내보낼 수 있습니다
+
+## 인증
+
+모든 API는 `X-User-Key` 헤더가 필요합니다.
+중복 요청 방지를 위해 `X-Idempotency-Key` 헤더 사용을 권장합니다.
+
+## Rate Limiting
+
+- 기본: 분당 10회 요청 제한
+- 초과 시 429 Too Many Requests 응답
+
+## 크레딧 시스템
+
+책 1권 생성에 크레딧 1개가 소모됩니다.
+    """,
     lifespan=lifespan,
+    openapi_tags=[
+        {
+            "name": "Books",
+            "description": "동화책 생성 및 조회 API",
+        },
+        {
+            "name": "Characters",
+            "description": "캐릭터 관리 API",
+        },
+        {
+            "name": "Library",
+            "description": "사용자 서재 API",
+        },
+        {
+            "name": "Credits",
+            "description": "크레딧 및 구독 관리 API",
+        },
+        {
+            "name": "Streak",
+            "description": "오늘의 동화 및 스트릭 API",
+        },
+    ],
+    contact={
+        "name": "AI Story Book Team",
+        "email": "support@aistorybook.com",
+    },
+    license_info={
+        "name": "MIT",
+    },
 )
+
+# Security headers middleware
+app.add_middleware(SecurityHeadersMiddleware)
 
 # CORS - Configurable via CORS_ORIGINS env var
 cors_origins = (
@@ -55,7 +134,7 @@ app.add_middleware(
     allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
+    allow_headers=["X-User-Key", "X-Idempotency-Key", "Content-Type", "Authorization"],
 )
 
 
@@ -100,9 +179,24 @@ app.include_router(
     tags=["Characters"],
     dependencies=[Depends(check_rate_limit)],
 )
-app.include_router(library.router, prefix="/v1/library", tags=["Library"])
-app.include_router(credits.router, prefix="/v1/credits", tags=["Credits"])
-app.include_router(streak.router, prefix="/v1/streak", tags=["Streak"])
+app.include_router(
+    library.router,
+    prefix="/v1/library",
+    tags=["Library"],
+    dependencies=[Depends(check_rate_limit)],
+)
+app.include_router(
+    credits.router,
+    prefix="/v1/credits",
+    tags=["Credits"],
+    dependencies=[Depends(check_rate_limit)],
+)
+app.include_router(
+    streak.router,
+    prefix="/v1/streak",
+    tags=["Streak"],
+    dependencies=[Depends(check_rate_limit)],
+)
 
 
 if __name__ == "__main__":

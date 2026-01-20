@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Optional
 from sqlalchemy import Column, String, Integer, Text, DateTime, Boolean, ForeignKey, JSON, UniqueConstraint
 from sqlalchemy.orm import relationship
 

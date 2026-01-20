@@ -1,10 +1,13 @@
 """Rate limiting using Redis sliding window."""
-from fastapi import HTTPException, Request, Depends
+from fastapi import HTTPException, Request
 from datetime import datetime
 import redis.asyncio as redis
 from typing import Optional
+import structlog
 
 from src.core.config import settings
+
+logger = structlog.get_logger()
 
 
 class RateLimiter:
@@ -81,6 +84,18 @@ async def check_rate_limit(request: Request):
                     "retry_after": settings.rate_limit_window,
                 },
             )
-    except redis.RedisError:
-        # If Redis is down, allow request (fail open)
-        pass
+    except redis.RedisError as e:
+        # If Redis is down, log and allow request (fail open for availability)
+        # In production, consider fail-closed behavior for security-critical endpoints
+        logger.warning(
+            "Rate limiter Redis error - allowing request (fail-open)",
+            user_key=user_key[:8] + "..." if user_key else None,
+            error=str(e),
+        )
+    except Exception as e:
+        # Unexpected errors should be logged but not block requests
+        logger.error(
+            "Rate limiter unexpected error",
+            user_key=user_key[:8] + "..." if user_key else None,
+            error=str(e),
+        )

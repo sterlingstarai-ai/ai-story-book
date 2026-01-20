@@ -112,7 +112,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
                   vertical: 4,
                 ),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
+                  color: AppColors.whiteOverlay,
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
@@ -213,7 +213,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(AppRadius.lg),
-        border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+        border: Border.all(color: AppColors.primaryStrong),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -234,7 +234,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
-                  color: AppColors.success.withOpacity(0.1),
+                  color: AppColors.successLight,
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: const Text(
@@ -269,7 +269,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
             children: (subscription['features'] as List<dynamic>?)
                     ?.map((f) => Chip(
                           label: Text(f.toString(), style: const TextStyle(fontSize: 12)),
-                          backgroundColor: AppColors.primary.withOpacity(0.1),
+                          backgroundColor: AppColors.primaryLight,
                         ))
                     .toList() ??
                 [],

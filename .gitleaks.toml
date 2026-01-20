@@ -1,0 +1,29 @@
+# Gitleaks configuration
+# https://github.com/gitleaks/gitleaks
+
+title = "AI Story Book Gitleaks Config"
+
+[allowlist]
+  description = "Test files and example values"
+
+  # Allow test files
+  paths = [
+    '''apps/api/tests/.*\.py$''',
+    '''.*test.*\.py$''',
+    '''.*_test\.go$''',
+    '''.*\.test\.ts$''',
+    '''.*\.spec\.ts$''',
+  ]
+
+  # Allow specific patterns that are test values, not real secrets
+  regexes = [
+    '''idempotency[-_]key''',
+    '''test-idempotency''',
+    '''test-user-key''',
+    '''test-api-key''',
+    '''mock[-_]''',
+    '''MOCK[-_]''',
+    '''dummy[-_]''',
+    '''example[-_]''',
+    '''placeholder''',
+  ]

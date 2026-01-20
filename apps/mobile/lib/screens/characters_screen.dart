@@ -288,7 +288,7 @@ class _CharacterListItem extends StatelessWidget {
           borderRadius: BorderRadius.circular(AppRadius.md),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: AppColors.blackOverlayLight,
               blurRadius: 10,
               offset: const Offset(0, 4),
             ),
@@ -346,7 +346,7 @@ class _CharacterListItem extends StatelessWidget {
                           vertical: 2,
                         ),
                         decoration: BoxDecoration(
-                          color: AppColors.primary.withOpacity(0.1),
+                          color: AppColors.primaryLight,
                           borderRadius: BorderRadius.circular(AppRadius.sm),
                         ),
                         child: Text(
@@ -459,7 +459,7 @@ class _CharacterDetailSheet extends StatelessWidget {
                       vertical: AppSpacing.sm,
                     ),
                     decoration: BoxDecoration(
-                      color: AppColors.primary.withOpacity(0.1),
+                      color: AppColors.primaryLight,
                       borderRadius: BorderRadius.circular(AppRadius.md),
                     ),
                     child: Text(
@@ -575,7 +575,7 @@ class _CharactersBottomNavBar extends StatelessWidget {
         color: AppColors.surface,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: AppColors.blackOverlayLight,
             blurRadius: 10,
             offset: const Offset(0, -4),
           ),

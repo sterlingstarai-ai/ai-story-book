@@ -1,12 +1,11 @@
 from fastapi import APIRouter, Depends, Header, HTTPException, BackgroundTasks
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from typing import Optional
 import uuid
 from datetime import datetime
 import structlog
-
-logger = structlog.get_logger()
 
 from src.core.database import get_db
 from src.core.config import settings
@@ -22,7 +21,8 @@ from src.services.pdf import pdf_service
 from src.services.tts import tts_service
 from src.services.storage import storage_service
 from src.services.credits import credits_service
-from sqlalchemy import select
+
+logger = structlog.get_logger()
 
 router = APIRouter()
 
@@ -427,24 +427,25 @@ async def export_book_pdf(
     pages = pages_result.scalars().all()
 
     # Build BookResult for PDF generation
+    from src.models.dto import Language, TargetAge
     book_data = BookResult(
         book_id=book.id,
         title=book.title,
-        language=book.language,
-        target_age=book.target_age,
+        language=Language(book.language),
+        target_age=TargetAge(book.target_age),
         style=book.style,
-        cover_image_url=book.cover_image_url,
+        cover_image_url=book.cover_image_url or "",
         pages=[
             PageResult(
                 page_number=p.page_number,
                 text=p.text,
-                image_url=p.image_url,
-                image_prompt=p.image_prompt,
+                image_url=p.image_url or "",
+                image_prompt=p.image_prompt or "",
                 audio_url=p.audio_url
             )
             for p in pages
         ],
-        created_at=book.created_at.isoformat()
+        created_at=book.created_at
     )
 
     # Generate PDF
@@ -510,9 +511,9 @@ async def generate_book_audio(
 
 async def _generate_audio_for_book(book_id: str, pages: list[dict]):
     """책 오디오 생성 백그라운드 태스크"""
-    from src.core.database import async_session_maker
+    from src.core.database import AsyncSessionLocal
 
-    async with async_session_maker() as db:
+    async with AsyncSessionLocal() as db:
         for page_data in pages:
             try:
                 # TTS 생성

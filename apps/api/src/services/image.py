@@ -3,7 +3,6 @@ Image Generation Service: 이미지 생성 API 연동
 """
 import httpx
 import asyncio
-from typing import Optional
 import structlog
 
 from src.core.config import settings

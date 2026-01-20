@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from src.core.database import get_db
 from src.core.dependencies import get_user_key
@@ -14,8 +14,8 @@ router = APIRouter()
 async def get_library(
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
-    limit: int = 20,
-    offset: int = 0,
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
 ):
     """
     내 서재 (생성한 책 목록)
@@ -23,11 +23,11 @@ async def get_library(
     - 최신순 정렬
     - 페이지네이션 지원
     """
-    # Get total count
+    # Get total count efficiently using COUNT
     count_result = await db.execute(
-        select(Book).where(Book.user_key == user_key)
+        select(func.count()).select_from(Book).where(Book.user_key == user_key)
     )
-    total = len(count_result.scalars().all())
+    total = count_result.scalar() or 0
 
     # Get paginated results
     result = await db.execute(

@@ -3,8 +3,10 @@ PDF Generation Service
 책을 PDF로 내보내기
 """
 import io
-import asyncio
 from typing import Optional
+from urllib.parse import urlparse
+import ipaddress
+import socket
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
@@ -13,8 +15,24 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.utils import ImageReader
 import httpx
 from pathlib import Path
+import structlog
 
 from ..models.dto import BookResult, PageResult
+from ..core.config import settings
+
+logger = structlog.get_logger()
+
+# Allowed domains for image fetching (SSRF protection)
+ALLOWED_IMAGE_DOMAINS = {
+    "localhost",
+    "127.0.0.1",
+    "picsum.photos",  # Mock images
+    "s3.amazonaws.com",
+    "r2.cloudflarestorage.com",
+}
+
+# Maximum image size (10MB)
+MAX_IMAGE_SIZE = 10 * 1024 * 1024
 
 
 class PDFService:
@@ -220,15 +238,69 @@ class PDFService:
 
         return lines
 
-    async def _fetch_image(self, url: str) -> Optional[bytes]:
-        """URL에서 이미지 다운로드"""
+    def _is_url_allowed(self, url: str) -> bool:
+        """URL이 허용된 도메인인지 확인 (SSRF 방지)"""
         try:
+            parsed = urlparse(url)
+
+            # Only allow http and https
+            if parsed.scheme not in ("http", "https"):
+                return False
+
+            hostname = parsed.hostname
+            if not hostname:
+                return False
+
+            # Check against allowed domains
+            # Also allow S3 endpoint from settings
+            s3_host = urlparse(settings.s3_endpoint).hostname or ""
+            allowed = ALLOWED_IMAGE_DOMAINS | {s3_host}
+
+            # Check exact match or subdomain match
+            for domain in allowed:
+                if hostname == domain or hostname.endswith(f".{domain}"):
+                    return True
+
+            # Block private IP ranges
+            try:
+                ip = ipaddress.ip_address(socket.gethostbyname(hostname))
+                if ip.is_private or ip.is_loopback or ip.is_reserved:
+                    # Allow localhost in debug mode
+                    if not (settings.debug and ip.is_loopback):
+                        return False
+            except (socket.gaierror, ValueError):
+                pass  # Let it through if we can't resolve
+
+            return False
+        except Exception:
+            return False
+
+    async def _fetch_image(self, url: str) -> Optional[bytes]:
+        """URL에서 이미지 다운로드 (SSRF 보호 포함)"""
+        try:
+            # Validate URL before fetching
+            if not self._is_url_allowed(url):
+                logger.warning("Image URL not allowed", url=url[:100])
+                return None
+
             async with httpx.AsyncClient(timeout=30) as client:
+                # First, do a HEAD request to check size
+                head_response = await client.head(url)
+                content_length = int(head_response.headers.get("content-length", 0))
+                if content_length > MAX_IMAGE_SIZE:
+                    logger.warning("Image too large", url=url[:100], size=content_length)
+                    return None
+
+                # Fetch the image
                 response = await client.get(url)
                 if response.status_code == 200:
+                    # Double-check size after download
+                    if len(response.content) > MAX_IMAGE_SIZE:
+                        logger.warning("Image exceeded size limit", url=url[:100])
+                        return None
                     return response.content
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to fetch image", url=url[:100], error=str(e))
         return None
 
 

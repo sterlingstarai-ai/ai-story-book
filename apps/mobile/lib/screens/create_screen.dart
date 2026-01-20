@@ -143,7 +143,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                   onSelected: (selected) {
                     if (selected) setState(() => _selectedAge = age);
                   },
-                  selectedColor: AppColors.primary.withOpacity(0.2),
+                  selectedColor: AppColors.primaryMedium,
                   labelStyle: TextStyle(
                     color: isSelected ? AppColors.primary : AppColors.textSecondary,
                     fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
@@ -168,7 +168,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                   onSelected: (selected) {
                     if (selected) setState(() => _selectedStyle = style);
                   },
-                  selectedColor: AppColors.primary.withOpacity(0.2),
+                  selectedColor: AppColors.primaryMedium,
                   labelStyle: TextStyle(
                     color: isSelected ? AppColors.primary : AppColors.textSecondary,
                     fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
@@ -192,7 +192,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                   onSelected: (selected) {
                     if (selected) setState(() => _selectedTheme = null);
                   },
-                  selectedColor: AppColors.primary.withOpacity(0.2),
+                  selectedColor: AppColors.primaryMedium,
                   labelStyle: TextStyle(
                     color: _selectedTheme == null ? AppColors.primary : AppColors.textSecondary,
                   ),
@@ -205,7 +205,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                     onSelected: (selected) {
                       if (selected) setState(() => _selectedTheme = theme);
                     },
-                    selectedColor: AppColors.primary.withOpacity(0.2),
+                    selectedColor: AppColors.primaryMedium,
                     labelStyle: TextStyle(
                       color: isSelected ? AppColors.primary : AppColors.textSecondary,
                       fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
@@ -287,7 +287,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
           color: AppColors.surface,
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: AppColors.blackOverlayLight,
               blurRadius: 10,
               offset: const Offset(0, -4),
             ),

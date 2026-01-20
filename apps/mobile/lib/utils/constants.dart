@@ -14,6 +14,27 @@ class AppColors {
   static const textHint = Color(0xFF9CA3AF);
 
   static const divider = Color(0xFFE5E7EB);
+
+  // Pre-computed opacity variants (performance optimization)
+  // Instead of calling withOpacity() at runtime, use these constants
+  static const primaryLight = Color(0x1A6366F1); // primary 10%
+  static const primaryMedium = Color(0x336366F1); // primary 20%
+  static const primaryStrong = Color(0x4D6366F1); // primary 30%
+  static const primaryHalf = Color(0x806366F1); // primary 50%
+  static const primaryMuted = Color(0xCC6366F1); // primary 80%
+
+  static const secondaryLight = Color(0x33F472B6); // secondary 20%
+
+  static const successLight = Color(0x1A22C55E); // success 10%
+
+  static const blackOverlay = Color(0x80000000); // black 50%
+  static const blackOverlayLight = Color(0x0D000000); // black 5%
+  static const blackOverlayShadow = Color(0x14000000); // black 8%
+  static const blackOverlayStrong = Color(0xB3000000); // black 70%
+
+  static const whiteOverlay = Color(0x33FFFFFF); // white 20%
+  static const whiteOverlayLight = Color(0x4DFFFFFF); // white 30%
+  static const whiteOverlayStrong = Color(0xE6FFFFFF); // white 90%
 }
 
 /// 앱 텍스트 스타일

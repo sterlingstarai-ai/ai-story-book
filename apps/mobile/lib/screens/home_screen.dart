@@ -166,7 +166,7 @@ class _CreateBookCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(AppRadius.xl),
           boxShadow: [
             BoxShadow(
-              color: AppColors.primary.withOpacity(0.3),
+              color: AppColors.primaryStrong,
               blurRadius: 20,
               offset: const Offset(0, 8),
             ),
@@ -191,7 +191,7 @@ class _CreateBookCard extends StatelessWidget {
                     'AI가 아이만을 위한\n특별한 이야기를 만들어드려요',
                     style: TextStyle(
                       fontSize: 14,
-                      color: Colors.white.withOpacity(0.9),
+                      color: AppColors.whiteOverlayStrong,
                     ),
                   ),
                 ],
@@ -201,7 +201,7 @@ class _CreateBookCard extends StatelessWidget {
               width: 64,
               height: 64,
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.2),
+                color: AppColors.whiteOverlay,
                 borderRadius: BorderRadius.circular(AppRadius.lg),
               ),
               child: const Icon(
@@ -230,7 +230,7 @@ class _BottomNavBar extends StatelessWidget {
         color: AppColors.surface,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: AppColors.blackOverlayLight,
             blurRadius: 10,
             offset: const Offset(0, -4),
           ),

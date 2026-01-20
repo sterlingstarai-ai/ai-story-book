@@ -5,7 +5,6 @@ import asyncio
 from celery import shared_task
 import structlog
 
-from src.models.dto import BookSpec
 
 logger = structlog.get_logger()
 

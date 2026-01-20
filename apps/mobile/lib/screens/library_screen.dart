@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/providers.dart';
 import '../utils/constants.dart';
 import '../widgets/common_widgets.dart';
-import 'home_screen.dart';
 
 /// 서재 화면
 class LibraryScreen extends ConsumerWidget {
@@ -105,7 +104,7 @@ class _LibraryBottomNavBar extends StatelessWidget {
         color: AppColors.surface,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: AppColors.blackOverlayLight,
             blurRadius: 10,
             offset: const Offset(0, -4),
           ),

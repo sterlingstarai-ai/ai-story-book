@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -23,6 +24,7 @@ class ViewerScreen extends ConsumerStatefulWidget {
 class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   late PageController _pageController;
   final AudioPlayer _audioPlayer = AudioPlayer();
+  StreamSubscription<PlayerState>? _playerStateSubscription;
   int _currentPage = 0;
   bool _showControls = true;
   bool _isPlaying = false;
@@ -32,7 +34,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   void initState() {
     super.initState();
     _pageController = PageController();
-    _audioPlayer.playerStateStream.listen((state) {
+    // Store subscription to cancel later (memory leak fix)
+    _playerStateSubscription = _audioPlayer.playerStateStream.listen((state) {
       if (mounted) {
         setState(() {
           _isPlaying = state.playing;
@@ -43,6 +46,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
 
   @override
   void dispose() {
+    // Cancel subscription to prevent memory leak
+    _playerStateSubscription?.cancel();
     _pageController.dispose();
     _audioPlayer.dispose();
     super.dispose();
@@ -145,7 +150,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [
-                Colors.black.withOpacity(0.7),
+                AppColors.blackOverlayStrong,
                 Colors.transparent,
               ],
             ),
@@ -188,7 +193,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               begin: Alignment.bottomCenter,
               end: Alignment.topCenter,
               colors: [
-                Colors.black.withOpacity(0.7),
+                AppColors.blackOverlayStrong,
                 Colors.transparent,
               ],
             ),
@@ -207,7 +212,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                     decoration: BoxDecoration(
                       color: index == _currentPage
                           ? Colors.white
-                          : Colors.white.withOpacity(0.4),
+                          : AppColors.whiteOverlayLight,
                       borderRadius: BorderRadius.circular(4),
                     ),
                   ),
@@ -530,7 +535,7 @@ class _CoverPage extends StatelessWidget {
               end: Alignment.bottomCenter,
               colors: [
                 Colors.transparent,
-                Colors.black.withOpacity(0.7),
+                AppColors.blackOverlayStrong,
               ],
             ),
           ),
@@ -642,12 +647,12 @@ class _NavButton extends StatelessWidget {
         width: 48,
         height: 48,
         decoration: BoxDecoration(
-          color: enabled ? Colors.white.withOpacity(0.2) : Colors.transparent,
+          color: enabled ? AppColors.whiteOverlay : Colors.transparent,
           borderRadius: BorderRadius.circular(24),
         ),
         child: Icon(
           icon,
-          color: enabled ? Colors.white : Colors.white.withOpacity(0.3),
+          color: enabled ? Colors.white : AppColors.whiteOverlayLight,
           size: 32,
         ),
       ),
@@ -676,8 +681,8 @@ class _AudioButton extends StatelessWidget {
         height: 48,
         decoration: BoxDecoration(
           color: isPlaying
-              ? AppColors.primary.withOpacity(0.8)
-              : Colors.white.withOpacity(0.2),
+              ? AppColors.primaryMuted
+              : AppColors.whiteOverlay,
           borderRadius: BorderRadius.circular(24),
         ),
         child: isLoading
