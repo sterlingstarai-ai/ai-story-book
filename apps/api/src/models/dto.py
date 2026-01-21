@@ -33,6 +33,11 @@ class Theme(str, Enum):
     lifestyle = "생활습관"
     emotion = "감정코칭"
     social = "사회성"
+    friendship = "우정"
+    family = "가족"
+    adventure = "모험"
+    nature = "자연"
+    science = "과학"
 
 
 class JobState(str, Enum):

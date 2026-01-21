@@ -430,74 +430,68 @@ flutter test
 
 ## 🔴 최근 세션 (2026-01-21)
 
-### 코드 리뷰 30개 이슈 수정 완료
+### iOS 시뮬레이터 테스트 및 API 키 준비 완료
 
-외부 코드 리뷰 2건을 받아 분석 후, 총 30개 이슈를 모두 수정함.
+Flutter 앱을 iOS 시뮬레이터에서 실행하고, API 키만 넣으면 바로 작동하도록 모든 준비를 완료함.
 
-**커밋**: `537a5e2` - `fix: 코드 리뷰 30개 이슈 수정`
-**GitHub**: Push 완료 → CI/CD 파이프라인 자동 실행 중
+### 완료된 작업
 
-### 수정된 이슈 목록
+#### 1. Flutter 앱 테스트 환경 구축
+- iOS/Android 플랫폼 폴더 생성 (`flutter create .`)
+- iOS 시뮬레이터에서 앱 실행 성공 (iPhone 17 Pro)
+- API 연동 확인 (library API 정상 작동)
 
-#### P0 Critical (7개) ✅
-| 이슈 | 파일 | 수정 내용 |
-|-----|------|----------|
-| P0-1 | `routers/books.py` | `use_credit()` 호출 추가 (크레딧 차감 누락) |
-| P0-2 | `routers/books.py` | `/v1/books/{book_id}/detail` 엔드포인트 추가 |
-| P0-3 | `services/orchestrator.py` | `character_id=spec.character_id` 저장 |
-| P0-4 | `services/orchestrator.py` | `generate_series_book()` 구현 (TODO였음) |
-| P0-5 | `services/orchestrator.py` | `regenerate_page()` 구현 (TODO였음) |
-| P0-6 | `docker-compose.prod.yml` | init-db.sql 참조 제거 |
-| P0-7 | `core/database.py` | sync/async URL 분리 함수 추가 |
-
-#### P1 Runtime Risk (8개) ✅
-| 이슈 | 파일 | 수정 내용 |
-|-----|------|----------|
-| P1-1 | `routers/characters.py` | from-photo 스키마 정규화 |
-| P1-2 | `core/rate_limit.py` (신규) | Redis 기반 Rate Limiter |
-| P1-3 | `services/storage.py` | bucket 체크 캐싱 (`_bucket_verified`) |
-| P1-4 | `mobile/lib/core/env_config.dart` (신규) | 환경별 baseUrl 분리 |
-| P1-5 | `mobile/lib/services/api_client.dart` | `response.data!` 안전 처리 |
-| P1-6 | `main.py`, `core/config.py` | CORS 설정 환경변수화 |
-| P1-7 | `services/orchestrator.py` | 출력 모더레이션 구현 |
-| P1-8 | `services/tasks.py` (신규) | Celery task 래퍼 |
-
-#### P2 Code Quality (9개) ✅
-| 이슈 | 파일 | 수정 내용 |
-|-----|------|----------|
-| P2-1 | `core/dependencies.py` (신규) | `get_user_key` 공통 모듈 |
-| P2-2 | `routers/books.py` | print문 → logger 교체 |
-| P2-4 | `.env.example` | 보안 경고 추가 |
-| P2-5 | `mobile/assets/images/.gitkeep` | 폴더 유지 파일 |
-| P2-7 | `tests/conftest.py` | credits mock 추가 |
-
-#### P3 Improvements (6개) ✅
-| 이슈 | 파일 | 수정 내용 |
-|-----|------|----------|
-| P3-1 | `core/exceptions.py` (신규) | 표준화된 에러 응답 |
-| P3-2 | `models/db.py` | Page에 UniqueConstraint 추가 |
-| P3-3 | `core/config.py` | `image_max_retries` 설정 추가 |
-| P3-4 | `services/tts.py`, `core/config.py` | TTS provider 설정화 |
-| P3-6 | `mobile/lib/core/api_error.dart` (신규) | 모바일 에러 핸들링 |
-
-### 신규 생성된 파일 (8개)
-```
-apps/api/src/core/rate_limit.py      # Redis Rate Limiter
-apps/api/src/core/dependencies.py    # 공통 의존성
-apps/api/src/core/exceptions.py      # 표준 에러 응답
-apps/api/src/services/tasks.py       # Celery task 래퍼
-apps/mobile/lib/core/env_config.dart # 환경 설정
-apps/mobile/lib/core/api_error.dart  # API 에러 핸들링
-apps/mobile/assets/images/.gitkeep   # assets 폴더 유지
-apps/mobile/pubspec.lock             # 의존성 잠금
+#### 2. Theme Enum 동기화 버그 수정
+- **문제**: 모바일에서 "모험" 테마 선택 시 422 에러
+- **원인**: Backend dto.py의 Theme enum에 누락된 값들
+- **해결**: Theme enum에 우정, 가족, 모험, 자연, 과학 추가
+```python
+class Theme(str, Enum):
+    lifestyle = "생활습관"
+    emotion = "감정코칭"
+    social = "사회성"
+    friendship = "우정"
+    family = "가족"
+    adventure = "모험"
+    nature = "자연"
+    science = "과학"
 ```
 
-### 다음 단계
-1. **CI/CD 확인**: GitHub Actions 빌드/테스트 결과 확인
-2. **서버 설정** (미완료 시):
-   - GitHub Secrets 설정: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_KEY`
-   - 서버에 `.env` 파일 생성
-3. **프로덕션 배포**: CI/CD 통과 시 자동 배포
+#### 3. MinIO 버킷 접근 권한 설정
+- **문제**: 오디오 재생 시 permission denied 오류
+- **해결**: `mc anonymous set download local/storybook`
+
+#### 4. API 키 설정 준비 완료
+- `.env.example` 완성 - 모든 환경 변수 포함
+- `docker-compose.yml` 업데이트 - LLM, Image, TTS 모든 환경 변수 매핑
+- `docker-compose.prod.yml` 업데이트 - TTS 설정 추가
+- API 키 없을 때 명확한 에러 메시지 추가:
+  - `llm.py`: OpenAI/Anthropic API 키 검증
+  - `image.py`: Replicate/FAL API 키 검증
+- `docs/API_KEYS_SETUP.md` 문서 작성
+
+### 현재 상태
+- **Mock 모드로 앱 실행 가능** (더미 데이터 반환)
+- **API 키만 설정하면 실제 AI 기능 작동**
+
+### 다음 단계: API 키 설정
+```bash
+# infra/.env 파일에 추가
+LLM_PROVIDER=openai
+LLM_API_KEY=sk-your-openai-key
+IMAGE_PROVIDER=replicate
+IMAGE_API_KEY=r8_your-replicate-key
+
+# Docker 재시작
+cd infra && docker-compose down && docker-compose up -d
+```
+
+### 필요한 API 키 발급처
+| Provider | URL |
+|----------|-----|
+| OpenAI | https://platform.openai.com/api-keys |
+| Replicate | https://replicate.com/account/api-tokens |
+| ElevenLabs (선택) | https://elevenlabs.io/api |
 
 ### GitHub Actions URL
 ```

@@ -61,6 +61,12 @@ async def _call_openai(
     temperature: float,
 ) -> str:
     """Call OpenAI API"""
+    if not settings.llm_api_key:
+        raise LLMError(
+            ErrorCode.LLM_TIMEOUT,
+            "OpenAI API 키가 설정되지 않았습니다. LLM_API_KEY 환경 변수를 설정해주세요.",
+        )
+
     async with httpx.AsyncClient(timeout=settings.llm_timeout) as client:
         response = await client.post(
             "https://api.openai.com/v1/chat/completions",
@@ -219,6 +225,12 @@ async def _call_anthropic(
     temperature: float,
 ) -> str:
     """Call Anthropic API"""
+    if not settings.llm_api_key:
+        raise LLMError(
+            ErrorCode.LLM_TIMEOUT,
+            "Anthropic API 키가 설정되지 않았습니다. LLM_API_KEY 환경 변수를 설정해주세요.",
+        )
+
     async with httpx.AsyncClient(timeout=settings.llm_timeout) as client:
         response = await client.post(
             "https://api.anthropic.com/v1/messages",

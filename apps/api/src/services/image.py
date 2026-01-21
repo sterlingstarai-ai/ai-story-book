@@ -32,6 +32,13 @@ async def generate_image(prompt: ImagePrompt) -> str:
 
 async def _generate_replicate(prompt: ImagePrompt) -> str:
     """Generate image using Replicate API (Flux/SDXL)"""
+    if not settings.image_api_key:
+        raise ImageError(
+            ErrorCode.IMAGE_FAILED,
+            "Replicate API 키가 설정되지 않았습니다. IMAGE_API_KEY 환경 변수를 설정해주세요.",
+            page=prompt.page,
+        )
+
     async with httpx.AsyncClient(timeout=settings.image_timeout) as client:
         # Create prediction
         response = await client.post(
@@ -109,6 +116,13 @@ async def _generate_replicate(prompt: ImagePrompt) -> str:
 
 async def _generate_fal(prompt: ImagePrompt) -> str:
     """Generate image using FAL.ai API"""
+    if not settings.image_api_key:
+        raise ImageError(
+            ErrorCode.IMAGE_FAILED,
+            "FAL API 키가 설정되지 않았습니다. IMAGE_API_KEY 환경 변수를 설정해주세요.",
+            page=prompt.page,
+        )
+
     async with httpx.AsyncClient(timeout=settings.image_timeout) as client:
         response = await client.post(
             "https://fal.run/fal-ai/flux/schnell",

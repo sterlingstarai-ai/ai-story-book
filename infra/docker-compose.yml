@@ -53,17 +53,41 @@ services:
       dockerfile: Dockerfile
     container_name: storybook-api
     environment:
+      # Database
       - DATABASE_URL=postgresql+asyncpg://storybook:storybook123@postgres:5432/storybook
+      # Redis
       - REDIS_URL=redis://redis:6379/0
+      # Celery
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - USE_CELERY=${USE_CELERY:-false}
+      # Storage
       - S3_ENDPOINT=http://minio:9000
       - S3_ACCESS_KEY=minioadmin
       - S3_SECRET_KEY=minioadmin123
       - S3_BUCKET=storybook
-      - LLM_PROVIDER=mock
-      - IMAGE_PROVIDER=mock
-      - TTS_PROVIDER=mock
+      - S3_PUBLIC_URL=${S3_PUBLIC_URL:-http://localhost:9000/storybook}
+      # LLM - defaults to mock, set LLM_API_KEY to use real provider
+      - LLM_PROVIDER=${LLM_PROVIDER:-mock}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
+      - LLM_TIMEOUT=${LLM_TIMEOUT:-30}
+      # Image - defaults to mock, set IMAGE_API_KEY to use real provider
+      - IMAGE_PROVIDER=${IMAGE_PROVIDER:-mock}
+      - IMAGE_API_KEY=${IMAGE_API_KEY:-}
+      - IMAGE_TIMEOUT=${IMAGE_TIMEOUT:-90}
+      - IMAGE_MAX_CONCURRENT=${IMAGE_MAX_CONCURRENT:-3}
+      - IMAGE_MAX_RETRIES=${IMAGE_MAX_RETRIES:-3}
+      # TTS - defaults to mock, set TTS API keys to use real provider
+      - TTS_PROVIDER=${TTS_PROVIDER:-mock}
+      - GOOGLE_TTS_API_KEY=${GOOGLE_TTS_API_KEY:-}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
+      - ELEVENLABS_VOICE_ID=${ELEVENLABS_VOICE_ID:-21m00Tcm4TlvDq8ikWAM}
+      # CORS
+      - CORS_ORIGINS=${CORS_ORIGINS:-}
+      # Rate Limiting
+      - RATE_LIMIT_REQUESTS=${RATE_LIMIT_REQUESTS:-10}
+      - RATE_LIMIT_WINDOW=${RATE_LIMIT_WINDOW:-60}
     ports:
       - "8000:8000"
     depends_on:
@@ -83,17 +107,35 @@ services:
     container_name: storybook-worker
     command: celery -A src.worker worker --loglevel=info
     environment:
+      # Database
       - DATABASE_URL=postgresql+asyncpg://storybook:storybook123@postgres:5432/storybook
+      # Redis
       - REDIS_URL=redis://redis:6379/0
+      # Celery
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      # Storage
       - S3_ENDPOINT=http://minio:9000
       - S3_ACCESS_KEY=minioadmin
       - S3_SECRET_KEY=minioadmin123
       - S3_BUCKET=storybook
-      - LLM_PROVIDER=mock
-      - IMAGE_PROVIDER=mock
-      - TTS_PROVIDER=mock
+      - S3_PUBLIC_URL=${S3_PUBLIC_URL:-http://localhost:9000/storybook}
+      # LLM
+      - LLM_PROVIDER=${LLM_PROVIDER:-mock}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
+      - LLM_TIMEOUT=${LLM_TIMEOUT:-30}
+      # Image
+      - IMAGE_PROVIDER=${IMAGE_PROVIDER:-mock}
+      - IMAGE_API_KEY=${IMAGE_API_KEY:-}
+      - IMAGE_TIMEOUT=${IMAGE_TIMEOUT:-90}
+      - IMAGE_MAX_CONCURRENT=${IMAGE_MAX_CONCURRENT:-3}
+      - IMAGE_MAX_RETRIES=${IMAGE_MAX_RETRIES:-3}
+      # TTS
+      - TTS_PROVIDER=${TTS_PROVIDER:-mock}
+      - GOOGLE_TTS_API_KEY=${GOOGLE_TTS_API_KEY:-}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
+      - ELEVENLABS_VOICE_ID=${ELEVENLABS_VOICE_ID:-21m00Tcm4TlvDq8ikWAM}
     depends_on:
       - api
     volumes:

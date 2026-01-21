@@ -25,18 +25,42 @@ services:
       context: ../apps/api
       dockerfile: Dockerfile
     environment:
+      # Database
       - DATABASE_URL=postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}
+      # Redis
       - REDIS_URL=redis://redis:6379/0
+      # Celery
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - USE_CELERY=${USE_CELERY:-true}
+      # LLM
       - LLM_PROVIDER=${LLM_PROVIDER}
       - LLM_API_KEY=${LLM_API_KEY}
       - LLM_MODEL=${LLM_MODEL:-gpt-4o}
+      - LLM_TIMEOUT=${LLM_TIMEOUT:-30}
+      # Image
       - IMAGE_PROVIDER=${IMAGE_PROVIDER}
       - IMAGE_API_KEY=${IMAGE_API_KEY}
+      - IMAGE_TIMEOUT=${IMAGE_TIMEOUT:-90}
+      - IMAGE_MAX_CONCURRENT=${IMAGE_MAX_CONCURRENT:-3}
+      - IMAGE_MAX_RETRIES=${IMAGE_MAX_RETRIES:-3}
+      # TTS
+      - TTS_PROVIDER=${TTS_PROVIDER:-mock}
+      - GOOGLE_TTS_API_KEY=${GOOGLE_TTS_API_KEY:-}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
+      - ELEVENLABS_VOICE_ID=${ELEVENLABS_VOICE_ID:-21m00Tcm4TlvDq8ikWAM}
+      # Storage
       - S3_ENDPOINT=${S3_ENDPOINT}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY}
       - S3_SECRET_KEY=${S3_SECRET_KEY}
       - S3_BUCKET=${S3_BUCKET:-ai-story-book}
+      - S3_PUBLIC_URL=${S3_PUBLIC_URL}
       - S3_REGION=${S3_REGION:-us-east-1}
+      # CORS
+      - CORS_ORIGINS=${CORS_ORIGINS}
+      # Rate Limiting
+      - RATE_LIMIT_REQUESTS=${RATE_LIMIT_REQUESTS:-10}
+      - RATE_LIMIT_WINDOW=${RATE_LIMIT_WINDOW:-60}
     depends_on:
       postgres:
         condition: service_healthy
@@ -60,17 +84,35 @@ services:
       context: ../apps/api
       dockerfile: Dockerfile.worker
     environment:
+      # Database
       - DATABASE_URL=postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}
+      # Redis
       - REDIS_URL=redis://redis:6379/0
+      # Celery
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      # LLM
       - LLM_PROVIDER=${LLM_PROVIDER}
       - LLM_API_KEY=${LLM_API_KEY}
       - LLM_MODEL=${LLM_MODEL:-gpt-4o}
+      - LLM_TIMEOUT=${LLM_TIMEOUT:-30}
+      # Image
       - IMAGE_PROVIDER=${IMAGE_PROVIDER}
       - IMAGE_API_KEY=${IMAGE_API_KEY}
+      - IMAGE_TIMEOUT=${IMAGE_TIMEOUT:-90}
+      - IMAGE_MAX_CONCURRENT=${IMAGE_MAX_CONCURRENT:-3}
+      - IMAGE_MAX_RETRIES=${IMAGE_MAX_RETRIES:-3}
+      # TTS
+      - TTS_PROVIDER=${TTS_PROVIDER:-mock}
+      - GOOGLE_TTS_API_KEY=${GOOGLE_TTS_API_KEY:-}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
+      - ELEVENLABS_VOICE_ID=${ELEVENLABS_VOICE_ID:-21m00Tcm4TlvDq8ikWAM}
+      # Storage
       - S3_ENDPOINT=${S3_ENDPOINT}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY}
       - S3_SECRET_KEY=${S3_SECRET_KEY}
       - S3_BUCKET=${S3_BUCKET:-ai-story-book}
+      - S3_PUBLIC_URL=${S3_PUBLIC_URL}
       - S3_REGION=${S3_REGION:-us-east-1}
     depends_on:
       postgres:
