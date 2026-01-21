@@ -428,70 +428,106 @@ flutter test
 
 ---
 
-## 🔴 최근 세션 (2026-01-21)
+## 🔴 최근 세션 (2026-01-22)
 
-### iOS 시뮬레이터 테스트 및 API 키 준비 완료
+### CTO 리뷰 기반 구조적 결함 수정 완료
 
-Flutter 앱을 iOS 시뮬레이터에서 실행하고, API 키만 넣으면 바로 작동하도록 모든 준비를 완료함.
+외부 CTO 레벨 코드 리뷰를 받아 "테스트가 반복 실패하는" 구조적 원인 4개를 모두 수정함.
 
-### 완료된 작업
+### 수정된 구조적 결함
 
-#### 1. Flutter 앱 테스트 환경 구축
-- iOS/Android 플랫폼 폴더 생성 (`flutter create .`)
-- iOS 시뮬레이터에서 앱 실행 성공 (iPhone 17 Pro)
-- API 연동 확인 (library API 정상 작동)
-
-#### 2. Theme Enum 동기화 버그 수정
-- **문제**: 모바일에서 "모험" 테마 선택 시 422 에러
-- **원인**: Backend dto.py의 Theme enum에 누락된 값들
-- **해결**: Theme enum에 우정, 가족, 모험, 자연, 과학 추가
+#### 1. SQLite + FOR UPDATE 호환성 (치명적)
+- **문제**: `credits.py`의 `with_for_update()`가 SQLite에서 즉시 예외 발생
+- **해결**: 원자적 UPDATE 방식으로 변경 (`WHERE credits >= amount`)
 ```python
-class Theme(str, Enum):
-    lifestyle = "생활습관"
-    emotion = "감정코칭"
-    social = "사회성"
-    friendship = "우정"
-    family = "가족"
-    adventure = "모험"
-    nature = "자연"
-    science = "과학"
+# Before (SQLite 미지원)
+.with_for_update()
+
+# After (DB 독립적)
+update(UserCredits).where(
+    UserCredits.user_key == user_key,
+    UserCredits.credits >= amount,
+).values(credits=UserCredits.credits - amount)
 ```
 
-#### 3. MinIO 버킷 접근 권한 설정
-- **문제**: 오디오 재생 시 permission denied 오류
-- **해결**: `mc anonymous set download local/storybook`
+#### 2. API 계약 불일치 (/v1/books/series)
+- **문제**: 테스트가 `{character_id, topic, theme}` 전송, API는 `previous_book_id` 필수 요구 → 422
+- **해결**: `SeriesNextRequest`를 topic 기반으로 재설계, 모든 필드에 기본값 추가
+```python
+class SeriesNextRequest(BaseModel):
+    character_id: str  # 필수
+    topic: Optional[str]  # topic 기반 생성
+    theme: Optional[Theme] = None
+    language: Language = Language.ko
+    target_age: TargetAge = TargetAge.a5_7
+    style: Style = Style.watercolor
+    previous_book_id: Optional[str] = None  # 옵션화
+```
 
-#### 4. API 키 설정 준비 완료
-- `.env.example` 완성 - 모든 환경 변수 포함
-- `docker-compose.yml` 업데이트 - LLM, Image, TTS 모든 환경 변수 매핑
-- `docker-compose.prod.yml` 업데이트 - TTS 설정 추가
-- API 키 없을 때 명확한 에러 메시지 추가:
-  - `llm.py`: OpenAI/Anthropic API 키 검증
-  - `image.py`: Replicate/FAL API 키 검증
-- `docs/API_KEYS_SETUP.md` 문서 작성
+#### 3. Pydantic 타입/길이 위반
+- **문제**: `orchestrator.py`에서 personality를 str로 변환 (list 기대), appearance 400자 전달 (200자 제한)
+- **해결**:
+  - `personality`: list 그대로 전달
+  - `appearance`: 200자로 truncate
 
-### 현재 상태
-- **Mock 모드로 앱 실행 가능** (더미 데이터 반환)
-- **API 키만 설정하면 실제 AI 기능 작동**
+#### 4. 테스트 환경 안정화
+- **문제**: job_monitor/background_tasks가 테스트에서 타이밍 이슈 유발
+- **해결**: `settings.testing` 플래그로 테스트 시 비활성화
+
+### 추가 수정사항
+
+#### CI/CD 수정
+- `packages:write` 권한 추가 (Docker 빌드 권한 오류 수정)
+- Flutter 버전 `3.16.0` → `3.27.1` (의존성 호환)
+
+#### OpenAI Image API 지원 추가
+- `image.py`: `_generate_openai()` 함수 추가 (DALL-E 3)
+- `config.py`: `image_model` 설정 추가
+- 기본 이미지 제공자: `openai` (기존 `replicate`에서 변경)
+
+### 수정된 파일 (6개)
+| 파일 | 핵심 수정 |
+|------|----------|
+| `credits.py` | FOR UPDATE → 원자적 UPDATE |
+| `dto.py` | SeriesNextRequest 재설계 + AliasChoices |
+| `orchestrator.py` | personality=list, appearance≤200자 |
+| `config.py` | testing 플래그 + image_model |
+| `main.py` | testing 시 job_monitor 비활성화 |
+| `books.py` | testing 시 background_tasks 스킵 |
+
+### CI 결과 (모든 테스트/빌드 통과)
+| Job | 상태 |
+|-----|------|
+| API Tests | ✅ 1m26s |
+| Security Scan | ✅ 11s |
+| Flutter Tests | ✅ 57s |
+| Build Docker Images | ✅ 1m30s |
+| Deploy to Production | ❌ (서버 credentials 미설정) |
+
+### 커밋 히스토리
+```
+fb9f9af - fix: CTO 리뷰 기반 구조적 결함 수정
+2ef8a93 - feat: OpenAI Image API (DALL-E) 지원 추가
+b0c6ef0 - fix: Flutter 버전 업데이트 (3.16.0 → 3.27.1)
+0cf4a8e - fix: CI workflow 권한 추가 (packages:write)
+```
 
 ### 다음 단계: API 키 설정
 ```bash
-# infra/.env 파일에 추가
+# apps/api/.env 파일 수정
 LLM_PROVIDER=openai
-LLM_API_KEY=sk-your-openai-key
-IMAGE_PROVIDER=replicate
-IMAGE_API_KEY=r8_your-replicate-key
-
-# Docker 재시작
-cd infra && docker-compose down && docker-compose up -d
+LLM_API_KEY=sk-YOUR_OPENAI_API_KEY
+IMAGE_PROVIDER=openai
+IMAGE_API_KEY=sk-YOUR_OPENAI_API_KEY  # LLM과 동일
+TTS_PROVIDER=elevenlabs
+ELEVENLABS_API_KEY=YOUR_ELEVENLABS_KEY
 ```
 
 ### 필요한 API 키 발급처
-| Provider | URL |
-|----------|-----|
-| OpenAI | https://platform.openai.com/api-keys |
-| Replicate | https://replicate.com/account/api-tokens |
-| ElevenLabs (선택) | https://elevenlabs.io/api |
+| Provider | URL | 용도 |
+|----------|-----|------|
+| OpenAI | https://platform.openai.com/api-keys | LLM + Image |
+| ElevenLabs | https://elevenlabs.io/api | TTS |
 
 ### GitHub Actions URL
 ```
