@@ -1,7 +1,7 @@
 from logging.config import fileConfig
 import os
 
-from sqlalchemy import engine_from_config, create_engine
+from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 
 from alembic import context
@@ -13,7 +13,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.core.database import Base
-from src.models.db import (
+# Import all models to register them with SQLAlchemy metadata for Alembic
+from src.models.db import (  # noqa: F401
     Job, StoryDraftDB, ImagePromptsDB, Book, Page, Character, RateLimit,
     UserCredits, Subscription, CreditTransaction,
     DailyStreak, DailyStory, ReadingLog

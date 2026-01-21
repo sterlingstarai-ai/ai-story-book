@@ -98,10 +98,19 @@ class CreditsService:
         description: str = "책 생성",
         reference_id: Optional[str] = None,
     ) -> bool:
-        """크레딧 사용"""
-        user_credits = await self.get_or_create_credits(db, user_key)
+        """크레딧 사용 (atomic operation with row lock)"""
+        # First ensure user exists
+        await self.get_or_create_credits(db, user_key)
 
-        if user_credits.credits < amount:
+        # Use SELECT FOR UPDATE to lock the row and prevent race conditions
+        result = await db.execute(
+            select(UserCredits)
+            .where(UserCredits.user_key == user_key)
+            .with_for_update()
+        )
+        user_credits = result.scalar_one_or_none()
+
+        if not user_credits or user_credits.credits < amount:
             return False
 
         user_credits.credits -= amount

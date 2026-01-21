@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     # App
     app_name: str = "AI Story Book API"
     app_version: str = "0.1.0"
-    debug: bool = True
+    debug: bool = False  # Must be False in production
 
     # Database
     database_url: str = "postgresql://storybook:storybook123@localhost:5432/storybook"
@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     max_pending_jobs: int = 100  # Max pending jobs in queue before rejecting
 
     # CORS
-    cors_origins: str = "*"  # Comma-separated origins or "*" for all
+    cors_origins: str = ""  # Comma-separated origins, MUST be set explicitly in production
 
     class Config:
         env_file = ".env"
