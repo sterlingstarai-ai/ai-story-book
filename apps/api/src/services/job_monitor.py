@@ -16,7 +16,7 @@ import structlog
 from src.core.config import settings
 from src.core.database import AsyncSessionLocal
 from src.models.db import Job
-from sqlalchemy import select, and_, or_
+from sqlalchemy import select, and_
 
 logger = structlog.get_logger()
 
