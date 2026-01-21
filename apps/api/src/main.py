@@ -54,9 +54,16 @@ logger = structlog.get_logger()
 async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting AI Story Book API", version=settings.app_version)
+
+    # Start job monitor (background task for stuck job detection)
+    from src.services.job_monitor import job_monitor
+    await job_monitor.start()
+
     yield
+
     # Shutdown
     logger.info("Shutting down AI Story Book API")
+    await job_monitor.stop()
     await rate_limiter.close()
 
 
@@ -163,6 +170,42 @@ async def health_check():
     return {
         "status": "healthy",
         "version": settings.app_version,
+    }
+
+
+@app.get("/health/detailed")
+async def detailed_health_check():
+    """Detailed health check with job metrics and external API status"""
+    from src.services.job_monitor import get_job_metrics
+
+    try:
+        job_metrics = await get_job_metrics()
+    except Exception as e:
+        logger.error("Failed to get job metrics", error=str(e))
+        job_metrics = {"error": str(e)}
+
+    # Check Redis connectivity
+    redis_status = "healthy"
+    try:
+        await rate_limiter.is_allowed("health_check_probe")
+    except Exception:
+        redis_status = "unhealthy"
+
+    return {
+        "status": "healthy",
+        "version": settings.app_version,
+        "jobs": job_metrics,
+        "services": {
+            "redis": redis_status,
+            "llm_provider": settings.llm_provider,
+            "image_provider": settings.image_provider,
+        },
+        "config": {
+            "rate_limit_requests": settings.rate_limit_requests,
+            "rate_limit_window": settings.rate_limit_window,
+            "job_sla_seconds": settings.job_sla_seconds,
+            "image_max_concurrent": settings.image_max_concurrent,
+        }
     }
 
 

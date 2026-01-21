@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     job_sla_seconds: int = 600  # 10 minutes
     use_celery: bool = False  # Use Celery for background tasks (True for production)
 
+    # Guardrails
+    daily_job_limit_per_user: int = 20  # Max jobs per user per day
+    max_pending_jobs: int = 100  # Max pending jobs in queue before rejecting
+
     # CORS
     cors_origins: str = "*"  # Comma-separated origins or "*" for all
 

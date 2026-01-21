@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Header, HTTPException, BackgroundTasks
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func, and_
 from typing import Optional
 import uuid
 from datetime import datetime
@@ -32,6 +32,53 @@ def get_idempotency_key(x_idempotency_key: Optional[str] = Header(None)) -> Opti
     return x_idempotency_key
 
 
+async def check_guardrails(db: AsyncSession, user_key: str):
+    """
+    Check system guardrails before creating a new job.
+    Raises HTTPException if guardrails are violated.
+    """
+    # Check daily job limit per user
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    daily_jobs_result = await db.execute(
+        select(func.count(Job.id)).where(
+            and_(
+                Job.user_key == user_key,
+                Job.created_at >= today_start
+            )
+        )
+    )
+    daily_job_count = daily_jobs_result.scalar() or 0
+
+    if daily_job_count >= settings.daily_job_limit_per_user:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": "daily_limit_exceeded",
+                "message": f"일일 생성 한도({settings.daily_job_limit_per_user}권)를 초과했습니다. 내일 다시 시도해주세요.",
+                "limit": settings.daily_job_limit_per_user,
+                "used": daily_job_count
+            }
+        )
+
+    # Check total pending jobs in system
+    pending_jobs_result = await db.execute(
+        select(func.count(Job.id)).where(
+            Job.status.in_(["queued", "running"])
+        )
+    )
+    pending_count = pending_jobs_result.scalar() or 0
+
+    if pending_count >= settings.max_pending_jobs:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "system_overloaded",
+                "message": "시스템이 현재 많은 요청을 처리 중입니다. 잠시 후 다시 시도해주세요.",
+                "retry_after": 60
+            }
+        )
+
+
 @router.post("", response_model=CreateBookResponse)
 async def create_book(
     spec: BookSpec,
@@ -47,6 +94,9 @@ async def create_book(
     - GET /v1/books/{job_id}로 상태 조회
     - 크레딧 1개 필요
     """
+    # Check guardrails (daily limit, system load)
+    await check_guardrails(db, user_key)
+
     # Check credits
     has_credits = await credits_service.has_credits(db, user_key, required=1)
     if not has_credits:
@@ -327,6 +377,9 @@ async def create_series_next(
     - 같은 캐릭터로 새로운 이야기 생성
     - previous_book_id의 요약을 참고하여 연속성 유지
     """
+    # Check guardrails (daily limit, system load)
+    await check_guardrails(db, user_key)
+
     from src.models.db import Character
 
     # Verify character exists

@@ -18,6 +18,8 @@ class Job(Base):
     moderation_output = Column(JSON, nullable=True)
     user_key = Column(String(80), nullable=False, index=True)
     idempotency_key = Column(String(80), nullable=True, index=True)
+    retry_count = Column(Integer, default=0)  # Number of retry attempts
+    last_retry_at = Column(DateTime, nullable=True)  # Last retry timestamp
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
