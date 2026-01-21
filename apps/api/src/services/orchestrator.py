@@ -703,13 +703,40 @@ async def start_series_generation(
         prev_book_id=request.previous_book_id,
     )
 
-    # Build topic from previous book and hint
-    topic = request.new_topic_hint or f"{character.name}의 새로운 모험"
+    # Build topic: request.topic 우선, 없으면 new_topic_hint, 없으면 기본값
+    topic = (
+        request.topic
+        or request.new_topic_hint
+        or f"{character.name}의 새로운 모험"
+    )
+
+    # appearance 요약 (CharacterSpec.appearance는 max_length=200)
+    appearance_src = ""
+    if isinstance(getattr(character, "appearance", None), dict):
+        parts = []
+        for k in ["face", "hair", "skin", "body"]:
+            v = character.appearance.get(k)
+            if v:
+                parts.append(str(v))
+        appearance_src = ", ".join(parts)
+    if not appearance_src:
+        appearance_src = character.master_description or ""
+    appearance_src = appearance_src[:200]  # 200자 제한 준수
+
+    # language: prev_book 있으면 사용, 없으면 request.language
+    language = prev_book.language if prev_book else request.language
+
+    # series_context: prev_book 있으면 후속편 명시
+    series_context = (
+        f"이전 책 '{prev_book.title}'의 후속편입니다."
+        if prev_book
+        else "시리즈의 새로운 이야기입니다."
+    )
 
     # Create BookSpec for series
     series_spec = BookSpec(
         topic=topic,
-        language=prev_book.language,
+        language=language,
         target_age=request.target_age,
         style=request.style,
         page_count=request.page_count,
@@ -717,13 +744,12 @@ async def start_series_generation(
         character_id=request.character_id,
         character=CharacterSpec(
             name=character.name,
-            appearance=character.master_description,
-            personality=", ".join(character.personality_traits)
-            if character.personality_traits
-            else None,
+            appearance=appearance_src,
+            # personality는 list 그대로 전달 (str join 금지)
+            personality=character.personality_traits or None,
         ),
         forbidden_elements=request.forbidden_elements,
-        series_context=f"이전 책 '{prev_book.title}'의 후속편입니다.",
+        series_context=series_context,
     )
 
     # Use existing book generation pipeline

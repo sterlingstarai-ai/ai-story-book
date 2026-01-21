@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, List, Optional, Literal, Dict
 
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator, AliasChoices
 
 
 class Language(str, Enum):
@@ -281,9 +281,11 @@ class CreateBookResponse(BaseModel):
 
 
 class RegeneratePageRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    mode: Literal["text", "image", "both"]
+    mode: Literal["text", "image", "both"] = Field(
+        validation_alias=AliasChoices("mode", "regenerate_target")
+    )
     feedback: Optional[str] = Field(default=None, max_length=200)
 
 
@@ -301,13 +303,21 @@ class SeriesNextRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     character_id: str = Field(min_length=1, max_length=60)
-    previous_book_id: str = Field(min_length=1, max_length=60)
-    target_age: TargetAge
-    style: Style
-    page_count: int = Field(ge=4, le=12, default=8)
+
+    # 테스트/QA가 요구하는 필드 (topic 기반)
+    topic: Optional[str] = Field(default=None, min_length=1, max_length=200)
     theme: Optional[Theme] = None
-    new_topic_hint: Optional[str] = Field(default=None, max_length=200)
+
+    # 기본값으로 동작 가능하게
+    language: Language = Language.ko
+    target_age: TargetAge = TargetAge.a5_7
+    style: Style = Style.watercolor
+    page_count: int = Field(ge=4, le=12, default=8)
     forbidden_elements: Optional[List[str]] = Field(default=None, max_length=20)
+
+    # 기존 설계의 확장 호환 (있어도 되고 없어도 됨)
+    previous_book_id: Optional[str] = Field(default=None, max_length=60)
+    new_topic_hint: Optional[str] = Field(default=None, max_length=200)
 
 
 # ==================== Character API Models ====================

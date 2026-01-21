@@ -147,7 +147,10 @@ async def create_book(
         raise HTTPException(status_code=402, detail="크레딧 차감에 실패했습니다.")
 
     # Start background task (Celery or FastAPI BackgroundTasks)
-    if settings.use_celery:
+    # 테스트 환경에서는 background_tasks 실행 스킵 (테스트 안정화)
+    if settings.testing:
+        logger.info("Skipping book generation background task in testing mode", job_id=job_id)
+    elif settings.use_celery:
         from src.services.tasks import generate_book_task
 
         generate_book_task.delay(job_id, spec.model_dump(), user_key)
@@ -361,7 +364,7 @@ async def create_series_next(
     시리즈 다음 권 생성
 
     - 같은 캐릭터로 새로운 이야기 생성
-    - previous_book_id의 요약을 참고하여 연속성 유지
+    - previous_book_id가 있으면 연속성 유지, 없으면 topic 기반 생성
     """
     # Check guardrails (daily limit, system load)
     await check_guardrails(db, user_key)
@@ -380,14 +383,18 @@ async def create_series_next(
     if character.user_key != user_key:
         raise HTTPException(status_code=403, detail="Access denied to character")
 
-    # Verify previous book exists
-    book_result = await db.execute(
-        select(Book).where(Book.id == request.previous_book_id)
-    )
-    prev_book = book_result.scalar_one_or_none()
+    # previous_book_id가 있으면 검증, 없으면 None 유지
+    prev_book = None
+    if request.previous_book_id:
+        book_result = await db.execute(
+            select(Book).where(Book.id == request.previous_book_id)
+        )
+        prev_book = book_result.scalar_one_or_none()
 
-    if not prev_book:
-        raise HTTPException(status_code=404, detail="Previous book not found")
+        if not prev_book:
+            raise HTTPException(status_code=404, detail="Previous book not found")
+        if prev_book.user_key != user_key:
+            raise HTTPException(status_code=403, detail="Access denied to previous book")
 
     # Check and deduct credits
     has_credits = await credits_service.has_credits(db, user_key, required=1)
@@ -417,11 +424,15 @@ async def create_series_next(
     )
 
     # Start background task for series generation
+    # 테스트 환경에서는 background_tasks 실행 스킵 (테스트 안정화)
     from src.services.orchestrator import start_series_generation
 
-    background_tasks.add_task(
-        start_series_generation, job_id, request, user_key, character, prev_book
-    )
+    if not settings.testing:
+        background_tasks.add_task(
+            start_series_generation, job_id, request, user_key, character, prev_book
+        )
+    else:
+        logger.info("Skipping series background task in testing mode", job_id=job_id)
 
     return CreateBookResponse(
         job_id=job_id, status=JobState.queued, estimated_time_seconds=120

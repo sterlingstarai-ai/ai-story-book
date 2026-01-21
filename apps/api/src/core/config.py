@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     app_name: str = "AI Story Book API"
     app_version: str = "0.1.0"
     debug: bool = False  # Must be False in production
+    testing: bool = False  # Set to True in test environment
 
     # Database
     database_url: str = "postgresql://storybook:storybook123@localhost:5432/storybook"

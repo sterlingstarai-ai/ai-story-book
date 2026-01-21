@@ -6,7 +6,7 @@ Credits Service
 from datetime import datetime, timedelta
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from ..models.db import UserCredits, Subscription, CreditTransaction
 
@@ -99,32 +99,46 @@ class CreditsService:
         description: str = "책 생성",
         reference_id: Optional[str] = None,
     ) -> bool:
-        """크레딧 사용 (atomic operation with row lock)"""
-        # First ensure user exists
+        """
+        크레딧 사용 (DB 독립적 원자적 차감)
+
+        - SQLite는 SELECT ... FOR UPDATE 미지원 → 테스트에서 즉시 실패 가능
+        - 조건부 UPDATE(credits >= amount)로 원자성 확보
+        """
+        # ensure user exists (creates row if missing)
         await self.get_or_create_credits(db, user_key)
 
-        # Use SELECT FOR UPDATE to lock the row and prevent race conditions
-        result = await db.execute(
-            select(UserCredits)
-            .where(UserCredits.user_key == user_key)
-            .with_for_update()
+        # 원자적 UPDATE: credits >= amount 조건으로 차감
+        stmt = (
+            update(UserCredits)
+            .where(
+                UserCredits.user_key == user_key,
+                UserCredits.credits >= amount,
+            )
+            .values(
+                credits=UserCredits.credits - amount,
+                total_used=UserCredits.total_used + amount,
+            )
         )
-        user_credits = result.scalar_one_or_none()
 
-        if not user_credits or user_credits.credits < amount:
+        result = await db.execute(stmt)
+        affected = result.rowcount if hasattr(result, "rowcount") else 0
+
+        if affected <= 0:
+            await db.rollback()
             return False
 
-        user_credits.credits -= amount
-        user_credits.total_used += amount
-
         await db.commit()
+
+        # 새 잔액 조회
+        new_balance = await self.get_credits(db, user_key)
 
         # 거래 기록
         await self._record_transaction(
             db=db,
             user_key=user_key,
             amount=-amount,
-            balance_after=user_credits.credits,
+            balance_after=new_balance,
             transaction_type="usage",
             description=description,
             reference_id=reference_id,

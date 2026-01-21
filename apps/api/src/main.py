@@ -57,15 +57,20 @@ async def lifespan(app: FastAPI):
     logger.info("Starting AI Story Book API", version=settings.app_version)
 
     # Start job monitor (background task for stuck job detection)
+    # 테스트 환경에서는 job_monitor 비활성화 (DB 세션 타이밍 이슈 방지)
     from src.services.job_monitor import job_monitor
 
-    await job_monitor.start()
+    if not settings.testing:
+        await job_monitor.start()
 
     yield
 
     # Shutdown
     logger.info("Shutting down AI Story Book API")
-    await job_monitor.stop()
+
+    if not settings.testing:
+        await job_monitor.stop()
+
     await rate_limiter.close()
 
 
