@@ -41,24 +41,10 @@ async def ensure_bucket_exists():
     except ClientError:
         try:
             client.create_bucket(Bucket=settings.s3_bucket)
-            # Set bucket policy for public read
-            import json
-            policy = {
-                "Version": "2012-10-17",
-                "Statement": [
-                    {
-                        "Effect": "Allow",
-                        "Principal": "*",
-                        "Action": "s3:GetObject",
-                        "Resource": f"arn:aws:s3:::{settings.s3_bucket}/*"
-                    }
-                ]
-            }
-            client.put_bucket_policy(
-                Bucket=settings.s3_bucket,
-                Policy=json.dumps(policy)
-            )
+            # SECURITY: Do NOT auto-create public bucket policy
+            # Bucket policy must be configured externally by admin
             logger.info(f"Created bucket: {settings.s3_bucket}")
+            logger.warning("Bucket created without public policy - configure access policy manually")
             _bucket_verified = True
         except ClientError as e:
             logger.error(f"Failed to create bucket: {e}")
