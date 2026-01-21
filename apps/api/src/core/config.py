@@ -32,8 +32,9 @@ class Settings(BaseSettings):
     llm_timeout: int = 30
 
     # Image Generation
-    image_provider: str = "replicate"  # replicate, fal
+    image_provider: str = "openai"  # openai, replicate, fal, mock
     image_api_key: Optional[str] = None
+    image_model: str = "dall-e-3"  # dall-e-3, gpt-image-1
     image_timeout: int = 90
     image_max_concurrent: int = 3
     image_max_retries: int = 3  # Maximum retries for image generation

@@ -20,7 +20,9 @@ async def generate_image(prompt: ImagePrompt) -> str:
     Returns:
         Image URL
     """
-    if settings.image_provider == "replicate":
+    if settings.image_provider == "openai":
+        return await _generate_openai(prompt)
+    elif settings.image_provider == "replicate":
         return await _generate_replicate(prompt)
     elif settings.image_provider == "fal":
         return await _generate_fal(prompt)
@@ -28,6 +30,77 @@ async def generate_image(prompt: ImagePrompt) -> str:
         return await _generate_mock(prompt)
     else:
         raise ValueError(f"Unknown image provider: {settings.image_provider}")
+
+
+async def _generate_openai(prompt: ImagePrompt) -> str:
+    """Generate image using OpenAI DALL-E API (gpt-image-1 / dall-e-3)"""
+    if not settings.image_api_key:
+        raise ImageError(
+            ErrorCode.IMAGE_FAILED,
+            "OpenAI API 키가 설정되지 않았습니다. IMAGE_API_KEY 환경 변수를 설정해주세요.",
+            page=prompt.page,
+        )
+
+    async with httpx.AsyncClient(timeout=settings.image_timeout) as client:
+        # DALL-E 3 API 호출
+        response = await client.post(
+            "https://api.openai.com/v1/images/generations",
+            headers={
+                "Authorization": f"Bearer {settings.image_api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": settings.image_model,
+                "prompt": prompt.positive_prompt,
+                "n": 1,
+                "size": _get_openai_size(prompt.aspect_ratio),
+                "quality": "standard",
+                "response_format": "url",
+            },
+        )
+
+        if response.status_code == 429:
+            logger.warning("OpenAI rate limit hit", page=prompt.page)
+            raise ImageError(
+                ErrorCode.IMAGE_RATE_LIMIT,
+                "OpenAI API 요청 한도 초과",
+                page=prompt.page,
+            )
+
+        if response.status_code != 200:
+            logger.error(
+                "OpenAI Image API error",
+                status=response.status_code,
+                body=response.text,
+            )
+            raise ImageError(
+                ErrorCode.IMAGE_FAILED,
+                f"OpenAI Image API error: {response.status_code}",
+                page=prompt.page,
+            )
+
+        result = response.json()
+        data = result.get("data", [])
+
+        if data:
+            return data[0].get("url", "")
+
+        raise ImageError(
+            ErrorCode.IMAGE_FAILED, "No output from OpenAI Image", page=prompt.page
+        )
+
+
+def _get_openai_size(aspect_ratio: str) -> str:
+    """Get OpenAI DALL-E size string"""
+    # DALL-E 3 지원 사이즈: 1024x1024, 1024x1792, 1792x1024
+    sizes = {
+        "1:1": "1024x1024",
+        "3:4": "1024x1792",  # Portrait (세로)
+        "4:3": "1792x1024",  # Landscape (가로)
+        "9:16": "1024x1792",  # Portrait
+        "16:9": "1792x1024",  # Landscape
+    }
+    return sizes.get(aspect_ratio, "1024x1792")
 
 
 async def _generate_replicate(prompt: ImagePrompt) -> str:
