@@ -1,11 +1,9 @@
 import pytest
 import pytest_asyncio
-import asyncio
 import os
 from typing import AsyncGenerator
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from unittest.mock import AsyncMock, MagicMock
 
 # 테스트 환경 설정
 os.environ["TESTING"] = "true"
@@ -96,7 +94,7 @@ def valid_book_spec():
         "style": "watercolor",
         "page_count": 8,
         "theme": "감정코칭",
-        "forbidden_elements": ["폭력", "공포"]
+        "forbidden_elements": ["폭력", "공포"],
     }
 
 
@@ -111,16 +109,16 @@ def valid_character():
             "face": "둥근 얼굴, 큰 눈",
             "hair": "없음 (토끼)",
             "skin": "갈색 털",
-            "body": "작고 통통함"
+            "body": "작고 통통함",
         },
         "clothing": {
             "top": "노란 줄무늬 티셔츠",
             "bottom": "파란 멜빵바지",
             "shoes": "빨간 운동화",
-            "accessories": "없음"
+            "accessories": "없음",
         },
         "personality_traits": ["호기심 많은", "용감한"],
-        "visual_style_notes": "수채화 스타일"
+        "visual_style_notes": "수채화 스타일",
     }
 
 
@@ -140,7 +138,7 @@ def mock_story_response():
             {"page_number": 7, "text": "해가 지자 토리는 집으로 돌아왔어요."},
             {"page_number": 8, "text": "토리는 행복한 꿈을 꾸었어요. 끝."},
         ],
-        "moral": "꿈을 포기하지 않으면 이루어질 수 있어요."
+        "moral": "꿈을 포기하지 않으면 이루어질 수 있어요.",
     }
 
 
@@ -155,15 +153,15 @@ def mock_character_sheet():
             "face": "둥근 얼굴, 큰 눈, 작은 코",
             "hair": "없음 (토끼)",
             "skin": "부드러운 갈색 털",
-            "body": "작고 통통함"
+            "body": "작고 통통함",
         },
         "clothing": {
             "top": "노란 줄무늬 티셔츠",
             "bottom": "파란 멜빵바지",
             "shoes": "빨간 운동화",
-            "accessories": "없음"
+            "accessories": "없음",
         },
-        "personality_traits": ["호기심 많은", "용감한", "친절한"]
+        "personality_traits": ["호기심 많은", "용감한", "친절한"],
     }
 
 
@@ -181,18 +179,14 @@ def mock_image_prompts():
             "Rabbits playing together in the clouds, watercolor style",
             "A rabbit flying home at sunset, watercolor style",
             "A rabbit sleeping peacefully with a smile, watercolor style",
-        ]
+        ],
     }
 
 
 @pytest.fixture
 def mock_moderation_safe():
     """Mock safe moderation response."""
-    return {
-        "is_safe": True,
-        "flags": [],
-        "reason": None
-    }
+    return {"is_safe": True, "flags": [], "reason": None}
 
 
 @pytest.fixture
@@ -201,5 +195,5 @@ def mock_moderation_unsafe():
     return {
         "is_safe": False,
         "flags": ["violence"],
-        "reason": "Content contains violent themes inappropriate for children"
+        "reason": "Content contains violent themes inappropriate for children",
     }

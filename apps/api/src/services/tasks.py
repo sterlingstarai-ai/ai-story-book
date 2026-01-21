@@ -1,6 +1,7 @@
 """
 Celery tasks for async book generation
 """
+
 import asyncio
 from celery import shared_task
 import structlog
@@ -88,7 +89,9 @@ def regenerate_page_task(
         from src.services.orchestrator import regenerate_page
 
         result = run_async(regenerate_page(job_id, page_number, target, user_key))
-        logger.info("Page regeneration completed", job_id=job_id, page_number=page_number)
+        logger.info(
+            "Page regeneration completed", job_id=job_id, page_number=page_number
+        )
         return {"status": "success", "result": result}
 
     except Exception as e:

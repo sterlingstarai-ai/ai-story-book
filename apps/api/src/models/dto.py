@@ -58,6 +58,7 @@ class ErrorCode(str, Enum):
 
 # ==================== Input Models ====================
 
+
 class CharacterSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -77,13 +78,18 @@ class BookSpec(BaseModel):
     page_count: int = Field(ge=4, le=12, default=8)
     theme: Optional[Theme] = None
     character: Optional[CharacterSpec] = None
-    character_id: Optional[str] = Field(default=None, max_length=60, description="기존 캐릭터 ID")
+    character_id: Optional[str] = Field(
+        default=None, max_length=60, description="기존 캐릭터 ID"
+    )
     forbidden_elements: Optional[List[str]] = Field(default=None, max_length=20)
     reference_image_base64: Optional[str] = Field(default=None, max_length=5_000_000)
-    series_context: Optional[str] = Field(default=None, max_length=500, description="시리즈 컨텍스트")
+    series_context: Optional[str] = Field(
+        default=None, max_length=500, description="시리즈 컨텍스트"
+    )
 
 
 # ==================== Story Models ====================
+
 
 class ModerationResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -155,6 +161,7 @@ class StoryDraft(BaseModel):
 
 # ==================== Character Sheet Models ====================
 
+
 class CharacterAppearance(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -188,6 +195,7 @@ class CharacterSheet(BaseModel):
 
 # ==================== Image Prompt Models ====================
 
+
 class ImagePrompt(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -209,6 +217,7 @@ class ImagePrompts(BaseModel):
 
 # ==================== Result Models ====================
 
+
 class PageResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -229,13 +238,16 @@ class BookResult(BaseModel):
     style: str
     cover_image_url: str = Field(min_length=8, max_length=500)
     pages: List[PageResult] = Field(min_length=4, max_length=12)
-    character_sheet: Optional[CharacterSheet] = None  # Made optional for API responses without full sheet
+    character_sheet: Optional[CharacterSheet] = (
+        None  # Made optional for API responses without full sheet
+    )
     pdf_url: Optional[str] = Field(default=None, max_length=500)
     audio_url: Optional[str] = Field(default=None, max_length=500)
     created_at: datetime
 
 
 # ==================== Job/API Response Models ====================
+
 
 class ErrorInfo(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -279,6 +291,7 @@ class RegeneratePageResponse(BaseModel):
 
 # ==================== Series Models ====================
 
+
 class SeriesNextRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -293,6 +306,7 @@ class SeriesNextRequest(BaseModel):
 
 
 # ==================== Character API Models ====================
+
 
 class CreateCharacterRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -326,6 +340,7 @@ class CharacterListResponse(BaseModel):
 
 
 # ==================== Library Models ====================
+
 
 class BookSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")

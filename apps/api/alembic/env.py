@@ -13,11 +13,22 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.core.database import Base
+
 # Import all models to register them with SQLAlchemy metadata for Alembic
 from src.models.db import (  # noqa: F401
-    Job, StoryDraftDB, ImagePromptsDB, Book, Page, Character, RateLimit,
-    UserCredits, Subscription, CreditTransaction,
-    DailyStreak, DailyStory, ReadingLog
+    Job,
+    StoryDraftDB,
+    ImagePromptsDB,
+    Book,
+    Page,
+    Character,
+    RateLimit,
+    UserCredits,
+    Subscription,
+    CreditTransaction,
+    DailyStreak,
+    DailyStory,
+    ReadingLog,
 )
 
 config = context.config
@@ -58,9 +69,7 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection, target_metadata=target_metadata
-        )
+        context.configure(connection=connection, target_metadata=target_metadata)
 
         with context.begin_transaction():
             context.run_migrations()

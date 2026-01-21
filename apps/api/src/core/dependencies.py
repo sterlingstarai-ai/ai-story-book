@@ -1,8 +1,11 @@
 """Common FastAPI dependencies."""
+
 from fastapi import Header, HTTPException
 
 
-def get_user_key(x_user_key: str = Header(..., description="User identification key")) -> str:
+def get_user_key(
+    x_user_key: str = Header(..., description="User identification key"),
+) -> str:
     """
     Extract and validate user key from header.
 

@@ -2,6 +2,7 @@
 Streak Router
 오늘의 동화 및 스트릭 관련 API
 """
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
@@ -15,6 +16,7 @@ router = APIRouter()
 
 
 # ==================== Response Models ====================
+
 
 class StreakInfoResponse(BaseModel):
     current_streak: int
@@ -49,6 +51,7 @@ class ReadingResultResponse(BaseModel):
 
 # ==================== Endpoints ====================
 
+
 @router.get("/info", response_model=StreakInfoResponse)
 async def get_streak_info(
     db: AsyncSession = Depends(get_db),
@@ -81,7 +84,7 @@ async def get_today_story(
     # 테마 이름 추가
     theme_name = next(
         (t["name"] for t in DAILY_THEMES if t["theme"] == story["theme"]),
-        story["theme"]
+        story["theme"],
     )
 
     return TodayStoryResponse(
@@ -174,13 +177,13 @@ async def get_streak_calendar(
 
     # 읽기 기록 조회
     days_diff = (last_day - first_day).days + 1
-    history = await streak_service.get_reading_history(db, user_key, days=days_diff + 30)
+    history = await streak_service.get_reading_history(
+        db, user_key, days=days_diff + 30
+    )
 
     # 해당 월의 날짜만 필터링
     month_history = {
-        h["date"]: h
-        for h in history
-        if h["date"].startswith(f"{year}-{month:02d}")
+        h["date"]: h for h in history if h["date"].startswith(f"{year}-{month:02d}")
     }
 
     # 캘린더 데이터 생성
@@ -188,12 +191,14 @@ async def get_streak_calendar(
     for day in range(1, last_day.day + 1):
         date_str = f"{year}-{month:02d}-{day:02d}"
         read_data = month_history.get(date_str)
-        calendar_data.append({
-            "date": date_str,
-            "day": day,
-            "read": read_data is not None,
-            "books_count": read_data["books_read"] if read_data else 0,
-        })
+        calendar_data.append(
+            {
+                "date": date_str,
+                "day": day,
+                "read": read_data is not None,
+                "books_count": read_data["books_read"] if read_data else 0,
+            }
+        )
 
     return {
         "year": year,

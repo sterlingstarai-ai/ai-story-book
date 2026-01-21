@@ -1,12 +1,9 @@
 """
 Integration Tests - API endpoints with database
 """
+
 import pytest
 from httpx import AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-
-from src.models.db import Job, Character, Book
 
 
 class TestHealthCheck:
@@ -60,9 +57,7 @@ class TestBookCreation:
         assert response.status_code == 400
 
     @pytest.mark.asyncio
-    async def test_create_book_topic_too_long(
-        self, client: AsyncClient, headers: dict
-    ):
+    async def test_create_book_topic_too_long(self, client: AsyncClient, headers: dict):
         """Topic exceeding max length should fail."""
         response = await client.post(
             "/v1/books",
@@ -78,9 +73,7 @@ class TestBookCreation:
         assert response.status_code == 422
 
     @pytest.mark.asyncio
-    async def test_create_book_invalid_age(
-        self, client: AsyncClient, headers: dict
-    ):
+    async def test_create_book_invalid_age(self, client: AsyncClient, headers: dict):
         """Invalid target age should fail."""
         response = await client.post(
             "/v1/books",
@@ -96,9 +89,7 @@ class TestBookCreation:
         assert response.status_code == 422
 
     @pytest.mark.asyncio
-    async def test_create_book_invalid_style(
-        self, client: AsyncClient, headers: dict
-    ):
+    async def test_create_book_invalid_style(self, client: AsyncClient, headers: dict):
         """Invalid style should fail."""
         response = await client.post(
             "/v1/books",
@@ -168,9 +159,7 @@ class TestBookStatus:
     """Book status endpoint tests."""
 
     @pytest.mark.asyncio
-    async def test_get_book_status_not_found(
-        self, client: AsyncClient, headers: dict
-    ):
+    async def test_get_book_status_not_found(self, client: AsyncClient, headers: dict):
         """Get non-existent job should return 404."""
         response = await client.get(
             "/v1/books/non-existent-job-id",
@@ -222,9 +211,7 @@ class TestCharacters:
         assert data["name"] == valid_character["name"]
 
     @pytest.mark.asyncio
-    async def test_list_characters_empty(
-        self, client: AsyncClient, headers: dict
-    ):
+    async def test_list_characters_empty(self, client: AsyncClient, headers: dict):
         """List characters when empty."""
         response = await client.get("/v1/characters", headers=headers)
         assert response.status_code == 200
@@ -275,9 +262,7 @@ class TestCharacters:
         assert data["name"] == valid_character["name"]
 
     @pytest.mark.asyncio
-    async def test_get_character_not_found(
-        self, client: AsyncClient, headers: dict
-    ):
+    async def test_get_character_not_found(self, client: AsyncClient, headers: dict):
         """Get non-existent character should return 404."""
         response = await client.get(
             "/v1/characters/non-existent-id",
@@ -303,9 +288,7 @@ class TestLibrary:
     """Library endpoint tests."""
 
     @pytest.mark.asyncio
-    async def test_library_empty(
-        self, client: AsyncClient, headers: dict
-    ):
+    async def test_library_empty(self, client: AsyncClient, headers: dict):
         """Library should be empty initially."""
         response = await client.get("/v1/library", headers=headers)
         assert response.status_code == 200
@@ -315,9 +298,7 @@ class TestLibrary:
         assert data["total"] == 0
 
     @pytest.mark.asyncio
-    async def test_library_pagination(
-        self, client: AsyncClient, headers: dict
-    ):
+    async def test_library_pagination(self, client: AsyncClient, headers: dict):
         """Library pagination parameters."""
         response = await client.get(
             "/v1/library",
@@ -331,9 +312,7 @@ class TestPageRegeneration:
     """Page regeneration endpoint tests."""
 
     @pytest.mark.asyncio
-    async def test_regenerate_page_not_found(
-        self, client: AsyncClient, headers: dict
-    ):
+    async def test_regenerate_page_not_found(self, client: AsyncClient, headers: dict):
         """Regenerate page for non-existent job should fail."""
         response = await client.post(
             "/v1/books/non-existent-job/pages/1/regenerate",
@@ -435,9 +414,7 @@ class TestUserIsolation:
         assert len(response2.json()["characters"]) == 0
 
     @pytest.mark.asyncio
-    async def test_library_isolated_by_user(
-        self, client: AsyncClient
-    ):
+    async def test_library_isolated_by_user(self, client: AsyncClient):
         """Library should be isolated by user_key."""
         user1_headers = {"X-User-Key": "user1-key-12345678901234567890"}
         user2_headers = {"X-User-Key": "user2-key-12345678901234567890"}

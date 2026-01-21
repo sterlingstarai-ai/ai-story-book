@@ -1,11 +1,9 @@
 """
 E2E Tests - Full flow testing with mocked external services
 """
-import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
-from httpx import AsyncClient
 
-from src.models.dto import JobState
+import pytest
+from httpx import AsyncClient
 
 
 class TestBookCreationFlow:
@@ -353,7 +351,14 @@ class TestStyleValidation:
         headers: dict,
     ):
         """Test all valid styles."""
-        valid_styles = ["watercolor", "cartoon", "3d", "pixel", "oil_painting", "claymation"]
+        valid_styles = [
+            "watercolor",
+            "cartoon",
+            "3d",
+            "pixel",
+            "oil_painting",
+            "claymation",
+        ]
 
         for style in valid_styles:
             response = await client.post(

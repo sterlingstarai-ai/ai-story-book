@@ -19,13 +19,15 @@ import uuid
 import structlog
 
 from src.core.config import settings
-from src.core.errors import (
-    StoryBookError, ErrorCode, TransientError,
-    get_backoff
-)
+from src.core.errors import StoryBookError, ErrorCode, TransientError, get_backoff
 from src.models.dto import (
-    BookSpec, StoryDraft, CharacterSheet, ImagePrompts,
-    ModerationResult, BookResult, SeriesNextRequest
+    BookSpec,
+    StoryDraft,
+    CharacterSheet,
+    ImagePrompts,
+    ModerationResult,
+    BookResult,
+    SeriesNextRequest,
 )
 
 logger = structlog.get_logger()
@@ -46,6 +48,7 @@ PROGRESS_PACKAGE = 100
 
 
 # ==================== Step Runner ====================
+
 
 async def run_step(
     job_id: str,
@@ -84,10 +87,7 @@ async def run_step(
         try:
             result = await asyncio.wait_for(fn(), timeout=timeout_sec)
             logger.info(
-                "Step completed",
-                job_id=job_id,
-                step=step_name,
-                attempt=attempt + 1
+                "Step completed", job_id=job_id, step=step_name, attempt=attempt + 1
             )
             return result
 
@@ -98,7 +98,7 @@ async def run_step(
                 job_id=job_id,
                 step=step_name,
                 attempt=attempt + 1,
-                timeout=timeout_sec
+                timeout=timeout_sec,
             )
 
         except TransientError as e:
@@ -108,7 +108,7 @@ async def run_step(
                 job_id=job_id,
                 step=step_name,
                 attempt=attempt + 1,
-                error=str(e)
+                error=str(e),
             )
 
         except StoryBookError:
@@ -122,7 +122,7 @@ async def run_step(
                 job_id=job_id,
                 step=step_name,
                 attempt=attempt + 1,
-                error=str(e)
+                error=str(e),
             )
 
         # 재시도 대기
@@ -137,6 +137,7 @@ async def run_step(
 
 # ==================== Database Helpers ====================
 
+
 async def update_job_status(job_id: str, step: str, progress: int):
     """잡 상태 업데이트"""
     from src.core.database import AsyncSessionLocal
@@ -144,6 +145,7 @@ async def update_job_status(job_id: str, step: str, progress: int):
 
     async with AsyncSessionLocal() as session:
         from sqlalchemy import select
+
         result = await session.execute(select(Job).where(Job.id == job_id))
         job = result.scalar_one_or_none()
 
@@ -162,6 +164,7 @@ async def mark_job_failed(job_id: str, error_code: ErrorCode, message: str):
 
     async with AsyncSessionLocal() as session:
         from sqlalchemy import select
+
         result = await session.execute(select(Job).where(Job.id == job_id))
         job = result.scalar_one_or_none()
 
@@ -182,6 +185,7 @@ async def mark_job_done(job_id: str):
 
     async with AsyncSessionLocal() as session:
         from sqlalchemy import select
+
         result = await session.execute(select(Job).where(Job.id == job_id))
         job = result.scalar_one_or_none()
 
@@ -196,6 +200,7 @@ async def mark_job_done(job_id: str):
 
 
 # ==================== Main Orchestrator ====================
+
 
 async def start_book_generation(job_id: str, spec: BookSpec, user_key: str):
     """
@@ -228,10 +233,11 @@ async def start_book_generation(job_id: str, spec: BookSpec, user_key: str):
 
         if not moderation.is_safe:
             from src.core.errors import SafetyError
+
             raise SafetyError(
                 message=f"입력이 안전하지 않습니다: {', '.join(moderation.reasons)}",
                 is_input=True,
-                suggestions=moderation.suggestions
+                suggestions=moderation.suggestions,
             )
 
         # C. 스토리 생성
@@ -264,7 +270,9 @@ async def start_book_generation(job_id: str, spec: BookSpec, user_key: str):
             job_id=job_id,
             step_name="그림 준비 중...",
             progress=PROGRESS_IMAGE_PROMPTS,
-            fn=lambda: generate_image_prompts(normalized_spec, story_draft, character_sheet),
+            fn=lambda: generate_image_prompts(
+                normalized_spec, story_draft, character_sheet
+            ),
             retries=1,
             timeout_sec=settings.llm_timeout,
             backoff=[2],
@@ -297,8 +305,13 @@ async def start_book_generation(job_id: str, spec: BookSpec, user_key: str):
             step_name="마무리 중...",
             progress=98,
             fn=lambda: package_book(
-                job_id, user_key, normalized_spec, story_draft,
-                character_sheet, image_prompts, image_urls
+                job_id,
+                user_key,
+                normalized_spec,
+                story_draft,
+                character_sheet,
+                image_prompts,
+                image_urls,
             ),
             retries=1,
             timeout_sec=30,
@@ -306,7 +319,9 @@ async def start_book_generation(job_id: str, spec: BookSpec, user_key: str):
 
         # 완료
         await mark_job_done(job_id)
-        logger.info("Book generation completed", job_id=job_id, book_id=book_result.book_id)
+        logger.info(
+            "Book generation completed", job_id=job_id, book_id=book_result.book_id
+        )
 
     except StoryBookError as e:
         await mark_job_failed(job_id, e.code, e.message)
@@ -318,6 +333,7 @@ async def start_book_generation(job_id: str, spec: BookSpec, user_key: str):
 
 # ==================== Pipeline Steps (Stubs) ====================
 
+
 async def normalize_input(spec: BookSpec) -> BookSpec:
     """A. 입력 정규화"""
     # 기본값 적용, 검증 등
@@ -327,28 +343,30 @@ async def normalize_input(spec: BookSpec) -> BookSpec:
 async def moderate_input(spec: BookSpec) -> ModerationResult:
     """B. 입력 안전성 검사"""
     from src.services.llm import call_moderation
+
     return await call_moderation(spec)
 
 
 async def generate_story(spec: BookSpec) -> StoryDraft:
     """C. 스토리 생성"""
     from src.services.llm import call_story_generation
+
     return await call_story_generation(spec)
 
 
 async def generate_character_sheet(spec: BookSpec, story: StoryDraft) -> CharacterSheet:
     """D. 캐릭터 시트 생성"""
     from src.services.llm import call_character_sheet_generation
+
     return await call_character_sheet_generation(spec, story)
 
 
 async def generate_image_prompts(
-    spec: BookSpec,
-    story: StoryDraft,
-    character: CharacterSheet
+    spec: BookSpec, story: StoryDraft, character: CharacterSheet
 ) -> ImagePrompts:
     """E. 이미지 프롬프트 생성"""
     from src.services.llm import call_image_prompts_generation
+
     return await call_image_prompts_generation(spec, story, character)
 
 
@@ -384,19 +402,20 @@ async def generate_all_images(
             await update_job_status(
                 job_id,
                 f"그림 그리는 중... ({page_num}/{len(image_prompts.pages)})",
-                int(current_progress + (page_num * progress_per_image))
+                int(current_progress + (page_num * progress_per_image)),
             )
             return await generate_image_with_retry(prompt, job_id, page_num)
 
     tasks = [
-        generate_with_semaphore(prompt, prompt.page)
-        for prompt in image_prompts.pages
+        generate_with_semaphore(prompt, prompt.page) for prompt in image_prompts.pages
     ]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     for prompt, result in zip(image_prompts.pages, results):
         if isinstance(result, Exception):
-            logger.error(f"Failed to generate image for page {prompt.page}", error=str(result))
+            logger.error(
+                f"Failed to generate image for page {prompt.page}", error=str(result)
+            )
             # Use placeholder
             image_urls[prompt.page] = "https://placeholder.com/failed.png"
         else:
@@ -413,18 +432,21 @@ async def generate_image_with_retry(prompt, job_id: str, page: int) -> str:
     for attempt in range(max_retries):
         try:
             url = await asyncio.wait_for(
-                generate_image(prompt),
-                timeout=settings.image_timeout
+                generate_image(prompt), timeout=settings.image_timeout
             )
             return url
 
         except asyncio.TimeoutError:
-            logger.warning(f"Image generation timeout for page {page}, attempt {attempt + 1}")
+            logger.warning(
+                f"Image generation timeout for page {page}, attempt {attempt + 1}"
+            )
             if attempt < max_retries - 1:
                 await asyncio.sleep(get_backoff(ErrorCode.IMAGE_TIMEOUT, attempt))
 
         except Exception as e:
-            logger.warning(f"Image generation failed for page {page}: {e}, attempt {attempt + 1}")
+            logger.warning(
+                f"Image generation failed for page {page}: {e}, attempt {attempt + 1}"
+            )
             if attempt < max_retries - 1:
                 await asyncio.sleep(get_backoff(ErrorCode.IMAGE_FAILED, attempt))
 
@@ -436,10 +458,28 @@ async def moderate_output(story: StoryDraft, image_urls: dict) -> bool:
     """G. 출력 안전성 검사 - 생성된 콘텐츠 검증"""
     # 금지 키워드 목록 (아동 부적절 콘텐츠)
     forbidden_patterns = [
-        "죽이", "살인", "폭력", "피", "술", "담배", "마약",
-        "성인", "섹스", "야한", "총", "칼로 찔",
-        "kill", "murder", "blood", "sex", "drug", "alcohol",
-        "violence", "weapon", "gun", "knife",
+        "죽이",
+        "살인",
+        "폭력",
+        "피",
+        "술",
+        "담배",
+        "마약",
+        "성인",
+        "섹스",
+        "야한",
+        "총",
+        "칼로 찔",
+        "kill",
+        "murder",
+        "blood",
+        "sex",
+        "drug",
+        "alcohol",
+        "violence",
+        "weapon",
+        "gun",
+        "knife",
     ]
 
     # 모든 페이지 텍스트 검사
@@ -473,7 +513,9 @@ async def package_book(
     from src.models.db import Book, Page
     from datetime import datetime
 
-    book_id = f"book_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    book_id = (
+        f"book_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    )
 
     async with AsyncSessionLocal() as session:
         # Create book
@@ -499,8 +541,12 @@ async def package_book(
                 text=page_data.text,
                 image_url=image_urls.get(page_data.page, ""),
                 image_prompt=next(
-                    (p.positive_prompt for p in image_prompts.pages if p.page == page_data.page),
-                    ""
+                    (
+                        p.positive_prompt
+                        for p in image_prompts.pages
+                        if p.page == page_data.page
+                    ),
+                    "",
                 ),
             )
             session.add(page)
@@ -520,15 +566,19 @@ async def package_book(
                 "text": p.text,
                 "image_url": image_urls.get(p.page, ""),
                 "image_prompt": next(
-                    (ip.positive_prompt for ip in image_prompts.pages if ip.page == p.page),
-                    ""
+                    (
+                        ip.positive_prompt
+                        for ip in image_prompts.pages
+                        if ip.page == p.page
+                    ),
+                    "",
                 ),
-                "audio_url": None
+                "audio_url": None,
             }
             for p in story.pages
         ],
         character_sheet=character,
-        created_at=datetime.utcnow()
+        created_at=datetime.utcnow(),
     )
 
 
@@ -538,10 +588,7 @@ async def save_story_draft(job_id: str, story: StoryDraft):
     from src.models.db import StoryDraftDB
 
     async with AsyncSessionLocal() as session:
-        draft = StoryDraftDB(
-            job_id=job_id,
-            draft=story.model_dump()
-        )
+        draft = StoryDraftDB(job_id=job_id, draft=story.model_dump())
         session.add(draft)
         await session.commit()
 
@@ -552,22 +599,20 @@ async def save_image_prompts(job_id: str, prompts: ImagePrompts):
     from src.models.db import ImagePromptsDB
 
     async with AsyncSessionLocal() as session:
-        prompts_db = ImagePromptsDB(
-            job_id=job_id,
-            prompts=prompts.model_dump()
-        )
+        prompts_db = ImagePromptsDB(job_id=job_id, prompts=prompts.model_dump())
         session.add(prompts_db)
         await session.commit()
 
 
 # ==================== Regeneration ====================
 
+
 async def regenerate_page(
     job_id: str,
     book_id: str,
     page_number: int,
     mode: str,
-    feedback: Optional[str] = None
+    feedback: Optional[str] = None,
 ):
     """페이지 재생성"""
     from src.core.database import AsyncSessionLocal
@@ -578,27 +623,18 @@ async def regenerate_page(
     from sqlalchemy import select
 
     logger.info(
-        "Regenerating page",
-        job_id=job_id,
-        book_id=book_id,
-        page=page_number,
-        mode=mode
+        "Regenerating page", job_id=job_id, book_id=book_id, page=page_number, mode=mode
     )
 
     async with AsyncSessionLocal() as session:
         # Load book and page
-        book_result = await session.execute(
-            select(Book).where(Book.id == book_id)
-        )
+        book_result = await session.execute(select(Book).where(Book.id == book_id))
         book = book_result.scalar_one_or_none()
         if not book:
             raise ValueError(f"Book {book_id} not found")
 
         page_result = await session.execute(
-            select(Page).where(
-                Page.book_id == book_id,
-                Page.page_number == page_number
-            )
+            select(Page).where(Page.book_id == book_id, Page.page_number == page_number)
         )
         page = page_result.scalar_one_or_none()
         if not page:
@@ -614,11 +650,12 @@ async def regenerate_page(
 
             if draft_db and feedback:
                 from src.models.dto import BookSpec, StoryDraft
+
                 spec = BookSpec(
                     topic=book.title,
                     language=book.language,
                     target_age=book.target_age,
-                    style=book.style
+                    style=book.style,
                 )
                 story = StoryDraft.model_validate(draft_db.draft)
 
@@ -633,13 +670,12 @@ async def regenerate_page(
             if page.image_prompt:
                 image_data = await generate_image(
                     page.image_prompt,
-                    seed=None  # New random seed
+                    seed=None,  # New random seed
                 )
                 if image_data:
                     # Upload new image
                     image_url = await storage_service.upload_image(
-                        image_data,
-                        f"{book_id}/page_{page_number}_v2.png"
+                        image_data, f"{book_id}/page_{page_number}_v2.png"
                     )
                     page.image_url = image_url
 
@@ -647,21 +683,15 @@ async def regenerate_page(
         await session.commit()
 
     logger.info(
-        "Page regeneration complete",
-        book_id=book_id,
-        page=page_number,
-        mode=mode
+        "Page regeneration complete", book_id=book_id, page=page_number, mode=mode
     )
 
 
 # ==================== Series Generation ====================
 
+
 async def start_series_generation(
-    job_id: str,
-    request: SeriesNextRequest,
-    user_key: str,
-    character,
-    prev_book
+    job_id: str, request: SeriesNextRequest, user_key: str, character, prev_book
 ):
     """시리즈 다음 권 생성 - 기존 캐릭터로 새 이야기"""
     from src.models.dto import CharacterSpec
@@ -670,7 +700,7 @@ async def start_series_generation(
         "Starting series generation",
         job_id=job_id,
         character_id=request.character_id,
-        prev_book_id=request.previous_book_id
+        prev_book_id=request.previous_book_id,
     )
 
     # Build topic from previous book and hint
@@ -688,10 +718,12 @@ async def start_series_generation(
         character=CharacterSpec(
             name=character.name,
             appearance=character.master_description,
-            personality=", ".join(character.personality_traits) if character.personality_traits else None
+            personality=", ".join(character.personality_traits)
+            if character.personality_traits
+            else None,
         ),
         forbidden_elements=request.forbidden_elements,
-        series_context=f"이전 책 '{prev_book.title}'의 후속편입니다."
+        series_context=f"이전 책 '{prev_book.title}'의 후속편입니다.",
     )
 
     # Use existing book generation pipeline

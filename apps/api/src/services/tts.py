@@ -2,6 +2,7 @@
 TTS (Text-to-Speech) Service
 책 페이지를 오디오로 변환
 """
+
 import httpx
 from typing import Optional
 from abc import ABC, abstractmethod
@@ -53,6 +54,7 @@ class GoogleTTSProvider(BaseTTSProvider):
 
             # Base64 디코딩
             import base64
+
             audio_content = base64.b64decode(data["audioContent"])
             return audio_content
 
@@ -103,10 +105,26 @@ class MockTTSProvider(BaseTTSProvider):
     async def synthesize(self, text: str, voice: str = "default") -> bytes:
         """빈 MP3 반환 (테스트용)"""
         # 최소한의 유효한 MP3 헤더
-        return bytes([
-            0xFF, 0xFB, 0x90, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        ])
+        return bytes(
+            [
+                0xFF,
+                0xFB,
+                0x90,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+            ]
+        )
 
 
 class TTSService:

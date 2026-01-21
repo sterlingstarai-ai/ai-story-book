@@ -8,8 +8,11 @@ from datetime import datetime
 from src.core.database import get_db
 from src.core.dependencies import get_user_key
 from src.models.dto import (
-    CreateCharacterRequest, CharacterResponse, CharacterListResponse,
-    CharacterAppearance, CharacterClothing
+    CreateCharacterRequest,
+    CharacterResponse,
+    CharacterListResponse,
+    CharacterAppearance,
+    CharacterClothing,
 )
 from src.models.db import Character
 from src.services.photo_character import photo_character_service
@@ -99,7 +102,7 @@ async def list_characters(
             )
             for c in characters
         ],
-        total=total
+        total=total,
     )
 
 
@@ -112,9 +115,7 @@ async def get_character(
     """
     캐릭터 상세 조회
     """
-    result = await db.execute(
-        select(Character).where(Character.id == character_id)
-    )
+    result = await db.execute(select(Character).where(Character.id == character_id))
     character = result.scalar_one_or_none()
 
     if not character:
@@ -144,9 +145,7 @@ async def delete_character(
     """
     캐릭터 삭제
     """
-    result = await db.execute(
-        select(Character).where(Character.id == character_id)
-    )
+    result = await db.execute(select(Character).where(Character.id == character_id))
     character = result.scalar_one_or_none()
 
     if not character:
@@ -194,7 +193,9 @@ async def create_character_from_photo(
         )
 
         # 캐릭터 ID 생성
-        character_id = f"char_{datetime.utcnow().strftime('%Y%m%d')}_{uuid.uuid4().hex[:8]}"
+        character_id = (
+            f"char_{datetime.utcnow().strftime('%Y%m%d')}_{uuid.uuid4().hex[:8]}"
+        )
 
         # 원본 사진 저장
         photo_key = f"characters/{character_id}/photo.jpg"
@@ -211,8 +212,12 @@ async def create_character_from_photo(
         # Convert from-photo format to standard CharacterAppearance format
         normalized_appearance = {
             "age_visual": appearance.get("age_visual", "알 수 없음"),
-            "face": f"{appearance.get('eye_color', '')} 눈, {appearance.get('distinctive_features', [''])[0] if appearance.get('distinctive_features') else ''}".strip(", ") or "알 수 없음",
-            "hair": f"{appearance.get('hair_color', '')} {appearance.get('hair_style', '')}".strip() or "알 수 없음",
+            "face": f"{appearance.get('eye_color', '')} 눈, {appearance.get('distinctive_features', [''])[0] if appearance.get('distinctive_features') else ''}".strip(
+                ", "
+            )
+            or "알 수 없음",
+            "hair": f"{appearance.get('hair_color', '')} {appearance.get('hair_style', '')}".strip()
+            or "알 수 없음",
             "skin": appearance.get("skin_tone", "알 수 없음"),
             "body": appearance.get("body_type", "알 수 없음"),
         }
@@ -223,7 +228,9 @@ async def create_character_from_photo(
             "top": clothing.get("top", "알 수 없음"),
             "bottom": clothing.get("bottom", "알 수 없음"),
             "shoes": clothing.get("shoes", "알 수 없음"),
-            "accessories": ", ".join(accessories_list) if isinstance(accessories_list, list) else str(accessories_list) or "없음",
+            "accessories": ", ".join(accessories_list)
+            if isinstance(accessories_list, list)
+            else str(accessories_list) or "없음",
         }
 
         character = Character(
