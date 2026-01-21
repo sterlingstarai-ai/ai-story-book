@@ -268,6 +268,7 @@ async def get_book_detail(
 
     return {
         "book_id": book.id,
+        "job_id": book.job_id,
         "title": book.title,
         "language": book.language,
         "target_age": book.target_age,
@@ -497,11 +498,16 @@ async def export_book_pdf(
         raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(e)}")
 
     # Return PDF as response
-    filename = f"{book.title.replace(' ', '_')}.pdf"
+    # Use URL encoding for Korean filename to avoid header encoding issues
+    from urllib.parse import quote
+    safe_filename = f"storybook_{book.id}.pdf"
+    encoded_filename = quote(f"{book.title.replace(' ', '_')}.pdf")
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={
+            "Content-Disposition": f"attachment; filename=\"{safe_filename}\"; filename*=UTF-8''{encoded_filename}"
+        },
     )
 
 

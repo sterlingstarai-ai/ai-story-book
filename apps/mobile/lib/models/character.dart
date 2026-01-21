@@ -22,7 +22,7 @@ class Character {
 
   factory Character.fromJson(Map<String, dynamic> json) {
     return Character(
-      id: json['id'] as String,
+      id: (json['character_id'] ?? json['id']) as String,
       name: json['name'] as String,
       masterDescription: json['master_description'] as String,
       appearance: Appearance.fromJson(json['appearance'] as Map<String, dynamic>),

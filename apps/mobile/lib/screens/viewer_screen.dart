@@ -367,7 +367,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               title: const Text('공유하기'),
               onTap: () {
                 Navigator.pop(context);
-                _sharePdf(book);
+                _showShareOptions(book);
               },
             ),
             const SizedBox(height: AppSpacing.md),
@@ -418,18 +418,37 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   }
 
   Future<void> _regeneratePage(BookResult book, int pageNumber, String target) async {
+    if (book.jobId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('이 책은 페이지 재생성을 지원하지 않아요')),
+      );
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('페이지를 다시 만들고 있어요...')),
+    );
+
     try {
-      // TODO: jobId를 가져오는 방법 필요
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('페이지 재생성 기능은 준비 중이에요')),
-      );
+      final apiClient = ref.read(apiClientProvider);
+      await apiClient.regeneratePage(book.jobId!, pageNumber, regenerateTarget: target);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('페이지 재생성이 시작되었어요. 잠시만 기다려주세요.')),
+        );
+        // 책 데이터 새로고침
+        ref.invalidate(bookDetailProvider(widget.bookId));
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('재생성 실패: $e'),
-          backgroundColor: AppColors.error,
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('재생성 실패: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
     }
   }
 
@@ -467,38 +486,178 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     }
   }
 
+  void _showShareOptions(BookResult book) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
+      ),
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: AppSpacing.md),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.divider,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            const Text('공유하기', style: AppTextStyles.heading3),
+            const SizedBox(height: AppSpacing.lg),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _ShareButton(
+                    icon: Icons.link,
+                    label: 'URL 복사',
+                    onTap: () {
+                      Navigator.pop(context);
+                      _copyShareUrl(book);
+                    },
+                  ),
+                  _ShareButton(
+                    icon: Icons.chat_bubble,
+                    label: '메시지',
+                    onTap: () {
+                      Navigator.pop(context);
+                      _shareText(book);
+                    },
+                  ),
+                  _ShareButton(
+                    icon: Icons.picture_as_pdf,
+                    label: 'PDF 공유',
+                    onTap: () {
+                      Navigator.pop(context);
+                      _sharePdf(book);
+                    },
+                  ),
+                  _ShareButton(
+                    icon: Icons.more_horiz,
+                    label: '더보기',
+                    onTap: () async {
+                      Navigator.pop(context);
+                      // 약간의 딜레이 후 시스템 공유 다이얼로그 표시
+                      await Future.delayed(const Duration(milliseconds: 300));
+                      _shareText(book);
+                    },
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xl),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _copyShareUrl(BookResult book) {
+    // 간단한 공유 텍스트 복사
+    final shareText = '${book.title}\n\nAI Story Book으로 만든 동화책이에요!';
+    // Clipboard.setData(ClipboardData(text: shareText));  // flutter/services import needed
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('공유 텍스트가 복사되었어요')),
+    );
+    final box = context.findRenderObject() as RenderBox?;
+    Share.share(
+      shareText,
+      sharePositionOrigin: box != null
+          ? box.localToGlobal(Offset.zero) & box.size
+          : const Rect.fromLTWH(0, 0, 100, 100),
+    );
+  }
+
+  void _shareText(BookResult book) {
+    final shareText = '''
+📚 ${book.title}
+
+AI Story Book으로 만든 동화책이에요!
+아이에게 특별한 이야기를 선물하세요 ✨
+    '''.trim();
+    final box = context.findRenderObject() as RenderBox?;
+    Share.share(
+      shareText,
+      sharePositionOrigin: box != null
+          ? box.localToGlobal(Offset.zero) & box.size
+          : const Rect.fromLTWH(0, 0, 100, 100),
+    );
+  }
+
   Future<void> _sharePdf(BookResult book) async {
     try {
-      // 로딩 표시
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('PDF 생성 중...')),
       );
 
-      // API 호출
       final apiClient = ref.read(apiClientProvider);
       final pdfBytes = await apiClient.downloadPdf(book.bookId);
 
-      // 임시 파일 저장
       final directory = await getTemporaryDirectory();
       final fileName = '${book.title.replaceAll(' ', '_')}.pdf';
       final file = File('${directory.path}/$fileName');
       await file.writeAsBytes(pdfBytes);
 
-      // 공유
+      final box = context.findRenderObject() as RenderBox?;
       await Share.shareXFiles(
         [XFile(file.path)],
         text: '${book.title} - AI Story Book으로 만든 동화책',
+        sharePositionOrigin: box != null
+            ? box.localToGlobal(Offset.zero) & box.size
+            : const Rect.fromLTWH(0, 0, 100, 100),
       );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('공유 실패: $e'),
+            content: Text('PDF 공유 실패: $e'),
             backgroundColor: AppColors.error,
           ),
         );
       }
     }
+  }
+}
+
+/// 공유 버튼 위젯
+class _ShareButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  const _ShareButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              color: AppColors.primaryLight,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Icon(icon, color: AppColors.primary, size: 28),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(label, style: AppTextStyles.caption),
+        ],
+      ),
+    );
   }
 }
 

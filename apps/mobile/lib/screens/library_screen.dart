@@ -135,7 +135,7 @@ class _LibraryBottomNavBar extends StatelessWidget {
                 icon: Icons.auto_stories_rounded,
                 label: '서재',
                 isSelected: true,
-                onTap: () {},
+                onTap: () {}, // Already on this screen
               ),
               _NavItem(
                 icon: Icons.people_rounded,

@@ -249,7 +249,7 @@ class _BottomNavBar extends StatelessWidget {
                 icon: Icons.home_rounded,
                 label: '홈',
                 isSelected: currentIndex == 0,
-                onTap: () => Navigator.pushReplacementNamed(context, '/'),
+                onTap: currentIndex == 0 ? () {} : () => Navigator.pushReplacementNamed(context, '/'),
               ),
               _NavItem(
                 icon: Icons.add_circle_rounded,

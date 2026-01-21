@@ -20,7 +20,7 @@ class LibraryBook {
 
   factory LibraryBook.fromJson(Map<String, dynamic> json) {
     return LibraryBook(
-      id: json['id'] as String,
+      id: (json['book_id'] ?? json['id']) as String,
       title: json['title'] as String,
       coverImageUrl: json['cover_image_url'] as String,
       targetAge: json['target_age'] as String,

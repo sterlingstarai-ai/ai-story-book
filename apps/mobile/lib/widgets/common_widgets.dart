@@ -112,16 +112,17 @@ class BookCard extends StatelessWidget {
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            ClipRRect(
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(AppRadius.lg),
-              ),
-              child: AspectRatio(
-                aspectRatio: 3 / 4,
+            Flexible(
+              child: ClipRRect(
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(AppRadius.lg),
+                ),
                 child: CachedNetworkImage(
                   imageUrl: imageUrl,
                   fit: BoxFit.cover,
+                  width: double.infinity,
                   placeholder: (context, url) => Shimmer.fromColors(
                     baseColor: Colors.grey[300]!,
                     highlightColor: Colors.grey[100]!,
@@ -135,21 +136,24 @@ class BookCard extends StatelessWidget {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.all(AppSpacing.md),
+              padding: const EdgeInsets.all(AppSpacing.sm),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
                     title,
-                    style: AppTextStyles.heading3,
-                    maxLines: 2,
+                    style: AppTextStyles.bodySmall.copyWith(fontWeight: FontWeight.w600),
+                    maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                   if (subtitle != null) ...[
-                    const SizedBox(height: AppSpacing.xs),
+                    const SizedBox(height: 2),
                     Text(
                       subtitle!,
                       style: AppTextStyles.caption,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ],
@@ -168,6 +172,7 @@ class CharacterCard extends StatelessWidget {
   final String description;
   final VoidCallback? onTap;
   final bool isSelected;
+  final bool showCheckbox;  // 체크박스 표시 (다중 선택용)
 
   const CharacterCard({
     super.key,
@@ -175,6 +180,7 @@ class CharacterCard extends StatelessWidget {
     required this.description,
     this.onTap,
     this.isSelected = false,
+    this.showCheckbox = false,
   });
 
   @override
@@ -196,6 +202,13 @@ class CharacterCard extends StatelessWidget {
           children: [
             Row(
               children: [
+                if (showCheckbox) ...[
+                  Icon(
+                    isSelected ? Icons.check_box : Icons.check_box_outline_blank,
+                    color: isSelected ? AppColors.primary : AppColors.textHint,
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                ],
                 CircleAvatar(
                   backgroundColor: AppColors.secondaryLight,
                   child: Text(
@@ -213,7 +226,7 @@ class CharacterCard extends StatelessWidget {
                     style: AppTextStyles.heading3,
                   ),
                 ),
-                if (isSelected)
+                if (isSelected && !showCheckbox)
                   const Icon(Icons.check_circle, color: AppColors.primary),
               ],
             ),

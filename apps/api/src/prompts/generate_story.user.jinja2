@@ -5,8 +5,17 @@
 - theme: {{ theme | default('null', true) }}
 - style: {{ style }}
 - page_count: {{ page_count }}
-- character_spec: {{ character_spec | tojson if character_spec else 'null' }}
+{% if character_specs %}
+- characters (다중): {{ character_specs | tojson }}
+{% elif character_spec %}
+- character_spec: {{ character_spec | tojson }}
+{% else %}
+- character_spec: null
+{% endif %}
 - forbidden_elements: {{ forbidden_elements | tojson }}
 
 요청:
 위 입력으로 그림책 스토리를 생성하라.
+{% if character_specs %}
+참고: 여러 캐릭터가 제공되었으므로, 모든 캐릭터가 이야기에 등장하도록 해라. 가족 이야기라면 각 가족 구성원이 중요한 역할을 맡게 해라.
+{% endif %}

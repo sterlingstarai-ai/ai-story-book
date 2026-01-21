@@ -55,6 +55,7 @@ class JobStatus {
 /// 책 결과 모델
 class BookResult {
   final String bookId;
+  final String? jobId;
   final String title;
   final String coverImageUrl;
   final List<PageResult> pages;
@@ -62,6 +63,7 @@ class BookResult {
 
   BookResult({
     required this.bookId,
+    this.jobId,
     required this.title,
     required this.coverImageUrl,
     required this.pages,
@@ -71,6 +73,7 @@ class BookResult {
   factory BookResult.fromJson(Map<String, dynamic> json) {
     return BookResult(
       bookId: json['book_id'] as String,
+      jobId: json['job_id'] as String?,
       title: json['title'] as String,
       coverImageUrl: json['cover_image_url'] as String,
       pages: (json['pages'] as List<dynamic>)

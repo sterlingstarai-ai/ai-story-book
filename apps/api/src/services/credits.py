@@ -52,7 +52,7 @@ class CreditsService:
             # 새 사용자에게 기본 크레딧 제공
             user_credits = UserCredits(
                 user_key=user_key,
-                credits=3,  # 무료 크레딧
+                credits=10,  # 무료 크레딧 (테스트용 10개)
                 total_purchased=0,
                 total_used=0,
             )
@@ -64,8 +64,8 @@ class CreditsService:
             await self._record_transaction(
                 db=db,
                 user_key=user_key,
-                amount=3,
-                balance_after=3,
+                amount=10,
+                balance_after=10,
                 transaction_type="bonus",
                 description="신규 가입 보너스 크레딧",
             )

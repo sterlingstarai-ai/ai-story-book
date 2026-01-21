@@ -6,7 +6,8 @@ class BookSpec {
   final String style;
   final int pageCount;
   final String? theme;
-  final String? characterId;
+  final String? characterId;  // 단일 캐릭터 (기존 호환)
+  final List<String>? characterIds;  // 다중 캐릭터 (가족 등)
   final List<String>? forbiddenElements;
 
   BookSpec({
@@ -17,6 +18,7 @@ class BookSpec {
     this.pageCount = 8,
     this.theme,
     this.characterId,
+    this.characterIds,
     this.forbiddenElements,
   });
 
@@ -28,6 +30,7 @@ class BookSpec {
         'page_count': pageCount,
         if (theme != null) 'theme': theme,
         if (characterId != null) 'character_id': characterId,
+        if (characterIds != null && characterIds!.isNotEmpty) 'character_ids': characterIds,
         if (forbiddenElements != null) 'forbidden_elements': forbiddenElements,
       };
 }
@@ -51,7 +54,8 @@ enum BookStyle {
   threeD('3d', '3D'),
   pixel('pixel', '픽셀아트'),
   oilPainting('oil_painting', '유화'),
-  claymation('claymation', '클레이');
+  claymation('claymation', '클레이'),
+  realistic('realistic', '실사');
 
   final String value;
   final String label;
@@ -65,7 +69,12 @@ enum BookTheme {
   family('가족', '가족'),
   adventure('모험', '모험'),
   nature('자연', '자연'),
-  science('과학', '과학');
+  science('과학', '과학'),
+  timeTravel('시간여행', '시간여행'),
+  animal('동물', '동물'),
+  dinosaur('공룡', '공룡'),
+  occupation('직업', '직업'),
+  fictionWorld('작품속으로', '작품 속으로');
 
   final String value;
   final String label;

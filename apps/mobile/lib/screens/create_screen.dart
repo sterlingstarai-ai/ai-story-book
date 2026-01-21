@@ -20,7 +20,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
   TargetAge _selectedAge = TargetAge.age5to7;
   BookStyle _selectedStyle = BookStyle.watercolor;
   BookTheme? _selectedTheme;
-  String? _selectedCharacterId;
+  List<String> _selectedCharacterIds = [];  // 다중 캐릭터 선택
   bool _isLoading = false;
 
   @override
@@ -40,7 +40,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
         targetAge: _selectedAge.value,
         style: _selectedStyle.value,
         theme: _selectedTheme?.value,
-        characterId: _selectedCharacterId,
+        characterIds: _selectedCharacterIds.isNotEmpty ? _selectedCharacterIds : null,
       );
 
       final jobId = await ref.read(bookCreationProvider.notifier).createBook(spec);
@@ -217,11 +217,20 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
 
             const SizedBox(height: AppSpacing.lg),
 
-            // 캐릭터 선택 (선택사항)
+            // 캐릭터 선택 (선택사항 - 다중 선택 가능)
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('캐릭터 (선택)', style: AppTextStyles.heading3),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('캐릭터 (선택)', style: AppTextStyles.heading3),
+                    Text(
+                      '가족 이야기는 여러 캐릭터 선택 가능',
+                      style: AppTextStyles.caption.copyWith(color: AppColors.textHint),
+                    ),
+                  ],
+                ),
                 TextButton(
                   onPressed: () => Navigator.pushNamed(context, '/characters'),
                   child: Text(
@@ -252,22 +261,45 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
 
                 return Column(
                   children: [
-                    // 새 캐릭터 옵션
+                    // 새 캐릭터로 시작 옵션
                     CharacterCard(
-                      name: '새 캐릭터',
+                      name: '새 캐릭터로 시작',
                       description: 'AI가 이야기에 맞는 새 캐릭터를 만들어요',
-                      isSelected: _selectedCharacterId == null,
-                      onTap: () => setState(() => _selectedCharacterId = null),
+                      isSelected: _selectedCharacterIds.isEmpty,
+                      onTap: () => setState(() => _selectedCharacterIds = []),
                     ),
+                    if (_selectedCharacterIds.isNotEmpty) ...[
+                      const SizedBox(height: AppSpacing.xs),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: AppSpacing.xs),
+                        decoration: BoxDecoration(
+                          color: AppColors.primaryMedium,
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
+                        ),
+                        child: Text(
+                          '${_selectedCharacterIds.length}명 선택됨',
+                          style: AppTextStyles.caption.copyWith(color: AppColors.primary),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: AppSpacing.sm),
-                    // 기존 캐릭터 목록
+                    // 기존 캐릭터 목록 (체크박스로 다중 선택)
                     ...characters.map((character) => Padding(
                       padding: const EdgeInsets.only(bottom: AppSpacing.sm),
                       child: CharacterCard(
                         name: character.name,
                         description: character.masterDescription,
-                        isSelected: _selectedCharacterId == character.id,
-                        onTap: () => setState(() => _selectedCharacterId = character.id),
+                        isSelected: _selectedCharacterIds.contains(character.id),
+                        showCheckbox: true,
+                        onTap: () {
+                          setState(() {
+                            if (_selectedCharacterIds.contains(character.id)) {
+                              _selectedCharacterIds.remove(character.id);
+                            } else {
+                              _selectedCharacterIds.add(character.id);
+                            }
+                          });
+                        },
                       ),
                     )),
                   ],

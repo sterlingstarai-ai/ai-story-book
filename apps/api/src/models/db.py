@@ -76,6 +76,7 @@ class Book(Base):
     style = Column(String(30), nullable=False)
     theme = Column(String(20), nullable=True)
     character_id = Column(String(60), ForeignKey("characters.id"), nullable=True)
+    character_ids = Column(JSON, nullable=True)  # 다중 캐릭터 ID 목록 (가족 등)
     cover_image_url = Column(String(500), nullable=True)
     pdf_url = Column(String(500), nullable=True)
     audio_url = Column(String(500), nullable=True)

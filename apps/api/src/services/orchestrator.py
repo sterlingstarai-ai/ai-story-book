@@ -519,6 +519,8 @@ async def package_book(
 
     async with AsyncSessionLocal() as session:
         # Create book
+        # character_id: 단일 캐릭터 (기존 호환성), character_ids: 다중 캐릭터
+        primary_char_id = spec.character_ids[0] if spec.character_ids else spec.character_id
         book = Book(
             id=book_id,
             job_id=job_id,
@@ -527,7 +529,8 @@ async def package_book(
             target_age=story.target_age.value,
             style=spec.style.value,
             theme=story.theme,
-            character_id=spec.character_id,
+            character_id=primary_char_id,
+            character_ids=spec.character_ids,
             cover_image_url=image_urls.get(0, ""),
             user_key=user_key,
         )

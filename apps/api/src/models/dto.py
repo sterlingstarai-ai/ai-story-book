@@ -27,6 +27,7 @@ class Style(str, Enum):
     pixel = "pixel"
     oil_painting = "oil_painting"
     claymation = "claymation"
+    realistic = "realistic"  # 실사
 
 
 class Theme(str, Enum):
@@ -38,6 +39,11 @@ class Theme(str, Enum):
     adventure = "모험"
     nature = "자연"
     science = "과학"
+    time_travel = "시간여행"  # 미래나 역사 속으로
+    animal = "동물"
+    dinosaur = "공룡"
+    occupation = "직업"  # 직업 체험
+    fiction_world = "작품속으로"  # 유명 작품 세계관 (저작권 회피)
 
 
 class JobState(str, Enum):
@@ -84,7 +90,10 @@ class BookSpec(BaseModel):
     theme: Optional[Theme] = None
     character: Optional[CharacterSpec] = None
     character_id: Optional[str] = Field(
-        default=None, max_length=60, description="기존 캐릭터 ID"
+        default=None, max_length=60, description="기존 캐릭터 ID (단일)"
+    )
+    character_ids: Optional[List[str]] = Field(
+        default=None, max_length=10, description="기존 캐릭터 ID 목록 (다중 선택)"
     )
     forbidden_elements: Optional[List[str]] = Field(default=None, max_length=20)
     reference_image_base64: Optional[str] = Field(default=None, max_length=5_000_000)
@@ -180,10 +189,10 @@ class CharacterAppearance(BaseModel):
 class CharacterClothing(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    top: str = Field(min_length=1, max_length=80)
-    bottom: str = Field(min_length=1, max_length=80)
-    shoes: str = Field(min_length=1, max_length=80)
-    accessories: str = Field(min_length=1, max_length=80)
+    top: str = Field(default="알 수 없음", max_length=80)
+    bottom: str = Field(default="알 수 없음", max_length=80)
+    shoes: str = Field(default="알 수 없음", max_length=80)
+    accessories: str = Field(default="없음", max_length=80)
 
 
 class CharacterSheet(BaseModel):

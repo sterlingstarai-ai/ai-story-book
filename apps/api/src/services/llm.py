@@ -314,8 +314,43 @@ async def call_moderation(spec: BookSpec) -> ModerationResult:
     return parse_json_response(response, ModerationResult)
 
 
+async def load_characters_from_db(character_ids: list[str]) -> list[dict]:
+    """DB에서 캐릭터 목록 로드"""
+    if not character_ids:
+        return []
+
+    from src.core.database import AsyncSessionLocal
+    from src.models.db import Character
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Character).where(Character.id.in_(character_ids))
+        )
+        characters = result.scalars().all()
+
+        return [
+            {
+                "name": c.name,
+                "appearance": c.master_description,
+                "personality": c.personality_traits,
+            }
+            for c in characters
+        ]
+
+
 async def call_story_generation(spec: BookSpec) -> StoryDraft:
     """스토리 생성"""
+    # 기존 캐릭터 로드 (character_ids 또는 character_id)
+    character_ids = spec.character_ids or ([spec.character_id] if spec.character_id else [])
+    loaded_characters = await load_characters_from_db(character_ids)
+
+    # character_spec과 loaded_characters 병합
+    all_character_specs = []
+    if spec.character:
+        all_character_specs.append(spec.character.model_dump())
+    all_character_specs.extend(loaded_characters)
+
     system_prompt = render_prompt(
         "generate_story.system.jinja2", page_count=spec.page_count
     )
@@ -327,7 +362,8 @@ async def call_story_generation(spec: BookSpec) -> StoryDraft:
         theme=spec.theme.value if spec.theme else None,
         style=spec.style.value,
         page_count=spec.page_count,
-        character_spec=spec.character.model_dump() if spec.character else None,
+        character_spec=all_character_specs[0] if len(all_character_specs) == 1 else None,
+        character_specs=all_character_specs if len(all_character_specs) > 1 else None,
         forbidden_elements=spec.forbidden_elements or [],
     )
 
