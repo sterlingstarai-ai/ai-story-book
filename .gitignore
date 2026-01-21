@@ -41,3 +41,6 @@ htmlcov/
 *.local
 .env.local
 infra/.env
+
+# Load test results
+results/
