@@ -45,12 +45,13 @@ LLM_COST_PER_CALL = 0.00015 * 1.5  # ~1500 tokens avg, $0.00015/1K
 IMAGE_COST_PER_IMAGE = 0.024
 STORAGE_COST_PER_BOOK = 0.0004
 
-# Timing parameters
+# Timing parameters (will be divided by TIME_SCALE in fast mode)
 MIN_JOB_DURATION = 45  # seconds
 MAX_JOB_DURATION = 300  # seconds
 FAILURE_RATE = 0.05
 SLOW_JOB_RATE = 0.1
 RETRY_RATE = 0.08
+TIME_SCALE = 1  # Set to 100 for fast mode (100x faster)
 
 
 @dataclass
@@ -209,7 +210,7 @@ class JobSimulator:
                 # Random image failure and retry
                 if random.random() < 0.03:  # 3% image failure
                     self.metrics.retry_count += 1
-                    await asyncio.sleep(random.uniform(2, 5))  # Backoff
+                    await asyncio.sleep(random.uniform(2, 5) / TIME_SCALE)  # Backoff
                     self.metrics.image_calls += 1
                     self.metrics.image_cost += IMAGE_COST_PER_IMAGE
 
@@ -251,7 +252,7 @@ class JobSimulator:
         if self.will_be_slow:
             duration *= 1.5
 
-        await asyncio.sleep(duration)
+        await asyncio.sleep(duration / TIME_SCALE)
 
         self.current_progress = target_progress
         self.metrics.progress_history.append({
@@ -378,10 +379,10 @@ class LongRunningTest:
 
             # Wait for next job interval (minus time spent processing)
             elapsed = time.time() - hour_start
-            expected_elapsed = (i + 1) * interval
+            expected_elapsed = (i + 1) * interval / TIME_SCALE
             wait_time = max(0, expected_elapsed - elapsed)
             if wait_time > 0 and self.running:
-                await asyncio.sleep(min(wait_time, 10))  # Cap wait at 10s for simulation
+                await asyncio.sleep(min(wait_time, 10 / TIME_SCALE))
 
         # Calculate hourly stats
         completed = [j for j in hour_jobs if j.status == "done" and j.duration_seconds]
@@ -592,13 +593,19 @@ HOURLY BREAKDOWN
 
 async def main():
     import argparse
+    global TIME_SCALE
 
     parser = argparse.ArgumentParser(description="Long Running Load Test")
     parser.add_argument("--hours", type=int, default=3, help="Duration in hours (default: 3)")
     parser.add_argument("--jobs-per-hour", type=int, default=50, help="Jobs per hour (default: 50)")
     parser.add_argument("--output", type=str, default="results", help="Output directory")
+    parser.add_argument("--fast", action="store_true", help="Fast mode (100x faster, ~2 min total)")
 
     args = parser.parse_args()
+
+    if args.fast:
+        TIME_SCALE = 100
+        print("🚀 FAST MODE: Running 100x faster (simulated times preserved in metrics)")
 
     test = LongRunningTest(
         hours=args.hours,
