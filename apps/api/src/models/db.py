@@ -1,5 +1,15 @@
 from datetime import datetime
-from sqlalchemy import Column, String, Integer, Text, DateTime, Boolean, ForeignKey, JSON, UniqueConstraint
+from sqlalchemy import (
+    Column,
+    String,
+    Integer,
+    Text,
+    DateTime,
+    Boolean,
+    ForeignKey,
+    JSON,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import relationship
 
 from src.core.database import Base
@@ -9,7 +19,9 @@ class Job(Base):
     __tablename__ = "jobs"
 
     id = Column(String(60), primary_key=True)
-    status = Column(String(20), nullable=False, default="queued")  # queued, running, failed, done
+    status = Column(
+        String(20), nullable=False, default="queued"
+    )  # queued, running, failed, done
     progress = Column(Integer, default=0)
     current_step = Column(String(120), default="대기 중")
     error_code = Column(String(60), nullable=True)
@@ -122,6 +134,7 @@ class RateLimit(Base):
 
 class UserCredits(Base):
     """사용자 크레딧 정보"""
+
     __tablename__ = "user_credits"
 
     user_key = Column(String(80), primary_key=True)
@@ -134,12 +147,15 @@ class UserCredits(Base):
 
 class Subscription(Base):
     """구독 정보"""
+
     __tablename__ = "subscriptions"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_key = Column(String(80), nullable=False, index=True)
     plan = Column(String(20), nullable=False)  # free, basic, premium
-    status = Column(String(20), nullable=False, default="active")  # active, cancelled, expired
+    status = Column(
+        String(20), nullable=False, default="active"
+    )  # active, cancelled, expired
     credits_per_month = Column(Integer, nullable=False)  # 월간 크레딧
     current_period_start = Column(DateTime, nullable=False)
     current_period_end = Column(DateTime, nullable=False)
@@ -149,13 +165,16 @@ class Subscription(Base):
 
 class CreditTransaction(Base):
     """크레딧 거래 기록"""
+
     __tablename__ = "credit_transactions"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_key = Column(String(80), nullable=False, index=True)
     amount = Column(Integer, nullable=False)  # 양수: 충전, 음수: 사용
     balance_after = Column(Integer, nullable=False)  # 거래 후 잔액
-    transaction_type = Column(String(30), nullable=False)  # purchase, subscription, usage, refund, bonus
+    transaction_type = Column(
+        String(30), nullable=False
+    )  # purchase, subscription, usage, refund, bonus
     description = Column(String(200), nullable=True)
     reference_id = Column(String(80), nullable=True)  # book_id, subscription_id 등
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -163,6 +182,7 @@ class CreditTransaction(Base):
 
 class DailyStreak(Base):
     """오늘의 동화 스트릭"""
+
     __tablename__ = "daily_streaks"
 
     user_key = Column(String(80), primary_key=True)
@@ -176,18 +196,22 @@ class DailyStreak(Base):
 
 class DailyStory(Base):
     """오늘의 동화"""
+
     __tablename__ = "daily_stories"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     date = Column(DateTime, nullable=False, index=True)  # 날짜 (UTC 기준)
     theme = Column(String(30), nullable=False)  # 오늘의 테마
     topic = Column(String(100), nullable=False)  # 오늘의 주제
-    book_id = Column(String(60), ForeignKey("books.id"), nullable=True)  # 생성된 책 (선택)
+    book_id = Column(
+        String(60), ForeignKey("books.id"), nullable=True
+    )  # 생성된 책 (선택)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class ReadingLog(Base):
     """읽기 기록"""
+
     __tablename__ = "reading_logs"
 
     id = Column(Integer, primary_key=True, autoincrement=True)

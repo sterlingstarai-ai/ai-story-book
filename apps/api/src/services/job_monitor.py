@@ -78,7 +78,7 @@ class JobMonitor:
                 select(Job).where(
                     and_(
                         Job.status == "running",
-                        Job.updated_at < stuck_running_threshold
+                        Job.updated_at < stuck_running_threshold,
                     )
                 )
             )
@@ -88,8 +88,7 @@ class JobMonitor:
             stuck_queued = await session.execute(
                 select(Job).where(
                     and_(
-                        Job.status == "queued",
-                        Job.updated_at < stuck_queued_threshold
+                        Job.status == "queued", Job.updated_at < stuck_queued_threshold
                     )
                 )
             )
@@ -100,7 +99,7 @@ class JobMonitor:
                 select(Job).where(
                     and_(
                         Job.status.in_(["queued", "running"]),
-                        Job.created_at < sla_threshold
+                        Job.created_at < sla_threshold,
                     )
                 )
             )
@@ -118,20 +117,24 @@ class JobMonitor:
             for job in sla_breach_jobs:
                 if job not in stuck_running_jobs and job not in stuck_queued_jobs:
                     await self._mark_job_failed(
-                        session, job, "SLA_BREACH",
-                        f"Job exceeded SLA of {settings.job_sla_seconds}s"
+                        session,
+                        job,
+                        "SLA_BREACH",
+                        f"Job exceeded SLA of {settings.job_sla_seconds}s",
                     )
 
             await session.commit()
 
             # Log summary
-            total_processed = len(stuck_running_jobs) + len(stuck_queued_jobs) + len(sla_breach_jobs)
+            total_processed = (
+                len(stuck_running_jobs) + len(stuck_queued_jobs) + len(sla_breach_jobs)
+            )
             if total_processed > 0:
                 logger.info(
                     "Job monitor cycle complete",
                     stuck_running=len(stuck_running_jobs),
                     stuck_queued=len(stuck_queued_jobs),
-                    sla_breach=len(sla_breach_jobs)
+                    sla_breach=len(sla_breach_jobs),
                 )
 
     async def _handle_stuck_job(self, session, job: Job, reason: str):
@@ -150,13 +153,12 @@ class JobMonitor:
                 "Job requeued for retry",
                 job_id=job.id,
                 retry_count=job.retry_count,
-                reason=reason
+                reason=reason,
             )
         else:
             # Max retries exceeded, mark as failed
             await self._mark_job_failed(
-                session, job, reason,
-                f"Max retries ({MAX_JOB_RETRIES}) exceeded"
+                session, job, reason, f"Max retries ({MAX_JOB_RETRIES}) exceeded"
             )
 
     async def _mark_job_failed(self, session, job: Job, error_code: str, message: str):
@@ -170,7 +172,7 @@ class JobMonitor:
             "Job marked as failed by monitor",
             job_id=job.id,
             error_code=error_code,
-            message=message
+            message=message,
         )
 
 
@@ -182,14 +184,10 @@ async def get_job_metrics() -> dict:
     """Get current job metrics for health check"""
     async with AsyncSessionLocal() as session:
         # Count by status
-        queued = await session.execute(
-            select(Job).where(Job.status == "queued")
-        )
+        queued = await session.execute(select(Job).where(Job.status == "queued"))
         queued_count = len(queued.scalars().all())
 
-        running = await session.execute(
-            select(Job).where(Job.status == "running")
-        )
+        running = await session.execute(select(Job).where(Job.status == "running"))
         running_count = len(running.scalars().all())
 
         # Count stuck jobs
@@ -198,10 +196,7 @@ async def get_job_metrics() -> dict:
 
         stuck = await session.execute(
             select(Job).where(
-                and_(
-                    Job.status == "running",
-                    Job.updated_at < stuck_threshold
-                )
+                and_(Job.status == "running", Job.updated_at < stuck_threshold)
             )
         )
         stuck_count = len(stuck.scalars().all())
@@ -209,22 +204,12 @@ async def get_job_metrics() -> dict:
         # Count jobs in last hour
         hour_ago = now - timedelta(hours=1)
         completed = await session.execute(
-            select(Job).where(
-                and_(
-                    Job.status == "done",
-                    Job.updated_at > hour_ago
-                )
-            )
+            select(Job).where(and_(Job.status == "done", Job.updated_at > hour_ago))
         )
         completed_count = len(completed.scalars().all())
 
         failed = await session.execute(
-            select(Job).where(
-                and_(
-                    Job.status == "failed",
-                    Job.updated_at > hour_ago
-                )
-            )
+            select(Job).where(and_(Job.status == "failed", Job.updated_at > hour_ago))
         )
         failed_count = len(failed.scalars().all())
 
@@ -238,5 +223,5 @@ async def get_job_metrics() -> dict:
                 completed_count / (completed_count + failed_count) * 100
                 if (completed_count + failed_count) > 0
                 else 100
-            )
+            ),
         }

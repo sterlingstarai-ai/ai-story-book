@@ -2,6 +2,7 @@
 Streak Service
 오늘의 동화 스트릭 시스템
 """
+
 from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -10,48 +11,76 @@ from ..models.db import DailyStreak, DailyStory, ReadingLog
 
 # 오늘의 동화 테마 목록
 DAILY_THEMES = [
-    {"theme": "friendship", "name": "우정", "topics": [
-        "새 친구 사귀기",
-        "친구와 화해하기",
-        "함께 나누는 기쁨",
-        "서로 도와주기",
-    ]},
-    {"theme": "courage", "name": "용기", "topics": [
-        "두려움 극복하기",
-        "새로운 도전",
-        "실수해도 괜찮아",
-        "처음 해보는 일",
-    ]},
-    {"theme": "kindness", "name": "친절", "topics": [
-        "작은 친절의 힘",
-        "도움이 필요한 친구",
-        "감사한 마음",
-        "배려하는 마음",
-    ]},
-    {"theme": "family", "name": "가족", "topics": [
-        "엄마 아빠 사랑해요",
-        "동생과 함께",
-        "할머니 할아버지 댁",
-        "가족 여행",
-    ]},
-    {"theme": "nature", "name": "자연", "topics": [
-        "숲속 탐험",
-        "바다 이야기",
-        "봄이 왔어요",
-        "별빛 가득한 밤",
-    ]},
-    {"theme": "growth", "name": "성장", "topics": [
-        "혼자서도 할 수 있어요",
-        "새로운 것 배우기",
-        "실패해도 다시 도전",
-        "꿈을 향해",
-    ]},
-    {"theme": "imagination", "name": "상상", "topics": [
-        "마법의 세계",
-        "구름 위 나라",
-        "동물 친구들의 학교",
-        "장난감의 비밀",
-    ]},
+    {
+        "theme": "friendship",
+        "name": "우정",
+        "topics": [
+            "새 친구 사귀기",
+            "친구와 화해하기",
+            "함께 나누는 기쁨",
+            "서로 도와주기",
+        ],
+    },
+    {
+        "theme": "courage",
+        "name": "용기",
+        "topics": [
+            "두려움 극복하기",
+            "새로운 도전",
+            "실수해도 괜찮아",
+            "처음 해보는 일",
+        ],
+    },
+    {
+        "theme": "kindness",
+        "name": "친절",
+        "topics": [
+            "작은 친절의 힘",
+            "도움이 필요한 친구",
+            "감사한 마음",
+            "배려하는 마음",
+        ],
+    },
+    {
+        "theme": "family",
+        "name": "가족",
+        "topics": [
+            "엄마 아빠 사랑해요",
+            "동생과 함께",
+            "할머니 할아버지 댁",
+            "가족 여행",
+        ],
+    },
+    {
+        "theme": "nature",
+        "name": "자연",
+        "topics": [
+            "숲속 탐험",
+            "바다 이야기",
+            "봄이 왔어요",
+            "별빛 가득한 밤",
+        ],
+    },
+    {
+        "theme": "growth",
+        "name": "성장",
+        "topics": [
+            "혼자서도 할 수 있어요",
+            "새로운 것 배우기",
+            "실패해도 다시 도전",
+            "꿈을 향해",
+        ],
+    },
+    {
+        "theme": "imagination",
+        "name": "상상",
+        "topics": [
+            "마법의 세계",
+            "구름 위 나라",
+            "동물 친구들의 학교",
+            "장난감의 비밀",
+        ],
+    },
 ]
 
 
@@ -107,7 +136,9 @@ class StreakService:
             "current_streak": 0 if streak_broken else streak.current_streak,
             "longest_streak": streak.longest_streak,
             "total_days": streak.total_days,
-            "last_read_date": streak.last_read_date.isoformat() if streak.last_read_date else None,
+            "last_read_date": streak.last_read_date.isoformat()
+            if streak.last_read_date
+            else None,
             "read_today": read_today,
             "streak_broken": streak_broken,
         }
@@ -192,12 +223,14 @@ class StreakService:
 
         for days, title, description in streak_milestones:
             if current_streak == days:
-                milestones.append({
-                    "type": "streak",
-                    "days": days,
-                    "title": title,
-                    "description": description,
-                })
+                milestones.append(
+                    {
+                        "type": "streak",
+                        "days": days,
+                        "title": title,
+                        "description": description,
+                    }
+                )
 
         total_milestones = [
             (10, "📚 10권 완독!", "총 10일 동화를 읽었어요!"),
@@ -207,12 +240,14 @@ class StreakService:
 
         for days, title, description in total_milestones:
             if total_days == days:
-                milestones.append({
-                    "type": "total",
-                    "days": days,
-                    "title": title,
-                    "description": description,
-                })
+                milestones.append(
+                    {
+                        "type": "total",
+                        "days": days,
+                        "title": title,
+                        "description": description,
+                    }
+                )
 
         return milestones
 
@@ -223,9 +258,7 @@ class StreakService:
 
         # 오늘 이미 생성된 스토리가 있는지 확인
         result = await db.execute(
-            select(DailyStory).where(
-                func.date(DailyStory.date) == today
-            )
+            select(DailyStory).where(func.date(DailyStory.date) == today)
         )
         daily_story = result.scalar_one_or_none()
 

@@ -58,7 +58,9 @@ class Settings(BaseSettings):
     max_pending_jobs: int = 100  # Max pending jobs in queue before rejecting
 
     # CORS
-    cors_origins: str = ""  # Comma-separated origins, MUST be set explicitly in production
+    cors_origins: str = (
+        ""  # Comma-separated origins, MUST be set explicitly in production
+    )
 
     class Config:
         env_file = ".env"

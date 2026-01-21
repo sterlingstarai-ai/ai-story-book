@@ -32,6 +32,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             del response.headers["server"]
         return response
 
+
 # Configure structured logging
 structlog.configure(
     processors=[
@@ -39,7 +40,7 @@ structlog.configure(
         structlog.stdlib.add_logger_name,
         structlog.stdlib.add_log_level,
         structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.JSONRenderer()
+        structlog.processors.JSONRenderer(),
     ],
     wrapper_class=structlog.stdlib.BoundLogger,
     context_class=dict,
@@ -57,6 +58,7 @@ async def lifespan(app: FastAPI):
 
     # Start job monitor (background task for stuck job detection)
     from src.services.job_monitor import job_monitor
+
     await job_monitor.start()
 
     yield
@@ -133,7 +135,8 @@ app.add_middleware(SecurityHeadersMiddleware)
 
 # CORS - Configurable via CORS_ORIGINS env var
 cors_origins = (
-    ["*"] if settings.cors_origins == "*"
+    ["*"]
+    if settings.cors_origins == "*"
     else [origin.strip() for origin in settings.cors_origins.split(",")]
 )
 app.add_middleware(
@@ -160,7 +163,7 @@ async def global_exception_handler(request: Request, exc: Exception):
                 "code": "INTERNAL_ERROR",
                 "message": str(exc) if settings.debug else "Something went wrong",
             }
-        }
+        },
     )
 
 
@@ -205,7 +208,7 @@ async def detailed_health_check():
             "rate_limit_window": settings.rate_limit_window,
             "job_sla_seconds": settings.job_sla_seconds,
             "image_max_concurrent": settings.image_max_concurrent,
-        }
+        },
     }
 
 
@@ -244,4 +247,5 @@ app.include_router(
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run("src.main:app", host="0.0.0.0", port=8000, reload=True)

@@ -2,6 +2,7 @@
 Credits Router
 크레딧 및 구독 관련 API
 """
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
@@ -16,6 +17,7 @@ router = APIRouter()
 
 
 # ==================== Response Models ====================
+
 
 class CreditsResponse(BaseModel):
     credits: int
@@ -57,6 +59,7 @@ class CreditsStatusResponse(BaseModel):
 
 # ==================== Request Models ====================
 
+
 class SubscribeRequest(BaseModel):
     plan: str
 
@@ -67,6 +70,7 @@ class AddCreditsRequest(BaseModel):
 
 
 # ==================== Endpoints ====================
+
 
 @router.get("/status", response_model=CreditsStatusResponse)
 async def get_credits_status(
@@ -169,7 +173,7 @@ async def subscribe(
     if request.plan not in SUBSCRIPTION_PLANS:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid plan. Available: {list(SUBSCRIPTION_PLANS.keys())}"
+            detail=f"Invalid plan. Available: {list(SUBSCRIPTION_PLANS.keys())}",
         )
 
     try:

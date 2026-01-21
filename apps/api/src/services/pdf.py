@@ -2,6 +2,7 @@
 PDF Generation Service
 책을 PDF로 내보내기
 """
+
 import io
 from typing import Optional
 from urllib.parse import urlparse
@@ -55,14 +56,14 @@ class PDFService:
         for font_path in font_paths:
             if Path(font_path).exists():
                 try:
-                    pdfmetrics.registerFont(TTFont('Korean', font_path))
-                    self.font_name = 'Korean'
+                    pdfmetrics.registerFont(TTFont("Korean", font_path))
+                    self.font_name = "Korean"
                     return
                 except Exception:
                     continue
 
         # 폰트를 찾지 못하면 기본 폰트 사용
-        self.font_name = 'Helvetica'
+        self.font_name = "Helvetica"
 
     async def generate_pdf(self, book: BookResult) -> bytes:
         """책을 PDF로 생성"""
@@ -88,11 +89,7 @@ class PDFService:
         return buffer.getvalue()
 
     async def _draw_cover_page(
-        self,
-        c: canvas.Canvas,
-        book: BookResult,
-        width: float,
-        height: float
+        self, c: canvas.Canvas, book: BookResult, width: float, height: float
     ):
         """표지 페이지 그리기"""
         # 배경 이미지
@@ -102,10 +99,13 @@ class PDFService:
                 if image_data:
                     img = ImageReader(io.BytesIO(image_data))
                     c.drawImage(
-                        img, 0, 0,
-                        width=width, height=height,
+                        img,
+                        0,
+                        0,
+                        width=width,
+                        height=height,
                         preserveAspectRatio=True,
-                        anchor='c'
+                        anchor="c",
                     )
             except Exception:
                 # 이미지 로드 실패 시 배경색으로 대체
@@ -127,11 +127,7 @@ class PDFService:
         c.drawString(x, height * 0.2, title)
 
     async def _draw_content_page(
-        self,
-        c: canvas.Canvas,
-        page: PageResult,
-        width: float,
-        height: float
+        self, c: canvas.Canvas, page: PageResult, width: float, height: float
     ):
         """본문 페이지 그리기"""
         # 레이아웃: 왼쪽 이미지, 오른쪽 텍스트
@@ -152,7 +148,7 @@ class PDFService:
                         width=image_width - self.margin,
                         height=img_height,
                         preserveAspectRatio=True,
-                        anchor='nw'
+                        anchor="nw",
                     )
             except Exception:
                 pass
@@ -181,11 +177,7 @@ class PDFService:
             c.drawString(text_x, y, line)
 
     def _draw_end_page(
-        self,
-        c: canvas.Canvas,
-        book: BookResult,
-        width: float,
-        height: float
+        self, c: canvas.Canvas, book: BookResult, width: float, height: float
     ):
         """마지막 페이지 그리기"""
         # 배경
@@ -222,8 +214,7 @@ class PDFService:
             test_line = f"{current_line} {word}".strip()
             # 간단한 너비 계산 (한글은 대략 font_size, 영문은 font_size * 0.5)
             estimated_width = sum(
-                font_size if ord(c) > 127 else font_size * 0.5
-                for c in test_line
+                font_size if ord(c) > 127 else font_size * 0.5 for c in test_line
             )
 
             if estimated_width <= max_width:
@@ -288,7 +279,9 @@ class PDFService:
                 head_response = await client.head(url)
                 content_length = int(head_response.headers.get("content-length", 0))
                 if content_length > MAX_IMAGE_SIZE:
-                    logger.warning("Image too large", url=url[:100], size=content_length)
+                    logger.warning(
+                        "Image too large", url=url[:100], size=content_length
+                    )
                     return None
 
                 # Fetch the image

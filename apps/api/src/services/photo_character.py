@@ -2,11 +2,11 @@
 Photo-based Character Service
 사진에서 캐릭터 생성
 """
+
 import base64
 import httpx
 from typing import Optional
 import os
-
 
 
 class PhotoCharacterService:
@@ -73,6 +73,7 @@ class PhotoCharacterService:
             data = response.json()
 
             import json
+
             content = data["choices"][0]["message"]["content"]
             return json.loads(content)
 
@@ -114,10 +115,12 @@ class PhotoCharacterService:
             data = response.json()
 
             import json
+
             content = data["content"][0]["text"]
             # JSON 추출
             import re
-            json_match = re.search(r'\{[\s\S]*\}', content)
+
+            json_match = re.search(r"\{[\s\S]*\}", content)
             if json_match:
                 return json.loads(json_match.group())
             return json.loads(content)
@@ -202,12 +205,13 @@ class PhotoCharacterService:
         character_data = {
             "name": user_name or analysis.get("name_suggestion", "캐릭터"),
             "master_description": analysis.get(
-                "visual_description",
-                "cute cartoon character"
+                "visual_description", "cute cartoon character"
             ),
             "appearance": analysis.get("appearance", {}),
             "clothing": analysis.get("suggested_clothing", {}),
-            "personality_traits": analysis.get("personality_hints", ["친절한", "용감한"]),
+            "personality_traits": analysis.get(
+                "personality_hints", ["친절한", "용감한"]
+            ),
             "visual_style_notes": f"{style} style illustration based on photo reference",
             "photo_analysis": analysis,  # 원본 분석 결과 보존
         }

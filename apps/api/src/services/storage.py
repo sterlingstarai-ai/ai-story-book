@@ -1,6 +1,7 @@
 """
 Storage Service: S3/Minio 파일 업로드
 """
+
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
@@ -44,7 +45,9 @@ async def ensure_bucket_exists():
             # SECURITY: Do NOT auto-create public bucket policy
             # Bucket policy must be configured externally by admin
             logger.info(f"Created bucket: {settings.s3_bucket}")
-            logger.warning("Bucket created without public policy - configure access policy manually")
+            logger.warning(
+                "Bucket created without public policy - configure access policy manually"
+            )
             _bucket_verified = True
         except ClientError as e:
             logger.error(f"Failed to create bucket: {e}")
@@ -146,9 +149,7 @@ async def delete_book_files(book_id: str):
         if objects:
             s3_client.delete_objects(
                 Bucket=settings.s3_bucket,
-                Delete={
-                    "Objects": [{"Key": obj["Key"]} for obj in objects]
-                },
+                Delete={"Objects": [{"Key": obj["Key"]} for obj in objects]},
             )
             logger.info(f"Deleted {len(objects)} files for book {book_id}")
     except ClientError as e:

@@ -2,8 +2,8 @@
 Router Tests
 라우터 엔드포인트 테스트
 """
+
 import pytest
-import pytest_asyncio
 from httpx import AsyncClient
 
 
@@ -35,11 +35,7 @@ class TestBooksRouter:
         self, client: AsyncClient, headers: dict, valid_book_spec: dict
     ):
         """Creating a book should return job_id."""
-        response = await client.post(
-            "/v1/books",
-            json=valid_book_spec,
-            headers=headers
-        )
+        response = await client.post("/v1/books", json=valid_book_spec, headers=headers)
         assert response.status_code == 200
         data = response.json()
 
@@ -53,25 +49,18 @@ class TestBooksRouter:
     ):
         """Same idempotency key should return same job."""
         idempotency_key = "test-idempotency-key-12345"
-        headers_with_idempotency = {
-            **headers,
-            "X-Idempotency-Key": idempotency_key
-        }
+        headers_with_idempotency = {**headers, "X-Idempotency-Key": idempotency_key}
 
         # First request
         response1 = await client.post(
-            "/v1/books",
-            json=valid_book_spec,
-            headers=headers_with_idempotency
+            "/v1/books", json=valid_book_spec, headers=headers_with_idempotency
         )
         assert response1.status_code == 200
         job_id1 = response1.json()["job_id"]
 
         # Second request with same key
         response2 = await client.post(
-            "/v1/books",
-            json=valid_book_spec,
-            headers=headers_with_idempotency
+            "/v1/books", json=valid_book_spec, headers=headers_with_idempotency
         )
         assert response2.status_code == 200
         job_id2 = response2.json()["job_id"]
@@ -81,10 +70,7 @@ class TestBooksRouter:
     @pytest.mark.asyncio
     async def test_get_book_status_not_found(self, client: AsyncClient, headers: dict):
         """Getting non-existent job should return 404."""
-        response = await client.get(
-            "/v1/books/nonexistent-job-id",
-            headers=headers
-        )
+        response = await client.get("/v1/books/nonexistent-job-id", headers=headers)
         assert response.status_code == 404
 
 
@@ -97,9 +83,7 @@ class TestCharactersRouter:
     ):
         """Creating a character should succeed."""
         response = await client.post(
-            "/v1/characters",
-            json=valid_character,
-            headers=headers
+            "/v1/characters", json=valid_character, headers=headers
         )
         assert response.status_code == 200
         data = response.json()
@@ -110,10 +94,7 @@ class TestCharactersRouter:
     @pytest.mark.asyncio
     async def test_list_characters_empty(self, client: AsyncClient, headers: dict):
         """Listing characters for new user should return empty list."""
-        response = await client.get(
-            "/v1/characters",
-            headers=headers
-        )
+        response = await client.get("/v1/characters", headers=headers)
         assert response.status_code == 200
         data = response.json()
 
@@ -125,8 +106,7 @@ class TestCharactersRouter:
     async def test_get_character_not_found(self, client: AsyncClient, headers: dict):
         """Getting non-existent character should return 404."""
         response = await client.get(
-            "/v1/characters/nonexistent-char-id",
-            headers=headers
+            "/v1/characters/nonexistent-char-id", headers=headers
         )
         assert response.status_code == 404
 
@@ -137,10 +117,7 @@ class TestLibraryRouter:
     @pytest.mark.asyncio
     async def test_get_library_empty(self, client: AsyncClient, headers: dict):
         """Getting library for new user should return empty list."""
-        response = await client.get(
-            "/v1/library",
-            headers=headers
-        )
+        response = await client.get("/v1/library", headers=headers)
         assert response.status_code == 200
         data = response.json()
 
@@ -151,27 +128,18 @@ class TestLibraryRouter:
     @pytest.mark.asyncio
     async def test_library_pagination(self, client: AsyncClient, headers: dict):
         """Library should support pagination parameters."""
-        response = await client.get(
-            "/v1/library?limit=10&offset=0",
-            headers=headers
-        )
+        response = await client.get("/v1/library?limit=10&offset=0", headers=headers)
         assert response.status_code == 200
 
     @pytest.mark.asyncio
     async def test_library_pagination_bounds(self, client: AsyncClient, headers: dict):
         """Library should reject invalid pagination parameters."""
         # Limit too high
-        response = await client.get(
-            "/v1/library?limit=1000",
-            headers=headers
-        )
+        response = await client.get("/v1/library?limit=1000", headers=headers)
         assert response.status_code == 422
 
         # Negative offset
-        response = await client.get(
-            "/v1/library?offset=-1",
-            headers=headers
-        )
+        response = await client.get("/v1/library?offset=-1", headers=headers)
         assert response.status_code == 422
 
 
@@ -181,10 +149,7 @@ class TestCreditsRouter:
     @pytest.mark.asyncio
     async def test_get_credits_balance(self, client: AsyncClient, headers: dict):
         """Getting credits balance should work."""
-        response = await client.get(
-            "/v1/credits/balance",
-            headers=headers
-        )
+        response = await client.get("/v1/credits/balance", headers=headers)
         assert response.status_code == 200
         data = response.json()
 
@@ -193,10 +158,7 @@ class TestCreditsRouter:
     @pytest.mark.asyncio
     async def test_get_credits_status(self, client: AsyncClient, headers: dict):
         """Getting credits status should return full info."""
-        response = await client.get(
-            "/v1/credits/status",
-            headers=headers
-        )
+        response = await client.get("/v1/credits/status", headers=headers)
         assert response.status_code == 200
         data = response.json()
 
@@ -206,10 +168,7 @@ class TestCreditsRouter:
     @pytest.mark.asyncio
     async def test_check_credits(self, client: AsyncClient, headers: dict):
         """Checking credits should return availability."""
-        response = await client.get(
-            "/v1/credits/check?required=1",
-            headers=headers
-        )
+        response = await client.get("/v1/credits/check?required=1", headers=headers)
         assert response.status_code == 200
         data = response.json()
 
@@ -224,10 +183,7 @@ class TestStreakRouter:
     @pytest.mark.asyncio
     async def test_get_streak_info(self, client: AsyncClient, headers: dict):
         """Getting streak info should work."""
-        response = await client.get(
-            "/v1/streak/info",
-            headers=headers
-        )
+        response = await client.get("/v1/streak/info", headers=headers)
         assert response.status_code == 200
         data = response.json()
 

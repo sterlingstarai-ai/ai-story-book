@@ -1,6 +1,7 @@
 """
 Standardized exception handling for consistent API error responses.
 """
+
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 from typing import Optional, Any

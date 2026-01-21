@@ -51,7 +51,7 @@ async def get_library(
             )
             for b in books
         ],
-        total=total
+        total=total,
     )
 
 
@@ -64,9 +64,7 @@ async def delete_book(
     """
     책 삭제
     """
-    result = await db.execute(
-        select(Book).where(Book.id == book_id)
-    )
+    result = await db.execute(select(Book).where(Book.id == book_id))
     book = result.scalar_one_or_none()
 
     if not book:
@@ -77,9 +75,8 @@ async def delete_book(
 
     # Delete pages first
     from src.models.db import Page
-    await db.execute(
-        Page.__table__.delete().where(Page.book_id == book_id)
-    )
+
+    await db.execute(Page.__table__.delete().where(Page.book_id == book_id))
 
     await db.delete(book)
     await db.commit()

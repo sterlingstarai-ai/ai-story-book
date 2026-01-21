@@ -1,6 +1,7 @@
 """
 Image Generation Service: 이미지 생성 API 연동
 """
+
 import httpx
 import asyncio
 import structlog
@@ -56,11 +57,15 @@ async def _generate_replicate(prompt: ImagePrompt) -> str:
         )
 
         if response.status_code != 201:
-            logger.error("Replicate create error", status=response.status_code, body=response.text)
+            logger.error(
+                "Replicate create error",
+                status=response.status_code,
+                body=response.text,
+            )
             raise ImageError(
                 ErrorCode.IMAGE_FAILED,
                 f"Replicate API error: {response.status_code}",
-                page=prompt.page
+                page=prompt.page,
             )
 
         prediction = response.json()
@@ -86,9 +91,7 @@ async def _generate_replicate(prompt: ImagePrompt) -> str:
                 if output:
                     return output[0]
                 raise ImageError(
-                    ErrorCode.IMAGE_FAILED,
-                    "No output from Replicate",
-                    page=prompt.page
+                    ErrorCode.IMAGE_FAILED, "No output from Replicate", page=prompt.page
                 )
 
             elif status == "failed":
@@ -96,13 +99,11 @@ async def _generate_replicate(prompt: ImagePrompt) -> str:
                 raise ImageError(
                     ErrorCode.IMAGE_FAILED,
                     f"Replicate failed: {error}",
-                    page=prompt.page
+                    page=prompt.page,
                 )
 
         raise ImageError(
-            ErrorCode.IMAGE_TIMEOUT,
-            "Replicate prediction timeout",
-            page=prompt.page
+            ErrorCode.IMAGE_TIMEOUT, "Replicate prediction timeout", page=prompt.page
         )
 
 
@@ -126,11 +127,13 @@ async def _generate_fal(prompt: ImagePrompt) -> str:
         )
 
         if response.status_code != 200:
-            logger.error("FAL API error", status=response.status_code, body=response.text)
+            logger.error(
+                "FAL API error", status=response.status_code, body=response.text
+            )
             raise ImageError(
                 ErrorCode.IMAGE_FAILED,
                 f"FAL API error: {response.status_code}",
-                page=prompt.page
+                page=prompt.page,
             )
 
         result = response.json()
@@ -139,11 +142,7 @@ async def _generate_fal(prompt: ImagePrompt) -> str:
         if images:
             return images[0].get("url", "")
 
-        raise ImageError(
-            ErrorCode.IMAGE_FAILED,
-            "No output from FAL",
-            page=prompt.page
-        )
+        raise ImageError(ErrorCode.IMAGE_FAILED, "No output from FAL", page=prompt.page)
 
 
 async def _generate_mock(prompt: ImagePrompt) -> str:

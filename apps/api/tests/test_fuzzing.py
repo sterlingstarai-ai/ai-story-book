@@ -2,8 +2,8 @@
 Fuzzing Tests
 비정상 입력으로 API/worker 흐름 테스트
 """
+
 import pytest
-import pytest_asyncio
 from httpx import AsyncClient
 import random
 import string
@@ -11,13 +11,13 @@ import string
 
 def random_string(length: int = 10) -> str:
     """Generate random string."""
-    return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
+    return "".join(random.choices(string.ascii_letters + string.digits, k=length))
 
 
 def random_unicode_string(length: int = 10) -> str:
     """Generate random unicode string."""
-    chars = 'Hello世界مرحباこんにちは🎉🚀💡'
-    return ''.join(random.choices(chars, k=length))
+    chars = "Hello世界مرحباこんにちは🎉🚀💡"
+    return "".join(random.choices(chars, k=length))
 
 
 class TestBookSpecFuzzing:
@@ -32,9 +32,9 @@ class TestBookSpecFuzzing:
                 "topic": "A" * 10000,  # Way over limit
                 "language": "ko",
                 "target_age": "5-7",
-                "style": "watercolor"
+                "style": "watercolor",
             },
-            headers=headers
+            headers=headers,
         )
         assert response.status_code == 422  # Validation error
 
@@ -47,9 +47,9 @@ class TestBookSpecFuzzing:
                 "topic": "한글 테스트 🎉 日本語 العربية",
                 "language": "ko",
                 "target_age": "5-7",
-                "style": "watercolor"
+                "style": "watercolor",
             },
-            headers=headers
+            headers=headers,
         )
         # Should accept unicode
         assert response.status_code in (200, 422)
@@ -63,9 +63,9 @@ class TestBookSpecFuzzing:
                 "topic": "'; DROP TABLE jobs; --",
                 "language": "ko",
                 "target_age": "5-7",
-                "style": "watercolor"
+                "style": "watercolor",
             },
-            headers=headers
+            headers=headers,
         )
         # Should handle gracefully (either accept or reject, but not crash)
         assert response.status_code in (200, 422)
@@ -79,9 +79,9 @@ class TestBookSpecFuzzing:
                 "topic": "<script>alert('xss')</script> normal text here",
                 "language": "ko",
                 "target_age": "5-7",
-                "style": "watercolor"
+                "style": "watercolor",
             },
-            headers=headers
+            headers=headers,
         )
         # Should handle gracefully
         assert response.status_code in (200, 422)
@@ -95,9 +95,9 @@ class TestBookSpecFuzzing:
                 "topic": "Test\x00with\x00null\x00bytes",
                 "language": "ko",
                 "target_age": "5-7",
-                "style": "watercolor"
+                "style": "watercolor",
             },
-            headers=headers
+            headers=headers,
         )
         # Should reject or sanitize
         assert response.status_code in (200, 400, 422)
@@ -105,11 +105,7 @@ class TestBookSpecFuzzing:
     @pytest.mark.asyncio
     async def test_empty_object(self, client: AsyncClient, headers: dict):
         """Test empty JSON object."""
-        response = await client.post(
-            "/v1/books",
-            json={},
-            headers=headers
-        )
+        response = await client.post("/v1/books", json={}, headers=headers)
         assert response.status_code == 422
 
     @pytest.mark.asyncio
@@ -121,9 +117,9 @@ class TestBookSpecFuzzing:
                 "topic": 12345,  # Should be string
                 "language": ["ko"],  # Should be string
                 "target_age": {"age": "5-7"},  # Should be string
-                "style": True  # Should be string
+                "style": True,  # Should be string
             },
-            headers=headers
+            headers=headers,
         )
         assert response.status_code == 422
 
@@ -137,9 +133,9 @@ class TestBookSpecFuzzing:
                 "language": "ko",
                 "target_age": "5-7",
                 "style": "watercolor",
-                "page_count": -1
+                "page_count": -1,
             },
-            headers=headers
+            headers=headers,
         )
         assert response.status_code == 422
 
@@ -153,9 +149,9 @@ class TestBookSpecFuzzing:
                 "language": "ko",
                 "target_age": "5-7",
                 "style": "watercolor",
-                "page_count": 8.5
+                "page_count": 8.5,
             },
-            headers=headers
+            headers=headers,
         )
         # Pydantic may coerce or reject
         assert response.status_code in (200, 422)
@@ -165,7 +161,9 @@ class TestCharacterFuzzing:
     """Fuzz testing for character endpoints."""
 
     @pytest.mark.asyncio
-    async def test_character_name_special_chars(self, client: AsyncClient, headers: dict):
+    async def test_character_name_special_chars(
+        self, client: AsyncClient, headers: dict
+    ):
         """Test character name with special characters."""
         response = await client.post(
             "/v1/characters",
@@ -177,18 +175,18 @@ class TestCharacterFuzzing:
                     "face": "round face",
                     "hair": "brown",
                     "skin": "light",
-                    "body": "small"
+                    "body": "small",
                 },
                 "clothing": {
                     "top": "shirt",
                     "bottom": "pants",
                     "shoes": "shoes",
-                    "accessories": "none"
+                    "accessories": "none",
                 },
                 "personality_traits": ["friendly"],
-                "visual_style_notes": "watercolor"
+                "visual_style_notes": "watercolor",
             },
-            headers=headers
+            headers=headers,
         )
         # Should accept or reject gracefully
         assert response.status_code in (200, 422)
@@ -206,18 +204,18 @@ class TestCharacterFuzzing:
                     "face": "round face",
                     "hair": "brown",
                     "skin": "light",
-                    "body": "small"
+                    "body": "small",
                 },
                 "clothing": {
                     "top": "shirt",
                     "bottom": "pants",
                     "shoes": "shoes",
-                    "accessories": "none"
+                    "accessories": "none",
                 },
                 "personality_traits": [],  # Empty list
-                "visual_style_notes": "watercolor"
+                "visual_style_notes": "watercolor",
             },
-            headers=headers
+            headers=headers,
         )
         assert response.status_code == 422  # Should reject empty list
 
@@ -228,10 +226,7 @@ class TestHeaderFuzzing:
     @pytest.mark.asyncio
     async def test_very_long_user_key(self, client: AsyncClient):
         """Test extremely long user key."""
-        response = await client.get(
-            "/v1/library",
-            headers={"X-User-Key": "A" * 10000}
-        )
+        response = await client.get("/v1/library", headers={"X-User-Key": "A" * 10000})
         # Should reject or truncate
         assert response.status_code in (200, 400, 413)
 
@@ -239,14 +234,15 @@ class TestHeaderFuzzing:
     async def test_unicode_user_key(self, client: AsyncClient):
         """Test unicode in user key."""
         response = await client.get(
-            "/v1/library",
-            headers={"X-User-Key": "테스트-키-日本語-🎉-12345678"}
+            "/v1/library", headers={"X-User-Key": "테스트-키-日本語-🎉-12345678"}
         )
         # May accept or reject, but should not crash
         assert response.status_code in (200, 400)
 
     @pytest.mark.asyncio
-    async def test_special_chars_idempotency_key(self, client: AsyncClient, headers: dict):
+    async def test_special_chars_idempotency_key(
+        self, client: AsyncClient, headers: dict
+    ):
         """Test special characters in idempotency key."""
         response = await client.post(
             "/v1/books",
@@ -254,12 +250,9 @@ class TestHeaderFuzzing:
                 "topic": "Test topic for fuzzing",
                 "language": "ko",
                 "target_age": "5-7",
-                "style": "watercolor"
+                "style": "watercolor",
             },
-            headers={
-                **headers,
-                "X-Idempotency-Key": "key<>with&special\"chars"
-            }
+            headers={**headers, "X-Idempotency-Key": 'key<>with&special"chars'},
         )
         # Should handle gracefully
         assert response.status_code in (200, 400)
@@ -271,28 +264,19 @@ class TestPathFuzzing:
     @pytest.mark.asyncio
     async def test_path_traversal_attempt(self, client: AsyncClient, headers: dict):
         """Test path traversal in job_id."""
-        response = await client.get(
-            "/v1/books/../../../etc/passwd",
-            headers=headers
-        )
+        response = await client.get("/v1/books/../../../etc/passwd", headers=headers)
         assert response.status_code in (400, 404, 422)
 
     @pytest.mark.asyncio
     async def test_url_encoded_path(self, client: AsyncClient, headers: dict):
         """Test URL encoded characters in path."""
-        response = await client.get(
-            "/v1/books/%2e%2e%2f%2e%2e%2f",
-            headers=headers
-        )
+        response = await client.get("/v1/books/%2e%2e%2f%2e%2e%2f", headers=headers)
         assert response.status_code in (400, 404, 422)
 
     @pytest.mark.asyncio
     async def test_null_byte_in_path(self, client: AsyncClient, headers: dict):
         """Test null byte in path."""
-        response = await client.get(
-            "/v1/books/job%00id",
-            headers=headers
-        )
+        response = await client.get("/v1/books/job%00id", headers=headers)
         assert response.status_code in (400, 404, 422)
 
 
@@ -302,28 +286,19 @@ class TestQueryParamFuzzing:
     @pytest.mark.asyncio
     async def test_negative_limit(self, client: AsyncClient, headers: dict):
         """Test negative limit parameter."""
-        response = await client.get(
-            "/v1/library?limit=-1",
-            headers=headers
-        )
+        response = await client.get("/v1/library?limit=-1", headers=headers)
         assert response.status_code == 422
 
     @pytest.mark.asyncio
     async def test_string_limit(self, client: AsyncClient, headers: dict):
         """Test string as limit parameter."""
-        response = await client.get(
-            "/v1/library?limit=abc",
-            headers=headers
-        )
+        response = await client.get("/v1/library?limit=abc", headers=headers)
         assert response.status_code == 422
 
     @pytest.mark.asyncio
     async def test_very_large_offset(self, client: AsyncClient, headers: dict):
         """Test very large offset parameter."""
-        response = await client.get(
-            "/v1/library?offset=999999999999",
-            headers=headers
-        )
+        response = await client.get("/v1/library?offset=999999999999", headers=headers)
         # Should handle gracefully (return empty or error)
         assert response.status_code in (200, 422)
 
@@ -338,20 +313,14 @@ class TestJSONFuzzing:
         for _ in range(100):
             nested = {"nested": nested}
 
-        response = await client.post(
-            "/v1/books",
-            json=nested,
-            headers=headers
-        )
+        response = await client.post("/v1/books", json=nested, headers=headers)
         assert response.status_code == 422
 
     @pytest.mark.asyncio
     async def test_array_instead_of_object(self, client: AsyncClient, headers: dict):
         """Test array instead of object."""
         response = await client.post(
-            "/v1/books",
-            json=["topic", "ko", "5-7", "watercolor"],
-            headers=headers
+            "/v1/books", json=["topic", "ko", "5-7", "watercolor"], headers=headers
         )
         assert response.status_code == 422
 
@@ -361,7 +330,7 @@ class TestJSONFuzzing:
         response = await client.post(
             "/v1/books",
             content="null",
-            headers={**headers, "Content-Type": "application/json"}
+            headers={**headers, "Content-Type": "application/json"},
         )
         assert response.status_code == 422
 
@@ -371,6 +340,6 @@ class TestJSONFuzzing:
         response = await client.post(
             "/v1/books",
             content="{invalid json",
-            headers={**headers, "Content-Type": "application/json"}
+            headers={**headers, "Content-Type": "application/json"},
         )
         assert response.status_code == 422

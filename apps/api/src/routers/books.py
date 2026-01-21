@@ -11,9 +11,15 @@ from src.core.database import get_db
 from src.core.config import settings
 from src.core.dependencies import get_user_key
 from src.models.dto import (
-    BookSpec, CreateBookResponse, JobStatus, JobState,
-    RegeneratePageRequest, RegeneratePageResponse,
-    SeriesNextRequest, BookResult, PageResult
+    BookSpec,
+    CreateBookResponse,
+    JobStatus,
+    JobState,
+    RegeneratePageRequest,
+    RegeneratePageResponse,
+    SeriesNextRequest,
+    BookResult,
+    PageResult,
 )
 from src.models.db import Job, Book, Page
 from src.services.orchestrator import start_book_generation, regenerate_page
@@ -27,7 +33,9 @@ logger = structlog.get_logger()
 router = APIRouter()
 
 
-def get_idempotency_key(x_idempotency_key: Optional[str] = Header(None)) -> Optional[str]:
+def get_idempotency_key(
+    x_idempotency_key: Optional[str] = Header(None),
+) -> Optional[str]:
     """Extract idempotency key from header"""
     return x_idempotency_key
 
@@ -41,10 +49,7 @@ async def check_guardrails(db: AsyncSession, user_key: str):
     today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     daily_jobs_result = await db.execute(
         select(func.count(Job.id)).where(
-            and_(
-                Job.user_key == user_key,
-                Job.created_at >= today_start
-            )
+            and_(Job.user_key == user_key, Job.created_at >= today_start)
         )
     )
     daily_job_count = daily_jobs_result.scalar() or 0
@@ -56,15 +61,13 @@ async def check_guardrails(db: AsyncSession, user_key: str):
                 "error": "daily_limit_exceeded",
                 "message": f"일일 생성 한도({settings.daily_job_limit_per_user}권)를 초과했습니다. 내일 다시 시도해주세요.",
                 "limit": settings.daily_job_limit_per_user,
-                "used": daily_job_count
-            }
+                "used": daily_job_count,
+            },
         )
 
     # Check total pending jobs in system
     pending_jobs_result = await db.execute(
-        select(func.count(Job.id)).where(
-            Job.status.in_(["queued", "running"])
-        )
+        select(func.count(Job.id)).where(Job.status.in_(["queued", "running"]))
     )
     pending_count = pending_jobs_result.scalar() or 0
 
@@ -74,8 +77,8 @@ async def check_guardrails(db: AsyncSession, user_key: str):
             detail={
                 "error": "system_overloaded",
                 "message": "시스템이 현재 많은 요청을 처리 중입니다. 잠시 후 다시 시도해주세요.",
-                "retry_after": 60
-            }
+                "retry_after": 60,
+            },
         )
 
 
@@ -101,16 +104,14 @@ async def create_book(
     has_credits = await credits_service.has_credits(db, user_key, required=1)
     if not has_credits:
         raise HTTPException(
-            status_code=402,
-            detail="크레딧이 부족합니다. 크레딧을 충전해주세요."
+            status_code=402, detail="크레딧이 부족합니다. 크레딧을 충전해주세요."
         )
 
     # Check idempotency
     if idempotency_key:
         result = await db.execute(
             select(Job).where(
-                Job.idempotency_key == idempotency_key,
-                Job.user_key == user_key
+                Job.idempotency_key == idempotency_key, Job.user_key == user_key
             )
         )
         existing_job = result.scalar_one_or_none()
@@ -118,7 +119,7 @@ async def create_book(
             return CreateBookResponse(
                 job_id=existing_job.id,
                 status=JobState(existing_job.status),
-                estimated_time_seconds=120
+                estimated_time_seconds=120,
             )
 
     # Create new job
@@ -137,30 +138,24 @@ async def create_book(
 
     # Deduct credit
     credit_used = await credits_service.use_credit(
-        db, user_key, amount=1,
-        description="책 생성",
-        reference_id=job_id
+        db, user_key, amount=1, description="책 생성", reference_id=job_id
     )
     if not credit_used:
         # Rollback job if credit deduction fails
         await db.delete(job)
         await db.commit()
-        raise HTTPException(
-            status_code=402,
-            detail="크레딧 차감에 실패했습니다."
-        )
+        raise HTTPException(status_code=402, detail="크레딧 차감에 실패했습니다.")
 
     # Start background task (Celery or FastAPI BackgroundTasks)
     if settings.use_celery:
         from src.services.tasks import generate_book_task
+
         generate_book_task.delay(job_id, spec.model_dump(), user_key)
     else:
         background_tasks.add_task(start_book_generation, job_id, spec, user_key)
 
     return CreateBookResponse(
-        job_id=job_id,
-        status=JobState.queued,
-        estimated_time_seconds=120
+        job_id=job_id, status=JobState.queued, estimated_time_seconds=120
     )
 
 
@@ -177,9 +172,7 @@ async def get_book_status(
     - progress: 0-100
     - done일 경우 result에 BookResult 포함
     """
-    result = await db.execute(
-        select(Job).where(Job.id == job_id)
-    )
+    result = await db.execute(select(Job).where(Job.id == job_id))
     job = result.scalar_one_or_none()
 
     if not job:
@@ -195,23 +188,21 @@ async def get_book_status(
         progress=job.progress,
         current_step=job.current_step,
         error=None,
-        result=None
+        result=None,
     )
 
     # Add error info if failed
     if job.status == "failed" and job.error_code:
         from src.models.dto import ErrorInfo, ErrorCode
+
         response.error = ErrorInfo(
-            code=ErrorCode(job.error_code),
-            message=job.error_message or "Unknown error"
+            code=ErrorCode(job.error_code), message=job.error_message or "Unknown error"
         )
 
     # Add result if done
     if job.status == "done":
         # Fetch book with pages
-        book_result = await db.execute(
-            select(Book).where(Book.job_id == job_id)
-        )
+        book_result = await db.execute(select(Book).where(Book.job_id == job_id))
         book = book_result.scalar_one_or_none()
 
         if book:
@@ -234,11 +225,11 @@ async def get_book_status(
                         "text": p.text,
                         "image_url": p.image_url,
                         "image_prompt": p.image_prompt,
-                        "audio_url": p.audio_url
+                        "audio_url": p.audio_url,
                     }
                     for p in pages
                 ],
-                "created_at": book.created_at.isoformat()
+                "created_at": book.created_at.isoformat(),
             }
 
     return response
@@ -257,9 +248,7 @@ async def get_book_detail(
     - book_id 기반으로 조회
     """
     # Fetch book
-    result = await db.execute(
-        select(Book).where(Book.id == book_id)
-    )
+    result = await db.execute(select(Book).where(Book.id == book_id))
     book = result.scalar_one_or_none()
 
     if not book:
@@ -291,15 +280,17 @@ async def get_book_detail(
                 "text": p.text,
                 "image_url": p.image_url or "",
                 "image_prompt": p.image_prompt,
-                "audio_url": p.audio_url
+                "audio_url": p.audio_url,
             }
             for p in pages
         ],
-        "created_at": book.created_at.isoformat()
+        "created_at": book.created_at.isoformat(),
     }
 
 
-@router.post("/{job_id}/pages/{page_number}/regenerate", response_model=RegeneratePageResponse)
+@router.post(
+    "/{job_id}/pages/{page_number}/regenerate", response_model=RegeneratePageResponse
+)
 async def regenerate_book_page(
     job_id: str,
     page_number: int,
@@ -315,9 +306,7 @@ async def regenerate_book_page(
     - feedback: 재생성 시 반영할 피드백
     """
     # Verify job exists and is done
-    result = await db.execute(
-        select(Job).where(Job.id == job_id)
-    )
+    result = await db.execute(select(Job).where(Job.id == job_id))
     job = result.scalar_one_or_none()
 
     if not job:
@@ -330,9 +319,7 @@ async def regenerate_book_page(
         raise HTTPException(status_code=400, detail="Book generation not complete")
 
     # Verify page exists
-    book_result = await db.execute(
-        select(Book).where(Book.job_id == job_id)
-    )
+    book_result = await db.execute(select(Book).where(Book.job_id == job_id))
     book = book_result.scalar_one_or_none()
 
     if not book:
@@ -347,7 +334,9 @@ async def regenerate_book_page(
         raise HTTPException(status_code=404, detail=f"Page {page_number} not found")
 
     # Create regeneration task
-    regen_job_id = f"regen_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    regen_job_id = (
+        f"regen_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    )
 
     background_tasks.add_task(
         regenerate_page,
@@ -355,13 +344,10 @@ async def regenerate_book_page(
         book.id,
         page_number,
         request.mode,
-        request.feedback
+        request.feedback,
     )
 
-    return RegeneratePageResponse(
-        job_id=regen_job_id,
-        status=JobState.queued
-    )
+    return RegeneratePageResponse(job_id=regen_job_id, status=JobState.queued)
 
 
 @router.post("/series", response_model=CreateBookResponse)
@@ -407,12 +393,13 @@ async def create_series_next(
     has_credits = await credits_service.has_credits(db, user_key, required=1)
     if not has_credits:
         raise HTTPException(
-            status_code=402,
-            detail="크레딧이 부족합니다. 크레딧을 충전해주세요."
+            status_code=402, detail="크레딧이 부족합니다. 크레딧을 충전해주세요."
         )
 
     # Create new job for series
-    job_id = f"series_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    job_id = (
+        f"series_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    )
 
     job = Job(
         id=job_id,
@@ -426,26 +413,18 @@ async def create_series_next(
 
     # Deduct credit
     await credits_service.use_credit(
-        db, user_key, amount=1,
-        description="시리즈 생성",
-        reference_id=job_id
+        db, user_key, amount=1, description="시리즈 생성", reference_id=job_id
     )
 
     # Start background task for series generation
     from src.services.orchestrator import start_series_generation
+
     background_tasks.add_task(
-        start_series_generation,
-        job_id,
-        request,
-        user_key,
-        character,
-        prev_book
+        start_series_generation, job_id, request, user_key, character, prev_book
     )
 
     return CreateBookResponse(
-        job_id=job_id,
-        status=JobState.queued,
-        estimated_time_seconds=120
+        job_id=job_id, status=JobState.queued, estimated_time_seconds=120
     )
 
 
@@ -462,9 +441,7 @@ async def export_book_pdf(
     - 표지 + 본문 페이지 + 끝 페이지로 구성
     """
     # Fetch book
-    book_result = await db.execute(
-        select(Book).where(Book.id == book_id)
-    )
+    book_result = await db.execute(select(Book).where(Book.id == book_id))
     book = book_result.scalar_one_or_none()
 
     if not book:
@@ -481,6 +458,7 @@ async def export_book_pdf(
 
     # Build BookResult for PDF generation
     from src.models.dto import Language, TargetAge
+
     book_data = BookResult(
         book_id=book.id,
         title=book.title,
@@ -494,11 +472,11 @@ async def export_book_pdf(
                 text=p.text,
                 image_url=p.image_url or "",
                 image_prompt=p.image_prompt or "",
-                audio_url=p.audio_url
+                audio_url=p.audio_url,
             )
             for p in pages
         ],
-        created_at=book.created_at
+        created_at=book.created_at,
     )
 
     # Generate PDF
@@ -512,9 +490,7 @@ async def export_book_pdf(
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename}"'
-        }
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
@@ -532,9 +508,7 @@ async def generate_book_audio(
     - 비동기로 처리되며 완료 후 각 페이지의 audio_url 업데이트
     """
     # Fetch book
-    book_result = await db.execute(
-        select(Book).where(Book.id == book_id)
-    )
+    book_result = await db.execute(select(Book).where(Book.id == book_id))
     book = book_result.scalar_one_or_none()
 
     if not book:
@@ -556,7 +530,10 @@ async def generate_book_audio(
     background_tasks.add_task(
         _generate_audio_for_book,
         book_id,
-        [{"page_number": p.page_number, "text": p.text, "page_id": p.id} for p in pages],
+        [
+            {"page_number": p.page_number, "text": p.text, "page_id": p.id}
+            for p in pages
+        ],
     )
 
     return {"status": "processing", "message": "오디오 생성이 시작되었습니다."}
@@ -575,9 +552,7 @@ async def _generate_audio_for_book(book_id: str, pages: list[dict]):
                 # S3에 업로드
                 audio_key = f"books/{book_id}/audio/page_{page_data['page_number']}.mp3"
                 audio_url = await storage_service.upload_bytes(
-                    audio_bytes,
-                    audio_key,
-                    content_type="audio/mpeg"
+                    audio_bytes, audio_key, content_type="audio/mpeg"
                 )
 
                 # DB 업데이트
@@ -592,7 +567,7 @@ async def _generate_audio_for_book(book_id: str, pages: list[dict]):
             except Exception as e:
                 logger.warning(
                     "Audio generation failed for page",
-                    page_number=page_data['page_number'],
+                    page_number=page_data["page_number"],
                     error=str(e),
                 )
                 continue
@@ -612,9 +587,7 @@ async def get_page_audio(
     - 없으면 즉시 생성 후 반환
     """
     # Fetch book
-    book_result = await db.execute(
-        select(Book).where(Book.id == book_id)
-    )
+    book_result = await db.execute(select(Book).where(Book.id == book_id))
     book = book_result.scalar_one_or_none()
 
     if not book:
@@ -643,9 +616,7 @@ async def get_page_audio(
         # S3에 업로드
         audio_key = f"books/{book_id}/audio/page_{page_number}.mp3"
         audio_url = await storage_service.upload_bytes(
-            audio_bytes,
-            audio_key,
-            content_type="audio/mpeg"
+            audio_bytes, audio_key, content_type="audio/mpeg"
         )
 
         # DB 업데이트
@@ -655,4 +626,6 @@ async def get_page_audio(
         return {"audio_url": audio_url}
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Audio generation failed: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Audio generation failed: {str(e)}"
+        )

@@ -2,10 +2,9 @@
 Service Layer Tests
 서비스 레이어 테스트
 """
+
 import pytest
-import pytest_asyncio
-from unittest.mock import AsyncMock, patch, MagicMock
-from datetime import datetime
+from unittest.mock import AsyncMock, patch
 
 
 class TestPDFServiceSSRF:
@@ -22,7 +21,9 @@ class TestPDFServiceSSRF:
         assert service._is_url_allowed("http://localhost:9000/bucket/image.png") is True
 
         # Not allowed domains (potential SSRF)
-        assert service._is_url_allowed("http://169.254.169.254/latest/meta-data/") is False
+        assert (
+            service._is_url_allowed("http://169.254.169.254/latest/meta-data/") is False
+        )
         assert service._is_url_allowed("http://internal-server/secret") is False
         assert service._is_url_allowed("file:///etc/passwd") is False
 
@@ -74,9 +75,11 @@ class TestCreditsService:
         user_key = "credits-test-user-key-1234567"
         await credits_service.get_or_create_credits(db_session, user_key)
         await credits_service.add_credits(
-            db_session, user_key, 10,
+            db_session,
+            user_key,
+            10,
             transaction_type="bonus",
-            description="Test credits"
+            description="Test credits",
         )
 
         has = await credits_service.has_credits(db_session, user_key, required=5)
@@ -131,12 +134,11 @@ class TestStorageService:
         from src.services.storage import storage_service
 
         # Mock the internal client
-        with patch.object(storage_service, '_ensure_bucket', new_callable=AsyncMock):
-            with patch.object(storage_service, '_client') as mock_client:
+        with patch.object(storage_service, "_ensure_bucket", new_callable=AsyncMock):
+            with patch.object(storage_service, "_client") as mock_client:
                 mock_client.put_object = AsyncMock()
 
                 # Should not raise
-                data = b"test image data"
                 # The actual method might work differently in mock mode
 
 
@@ -147,7 +149,15 @@ class TestModerationOutput:
     async def test_moderate_output_safe_content(self):
         """Test moderation passes safe content."""
         from src.services.orchestrator import moderate_output
-        from src.models.dto import StoryDraft, StoryPage, StoryCover, StoryCharacter, StoryContinuity, Language, TargetAge
+        from src.models.dto import (
+            StoryDraft,
+            StoryPage,
+            StoryCover,
+            StoryCharacter,
+            StoryContinuity,
+            Language,
+            TargetAge,
+        )
 
         story = StoryDraft(
             title="Happy Bunny",
@@ -157,17 +167,14 @@ class TestModerationOutput:
             moral="Friends help each other",
             characters=[
                 StoryCharacter(
-                    id="char1",
-                    name="Bunny",
-                    role="main",
-                    brief="A friendly bunny"
+                    id="char1", name="Bunny", role="main", brief="A friendly bunny"
                 )
             ],
             cover=StoryCover(
                 cover_text="Happy Bunny Adventure",
                 scene="Bunny in meadow",
                 mood="cheerful",
-                camera="wide shot"
+                camera="wide shot",
             ),
             pages=[
                 StoryPage(
@@ -176,7 +183,7 @@ class TestModerationOutput:
                     scene="Meadow",
                     mood="happy",
                     camera="medium shot",
-                    characters_present=["Bunny"]
+                    characters_present=["Bunny"],
                 ),
                 StoryPage(
                     page=2,
@@ -184,7 +191,7 @@ class TestModerationOutput:
                     scene="Park",
                     mood="excited",
                     camera="medium shot",
-                    characters_present=["Bunny"]
+                    characters_present=["Bunny"],
                 ),
                 StoryPage(
                     page=3,
@@ -192,7 +199,7 @@ class TestModerationOutput:
                     scene="Sunset",
                     mood="happy",
                     camera="wide shot",
-                    characters_present=["Bunny"]
+                    characters_present=["Bunny"],
                 ),
                 StoryPage(
                     page=4,
@@ -200,13 +207,13 @@ class TestModerationOutput:
                     scene="Bedroom",
                     mood="peaceful",
                     camera="close up",
-                    characters_present=["Bunny"]
+                    characters_present=["Bunny"],
                 ),
             ],
             continuity=StoryContinuity(
                 character_consistency_notes="Bunny always wears blue",
-                style_notes_for_images="Watercolor style"
-            )
+                style_notes_for_images="Watercolor style",
+            ),
         )
 
         result = await moderate_output(story, {0: "cover.png", 1: "page1.png"})
@@ -216,7 +223,15 @@ class TestModerationOutput:
     async def test_moderate_output_unsafe_content(self):
         """Test moderation catches unsafe content."""
         from src.services.orchestrator import moderate_output
-        from src.models.dto import StoryDraft, StoryPage, StoryCover, StoryCharacter, StoryContinuity, Language, TargetAge
+        from src.models.dto import (
+            StoryDraft,
+            StoryPage,
+            StoryCover,
+            StoryCharacter,
+            StoryContinuity,
+            Language,
+            TargetAge,
+        )
 
         story = StoryDraft(
             title="Story with 폭력",  # Contains forbidden word
@@ -226,17 +241,11 @@ class TestModerationOutput:
             moral="Be kind",
             characters=[
                 StoryCharacter(
-                    id="char1",
-                    name="Character",
-                    role="main",
-                    brief="A character"
+                    id="char1", name="Character", role="main", brief="A character"
                 )
             ],
             cover=StoryCover(
-                cover_text="Title",
-                scene="Scene",
-                mood="mood",
-                camera="camera"
+                cover_text="Title", scene="Scene", mood="mood", camera="camera"
             ),
             pages=[
                 StoryPage(
@@ -245,7 +254,7 @@ class TestModerationOutput:
                     scene="Scene",
                     mood="mood",
                     camera="camera",
-                    characters_present=["Character"]
+                    characters_present=["Character"],
                 ),
                 StoryPage(
                     page=2,
@@ -253,7 +262,7 @@ class TestModerationOutput:
                     scene="Scene",
                     mood="mood",
                     camera="camera",
-                    characters_present=["Character"]
+                    characters_present=["Character"],
                 ),
                 StoryPage(
                     page=3,
@@ -261,7 +270,7 @@ class TestModerationOutput:
                     scene="Scene",
                     mood="mood",
                     camera="camera",
-                    characters_present=["Character"]
+                    characters_present=["Character"],
                 ),
                 StoryPage(
                     page=4,
@@ -269,13 +278,12 @@ class TestModerationOutput:
                     scene="Scene",
                     mood="mood",
                     camera="camera",
-                    characters_present=["Character"]
+                    characters_present=["Character"],
                 ),
             ],
             continuity=StoryContinuity(
-                character_consistency_notes="Notes",
-                style_notes_for_images="Style"
-            )
+                character_consistency_notes="Notes", style_notes_for_images="Style"
+            ),
         )
 
         result = await moderate_output(story, {})
