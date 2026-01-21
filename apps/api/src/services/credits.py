@@ -5,8 +5,7 @@ Credits Service
 from datetime import datetime, timedelta
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
-from sqlalchemy.orm import with_for_update
+from sqlalchemy import select
 
 from ..models.db import UserCredits, Subscription, CreditTransaction
 
