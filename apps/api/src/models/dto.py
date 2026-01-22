@@ -241,6 +241,17 @@ class PageResult(BaseModel):
     image_prompt: str = Field(min_length=10, max_length=1400)
     audio_url: Optional[str] = Field(default=None, max_length=500)
 
+    # 다국어 지원 (v0.3)
+    text_ko: Optional[str] = Field(default=None, max_length=800)
+    text_en: Optional[str] = Field(default=None, max_length=800)
+    audio_url_ko: Optional[str] = Field(default=None, max_length=500)
+    audio_url_en: Optional[str] = Field(default=None, max_length=500)
+
+    # 학습 자산 (v0.3)
+    vocab: Optional[List[Dict[str, Any]]] = None
+    comprehension_questions: Optional[List[Dict[str, Any]]] = None
+    quiz: Optional[List[Dict[str, Any]]] = None
+
 
 class BookResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -258,6 +269,17 @@ class BookResult(BaseModel):
     pdf_url: Optional[str] = Field(default=None, max_length=500)
     audio_url: Optional[str] = Field(default=None, max_length=500)
     created_at: datetime
+
+    # 시리즈 관련 (v0.3)
+    series_id: Optional[str] = Field(default=None, max_length=60)
+    series_index: Optional[int] = Field(default=None, ge=1)
+
+    # 다국어 지원 (v0.3)
+    title_ko: Optional[str] = Field(default=None, max_length=100)
+    title_en: Optional[str] = Field(default=None, max_length=100)
+
+    # 학습 자산 (v0.3)
+    learning_assets: Optional[Dict[str, Any]] = None
 
 
 # ==================== Job/API Response Models ====================
@@ -305,6 +327,67 @@ class RegeneratePageResponse(BaseModel):
     status: JobState
 
 
+# ==================== Learning Asset Models (v0.3) ====================
+
+
+class VocabItem(BaseModel):
+    """단어 학습 아이템"""
+    model_config = ConfigDict(extra="forbid")
+
+    word: str = Field(min_length=1, max_length=50)
+    meaning: str = Field(min_length=1, max_length=200)
+    example: Optional[str] = Field(default=None, max_length=300)
+
+
+class ComprehensionQuestion(BaseModel):
+    """이해 질문"""
+    model_config = ConfigDict(extra="forbid")
+
+    question: str = Field(min_length=1, max_length=300)
+    answer: Optional[str] = Field(default=None, max_length=500)
+
+
+class QuizItem(BaseModel):
+    """퀴즈 아이템 (객관식)"""
+    model_config = ConfigDict(extra="forbid")
+
+    question: str = Field(min_length=1, max_length=300)
+    options: List[str] = Field(min_length=2, max_length=4)
+    answer_index: int = Field(ge=0, le=3)
+    explanation: Optional[str] = Field(default=None, max_length=300)
+
+
+class LearningPageAssets(BaseModel):
+    """페이지별 학습 자산"""
+    model_config = ConfigDict(extra="forbid")
+
+    page: int = Field(ge=1, le=12)
+    translated_text: str = Field(min_length=1, max_length=800)
+    vocab: List[VocabItem] = Field(default_factory=list, max_length=10)
+    comprehension_questions: List[ComprehensionQuestion] = Field(default_factory=list, max_length=3)
+    quiz: List[QuizItem] = Field(default_factory=list, max_length=2)
+
+
+class ParentGuide(BaseModel):
+    """부모 가이드"""
+    model_config = ConfigDict(extra="forbid")
+
+    summary: str = Field(min_length=1, max_length=500)
+    discussion_prompts: List[str] = Field(default_factory=list, max_length=5)
+    activities: List[str] = Field(default_factory=list, max_length=5)
+
+
+class LearningAssets(BaseModel):
+    """전체 학습 자산"""
+    model_config = ConfigDict(extra="forbid")
+
+    source_language: Language
+    target_language: Language
+    title_translation: str = Field(min_length=1, max_length=100)
+    pages: List[LearningPageAssets] = Field(min_length=4, max_length=12)
+    parent_guide: ParentGuide
+
+
 # ==================== Series Models ====================
 
 
@@ -312,19 +395,21 @@ class SeriesNextRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     character_id: str = Field(min_length=1, max_length=60)
+    topic: str = Field(min_length=1, max_length=200)  # 필수로 변경
 
-    # 테스트/QA가 요구하는 필드 (topic 기반)
-    topic: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    # 시리즈 식별 (없으면 새 시리즈 생성)
+    series_id: Optional[str] = Field(default=None, max_length=60)
+    series_title: Optional[str] = Field(default=None, max_length=100)
+
+    # 기본 설정
     theme: Optional[Theme] = None
-
-    # 기본값으로 동작 가능하게
     language: Language = Language.ko
     target_age: TargetAge = TargetAge.a5_7
     style: Style = Style.watercolor
     page_count: int = Field(ge=4, le=12, default=8)
     forbidden_elements: Optional[List[str]] = Field(default=None, max_length=20)
 
-    # 기존 설계의 확장 호환 (있어도 되고 없어도 됨)
+    # 기존 설계 확장 호환
     previous_book_id: Optional[str] = Field(default=None, max_length=60)
     new_topic_hint: Optional[str] = Field(default=None, max_length=200)
 

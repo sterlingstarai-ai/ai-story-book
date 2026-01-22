@@ -1,0 +1,20 @@
+## 원본 동화책 정보
+
+- 제목: {{ title }}
+- 원문 언어: {{ source_language }}
+- 번역 대상 언어: {{ target_language }}
+- 대상 연령: {{ target_age }}
+- 주제/교훈: {{ moral }}
+
+## 페이지별 텍스트
+
+{% for page in pages %}
+### 페이지 {{ page.page }}
+{{ page.text }}
+
+{% endfor %}
+
+---
+
+위 동화책을 {{ target_language }}로 번역하고, 연령({{ target_age }})에 맞는 학습 자료를 생성해주세요.
+JSON 형식으로만 응답해주세요.

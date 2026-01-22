@@ -29,6 +29,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   bool _showControls = true;
   bool _isPlaying = false;
   bool _isLoadingAudio = false;
+  // 다국어 지원
+  String _selectedLanguage = 'ko'; // 'ko' or 'en'
 
   @override
   void initState() {
@@ -108,7 +110,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               if (index == 0) {
                 // 표지
                 return _CoverPage(
-                  title: book.title,
+                  title: book.getTitle(_selectedLanguage),
                   imageUrl: book.coverImageUrl,
                 );
               } else {
@@ -116,8 +118,11 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                 final page = book.pages[index - 1];
                 return _ContentPage(
                   pageNumber: page.pageNumber,
-                  text: page.text,
+                  text: page.getText(_selectedLanguage),
                   imageUrl: page.imageUrl,
+                  page: page,
+                  selectedLanguage: _selectedLanguage,
+                  onShowLearning: () => _showLearningMode(book, page),
                 );
               }
             },
@@ -163,12 +168,22 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               ),
               Expanded(
                 child: Text(
-                  book.title,
+                  book.getTitle(_selectedLanguage),
                   style: AppTextStyles.heading3.copyWith(color: Colors.white),
                   textAlign: TextAlign.center,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
+              ),
+              // 언어 토글 버튼
+              _LanguageToggle(
+                selectedLanguage: _selectedLanguage,
+                hasTranslation: book.titleKo != null || book.titleEn != null,
+                onToggle: () {
+                  setState(() {
+                    _selectedLanguage = _selectedLanguage == 'ko' ? 'en' : 'ko';
+                  });
+                },
               ),
               IconButton(
                 icon: const Icon(Icons.more_vert, color: Colors.white),
@@ -332,6 +347,28 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               ),
             ),
             const SizedBox(height: AppSpacing.lg),
+            // 학습 모드 (페이지에서만)
+            if (_currentPage > 0 && book.pages[_currentPage - 1].vocab != null)
+              ListTile(
+                leading: const Icon(Icons.school),
+                title: const Text('학습 모드'),
+                subtitle: const Text('단어, 질문, 퀴즈'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showLearningMode(book, book.pages[_currentPage - 1]);
+                },
+              ),
+            // 부모 가이드
+            if (book.learningAssets != null)
+              ListTile(
+                leading: const Icon(Icons.family_restroom),
+                title: const Text('부모 가이드'),
+                subtitle: const Text('토론 주제, 활동 아이디어'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showParentGuide(book);
+                },
+              ),
             if (_currentPage > 0)
               ListTile(
                 leading: const Icon(Icons.refresh),
@@ -372,6 +409,52 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
             ),
             const SizedBox(height: AppSpacing.md),
           ],
+        ),
+      ),
+    );
+  }
+
+  /// 학습 모드 표시
+  void _showLearningMode(BookResult book, PageResult page) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.surface,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
+      ),
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        expand: false,
+        builder: (context, scrollController) => _LearningModeSheet(
+          page: page,
+          scrollController: scrollController,
+        ),
+      ),
+    );
+  }
+
+  /// 부모 가이드 표시
+  void _showParentGuide(BookResult book) {
+    if (book.learningAssets == null) return;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.surface,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
+      ),
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        minChildSize: 0.4,
+        maxChildSize: 0.9,
+        expand: false,
+        builder: (context, scrollController) => _ParentGuideSheet(
+          parentGuide: book.learningAssets!.parentGuide,
+          scrollController: scrollController,
         ),
       ),
     );
@@ -730,15 +813,23 @@ class _ContentPage extends StatelessWidget {
   final int pageNumber;
   final String text;
   final String imageUrl;
+  final PageResult page;
+  final String selectedLanguage;
+  final VoidCallback onShowLearning;
 
   const _ContentPage({
     required this.pageNumber,
     required this.text,
     required this.imageUrl,
+    required this.page,
+    required this.selectedLanguage,
+    required this.onShowLearning,
   });
 
   @override
   Widget build(BuildContext context) {
+    final hasLearning = page.vocab != null && page.vocab!.isNotEmpty;
+
     return Container(
       color: AppColors.background,
       child: Column(
@@ -767,16 +858,33 @@ class _ContentPage extends StatelessWidget {
             child: Container(
               width: double.infinity,
               padding: const EdgeInsets.all(AppSpacing.lg),
-              child: Center(
-                child: Text(
-                  text,
-                  style: const TextStyle(
-                    fontSize: 20,
-                    height: 1.8,
-                    color: AppColors.textPrimary,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Expanded(
+                    child: Center(
+                      child: Text(
+                        text,
+                        style: const TextStyle(
+                          fontSize: 20,
+                          height: 1.8,
+                          color: AppColors.textPrimary,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
                   ),
-                  textAlign: TextAlign.center,
-                ),
+                  // 학습 모드 버튼
+                  if (hasLearning)
+                    TextButton.icon(
+                      onPressed: onShowLearning,
+                      icon: const Icon(Icons.school, size: 18),
+                      label: const Text('학습하기'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppColors.primary,
+                      ),
+                    ),
+                ],
               ),
             ),
           ),
@@ -858,6 +966,500 @@ class _AudioButton extends StatelessWidget {
                 size: 24,
               ),
       ),
+    );
+  }
+}
+
+/// 언어 토글 버튼
+class _LanguageToggle extends StatelessWidget {
+  final String selectedLanguage;
+  final bool hasTranslation;
+  final VoidCallback onToggle;
+
+  const _LanguageToggle({
+    required this.selectedLanguage,
+    required this.hasTranslation,
+    required this.onToggle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (!hasTranslation) return const SizedBox.shrink();
+
+    return GestureDetector(
+      onTap: onToggle,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: AppColors.whiteOverlay,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              selectedLanguage == 'ko' ? '한' : 'EN',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+              ),
+            ),
+            const SizedBox(width: 4),
+            const Icon(Icons.swap_horiz, color: Colors.white, size: 16),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 학습 모드 시트
+class _LearningModeSheet extends StatefulWidget {
+  final PageResult page;
+  final ScrollController scrollController;
+
+  const _LearningModeSheet({
+    required this.page,
+    required this.scrollController,
+  });
+
+  @override
+  State<_LearningModeSheet> createState() => _LearningModeSheetState();
+}
+
+class _LearningModeSheetState extends State<_LearningModeSheet>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 3, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // 핸들
+        const SizedBox(height: AppSpacing.md),
+        Container(
+          width: 40,
+          height: 4,
+          decoration: BoxDecoration(
+            color: AppColors.divider,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.md),
+
+        // 제목
+        const Text('학습 모드', style: AppTextStyles.heading2),
+        const SizedBox(height: AppSpacing.md),
+
+        // 탭 바
+        TabBar(
+          controller: _tabController,
+          labelColor: AppColors.primary,
+          unselectedLabelColor: AppColors.textSecondary,
+          indicatorColor: AppColors.primary,
+          tabs: const [
+            Tab(icon: Icon(Icons.abc), text: '단어'),
+            Tab(icon: Icon(Icons.help_outline), text: '질문'),
+            Tab(icon: Icon(Icons.quiz), text: '퀴즈'),
+          ],
+        ),
+
+        // 탭 내용
+        Expanded(
+          child: TabBarView(
+            controller: _tabController,
+            children: [
+              _VocabTab(vocab: widget.page.vocab ?? []),
+              _ComprehensionTab(questions: widget.page.comprehensionQuestions ?? []),
+              _QuizTab(quiz: widget.page.quiz ?? []),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 단어 탭
+class _VocabTab extends StatelessWidget {
+  final List<VocabItem> vocab;
+
+  const _VocabTab({required this.vocab});
+
+  @override
+  Widget build(BuildContext context) {
+    if (vocab.isEmpty) {
+      return const Center(child: Text('이 페이지에는 단어 학습이 없어요'));
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      itemCount: vocab.length,
+      itemBuilder: (context, index) {
+        final item = vocab[index];
+        return Card(
+          margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      item.word,
+                      style: AppTextStyles.heading3.copyWith(
+                        color: AppColors.primary,
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Text(
+                      item.meaning,
+                      style: AppTextStyles.body,
+                    ),
+                  ],
+                ),
+                if (item.example != null) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    item.example!,
+                    style: AppTextStyles.caption.copyWith(
+                      fontStyle: FontStyle.italic,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// 질문 탭
+class _ComprehensionTab extends StatelessWidget {
+  final List<ComprehensionQuestion> questions;
+
+  const _ComprehensionTab({required this.questions});
+
+  @override
+  Widget build(BuildContext context) {
+    if (questions.isEmpty) {
+      return const Center(child: Text('이 페이지에는 이해 질문이 없어요'));
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      itemCount: questions.length,
+      itemBuilder: (context, index) {
+        final q = questions[index];
+        return _ComprehensionCard(question: q, index: index + 1);
+      },
+    );
+  }
+}
+
+class _ComprehensionCard extends StatefulWidget {
+  final ComprehensionQuestion question;
+  final int index;
+
+  const _ComprehensionCard({required this.question, required this.index});
+
+  @override
+  State<_ComprehensionCard> createState() => _ComprehensionCardState();
+}
+
+class _ComprehensionCardState extends State<_ComprehensionCard> {
+  bool _showAnswer = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: AppSpacing.md),
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Q${widget.index}. ${widget.question.question}',
+              style: AppTextStyles.body.copyWith(fontWeight: FontWeight.bold),
+            ),
+            if (widget.question.answer != null) ...[
+              const SizedBox(height: AppSpacing.sm),
+              if (_showAnswer)
+                Text(
+                  'A. ${widget.question.answer}',
+                  style: AppTextStyles.body.copyWith(color: AppColors.primary),
+                )
+              else
+                TextButton(
+                  onPressed: () => setState(() => _showAnswer = true),
+                  child: const Text('정답 보기'),
+                ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 퀴즈 탭
+class _QuizTab extends StatelessWidget {
+  final List<QuizItem> quiz;
+
+  const _QuizTab({required this.quiz});
+
+  @override
+  Widget build(BuildContext context) {
+    if (quiz.isEmpty) {
+      return const Center(child: Text('이 페이지에는 퀴즈가 없어요'));
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      itemCount: quiz.length,
+      itemBuilder: (context, index) {
+        final q = quiz[index];
+        return _QuizCard(quiz: q, index: index + 1);
+      },
+    );
+  }
+}
+
+class _QuizCard extends StatefulWidget {
+  final QuizItem quiz;
+  final int index;
+
+  const _QuizCard({required this.quiz, required this.index});
+
+  @override
+  State<_QuizCard> createState() => _QuizCardState();
+}
+
+class _QuizCardState extends State<_QuizCard> {
+  int? _selectedIndex;
+  bool _showResult = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final isCorrect = _selectedIndex == widget.quiz.answerIndex;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: AppSpacing.md),
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Q${widget.index}. ${widget.quiz.question}',
+              style: AppTextStyles.body.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            ...widget.quiz.options.asMap().entries.map((entry) {
+              final optionIndex = entry.key;
+              final option = entry.value;
+              final isSelected = _selectedIndex == optionIndex;
+              final isAnswer = optionIndex == widget.quiz.answerIndex;
+
+              Color? backgroundColor;
+              if (_showResult && isAnswer) {
+                backgroundColor = AppColors.success.withOpacity(0.2);
+              } else if (_showResult && isSelected && !isCorrect) {
+                backgroundColor = AppColors.error.withOpacity(0.2);
+              } else if (isSelected) {
+                backgroundColor = AppColors.primaryLight;
+              }
+
+              return GestureDetector(
+                onTap: _showResult
+                    ? null
+                    : () => setState(() => _selectedIndex = optionIndex),
+                child: Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+                  padding: const EdgeInsets.all(AppSpacing.sm),
+                  decoration: BoxDecoration(
+                    color: backgroundColor,
+                    border: Border.all(
+                      color: isSelected ? AppColors.primary : AppColors.divider,
+                    ),
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                  ),
+                  child: Text(option),
+                ),
+              );
+            }),
+            if (_selectedIndex != null && !_showResult)
+              ElevatedButton(
+                onPressed: () => setState(() => _showResult = true),
+                child: const Text('정답 확인'),
+              ),
+            if (_showResult) ...[
+              const SizedBox(height: AppSpacing.sm),
+              Row(
+                children: [
+                  Icon(
+                    isCorrect ? Icons.check_circle : Icons.cancel,
+                    color: isCorrect ? AppColors.success : AppColors.error,
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Text(
+                    isCorrect ? '정답이에요!' : '다시 생각해봐요',
+                    style: TextStyle(
+                      color: isCorrect ? AppColors.success : AppColors.error,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              if (widget.quiz.explanation != null) ...[
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  widget.quiz.explanation!,
+                  style: AppTextStyles.caption.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 부모 가이드 시트
+class _ParentGuideSheet extends StatelessWidget {
+  final ParentGuide parentGuide;
+  final ScrollController scrollController;
+
+  const _ParentGuideSheet({
+    required this.parentGuide,
+    required this.scrollController,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // 핸들
+        const SizedBox(height: AppSpacing.md),
+        Container(
+          width: 40,
+          height: 4,
+          decoration: BoxDecoration(
+            color: AppColors.divider,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.md),
+
+        // 제목
+        const Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.family_restroom, color: AppColors.primary),
+            SizedBox(width: AppSpacing.sm),
+            Text('부모 가이드', style: AppTextStyles.heading2),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.md),
+
+        // 내용
+        Expanded(
+          child: ListView(
+            controller: scrollController,
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            children: [
+              // 요약
+              _GuideSection(
+                icon: Icons.summarize,
+                title: '이야기 요약',
+                content: parentGuide.summary,
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
+              // 토론 주제
+              _GuideSection(
+                icon: Icons.chat,
+                title: '대화 나누기',
+                items: parentGuide.discussionPrompts,
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
+              // 활동
+              _GuideSection(
+                icon: Icons.sports_esports,
+                title: '함께 해보기',
+                items: parentGuide.activities,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _GuideSection extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String? content;
+  final List<String>? items;
+
+  const _GuideSection({
+    required this.icon,
+    required this.title,
+    this.content,
+    this.items,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, color: AppColors.primary, size: 20),
+            const SizedBox(width: AppSpacing.sm),
+            Text(title, style: AppTextStyles.heading3),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        if (content != null)
+          Text(content!, style: AppTextStyles.body),
+        if (items != null)
+          ...items!.map((item) => Padding(
+                padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('• ', style: TextStyle(fontSize: 16)),
+                    Expanded(child: Text(item, style: AppTextStyles.body)),
+                  ],
+                ),
+              )),
+      ],
     );
   }
 }

@@ -165,6 +165,68 @@ async def delete_character(
     return {"message": "Character deleted successfully"}
 
 
+@router.post("/from-text")
+async def create_character_from_text(
+    name: str = Form(..., description="캐릭터 이름"),
+    age: str = Form(..., description="나이 (예: 5살, 30대)"),
+    traits: str = Form(..., description="특징/성격 (쉼표로 구분)"),
+    style: str = Form("cartoon", description="스타일"),
+    db: AsyncSession = Depends(get_db),
+    user_key: str = Depends(get_user_key),
+):
+    """
+    텍스트 설명으로 캐릭터 생성
+
+    - 이름, 나이, 특징만 입력
+    - AI가 나머지 세부사항을 자동 생성
+    """
+    try:
+        # 성격 특성 파싱
+        personality_traits = [t.strip() for t in traits.split(",") if t.strip()]
+
+        # AI로 캐릭터 설명 생성 (photo_character_service 재활용)
+        character_data = await photo_character_service.create_character_from_text(
+            name=name,
+            age=age,
+            traits=personality_traits,
+            style=style,
+        )
+
+        # 캐릭터 ID 생성
+        character_id = (
+            f"char_{datetime.utcnow().strftime('%Y%m%d')}_{uuid.uuid4().hex[:8]}"
+        )
+
+        character = Character(
+            id=character_id,
+            name=character_data["name"],
+            master_description=character_data["master_description"],
+            appearance=character_data["appearance"],
+            clothing=character_data["clothing"],
+            personality_traits=character_data.get("personality_traits", personality_traits),
+            visual_style_notes=character_data.get("visual_style_notes", ""),
+            user_key=user_key,
+        )
+
+        db.add(character)
+        await db.commit()
+        await db.refresh(character)
+
+        return {
+            "character_id": character.id,
+            "name": character.name,
+            "master_description": character.master_description,
+            "appearance": character.appearance,
+            "clothing": character.clothing,
+            "personality_traits": character.personality_traits,
+            "visual_style_notes": character.visual_style_notes,
+            "created_at": character.created_at.isoformat(),
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"캐릭터 생성 실패: {str(e)}")
+
+
 @router.post("/from-photo")
 async def create_character_from_photo(
     photo: UploadFile = File(..., description="캐릭터 생성용 사진"),

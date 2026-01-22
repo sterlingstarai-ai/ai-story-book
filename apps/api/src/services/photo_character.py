@@ -218,6 +218,149 @@ class PhotoCharacterService:
 
         return character_data
 
+    async def create_character_from_text(
+        self,
+        name: str,
+        age: str,
+        traits: list[str],
+        style: str = "cartoon",
+    ) -> dict:
+        """
+        텍스트 설명에서 캐릭터 생성
+
+        Args:
+            name: 캐릭터 이름
+            age: 나이 설명 (예: 5살, 30대)
+            traits: 성격/특징 리스트
+            style: 스타일 (cartoon, watercolor 등)
+
+        Returns:
+            캐릭터 생성용 데이터
+        """
+        if self.llm_provider == "mock":
+            return self._mock_text_character(name, age, traits, style)
+
+        prompt = f"""다음 정보로 동화책 캐릭터를 만들어주세요.
+
+이름: {name}
+나이: {age}
+특징/성격: {', '.join(traits)}
+스타일: {style}
+
+JSON 형식으로 응답해주세요:
+{{
+    "name": "{name}",
+    "master_description": "이미지 생성용 상세 외모 설명 (영문, 50단어 이내)",
+    "appearance": {{
+        "age_visual": "외모 나이 설명",
+        "face": "얼굴 특징",
+        "hair": "머리 스타일과 색상",
+        "skin": "피부톤",
+        "body": "체형"
+    }},
+    "clothing": {{
+        "top": "상의",
+        "bottom": "하의",
+        "shoes": "신발",
+        "accessories": "악세서리"
+    }},
+    "personality_traits": ["성격1", "성격2", "성격3"],
+    "visual_style_notes": "스타일 노트"
+}}
+
+주의:
+- 나이와 성격에 맞는 외모를 상상해서 구체적으로 묘사
+- master_description은 영어로, 나머지는 한국어로
+- 동화책에 어울리는 귀엽고 친근한 캐릭터로
+"""
+
+        try:
+            if self.llm_provider == "openai":
+                return await self._generate_text_character_openai(prompt)
+            elif self.llm_provider == "anthropic":
+                return await self._generate_text_character_anthropic(prompt)
+            else:
+                return self._mock_text_character(name, age, traits, style)
+        except Exception:
+            return self._mock_text_character(name, age, traits, style)
+
+    async def _generate_text_character_openai(self, prompt: str) -> dict:
+        """OpenAI로 텍스트 캐릭터 생성"""
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "gpt-4o-mini",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 1000,
+                    "response_format": {"type": "json_object"},
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            import json
+            content = data["choices"][0]["message"]["content"]
+            return json.loads(content)
+
+    async def _generate_text_character_anthropic(self, prompt: str) -> dict:
+        """Anthropic으로 텍스트 캐릭터 생성"""
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": self.api_key,
+                    "anthropic-version": "2023-06-01",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "claude-3-5-haiku-20241022",
+                    "max_tokens": 1000,
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            import json
+            import re
+            content = data["content"][0]["text"]
+            json_match = re.search(r"\{[\s\S]*\}", content)
+            if json_match:
+                return json.loads(json_match.group())
+            return json.loads(content)
+
+    def _mock_text_character(
+        self, name: str, age: str, traits: list[str], style: str
+    ) -> dict:
+        """테스트용 Mock 텍스트 캐릭터"""
+        age_visual = age if age else "알 수 없음"
+        traits_str = ", ".join(traits) if traits else "friendly"
+
+        return {
+            "name": name,
+            "master_description": f"cute {style} character, {age_visual} years old appearance, {traits_str}, friendly expression, colorful illustration",
+            "appearance": {
+                "age_visual": age_visual,
+                "face": "밝은 미소와 큰 눈",
+                "hair": "정돈된 머리",
+                "skin": "밝은 피부",
+                "body": "건강한 체형",
+            },
+            "clothing": {
+                "top": "편안한 상의",
+                "bottom": "편안한 하의",
+                "shoes": "운동화",
+                "accessories": "없음",
+            },
+            "personality_traits": traits if traits else ["친절한", "용감한", "호기심 많은"],
+            "visual_style_notes": f"{style} style illustration",
+        }
+
 
 # 싱글톤 인스턴스
 photo_character_service = PhotoCharacterService()

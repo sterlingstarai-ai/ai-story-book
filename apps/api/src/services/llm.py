@@ -16,6 +16,8 @@ from src.models.dto import (
     CharacterSheet,
     ImagePrompts,
     ModerationResult,
+    LearningAssets,
+    Language,
 )
 
 logger = structlog.get_logger()
@@ -112,25 +114,71 @@ async def _call_mock(
 
     # Detect prompt type and return appropriate mock response
     # Order matters: more specific checks first
-    if "moderation" in system_prompt.lower() or "안전성" in system_prompt:
+    if "학습 자료" in system_prompt or "언어 학습" in system_prompt:
+        # Learning assets generation
+        return json.dumps(
+            {
+                "source_language": "ko",
+                "target_language": "en",
+                "title_translation": "The Brave Rabbit's Forest Adventure",
+                "pages": [
+                    {
+                        "page": i,
+                        "translated_text": f"Page {i}: The rabbit walked through the forest, starting a new adventure. "
+                        + ("The heart was pounding with excitement." if i == 1 else f"This is the story of scene {i}."),
+                        "vocab": [
+                            {"word": "토끼", "meaning": "rabbit", "example": "The rabbit hopped happily."},
+                            {"word": "숲", "meaning": "forest", "example": "The forest was full of trees."},
+                            {"word": "모험", "meaning": "adventure", "example": "What an exciting adventure!"},
+                        ],
+                        "comprehension_questions": [
+                            {"question": "Where did the rabbit go?", "answer": "The rabbit went to the forest."}
+                        ],
+                        "quiz": [
+                            {
+                                "question": "What does '토끼' mean in English?",
+                                "options": ["cat", "rabbit", "dog", "bird"],
+                                "answer_index": 1,
+                                "explanation": "'토끼' means 'rabbit' in English."
+                            }
+                        ] if i == 8 else []
+                    }
+                    for i in range(1, 9)
+                ],
+                "parent_guide": {
+                    "summary": "This story teaches children about courage and friendship through the adventures of a brave rabbit.",
+                    "discussion_prompts": [
+                        "What made the rabbit brave?",
+                        "Have you ever been scared but still did something?"
+                    ],
+                    "activities": [
+                        "Draw your own rabbit character",
+                        "Act out the story with family members"
+                    ]
+                }
+            }
+        )
+    elif "moderation" in system_prompt.lower() or "안전성" in system_prompt:
         return json.dumps({"is_safe": True, "reasons": [], "suggestions": []})
     elif "positive_prompt" in system_prompt or "이미지 생성 AI" in system_prompt:
         # Image prompts generation
+        # 텍스트 금지 정책: 모든 negative_prompt에 텍스트 관련 토큰 필수 포함
+        text_prohibition = "text, letters, words, writing, caption, subtitle, title, watermark, logo, signature, label, number, alphabet, korean text, english text, any text"
         return json.dumps(
             {
                 "style": "watercolor",
                 "cover": {
                     "page": 0,
-                    "positive_prompt": "A cute white rabbit wearing a blue vest, standing at the entrance of a magical forest, watercolor children book illustration style, soft pastel colors, warm sunlight filtering through trees, whimsical fairy tale atmosphere",
-                    "negative_prompt": "text, watermark, logo, realistic, photograph, dark, scary, violence",
+                    "positive_prompt": "A cute white rabbit wearing a blue vest, standing at the entrance of a magical forest, watercolor children book illustration style, soft pastel colors, warm sunlight filtering through trees, whimsical fairy tale atmosphere, no text, textless",
+                    "negative_prompt": f"{text_prohibition}, realistic, photograph, dark, scary, violence, blurry, deformed",
                     "seed": random.randint(1, 2147483647),
                     "aspect_ratio": "3:4",
                 },
                 "pages": [
                     {
                         "page": i,
-                        "positive_prompt": f"Scene {i}: A cute white rabbit in a blue vest exploring magical forest, watercolor children book illustration, soft pastel colors, warm lighting, whimsical storybook style",
-                        "negative_prompt": "text, watermark, logo, realistic, photograph, dark, scary, violence",
+                        "positive_prompt": f"Scene {i}: A cute white rabbit in a blue vest exploring magical forest, watercolor children book illustration, soft pastel colors, warm lighting, whimsical storybook style, no text, textless",
+                        "negative_prompt": f"{text_prohibition}, realistic, photograph, dark, scary, violence, blurry, deformed",
                         "seed": random.randint(1, 2147483647),
                         "aspect_ratio": "3:4",
                     }
@@ -439,3 +487,51 @@ async def call_text_rewrite(
         system_prompt, user_prompt, max_tokens=1000, temperature=0.7
     )
     return json.loads(response)
+
+
+async def call_learning_assets(
+    story: StoryDraft,
+    source_language: Language,
+    target_language: Language,
+) -> LearningAssets:
+    """
+    학습 자산 생성 (번역 + 단어 + 이해질문 + 퀴즈 + 부모 가이드)
+
+    Args:
+        story: 생성된 스토리
+        source_language: 원본 언어 (예: ko)
+        target_language: 번역 대상 언어 (예: en)
+
+    Returns:
+        LearningAssets: 학습 자산 (번역, 어휘, 질문, 퀴즈, 부모 가이드)
+    """
+    # 언어 이름 매핑
+    language_names = {
+        Language.ko: "한국어",
+        Language.en: "English",
+        Language.ja: "日本語",
+    }
+
+    source_lang_name = language_names.get(source_language, source_language.value)
+    target_lang_name = language_names.get(target_language, target_language.value)
+
+    system_prompt = render_prompt(
+        "generate_learning_assets.system.jinja2",
+        target_language=target_lang_name,
+        target_age=story.target_age.value,
+    )
+
+    user_prompt = render_prompt(
+        "generate_learning_assets.user.jinja2",
+        title=story.title,
+        source_language=source_lang_name,
+        target_language=target_lang_name,
+        target_age=story.target_age.value,
+        moral=story.moral,
+        pages=[{"page": p.page, "text": p.text} for p in story.pages],
+    )
+
+    response = await call_llm(
+        system_prompt, user_prompt, max_tokens=6000, temperature=0.7
+    )
+    return parse_json_response(response, LearningAssets)

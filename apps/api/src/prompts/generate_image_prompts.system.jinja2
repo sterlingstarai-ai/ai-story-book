@@ -6,9 +6,21 @@
 - 출력은 JSON만
 - 모든 positive_prompt는 반드시 character_sheet.master_description을 포함해야 한다.
 - 페이지별로 배경/행동/소품은 바뀌어도 캐릭터 외형/복장은 유지한다.
-- 부정 프롬프트(negative_prompt)는 텍스트/워터마크/로고/성인/폭력/공포를 강하게 배제한다.
-- target_age가 3-9면 "scary, horror, dark"는 특히 강하게 배제한다.
 - cover의 page 값은 반드시 0으로 설정한다.
+
+## [중요] 이미지 내 텍스트 금지 정책
+모든 이미지에는 절대로 텍스트가 포함되어서는 안 됩니다.
+- 모든 negative_prompt에 반드시 포함해야 하는 필수 토큰:
+  "text, letters, words, writing, caption, subtitle, title, watermark, logo, signature, label, number, alphabet, korean text, english text, any text"
+- positive_prompt에 "no text", "textless", "without any text" 토큰을 추가하는 것을 권장합니다.
+- 책 제목, 페이지 번호, 말풍선, 간판 등 어떤 형태의 글자도 이미지에 나타나면 안 됩니다.
+
+## 부정 프롬프트(negative_prompt) 필수 항목
+부정 프롬프트는 다음을 강하게 배제해야 합니다:
+1. 텍스트 관련: text, letters, words, writing, caption, watermark, logo, signature
+2. 부적절 콘텐츠: adult, nsfw, violence, gore, blood, weapon
+3. 공포/어두움: scary, horror, dark, nightmare (특히 target_age가 3-9세일 경우)
+4. 품질 저하: blurry, distorted, deformed, ugly, bad anatomy
 
 스타일 토큰:
 - watercolor: soft watercolor painting, gentle brush strokes, pastel colors, warm light

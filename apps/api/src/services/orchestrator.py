@@ -28,6 +28,8 @@ from src.models.dto import (
     ModerationResult,
     BookResult,
     SeriesNextRequest,
+    LearningAssets,
+    Language,
 )
 
 logger = structlog.get_logger()
@@ -41,9 +43,10 @@ PROGRESS_NORMALIZE = 5
 PROGRESS_MODERATE_INPUT = 10
 PROGRESS_STORY = 30
 PROGRESS_CHARACTER = 40
-PROGRESS_IMAGE_PROMPTS = 55
-PROGRESS_IMAGES_START = 55
-PROGRESS_IMAGES_END = 95
+PROGRESS_IMAGE_PROMPTS = 50
+PROGRESS_IMAGES_START = 50
+PROGRESS_IMAGES_END = 85
+PROGRESS_LEARNING_ASSETS = 92
 PROGRESS_PACKAGE = 100
 
 
@@ -202,14 +205,33 @@ async def mark_job_done(job_id: str):
 # ==================== Main Orchestrator ====================
 
 
-async def start_book_generation(job_id: str, spec: BookSpec, user_key: str):
+async def start_book_generation(
+    job_id: str,
+    spec: BookSpec,
+    user_key: str,
+    series_id: Optional[str] = None,
+    series_index: Optional[int] = None,
+):
     """
     동화책 생성 메인 파이프라인
 
     비동기 백그라운드 태스크로 실행됨
+
+    Args:
+        job_id: 잡 ID
+        spec: 책 생성 스펙
+        user_key: 사용자 키
+        series_id: 시리즈 ID (옵션)
+        series_index: 시리즈 내 순서 (옵션)
     """
     try:
-        logger.info("Starting book generation", job_id=job_id, topic=spec.topic)
+        logger.info(
+            "Starting book generation",
+            job_id=job_id,
+            topic=spec.topic,
+            series_id=series_id,
+            series_index=series_index,
+        )
 
         # A. 입력 정규화
         normalized_spec = await run_step(
@@ -293,10 +315,21 @@ async def start_book_generation(job_id: str, spec: BookSpec, user_key: str):
         await run_step(
             job_id=job_id,
             step_name="결과 확인 중...",
-            progress=95,
+            progress=86,
             fn=lambda: moderate_output(story_draft, image_urls),
             retries=0,
             timeout_sec=10,
+        )
+
+        # G-2. 학습 자산 생성 (번역 + 어휘 + 질문)
+        learning_assets = await run_step(
+            job_id=job_id,
+            step_name="학습 자료 만드는 중...",
+            progress=PROGRESS_LEARNING_ASSETS,
+            fn=lambda: generate_learning_assets(story_draft),
+            retries=1,
+            timeout_sec=settings.llm_timeout * 2,  # 더 긴 타임아웃
+            backoff=[3, 8],
         )
 
         # H. 패키징 및 저장
@@ -312,6 +345,9 @@ async def start_book_generation(job_id: str, spec: BookSpec, user_key: str):
                 character_sheet,
                 image_prompts,
                 image_urls,
+                learning_assets,
+                series_id,
+                series_index,
             ),
             retries=1,
             timeout_sec=30,
@@ -368,6 +404,31 @@ async def generate_image_prompts(
     from src.services.llm import call_image_prompts_generation
 
     return await call_image_prompts_generation(spec, story, character)
+
+
+async def generate_learning_assets(story: StoryDraft) -> Optional[LearningAssets]:
+    """G-2. 학습 자산 생성 (번역 + 어휘 + 질문 + 퀴즈)"""
+    from src.services.llm import call_learning_assets
+
+    # 원본 언어에서 영어로 번역 (ko -> en)
+    # 영어 원본이면 한국어로 (en -> ko)
+    source_lang = story.language
+    if source_lang == Language.ko:
+        target_lang = Language.en
+    elif source_lang == Language.en:
+        target_lang = Language.ko
+    else:
+        # 일본어 등 기타 언어는 영어로
+        target_lang = Language.en
+
+    try:
+        return await call_learning_assets(story, source_lang, target_lang)
+    except Exception as e:
+        logger.warning(
+            "Failed to generate learning assets, continuing without",
+            error=str(e),
+        )
+        return None
 
 
 async def generate_all_images(
@@ -507,6 +568,9 @@ async def package_book(
     character: CharacterSheet,
     image_prompts: ImagePrompts,
     image_urls: dict,
+    learning_assets: Optional[LearningAssets] = None,
+    series_id: Optional[str] = None,
+    series_index: Optional[int] = None,
 ) -> BookResult:
     """H. 패키징 및 저장"""
     from src.core.database import AsyncSessionLocal
@@ -516,6 +580,18 @@ async def package_book(
     book_id = (
         f"book_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
     )
+
+    # 다국어 제목 처리
+    title_ko = None
+    title_en = None
+    if story.language == Language.ko:
+        title_ko = story.title
+        if learning_assets:
+            title_en = learning_assets.title_translation
+    elif story.language == Language.en:
+        title_en = story.title
+        if learning_assets:
+            title_ko = learning_assets.title_translation
 
     async with AsyncSessionLocal() as session:
         # Create book
@@ -533,11 +609,49 @@ async def package_book(
             character_ids=spec.character_ids,
             cover_image_url=image_urls.get(0, ""),
             user_key=user_key,
+            # 시리즈 관련
+            series_id=series_id,
+            series_index=series_index,
+            # 다국어
+            title_ko=title_ko,
+            title_en=title_en,
+            # 학습 자산
+            learning_assets=learning_assets.model_dump() if learning_assets else None,
         )
         session.add(book)
 
+        # 학습 자산을 페이지 번호로 매핑
+        learning_by_page = {}
+        if learning_assets:
+            for lp in learning_assets.pages:
+                learning_by_page[lp.page] = lp
+
         # Create pages
         for page_data in story.pages:
+            # 다국어 텍스트 처리
+            text_ko = None
+            text_en = None
+            vocab = None
+            comprehension = None
+            quiz = None
+
+            if story.language == Language.ko:
+                text_ko = page_data.text
+                lp = learning_by_page.get(page_data.page)
+                if lp:
+                    text_en = lp.translated_text
+                    vocab = [v.model_dump() for v in lp.vocab] if lp.vocab else None
+                    comprehension = [q.model_dump() for q in lp.comprehension_questions] if lp.comprehension_questions else None
+                    quiz = [q.model_dump() for q in lp.quiz] if lp.quiz else None
+            elif story.language == Language.en:
+                text_en = page_data.text
+                lp = learning_by_page.get(page_data.page)
+                if lp:
+                    text_ko = lp.translated_text
+                    vocab = [v.model_dump() for v in lp.vocab] if lp.vocab else None
+                    comprehension = [q.model_dump() for q in lp.comprehension_questions] if lp.comprehension_questions else None
+                    quiz = [q.model_dump() for q in lp.quiz] if lp.quiz else None
+
             page = Page(
                 book_id=book_id,
                 page_number=page_data.page,
@@ -551,10 +665,53 @@ async def package_book(
                     ),
                     "",
                 ),
+                # 다국어
+                text_ko=text_ko,
+                text_en=text_en,
+                # 학습 자산
+                vocab=vocab,
+                comprehension=comprehension,
+                quiz=quiz,
             )
             session.add(page)
 
         await session.commit()
+
+    # Build page results with learning data
+    page_results = []
+    for p in story.pages:
+        lp = learning_by_page.get(p.page)
+        page_result = {
+            "page_number": p.page,
+            "text": p.text,
+            "image_url": image_urls.get(p.page, ""),
+            "image_prompt": next(
+                (
+                    ip.positive_prompt
+                    for ip in image_prompts.pages
+                    if ip.page == p.page
+                ),
+                "",
+            ),
+            "audio_url": None,
+        }
+        # 다국어 텍스트 추가
+        if story.language == Language.ko:
+            page_result["text_ko"] = p.text
+            if lp:
+                page_result["text_en"] = lp.translated_text
+                page_result["vocab"] = [v.model_dump() for v in lp.vocab] if lp.vocab else None
+                page_result["comprehension_questions"] = [q.model_dump() for q in lp.comprehension_questions] if lp.comprehension_questions else None
+                page_result["quiz"] = [q.model_dump() for q in lp.quiz] if lp.quiz else None
+        elif story.language == Language.en:
+            page_result["text_en"] = p.text
+            if lp:
+                page_result["text_ko"] = lp.translated_text
+                page_result["vocab"] = [v.model_dump() for v in lp.vocab] if lp.vocab else None
+                page_result["comprehension_questions"] = [q.model_dump() for q in lp.comprehension_questions] if lp.comprehension_questions else None
+                page_result["quiz"] = [q.model_dump() for q in lp.quiz] if lp.quiz else None
+
+        page_results.append(page_result)
 
     return BookResult(
         book_id=book_id,
@@ -563,25 +720,17 @@ async def package_book(
         target_age=story.target_age,
         style=spec.style.value,
         cover_image_url=image_urls.get(0, ""),
-        pages=[
-            {
-                "page_number": p.page,
-                "text": p.text,
-                "image_url": image_urls.get(p.page, ""),
-                "image_prompt": next(
-                    (
-                        ip.positive_prompt
-                        for ip in image_prompts.pages
-                        if ip.page == p.page
-                    ),
-                    "",
-                ),
-                "audio_url": None,
-            }
-            for p in story.pages
-        ],
+        pages=page_results,
         character_sheet=character,
         created_at=datetime.utcnow(),
+        # 시리즈 관련
+        series_id=series_id,
+        series_index=series_index,
+        # 다국어
+        title_ko=title_ko,
+        title_en=title_en,
+        # 학습 자산
+        learning_assets=learning_assets.model_dump() if learning_assets else None,
     )
 
 
@@ -697,14 +846,60 @@ async def start_series_generation(
     job_id: str, request: SeriesNextRequest, user_key: str, character, prev_book
 ):
     """시리즈 다음 권 생성 - 기존 캐릭터로 새 이야기"""
+    from src.core.database import AsyncSessionLocal
+    from src.models.db import Series, Book
     from src.models.dto import CharacterSpec
+    from sqlalchemy import select, func
 
     logger.info(
         "Starting series generation",
         job_id=job_id,
         character_id=request.character_id,
+        series_id=request.series_id,
         prev_book_id=request.previous_book_id,
     )
+
+    # 시리즈 처리: 기존 시리즈 사용 또는 새로 생성
+    series_id = request.series_id
+    series_index = 1
+
+    async with AsyncSessionLocal() as session:
+        if series_id:
+            # 기존 시리즈 조회 및 인덱스 계산
+            series_result = await session.execute(
+                select(Series).where(Series.id == series_id)
+            )
+            existing_series = series_result.scalar_one_or_none()
+
+            if existing_series:
+                # 시리즈 내 최대 인덱스 조회
+                max_idx_result = await session.execute(
+                    select(func.max(Book.series_index)).where(Book.series_id == series_id)
+                )
+                max_idx = max_idx_result.scalar() or 0
+                series_index = max_idx + 1
+            else:
+                # series_id가 제공되었지만 존재하지 않으면 새로 생성
+                series_id = None
+
+        if not series_id:
+            # 새 시리즈 생성
+            series_id = f"series_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+            series_title = request.series_title or f"{character.name}의 모험 시리즈"
+
+            new_series = Series(
+                id=series_id,
+                title=series_title,
+                language=request.language.value,
+                target_age=request.target_age.value,
+                style=request.style.value,
+                theme=request.theme.value if request.theme else None,
+                character_id=request.character_id,
+                user_key=user_key,
+            )
+            session.add(new_series)
+            await session.commit()
+            series_index = 1
 
     # Build topic: request.topic 우선, 없으면 new_topic_hint, 없으면 기본값
     topic = (
@@ -731,9 +926,9 @@ async def start_series_generation(
 
     # series_context: prev_book 있으면 후속편 명시
     series_context = (
-        f"이전 책 '{prev_book.title}'의 후속편입니다."
+        f"이전 책 '{prev_book.title}'의 후속편입니다. 시리즈 {series_index}권."
         if prev_book
-        else "시리즈의 새로운 이야기입니다."
+        else f"시리즈의 첫 번째 이야기입니다."
     )
 
     # Create BookSpec for series
@@ -755,5 +950,11 @@ async def start_series_generation(
         series_context=series_context,
     )
 
-    # Use existing book generation pipeline
-    await start_book_generation(job_id, series_spec, user_key)
+    # Use existing book generation pipeline with series info
+    await start_book_generation(
+        job_id,
+        series_spec,
+        user_key,
+        series_id=series_id,
+        series_index=series_index,
+    )

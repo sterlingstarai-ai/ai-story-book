@@ -221,87 +221,111 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('캐릭터 (선택)', style: AppTextStyles.heading3),
-                    Text(
-                      '가족 이야기는 여러 캐릭터 선택 가능',
-                      style: AppTextStyles.caption.copyWith(color: AppColors.textHint),
-                    ),
-                  ],
-                ),
-                TextButton(
+                const Text('주인공 캐릭터', style: AppTextStyles.heading3),
+                TextButton.icon(
                   onPressed: () => Navigator.pushNamed(context, '/characters'),
-                  child: Text(
-                    '캐릭터 관리',
-                    style: AppTextStyles.bodySmall.copyWith(color: AppColors.primary),
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('캐릭터 추가'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.primary,
                   ),
                 ),
               ],
             ),
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              '기존 캐릭터를 선택하거나, AI가 새 캐릭터를 만들어요',
+              style: AppTextStyles.caption.copyWith(color: AppColors.textHint),
+            ),
             const SizedBox(height: AppSpacing.sm),
             charactersAsync.when(
               data: (characters) {
-                if (characters.isEmpty) {
-                  return Container(
-                    padding: const EdgeInsets.all(AppSpacing.md),
-                    decoration: BoxDecoration(
-                      color: AppColors.surface,
-                      borderRadius: BorderRadius.circular(AppRadius.md),
-                      border: Border.all(color: AppColors.divider),
-                    ),
-                    child: Text(
-                      '저장된 캐릭터가 없어요.\n새 캐릭터는 책 생성 후 자동으로 저장됩니다.',
-                      style: AppTextStyles.bodySmall,
-                      textAlign: TextAlign.center,
-                    ),
-                  );
-                }
-
                 return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // 새 캐릭터로 시작 옵션
-                    CharacterCard(
-                      name: '새 캐릭터로 시작',
-                      description: 'AI가 이야기에 맞는 새 캐릭터를 만들어요',
+                    // AI 자동 생성 옵션 (항상 표시)
+                    _CharacterOption(
+                      icon: Icons.auto_awesome,
+                      iconColor: AppColors.secondary,
+                      title: 'AI가 새 캐릭터 생성',
+                      description: '이야기에 맞는 캐릭터를 자동으로 만들어요',
                       isSelected: _selectedCharacterIds.isEmpty,
                       onTap: () => setState(() => _selectedCharacterIds = []),
                     ),
-                    if (_selectedCharacterIds.isNotEmpty) ...[
-                      const SizedBox(height: AppSpacing.xs),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: AppSpacing.xs),
-                        decoration: BoxDecoration(
-                          color: AppColors.primaryMedium,
-                          borderRadius: BorderRadius.circular(AppRadius.sm),
+
+                    if (characters.isNotEmpty) ...[
+                      const SizedBox(height: AppSpacing.md),
+                      Row(
+                        children: [
+                          const Expanded(child: Divider()),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+                            child: Text(
+                              '또는 기존 캐릭터 선택',
+                              style: AppTextStyles.caption.copyWith(color: AppColors.textHint),
+                            ),
+                          ),
+                          const Expanded(child: Divider()),
+                        ],
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      if (_selectedCharacterIds.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: AppSpacing.xs),
+                            decoration: BoxDecoration(
+                              color: AppColors.primaryMedium,
+                              borderRadius: BorderRadius.circular(AppRadius.sm),
+                            ),
+                            child: Text(
+                              '${_selectedCharacterIds.length}명 선택됨 (가족/친구 이야기 가능)',
+                              style: AppTextStyles.caption.copyWith(color: AppColors.primary),
+                            ),
+                          ),
                         ),
-                        child: Text(
-                          '${_selectedCharacterIds.length}명 선택됨',
-                          style: AppTextStyles.caption.copyWith(color: AppColors.primary),
+                      // 기존 캐릭터 목록 (체크박스로 다중 선택)
+                      ...characters.map((character) => Padding(
+                        padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                        child: CharacterCard(
+                          name: character.name,
+                          description: character.masterDescription,
+                          isSelected: _selectedCharacterIds.contains(character.id),
+                          showCheckbox: true,
+                          onTap: () {
+                            setState(() {
+                              if (_selectedCharacterIds.contains(character.id)) {
+                                _selectedCharacterIds.remove(character.id);
+                              } else {
+                                _selectedCharacterIds.add(character.id);
+                              }
+                            });
+                          },
+                        ),
+                      )),
+                    ] else ...[
+                      const SizedBox(height: AppSpacing.sm),
+                      Container(
+                        padding: const EdgeInsets.all(AppSpacing.md),
+                        decoration: BoxDecoration(
+                          color: AppColors.surface,
+                          borderRadius: BorderRadius.circular(AppRadius.md),
+                          border: Border.all(color: AppColors.divider),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.info_outline, color: AppColors.textHint, size: 20),
+                            const SizedBox(width: AppSpacing.sm),
+                            Expanded(
+                              child: Text(
+                                '캐릭터를 추가하면 같은 캐릭터로 시리즈를 만들 수 있어요!',
+                                style: AppTextStyles.caption.copyWith(color: AppColors.textSecondary),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
-                    const SizedBox(height: AppSpacing.sm),
-                    // 기존 캐릭터 목록 (체크박스로 다중 선택)
-                    ...characters.map((character) => Padding(
-                      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                      child: CharacterCard(
-                        name: character.name,
-                        description: character.masterDescription,
-                        isSelected: _selectedCharacterIds.contains(character.id),
-                        showCheckbox: true,
-                        onTap: () {
-                          setState(() {
-                            if (_selectedCharacterIds.contains(character.id)) {
-                              _selectedCharacterIds.remove(character.id);
-                            } else {
-                              _selectedCharacterIds.add(character.id);
-                            }
-                          });
-                        },
-                      ),
-                    )),
                   ],
                 );
               },
@@ -331,6 +355,80 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
             isLoading: _isLoading,
             onPressed: _createBook,
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// AI 캐릭터 생성 옵션 위젯
+class _CharacterOption extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String title;
+  final String description;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _CharacterOption({
+    required this.icon,
+    required this.iconColor,
+    required this.title,
+    required this.description,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        decoration: BoxDecoration(
+          color: isSelected ? AppColors.secondaryLight : AppColors.surface,
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          border: Border.all(
+            color: isSelected ? AppColors.secondary : AppColors.divider,
+            width: isSelected ? 2 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: iconColor.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(AppRadius.md),
+              ),
+              child: Icon(icon, color: iconColor, size: 24),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: AppTextStyles.body.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: isSelected ? AppColors.secondary : AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    description,
+                    style: AppTextStyles.caption.copyWith(
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (isSelected)
+              Icon(Icons.check_circle, color: AppColors.secondary, size: 24),
+          ],
         ),
       ),
     );

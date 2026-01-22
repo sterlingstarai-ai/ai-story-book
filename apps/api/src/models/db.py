@@ -65,6 +65,32 @@ class ImagePromptsDB(Base):
     job = relationship("Job", back_populates="image_prompts")
 
 
+class Series(Base):
+    """시리즈 (동일 캐릭터 연작)"""
+
+    __tablename__ = "series"
+
+    id = Column(String(60), primary_key=True)
+    title = Column(String(100), nullable=False)
+    language = Column(String(10), nullable=False)
+    target_age = Column(String(10), nullable=False)
+    style = Column(String(30), nullable=False)
+    theme = Column(String(20), nullable=True)
+    character_id = Column(String(60), ForeignKey("characters.id"), nullable=True)
+    series_bible = Column(JSON, nullable=True)  # 시리즈 설정 (캐릭터 관계, 세계관 등)
+    user_key = Column(String(80), nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    books = relationship(
+        "Book",
+        back_populates="series",
+        order_by="Book.series_index",
+    )
+    character = relationship("Character")
+
+
 class Book(Base):
     __tablename__ = "books"
 
@@ -83,10 +109,22 @@ class Book(Base):
     user_key = Column(String(80), nullable=False, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    # 시리즈 관련 (v0.3)
+    series_id = Column(String(60), ForeignKey("series.id"), nullable=True)
+    series_index = Column(Integer, nullable=True)  # 시리즈 내 순서 (1, 2, 3...)
+
+    # 다국어 지원 (v0.3)
+    title_ko = Column(String(100), nullable=True)  # 한국어 제목
+    title_en = Column(String(100), nullable=True)  # 영어 제목
+
+    # 학습 자산 (v0.3)
+    learning_assets = Column(JSON, nullable=True)  # LearningAssets JSON
+
     # Relationships
     job = relationship("Job", back_populates="book")
     pages = relationship("Page", back_populates="book", order_by="Page.page_number")
     character = relationship("Character", back_populates="books")
+    series = relationship("Series", back_populates="books")
 
 
 class Page(Base):
@@ -103,6 +141,17 @@ class Page(Base):
     image_prompt = Column(Text, nullable=True)
     audio_url = Column(String(500), nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # 다국어 지원 (v0.3)
+    text_ko = Column(Text, nullable=True)  # 한국어 텍스트
+    text_en = Column(Text, nullable=True)  # 영어 텍스트
+    audio_url_ko = Column(String(500), nullable=True)  # 한국어 오디오
+    audio_url_en = Column(String(500), nullable=True)  # 영어 오디오
+
+    # 학습 자산 (v0.3)
+    vocab = Column(JSON, nullable=True)  # 단어 목록 [{"word": ..., "meaning": ...}, ...]
+    comprehension = Column(JSON, nullable=True)  # 이해 질문 [{"question": ..., "answer": ...}, ...]
+    quiz = Column(JSON, nullable=True)  # 퀴즈 [{"question": ..., "options": [...], "answer_index": ...}, ...]
 
     # Relationships
     book = relationship("Book", back_populates="pages")

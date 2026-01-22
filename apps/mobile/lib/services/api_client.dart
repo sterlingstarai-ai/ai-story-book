@@ -169,6 +169,32 @@ class ApiClient {
     return response.data as Map<String, dynamic>;
   }
 
+  /// 텍스트로 캐릭터 생성 (사진 없이)
+  Future<Map<String, dynamic>> createCharacterFromText({
+    required String name,
+    required String age,
+    required String traits,
+    String style = 'cartoon',
+  }) async {
+    final formData = FormData.fromMap({
+      'name': name,
+      'age': age,
+      'traits': traits,
+      'style': style,
+    });
+
+    final response = await _dio.post(
+      '/v1/characters/from-text',
+      data: formData,
+      options: Options(
+        headers: _headers,
+        contentType: 'multipart/form-data',
+      ),
+    );
+
+    return response.data as Map<String, dynamic>;
+  }
+
   // ==================== Library ====================
 
   /// 내 서재

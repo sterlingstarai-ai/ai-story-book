@@ -222,6 +222,12 @@ async def get_book_status(
                 "target_age": book.target_age,
                 "style": book.style,
                 "cover_image_url": book.cover_image_url,
+                # 시리즈 정보
+                "series_id": book.series_id,
+                "series_index": book.series_index,
+                # 다국어 제목
+                "title_ko": book.title_ko,
+                "title_en": book.title_en,
                 "pages": [
                     {
                         "page_number": p.page_number,
@@ -229,9 +235,20 @@ async def get_book_status(
                         "image_url": p.image_url,
                         "image_prompt": p.image_prompt,
                         "audio_url": p.audio_url,
+                        # 다국어 텍스트
+                        "text_ko": p.text_ko,
+                        "text_en": p.text_en,
+                        "audio_url_ko": p.audio_url_ko,
+                        "audio_url_en": p.audio_url_en,
+                        # 학습 자산
+                        "vocab": p.vocab,
+                        "comprehension_questions": p.comprehension,
+                        "quiz": p.quiz,
                     }
                     for p in pages
                 ],
+                # 학습 자산 전체
+                "learning_assets": book.learning_assets,
                 "created_at": book.created_at.isoformat(),
             }
 
@@ -278,6 +295,12 @@ async def get_book_detail(
         "cover_image_url": book.cover_image_url or "",
         "pdf_url": book.pdf_url,
         "audio_url": book.audio_url,
+        # 시리즈 정보
+        "series_id": book.series_id,
+        "series_index": book.series_index,
+        # 다국어 제목
+        "title_ko": book.title_ko,
+        "title_en": book.title_en,
         "pages": [
             {
                 "page_number": p.page_number,
@@ -285,9 +308,20 @@ async def get_book_detail(
                 "image_url": p.image_url or "",
                 "image_prompt": p.image_prompt,
                 "audio_url": p.audio_url,
+                # 다국어 텍스트
+                "text_ko": p.text_ko,
+                "text_en": p.text_en,
+                "audio_url_ko": p.audio_url_ko,
+                "audio_url_en": p.audio_url_en,
+                # 학습 자산
+                "vocab": p.vocab,
+                "comprehension_questions": p.comprehension,
+                "quiz": p.quiz,
             }
             for p in pages
         ],
+        # 학습 자산 전체
+        "learning_assets": book.learning_assets,
         "created_at": book.created_at.isoformat(),
     }
 
