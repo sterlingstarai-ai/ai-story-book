@@ -8,8 +8,8 @@
 
 - **타입**: Flutter 모바일 앱 + FastAPI 백엔드
 - **언어**: 한국어 (Korean) 우선
-- **버전**: 0.2.0
-- **상태**: v0.2 개발 완료 (Day 25 테스트 예정)
+- **버전**: 0.3.0
+- **상태**: v0.3 개발 완료, CI 전체 통과 ✅
 
 ## 핵심 차별화 (2개)
 
@@ -428,106 +428,92 @@ flutter test
 
 ---
 
-## 🔴 최근 세션 (2026-01-22)
+## 🔴 최근 세션 (2026-01-23)
 
-### CTO 리뷰 기반 구조적 결함 수정 완료
+### v0.3 기능 개발 완료 + CI 수정
 
-외부 CTO 레벨 코드 리뷰를 받아 "테스트가 반복 실패하는" 구조적 원인 4개를 모두 수정함.
+**버전**: 0.3.0
+**상태**: 개발 완료, CI 전체 통과 ✅
 
-### 수정된 구조적 결함
+### v0.3 신규 기능 (3개)
 
-#### 1. SQLite + FOR UPDATE 호환성 (치명적)
-- **문제**: `credits.py`의 `with_for_update()`가 SQLite에서 즉시 예외 발생
-- **해결**: 원자적 UPDATE 방식으로 변경 (`WHERE credits >= amount`)
-```python
-# Before (SQLite 미지원)
-.with_for_update()
+#### 1. 시리즈 생성 기능
+- `Series` DB 테이블 추가 (시리즈 메타데이터 관리)
+- `Book` 테이블에 `series_id`, `series_index` 컬럼 추가
+- `start_series_generation()` 함수 구현 (시리즈 자동 생성/관리)
 
-# After (DB 독립적)
-update(UserCredits).where(
-    UserCredits.user_key == user_key,
-    UserCredits.credits >= amount,
-).values(credits=UserCredits.credits - amount)
+#### 2. 다국어 번역 토글 (한/영)
+- `Book` 테이블: `title_ko`, `title_en` 컬럼 추가
+- `Page` 테이블: `text_ko`, `text_en`, `audio_url_ko`, `audio_url_en` 컬럼 추가
+- Flutter `ViewerScreen`: 언어 토글 위젯 (`_LanguageToggle`)
+- `getTitle(language)`, `getText(language)` 헬퍼 메서드
+
+#### 3. 3단계 학습 시스템
+- **단어 학습 (Vocab)**: 페이지별 핵심 단어 + 뜻 + 예문
+- **이해 질문 (Comprehension)**: 스토리 이해도 확인 질문
+- **퀴즈 (Quiz)**: 4지선다 퀴즈 + 정답 해설
+- **부모 가이드 (Parent Guide)**: 요약 + 토론 주제 + 활동 제안
+
+### 추가된 파일
+```
+apps/api/src/prompts/generate_learning_assets.system.jinja2
+apps/api/src/prompts/generate_learning_assets.user.jinja2
 ```
 
-#### 2. API 계약 불일치 (/v1/books/series)
-- **문제**: 테스트가 `{character_id, topic, theme}` 전송, API는 `previous_book_id` 필수 요구 → 422
-- **해결**: `SeriesNextRequest`를 topic 기반으로 재설계, 모든 필드에 기본값 추가
-```python
-class SeriesNextRequest(BaseModel):
-    character_id: str  # 필수
-    topic: Optional[str]  # topic 기반 생성
-    theme: Optional[Theme] = None
-    language: Language = Language.ko
-    target_age: TargetAge = TargetAge.a5_7
-    style: Style = Style.watercolor
-    previous_book_id: Optional[str] = None  # 옵션화
-```
-
-#### 3. Pydantic 타입/길이 위반
-- **문제**: `orchestrator.py`에서 personality를 str로 변환 (list 기대), appearance 400자 전달 (200자 제한)
-- **해결**:
-  - `personality`: list 그대로 전달
-  - `appearance`: 200자로 truncate
-
-#### 4. 테스트 환경 안정화
-- **문제**: job_monitor/background_tasks가 테스트에서 타이밍 이슈 유발
-- **해결**: `settings.testing` 플래그로 테스트 시 비활성화
-
-### 추가 수정사항
-
-#### CI/CD 수정
-- `packages:write` 권한 추가 (Docker 빌드 권한 오류 수정)
-- Flutter 버전 `3.16.0` → `3.27.1` (의존성 호환)
-
-#### OpenAI Image API 지원 추가
-- `image.py`: `_generate_openai()` 함수 추가 (DALL-E 3)
-- `config.py`: `image_model` 설정 추가
-- 기본 이미지 제공자: `openai` (기존 `replicate`에서 변경)
-
-### 수정된 파일 (6개)
-| 파일 | 핵심 수정 |
+### 수정된 주요 파일
+| 파일 | 변경 내용 |
 |------|----------|
-| `credits.py` | FOR UPDATE → 원자적 UPDATE |
-| `dto.py` | SeriesNextRequest 재설계 + AliasChoices |
-| `orchestrator.py` | personality=list, appearance≤200자 |
-| `config.py` | testing 플래그 + image_model |
-| `main.py` | testing 시 job_monitor 비활성화 |
-| `books.py` | testing 시 background_tasks 스킵 |
+| `db.py` | Series 테이블, Book/Page 다국어+학습 컬럼 |
+| `dto.py` | LearningAssets, VocabItem, QuizItem 등 모델 |
+| `llm.py` | `call_learning_assets()` 함수 + mock 응답 |
+| `orchestrator.py` | 학습 자산 생성 파이프라인, 시리즈 관리 |
+| `books.py` | 다국어/학습 필드 API 응답 포함 |
+| `viewer_screen.dart` | 언어 토글, 학습 모드 시트, 부모 가이드 |
+| `job_status.dart` | Flutter 모델 확장 (시리즈, 다국어, 학습) |
 
-### CI 결과 (모든 테스트/빌드 통과)
-| Job | 상태 |
-|-----|------|
-| API Tests | ✅ 1m26s |
-| Security Scan | ✅ 11s |
-| Flutter Tests | ✅ 57s |
-| Build Docker Images | ✅ 1m30s |
-| Deploy to Production | ❌ (서버 credentials 미설정) |
+### 이미지 텍스트 금지 정책 강화
+- 모든 `negative_prompt`에 필수 토큰 추가:
+  ```
+  text, letters, words, writing, caption, subtitle, title,
+  watermark, logo, signature, label, number, alphabet,
+  korean text, english text, any text
+  ```
+- `positive_prompt`에 "no text", "textless" 권장
 
-### 커밋 히스토리
+### CI 수정 사항
+| 커밋 | 수정 내용 |
+|------|----------|
+| `441fb2d` | ruff F541 수정 (불필요한 f-string) |
+| `441fb2d` | test_services.py: `credits.id` → `credits.user_key` |
+| `b077a2e` | model_test.dart: BookStyle 7개 (realistic 추가) |
+
+### CI 결과 (전체 통과)
 ```
-fb9f9af - fix: CTO 리뷰 기반 구조적 결함 수정
-2ef8a93 - feat: OpenAI Image API (DALL-E) 지원 추가
-b0c6ef0 - fix: Flutter 버전 업데이트 (3.16.0 → 3.27.1)
-0cf4a8e - fix: CI workflow 권한 추가 (packages:write)
+✓ API Tests          1m30s
+✓ Flutter Tests      50s (43/43 통과)
+✓ Security Scan      17s
+✓ Build Docker Images 1m40s
+- Deploy to Production (DEPLOY_ENABLED 미설정)
 ```
 
-### 다음 단계: API 키 설정
+### 커밋 히스토리 (최근)
+```
+b077a2e - fix: Flutter 테스트 - realistic 스타일 추가 반영
+441fb2d - fix: CI 테스트 오류 수정
+44bcce8 - feat: v0.3 다국어 번역 + 학습 자산 + 시리즈 생성
+```
+
+### 다음 세션에서 할 일
+1. **프로덕션 배포** (선택): GitHub Secrets 설정 후 Deploy
+2. **실제 API 연동 테스트**: OpenAI API 키로 E2E 테스트
+3. **v0.4 계획**: 추가 기능 논의 (소셜 공유, 북마크 등)
+
+### 빠른 재개 명령어
 ```bash
-# apps/api/.env 파일 수정
-LLM_PROVIDER=openai
-LLM_API_KEY=sk-YOUR_OPENAI_API_KEY
-IMAGE_PROVIDER=openai
-IMAGE_API_KEY=sk-YOUR_OPENAI_API_KEY  # LLM과 동일
-TTS_PROVIDER=elevenlabs
-ELEVENLABS_API_KEY=YOUR_ELEVENLABS_KEY
+cd /Users/jmac/Desktop/ai-story-book
+git log --oneline -5  # 최근 커밋 확인
+gh run list --limit 3  # CI 상태 확인
 ```
-
-### 필요한 API 키 발급처
-| Provider | URL | 용도 |
-|----------|-----|------|
-| OpenAI | https://platform.openai.com/api-keys | LLM + Image |
-| ElevenLabs | https://elevenlabs.io/api | TTS |
 
 ### GitHub Actions URL
 ```
