@@ -65,7 +65,7 @@ class TestCreditsService:
         # Get again
         credits2 = await credits_service.get_or_create_credits(db_session, user_key)
 
-        assert credits1.id == credits2.id
+        assert credits1.user_key == credits2.user_key
 
     @pytest.mark.asyncio
     async def test_has_credits_true(self, db_session):

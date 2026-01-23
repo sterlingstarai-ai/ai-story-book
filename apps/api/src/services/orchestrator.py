@@ -928,7 +928,7 @@ async def start_series_generation(
     series_context = (
         f"이전 책 '{prev_book.title}'의 후속편입니다. 시리즈 {series_index}권."
         if prev_book
-        else f"시리즈의 첫 번째 이야기입니다."
+        else "시리즈의 첫 번째 이야기입니다."
     )
 
     # Create BookSpec for series
