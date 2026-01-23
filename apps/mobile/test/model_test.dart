@@ -71,13 +71,14 @@ void main() {
 
   group('BookStyle', () {
     test('has all styles', () {
-      expect(BookStyle.values.length, equals(6));
+      expect(BookStyle.values.length, equals(7));
       expect(BookStyle.watercolor.value, equals('watercolor'));
       expect(BookStyle.cartoon.value, equals('cartoon'));
       expect(BookStyle.threeD.value, equals('3d'));
       expect(BookStyle.pixel.value, equals('pixel'));
       expect(BookStyle.oilPainting.value, equals('oil_painting'));
       expect(BookStyle.claymation.value, equals('claymation'));
+      expect(BookStyle.realistic.value, equals('realistic'));
     });
   });
 
