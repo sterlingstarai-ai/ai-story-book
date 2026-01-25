@@ -246,7 +246,7 @@ class PhotoCharacterService:
 
 이름: {name}
 나이: {age}
-특징/성격: {', '.join(traits)}
+특징/성격: {", ".join(traits)}
 스타일: {style}
 
 JSON 형식으로 응답해주세요:
@@ -306,6 +306,7 @@ JSON 형식으로 응답해주세요:
             data = response.json()
 
             import json
+
             content = data["choices"][0]["message"]["content"]
             return json.loads(content)
 
@@ -330,6 +331,7 @@ JSON 형식으로 응답해주세요:
 
             import json
             import re
+
             content = data["content"][0]["text"]
             json_match = re.search(r"\{[\s\S]*\}", content)
             if json_match:
@@ -359,7 +361,9 @@ JSON 형식으로 응답해주세요:
                 "shoes": "운동화",
                 "accessories": "없음",
             },
-            "personality_traits": traits if traits else ["친절한", "용감한", "호기심 많은"],
+            "personality_traits": traits
+            if traits
+            else ["친절한", "용감한", "호기심 많은"],
             "visual_style_notes": f"{style} style illustration",
         }
 

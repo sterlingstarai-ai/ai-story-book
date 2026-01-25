@@ -141,7 +141,8 @@ class _LibraryBottomNavBar extends StatelessWidget {
                 icon: Icons.people_rounded,
                 label: '캐릭터',
                 isSelected: false,
-                onTap: () => Navigator.pushReplacementNamed(context, '/characters'),
+                onTap: () =>
+                    Navigator.pushReplacementNamed(context, '/characters'),
               ),
             ],
           ),

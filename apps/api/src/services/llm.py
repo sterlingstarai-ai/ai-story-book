@@ -125,23 +125,44 @@ async def _call_mock(
                     {
                         "page": i,
                         "translated_text": f"Page {i}: The rabbit walked through the forest, starting a new adventure. "
-                        + ("The heart was pounding with excitement." if i == 1 else f"This is the story of scene {i}."),
+                        + (
+                            "The heart was pounding with excitement."
+                            if i == 1
+                            else f"This is the story of scene {i}."
+                        ),
                         "vocab": [
-                            {"word": "토끼", "meaning": "rabbit", "example": "The rabbit hopped happily."},
-                            {"word": "숲", "meaning": "forest", "example": "The forest was full of trees."},
-                            {"word": "모험", "meaning": "adventure", "example": "What an exciting adventure!"},
+                            {
+                                "word": "토끼",
+                                "meaning": "rabbit",
+                                "example": "The rabbit hopped happily.",
+                            },
+                            {
+                                "word": "숲",
+                                "meaning": "forest",
+                                "example": "The forest was full of trees.",
+                            },
+                            {
+                                "word": "모험",
+                                "meaning": "adventure",
+                                "example": "What an exciting adventure!",
+                            },
                         ],
                         "comprehension_questions": [
-                            {"question": "Where did the rabbit go?", "answer": "The rabbit went to the forest."}
+                            {
+                                "question": "Where did the rabbit go?",
+                                "answer": "The rabbit went to the forest.",
+                            }
                         ],
                         "quiz": [
                             {
                                 "question": "What does '토끼' mean in English?",
                                 "options": ["cat", "rabbit", "dog", "bird"],
                                 "answer_index": 1,
-                                "explanation": "'토끼' means 'rabbit' in English."
+                                "explanation": "'토끼' means 'rabbit' in English.",
                             }
-                        ] if i == 8 else []
+                        ]
+                        if i == 8
+                        else [],
                     }
                     for i in range(1, 9)
                 ],
@@ -149,13 +170,13 @@ async def _call_mock(
                     "summary": "This story teaches children about courage and friendship through the adventures of a brave rabbit.",
                     "discussion_prompts": [
                         "What made the rabbit brave?",
-                        "Have you ever been scared but still did something?"
+                        "Have you ever been scared but still did something?",
                     ],
                     "activities": [
                         "Draw your own rabbit character",
-                        "Act out the story with family members"
-                    ]
-                }
+                        "Act out the story with family members",
+                    ],
+                },
             }
         )
     elif "moderation" in system_prompt.lower() or "안전성" in system_prompt:
@@ -390,7 +411,9 @@ async def load_characters_from_db(character_ids: list[str]) -> list[dict]:
 async def call_story_generation(spec: BookSpec) -> StoryDraft:
     """스토리 생성"""
     # 기존 캐릭터 로드 (character_ids 또는 character_id)
-    character_ids = spec.character_ids or ([spec.character_id] if spec.character_id else [])
+    character_ids = spec.character_ids or (
+        [spec.character_id] if spec.character_id else []
+    )
     loaded_characters = await load_characters_from_db(character_ids)
 
     # character_spec과 loaded_characters 병합
@@ -410,7 +433,9 @@ async def call_story_generation(spec: BookSpec) -> StoryDraft:
         theme=spec.theme.value if spec.theme else None,
         style=spec.style.value,
         page_count=spec.page_count,
-        character_spec=all_character_specs[0] if len(all_character_specs) == 1 else None,
+        character_spec=all_character_specs[0]
+        if len(all_character_specs) == 1
+        else None,
         character_specs=all_character_specs if len(all_character_specs) > 1 else None,
         forbidden_elements=spec.forbidden_elements or [],
     )

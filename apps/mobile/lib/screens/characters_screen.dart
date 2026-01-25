@@ -32,8 +32,10 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
         centerTitle: false,
         actions: [
           IconButton(
-            icon: const Icon(Icons.add_circle_outline, color: AppColors.primary),
-            onPressed: _isCreatingCharacter ? null : () => _showCharacterOptions(),
+            icon:
+                const Icon(Icons.add_circle_outline, color: AppColors.primary),
+            onPressed:
+                _isCreatingCharacter ? null : () => _showCharacterOptions(),
             tooltip: '캐릭터 추가',
           ),
           IconButton(
@@ -69,13 +71,16 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
             onRefresh: () => ref.read(charactersProvider.notifier).refresh(),
             child: ListView.separated(
               padding: const EdgeInsets.all(AppSpacing.lg),
-              itemCount: characters.length + 1,  // +1 for add button
-              separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.md),
+              itemCount: characters.length + 1, // +1 for add button
+              separatorBuilder: (_, __) =>
+                  const SizedBox(height: AppSpacing.md),
               itemBuilder: (context, index) {
                 // 첫 번째 아이템: 캐릭터 추가 카드
                 if (index == 0) {
                   return _AddCharacterCard(
-                    onTap: _isCreatingCharacter ? null : () => _showCharacterOptions(),
+                    onTap: _isCreatingCharacter
+                        ? null
+                        : () => _showCharacterOptions(),
                     isLoading: _isCreatingCharacter,
                   );
                 }
@@ -167,7 +172,8 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.photo_library, color: AppColors.primary),
+              leading:
+                  const Icon(Icons.photo_library, color: AppColors.primary),
               title: const Text('갤러리에서 선택'),
               subtitle: const Text('기존 사진에서 캐릭터 생성'),
               onTap: () {
@@ -199,7 +205,8 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
     );
   }
 
-  Future<void> _createCharacterFromText(String name, String age, String traits) async {
+  Future<void> _createCharacterFromText(
+      String name, String age, String traits) async {
     setState(() => _isCreatingCharacter = true);
 
     try {
@@ -279,7 +286,8 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
             child: const Text('취소'),
           ),
           TextButton(
-            onPressed: () => Navigator.pop(context, controller.text.isEmpty ? null : controller.text),
+            onPressed: () => Navigator.pop(
+                context, controller.text.isEmpty ? null : controller.text),
             child: const Text('확인'),
           ),
         ],
@@ -320,7 +328,8 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
     }
   }
 
-  void _showCharacterDetail(BuildContext context, WidgetRef ref, Character character) {
+  void _showCharacterDetail(
+      BuildContext context, WidgetRef ref, Character character) {
     showModalBottomSheet(
       context: context,
       backgroundColor: AppColors.surface,
@@ -764,7 +773,8 @@ class _CharactersBottomNavBar extends StatelessWidget {
                 icon: Icons.auto_stories_rounded,
                 label: '서재',
                 isSelected: false,
-                onTap: () => Navigator.pushReplacementNamed(context, '/library'),
+                onTap: () =>
+                    Navigator.pushReplacementNamed(context, '/library'),
               ),
               _NavItem(
                 icon: Icons.people_rounded,
@@ -829,7 +839,7 @@ class _NavItem extends StatelessWidget {
 class _CharacterRole {
   final String label;
   final String emoji;
-  final String ageHint;  // AI에게 전달할 나이 힌트
+  final String ageHint; // AI에게 전달할 나이 힌트
 
   const _CharacterRole(this.label, this.emoji, this.ageHint);
 }
@@ -867,8 +877,16 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
 
   // 추천 성격 특성
   final _suggestedTraits = [
-    '호기심 많은', '활발한', '다정한', '용감한', '재미있는',
-    '똑똒한', '친절한', '장난꾸러기', '차분한', '씩씩한',
+    '호기심 많은',
+    '활발한',
+    '다정한',
+    '용감한',
+    '재미있는',
+    '똑똒한',
+    '친절한',
+    '장난꾸러기',
+    '차분한',
+    '씩씩한',
   ];
   final Set<String> _selectedTraits = {};
 
@@ -884,7 +902,10 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
     final customTraits = _traitsController.text.trim();
     final allTraits = [..._selectedTraits];
     if (customTraits.isNotEmpty) {
-      allTraits.addAll(customTraits.split(',').map((t) => t.trim()).where((t) => t.isNotEmpty));
+      allTraits.addAll(customTraits
+          .split(',')
+          .map((t) => t.trim())
+          .where((t) => t.isNotEmpty));
     }
     return allTraits.join(', ');
   }
@@ -929,7 +950,8 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
                   ..._characterRoles.asMap().entries.map((entry) {
                     final index = entry.key;
                     final role = entry.value;
-                    final isSelected = _selectedRoleIndex == index && !_isCustomRole;
+                    final isSelected =
+                        _selectedRoleIndex == index && !_isCustomRole;
                     return GestureDetector(
                       onTap: () => setState(() {
                         _selectedRoleIndex = index;
@@ -941,23 +963,32 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
                           vertical: AppSpacing.sm,
                         ),
                         decoration: BoxDecoration(
-                          color: isSelected ? AppColors.primaryLight : AppColors.surface,
+                          color: isSelected
+                              ? AppColors.primaryLight
+                              : AppColors.surface,
                           borderRadius: BorderRadius.circular(AppRadius.md),
                           border: Border.all(
-                            color: isSelected ? AppColors.primary : AppColors.divider,
+                            color: isSelected
+                                ? AppColors.primary
+                                : AppColors.divider,
                             width: isSelected ? 2 : 1,
                           ),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Text(role.emoji, style: const TextStyle(fontSize: 20)),
+                            Text(role.emoji,
+                                style: const TextStyle(fontSize: 20)),
                             const SizedBox(width: AppSpacing.xs),
                             Text(
                               role.label,
                               style: TextStyle(
-                                color: isSelected ? AppColors.primary : AppColors.textPrimary,
-                                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                                color: isSelected
+                                    ? AppColors.primary
+                                    : AppColors.textPrimary,
+                                fontWeight: isSelected
+                                    ? FontWeight.w600
+                                    : FontWeight.normal,
                               ),
                             ),
                           ],
@@ -977,10 +1008,14 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
                         vertical: AppSpacing.sm,
                       ),
                       decoration: BoxDecoration(
-                        color: _isCustomRole ? AppColors.primaryLight : AppColors.surface,
+                        color: _isCustomRole
+                            ? AppColors.primaryLight
+                            : AppColors.surface,
                         borderRadius: BorderRadius.circular(AppRadius.md),
                         border: Border.all(
-                          color: _isCustomRole ? AppColors.primary : AppColors.divider,
+                          color: _isCustomRole
+                              ? AppColors.primary
+                              : AppColors.divider,
                           width: _isCustomRole ? 2 : 1,
                         ),
                       ),
@@ -992,8 +1027,12 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
                           Text(
                             '직접 입력',
                             style: TextStyle(
-                              color: _isCustomRole ? AppColors.primary : AppColors.textPrimary,
-                              fontWeight: _isCustomRole ? FontWeight.w600 : FontWeight.normal,
+                              color: _isCustomRole
+                                  ? AppColors.primary
+                                  : AppColors.textPrimary,
+                              fontWeight: _isCustomRole
+                                  ? FontWeight.w600
+                                  : FontWeight.normal,
                             ),
                           ),
                         ],
@@ -1045,7 +1084,8 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
               const SizedBox(height: AppSpacing.xs),
               Text(
                 '여러 개 선택 가능',
-                style: AppTextStyles.caption.copyWith(color: AppColors.textHint),
+                style:
+                    AppTextStyles.caption.copyWith(color: AppColors.textHint),
               ),
               const SizedBox(height: AppSpacing.sm),
               Wrap(
@@ -1067,17 +1107,22 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
                         vertical: AppSpacing.xs,
                       ),
                       decoration: BoxDecoration(
-                        color: isSelected ? AppColors.primary : AppColors.surface,
+                        color:
+                            isSelected ? AppColors.primary : AppColors.surface,
                         borderRadius: BorderRadius.circular(AppRadius.sm),
                         border: Border.all(
-                          color: isSelected ? AppColors.primary : AppColors.divider,
+                          color: isSelected
+                              ? AppColors.primary
+                              : AppColors.divider,
                         ),
                       ),
                       child: Text(
                         trait,
                         style: TextStyle(
                           fontSize: 13,
-                          color: isSelected ? Colors.white : AppColors.textSecondary,
+                          color: isSelected
+                              ? Colors.white
+                              : AppColors.textSecondary,
                         ),
                       ),
                     ),

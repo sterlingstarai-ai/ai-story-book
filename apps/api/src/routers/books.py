@@ -147,7 +147,9 @@ async def create_book(
     # Start background task (Celery or FastAPI BackgroundTasks)
     # 테스트 환경에서는 background_tasks 실행 스킵 (테스트 안정화)
     if settings.testing:
-        logger.info("Skipping book generation background task in testing mode", job_id=job_id)
+        logger.info(
+            "Skipping book generation background task in testing mode", job_id=job_id
+        )
     elif settings.use_celery:
         from src.services.tasks import generate_book_task
 
@@ -427,7 +429,9 @@ async def create_series_next(
         if not prev_book:
             raise HTTPException(status_code=404, detail="Previous book not found")
         if prev_book.user_key != user_key:
-            raise HTTPException(status_code=403, detail="Access denied to previous book")
+            raise HTTPException(
+                status_code=403, detail="Access denied to previous book"
+            )
 
     # Check and deduct credits
     has_credits = await credits_service.has_credits(db, user_key, required=1)
@@ -535,6 +539,7 @@ async def export_book_pdf(
     # Return PDF as response
     # Use URL encoding for Korean filename to avoid header encoding issues
     from urllib.parse import quote
+
     safe_filename = f"storybook_{book.id}.pdf"
     encoded_filename = quote(f"{book.title.replace(' ', '_')}.pdf")
     return Response(

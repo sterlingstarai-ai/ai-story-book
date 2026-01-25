@@ -4,7 +4,7 @@ Service Layer Tests
 """
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 
 class TestPDFServiceSSRF:
@@ -131,15 +131,24 @@ class TestStorageService:
     @pytest.mark.asyncio
     async def test_upload_bytes_mock(self):
         """Test upload_bytes with mocked S3 client."""
-        from src.services.storage import storage_service
+        from src.services import storage
 
-        # Mock the internal client
-        with patch.object(storage_service, "_ensure_bucket", new_callable=AsyncMock):
-            with patch.object(storage_service, "_client") as mock_client:
-                mock_client.put_object = AsyncMock()
+        # Mock the module-level functions
+        with patch.object(storage, "ensure_bucket_exists", new_callable=AsyncMock):
+            with patch.object(storage, "get_s3_client") as mock_get_client:
+                mock_client = MagicMock()
+                mock_get_client.return_value = mock_client
 
-                # Should not raise
-                # The actual method might work differently in mock mode
+                # Test upload_bytes
+                url = await storage.storage_service.upload_bytes(
+                    data=b"test data",
+                    key="test/path/file.txt",
+                    content_type="text/plain",
+                )
+                # Should return a URL
+                assert url is not None
+                # Should have called put_object
+                mock_client.put_object.assert_called_once()
 
 
 class TestModerationOutput:

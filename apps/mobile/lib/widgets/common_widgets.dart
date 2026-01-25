@@ -143,7 +143,8 @@ class BookCard extends StatelessWidget {
                 children: [
                   Text(
                     title,
-                    style: AppTextStyles.bodySmall.copyWith(fontWeight: FontWeight.w600),
+                    style: AppTextStyles.bodySmall
+                        .copyWith(fontWeight: FontWeight.w600),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -172,7 +173,7 @@ class CharacterCard extends StatelessWidget {
   final String description;
   final VoidCallback? onTap;
   final bool isSelected;
-  final bool showCheckbox;  // 체크박스 표시 (다중 선택용)
+  final bool showCheckbox; // 체크박스 표시 (다중 선택용)
 
   const CharacterCard({
     super.key,
@@ -204,7 +205,9 @@ class CharacterCard extends StatelessWidget {
               children: [
                 if (showCheckbox) ...[
                   Icon(
-                    isSelected ? Icons.check_box : Icons.check_box_outline_blank,
+                    isSelected
+                        ? Icons.check_box
+                        : Icons.check_box_outline_blank,
                     color: isSelected ? AppColors.primary : AppColors.textHint,
                   ),
                   const SizedBox(width: AppSpacing.sm),
@@ -306,10 +309,12 @@ class EmptyState extends StatelessWidget {
           children: [
             Icon(icon, size: 64, color: AppColors.textHint),
             const SizedBox(height: AppSpacing.md),
-            Text(title, style: AppTextStyles.heading3, textAlign: TextAlign.center),
+            Text(title,
+                style: AppTextStyles.heading3, textAlign: TextAlign.center),
             if (subtitle != null) ...[
               const SizedBox(height: AppSpacing.sm),
-              Text(subtitle!, style: AppTextStyles.bodySmall, textAlign: TextAlign.center),
+              Text(subtitle!,
+                  style: AppTextStyles.bodySmall, textAlign: TextAlign.center),
             ],
             if (buttonText != null && onButtonPressed != null) ...[
               const SizedBox(height: AppSpacing.lg),

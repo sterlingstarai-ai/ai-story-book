@@ -426,20 +426,20 @@ def main():
     books_to_check = []
 
     if args.mock or (not args.book_id and not args.recent):
-        # Use mock data for testing
+        # Use mock data for testing (10+ words per page for 3-5 age group)
         mock_book = {
             "book_id": "mock_book_001",
             "title": "숲속의 작은 친구들",
             "target_age": "3-5",
             "pages": [
-                {"page_number": 1, "text": "숲속에 작은 토끼가 살았어요. 토끼는 당근을 좋아했어요.", "image_prompt": "cute rabbit with brown fur"},
-                {"page_number": 2, "text": "어느 날 토끼는 새 친구를 만났어요. 다람쥐였어요.", "image_prompt": "rabbit meeting a squirrel"},
-                {"page_number": 3, "text": "토끼와 다람쥐는 함께 놀았어요. 너무 재미있었어요.", "image_prompt": "rabbit and squirrel playing"},
-                {"page_number": 4, "text": "해가 지고 집에 돌아갈 시간이었어요.", "image_prompt": "sunset in the forest"},
-                {"page_number": 5, "text": "토끼는 내일 또 만나자고 약속했어요.", "image_prompt": "rabbit waving goodbye"},
-                {"page_number": 6, "text": "다람쥐도 기쁘게 약속했어요.", "image_prompt": "squirrel smiling"},
-                {"page_number": 7, "text": "토끼는 행복한 마음으로 집에 돌아갔어요.", "image_prompt": "rabbit going home happy"},
-                {"page_number": 8, "text": "그날 밤 토끼는 새 친구 꿈을 꾸었어요. 끝.", "image_prompt": "rabbit sleeping peacefully"},
+                {"page_number": 1, "text": "숲속에 작은 토끼가 살았어요. 토끼는 당근을 좋아했어요. 토끼의 이름은 토리였어요.", "image_prompt": "cute rabbit with brown fur"},
+                {"page_number": 2, "text": "어느 날 토끼는 새 친구를 만났어요. 다람쥐였어요. 다람쥐는 도토리를 먹고 있었어요.", "image_prompt": "rabbit meeting a squirrel"},
+                {"page_number": 3, "text": "토끼와 다람쥐는 함께 놀았어요. 숨바꼭질도 하고 달리기도 했어요. 너무 재미있었어요.", "image_prompt": "rabbit and squirrel playing"},
+                {"page_number": 4, "text": "해가 지고 집에 돌아갈 시간이었어요. 하늘이 주황색으로 예쁘게 물들었어요.", "image_prompt": "sunset in the forest"},
+                {"page_number": 5, "text": "토끼는 내일 또 만나자고 약속했어요. 다람쥐는 활짝 웃으며 고개를 끄덕였어요.", "image_prompt": "rabbit waving goodbye"},
+                {"page_number": 6, "text": "다람쥐도 기쁘게 약속했어요. 두 친구는 손을 흔들며 작별 인사를 했어요.", "image_prompt": "squirrel smiling"},
+                {"page_number": 7, "text": "토끼는 행복한 마음으로 집에 돌아갔어요. 엄마 토끼가 반갑게 맞아주었어요.", "image_prompt": "rabbit going home happy"},
+                {"page_number": 8, "text": "그날 밤 토끼는 새 친구 꿈을 꾸었어요. 꿈속에서도 둘은 함께 뛰어놀았어요. 끝.", "image_prompt": "rabbit sleeping peacefully"},
             ],
         }
         books_to_check.append(mock_book)

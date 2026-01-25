@@ -149,9 +149,15 @@ class Page(Base):
     audio_url_en = Column(String(500), nullable=True)  # 영어 오디오
 
     # 학습 자산 (v0.3)
-    vocab = Column(JSON, nullable=True)  # 단어 목록 [{"word": ..., "meaning": ...}, ...]
-    comprehension = Column(JSON, nullable=True)  # 이해 질문 [{"question": ..., "answer": ...}, ...]
-    quiz = Column(JSON, nullable=True)  # 퀴즈 [{"question": ..., "options": [...], "answer_index": ...}, ...]
+    vocab = Column(
+        JSON, nullable=True
+    )  # 단어 목록 [{"word": ..., "meaning": ...}, ...]
+    comprehension = Column(
+        JSON, nullable=True
+    )  # 이해 질문 [{"question": ..., "answer": ...}, ...]
+    quiz = Column(
+        JSON, nullable=True
+    )  # 퀴즈 [{"question": ..., "options": [...], "answer_index": ...}, ...]
 
     # Relationships
     book = relationship("Book", back_populates="pages")

@@ -325,6 +325,7 @@ class RegeneratePageResponse(BaseModel):
 
 class VocabItem(BaseModel):
     """단어 학습 아이템"""
+
     model_config = ConfigDict(extra="forbid")
 
     word: str = Field(min_length=1, max_length=50)
@@ -334,6 +335,7 @@ class VocabItem(BaseModel):
 
 class ComprehensionQuestion(BaseModel):
     """이해 질문"""
+
     model_config = ConfigDict(extra="forbid")
 
     question: str = Field(min_length=1, max_length=300)
@@ -342,6 +344,7 @@ class ComprehensionQuestion(BaseModel):
 
 class QuizItem(BaseModel):
     """퀴즈 아이템 (객관식)"""
+
     model_config = ConfigDict(extra="forbid")
 
     question: str = Field(min_length=1, max_length=300)
@@ -352,17 +355,21 @@ class QuizItem(BaseModel):
 
 class LearningPageAssets(BaseModel):
     """페이지별 학습 자산"""
+
     model_config = ConfigDict(extra="forbid")
 
     page: int = Field(ge=1, le=12)
     translated_text: str = Field(min_length=1, max_length=800)
     vocab: List[VocabItem] = Field(default_factory=list, max_length=10)
-    comprehension_questions: List[ComprehensionQuestion] = Field(default_factory=list, max_length=3)
+    comprehension_questions: List[ComprehensionQuestion] = Field(
+        default_factory=list, max_length=3
+    )
     quiz: List[QuizItem] = Field(default_factory=list, max_length=2)
 
 
 class ParentGuide(BaseModel):
     """부모 가이드"""
+
     model_config = ConfigDict(extra="forbid")
 
     summary: str = Field(min_length=1, max_length=500)
@@ -372,6 +379,7 @@ class ParentGuide(BaseModel):
 
 class LearningAssets(BaseModel):
     """전체 학습 자산"""
+
     model_config = ConfigDict(extra="forbid")
 
     source_language: Language

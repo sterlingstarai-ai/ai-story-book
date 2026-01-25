@@ -94,13 +94,15 @@ async def list_characters(
                 character_id=c.id,
                 name=c.name,
                 master_description=c.master_description,
-                appearance=CharacterAppearance(**{
-                    k: v or "알 수 없음" for k, v in c.appearance.items()
-                }),
-                clothing=CharacterClothing(**{
-                    k: v or "알 수 없음" if k != "accessories" else v or "없음"
-                    for k, v in c.clothing.items()
-                }),
+                appearance=CharacterAppearance(
+                    **{k: v or "알 수 없음" for k, v in c.appearance.items()}
+                ),
+                clothing=CharacterClothing(
+                    **{
+                        k: v or "알 수 없음" if k != "accessories" else v or "없음"
+                        for k, v in c.clothing.items()
+                    }
+                ),
                 personality_traits=c.personality_traits,
                 visual_style_notes=c.visual_style_notes,
                 created_at=c.created_at,
@@ -203,7 +205,9 @@ async def create_character_from_text(
             master_description=character_data["master_description"],
             appearance=character_data["appearance"],
             clothing=character_data["clothing"],
-            personality_traits=character_data.get("personality_traits", personality_traits),
+            personality_traits=character_data.get(
+                "personality_traits", personality_traits
+            ),
             visual_style_notes=character_data.get("visual_style_notes", ""),
             user_key=user_key,
         )

@@ -264,8 +264,7 @@ void main() {
   });
 
   group('LoadingOverlay', () {
-    testWidgets('shows CircularProgressIndicator',
-        (WidgetTester tester) async {
+    testWidgets('shows CircularProgressIndicator', (WidgetTester tester) async {
       await tester.pumpWidget(
         const MaterialApp(
           home: Scaffold(

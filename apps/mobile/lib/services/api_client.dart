@@ -287,7 +287,8 @@ class ApiClient {
   }
 
   /// 거래 내역 조회
-  Future<List<dynamic>> getTransactions({int limit = 20, int offset = 0}) async {
+  Future<List<dynamic>> getTransactions(
+      {int limit = 20, int offset = 0}) async {
     final response = await _dio.get(
       '/v1/credits/transactions',
       queryParameters: {'limit': limit, 'offset': offset},

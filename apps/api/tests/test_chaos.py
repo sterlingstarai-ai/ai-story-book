@@ -194,22 +194,27 @@ class TestStorageFailures:
     @pytest.mark.asyncio
     async def test_s3_upload_failure_retry(self):
         """S3 upload failure should not crash the system."""
-        from src.services.storage import storage_service
+        from src.services import storage
 
-        # Mock S3 failure
-        with patch.object(storage_service, "_ensure_bucket", new_callable=AsyncMock):
-            with patch.object(storage_service, "_client") as mock_client:
-                mock_client.put_object = AsyncMock(
-                    side_effect=Exception("S3 unavailable")
+        # Mock S3 failure at module level
+        with patch.object(storage, "ensure_bucket_exists", new_callable=AsyncMock):
+            with patch.object(storage, "get_s3_client") as mock_get_client:
+                from botocore.exceptions import ClientError
+
+                mock_client = AsyncMock()
+                mock_client.put_object.side_effect = ClientError(
+                    {"Error": {"Code": "500", "Message": "S3 unavailable"}},
+                    "PutObject",
                 )
+                mock_get_client.return_value = mock_client
 
                 # Should handle gracefully
                 try:
-                    await storage_service.upload_bytes(
+                    await storage.storage_service.upload_bytes(
                         b"test data", "test/path.txt", content_type="text/plain"
                     )
                 except Exception:
-                    # Expected to raise, but should be handled
+                    # Expected to raise StorageError, but should be handled
                     pass
 
 
@@ -247,6 +252,7 @@ class TestExternalAPIDelays:
         """Slow LLM response should respect timeout."""
         import asyncio
         from src.services.orchestrator import run_step
+        from src.core.errors import StoryBookError
 
         async def slow_fn():
             await asyncio.sleep(5)  # Simulate slow response
@@ -255,7 +261,8 @@ class TestExternalAPIDelays:
         with patch(
             "src.services.orchestrator.update_job_status", new_callable=AsyncMock
         ):
-            with pytest.raises(asyncio.TimeoutError):
+            # run_step converts TimeoutError to StoryBookError after retries
+            with pytest.raises(StoryBookError) as exc_info:
                 await run_step(
                     job_id="test-job",
                     step_name="slow step",
@@ -264,3 +271,5 @@ class TestExternalAPIDelays:
                     retries=0,
                     timeout_sec=1,
                 )
+            # Verify the cause was a TimeoutError
+            assert isinstance(exc_info.value.__cause__, asyncio.TimeoutError)

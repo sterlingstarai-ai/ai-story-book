@@ -60,7 +60,9 @@ def _is_url_allowed(url: str) -> bool:
                 return False
         except (socket.gaierror, ValueError):
             # SECURITY: Fail-closed - block if we can't resolve
-            logger.warning("DNS resolution failed for URL validation", hostname=hostname)
+            logger.warning(
+                "DNS resolution failed for URL validation", hostname=hostname
+            )
             return False
 
         return False

@@ -98,7 +98,8 @@ class BookResult {
       titleKo: json['title_ko'] as String?,
       titleEn: json['title_en'] as String?,
       learningAssets: json['learning_assets'] != null
-          ? LearningAssets.fromJson(json['learning_assets'] as Map<String, dynamic>)
+          ? LearningAssets.fromJson(
+              json['learning_assets'] as Map<String, dynamic>)
           : null,
     );
   }
@@ -158,7 +159,8 @@ class PageResult {
           : null,
       comprehensionQuestions: json['comprehension_questions'] != null
           ? (json['comprehension_questions'] as List<dynamic>)
-              .map((q) => ComprehensionQuestion.fromJson(q as Map<String, dynamic>))
+              .map((q) =>
+                  ComprehensionQuestion.fromJson(q as Map<String, dynamic>))
               .toList()
           : null,
       quiz: json['quiz'] != null
@@ -240,7 +242,8 @@ class QuizItem {
   factory QuizItem.fromJson(Map<String, dynamic> json) {
     return QuizItem(
       question: json['question'] as String,
-      options: (json['options'] as List<dynamic>).map((o) => o as String).toList(),
+      options:
+          (json['options'] as List<dynamic>).map((o) => o as String).toList(),
       answerIndex: json['answer_index'] as int,
       explanation: json['explanation'] as String?,
     );
@@ -291,7 +294,8 @@ class LearningAssets {
       sourceLanguage: json['source_language'] as String,
       targetLanguage: json['target_language'] as String,
       titleTranslation: json['title_translation'] as String,
-      parentGuide: ParentGuide.fromJson(json['parent_guide'] as Map<String, dynamic>),
+      parentGuide:
+          ParentGuide.fromJson(json['parent_guide'] as Map<String, dynamic>),
     );
   }
 }

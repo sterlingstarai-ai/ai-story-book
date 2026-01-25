@@ -6,8 +6,8 @@ class BookSpec {
   final String style;
   final int pageCount;
   final String? theme;
-  final String? characterId;  // 단일 캐릭터 (기존 호환)
-  final List<String>? characterIds;  // 다중 캐릭터 (가족 등)
+  final String? characterId; // 단일 캐릭터 (기존 호환)
+  final List<String>? characterIds; // 다중 캐릭터 (가족 등)
   final List<String>? forbiddenElements;
 
   BookSpec({
@@ -30,7 +30,8 @@ class BookSpec {
         'page_count': pageCount,
         if (theme != null) 'theme': theme,
         if (characterId != null) 'character_id': characterId,
-        if (characterIds != null && characterIds!.isNotEmpty) 'character_ids': characterIds,
+        if (characterIds != null && characterIds!.isNotEmpty)
+          'character_ids': characterIds,
         if (forbiddenElements != null) 'forbidden_elements': forbiddenElements,
       };
 }

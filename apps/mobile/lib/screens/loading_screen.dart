@@ -16,7 +16,7 @@ class LoadingScreen extends ConsumerStatefulWidget {
 }
 
 class _LoadingScreenState extends ConsumerState<LoadingScreen> {
-  bool _hasNavigated = false;  // Prevent double navigation
+  bool _hasNavigated = false; // Prevent double navigation
 
   @override
   Widget build(BuildContext context) {
@@ -30,7 +30,9 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
           child: jobStatusAsync.when(
             data: (status) {
               // 완료 시 뷰어로 이동 (guard against double navigation)
-              if (status.isComplete && status.result != null && !_hasNavigated) {
+              if (status.isComplete &&
+                  status.result != null &&
+                  !_hasNavigated) {
                 _hasNavigated = true;
                 WidgetsBinding.instance.addPostFrameCallback((_) {
                   if (mounted) {

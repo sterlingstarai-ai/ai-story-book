@@ -91,7 +91,8 @@ class HomeScreen extends ConsumerWidget {
                 return SliverPadding(
                   padding: const EdgeInsets.all(AppSpacing.lg),
                   sliver: SliverGrid(
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
                       crossAxisCount: 2,
                       mainAxisSpacing: AppSpacing.md,
                       crossAxisSpacing: AppSpacing.md,
@@ -249,7 +250,9 @@ class _BottomNavBar extends StatelessWidget {
                 icon: Icons.home_rounded,
                 label: '홈',
                 isSelected: currentIndex == 0,
-                onTap: currentIndex == 0 ? () {} : () => Navigator.pushReplacementNamed(context, '/'),
+                onTap: currentIndex == 0
+                    ? () {}
+                    : () => Navigator.pushReplacementNamed(context, '/'),
               ),
               _NavItem(
                 icon: Icons.add_circle_rounded,
@@ -261,13 +264,15 @@ class _BottomNavBar extends StatelessWidget {
                 icon: Icons.auto_stories_rounded,
                 label: '서재',
                 isSelected: currentIndex == 2,
-                onTap: () => Navigator.pushReplacementNamed(context, '/library'),
+                onTap: () =>
+                    Navigator.pushReplacementNamed(context, '/library'),
               ),
               _NavItem(
                 icon: Icons.people_rounded,
                 label: '캐릭터',
                 isSelected: currentIndex == 3,
-                onTap: () => Navigator.pushReplacementNamed(context, '/characters'),
+                onTap: () =>
+                    Navigator.pushReplacementNamed(context, '/characters'),
               ),
             ],
           ),

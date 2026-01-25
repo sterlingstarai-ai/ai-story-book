@@ -602,7 +602,9 @@ async def package_book(
         try:
             # Create book
             # character_id: 단일 캐릭터 (기존 호환성), character_ids: 다중 캐릭터
-            primary_char_id = spec.character_ids[0] if spec.character_ids else spec.character_id
+            primary_char_id = (
+                spec.character_ids[0] if spec.character_ids else spec.character_id
+            )
             book = Book(
                 id=book_id,
                 job_id=job_id,
@@ -622,7 +624,9 @@ async def package_book(
                 title_ko=title_ko,
                 title_en=title_en,
                 # 학습 자산
-                learning_assets=learning_assets.model_dump() if learning_assets else None,
+                learning_assets=learning_assets.model_dump()
+                if learning_assets
+                else None,
             )
             session.add(book)
 
@@ -647,7 +651,11 @@ async def package_book(
                     if lp:
                         text_en = lp.translated_text
                         vocab = [v.model_dump() for v in lp.vocab] if lp.vocab else None
-                        comprehension = [q.model_dump() for q in lp.comprehension_questions] if lp.comprehension_questions else None
+                        comprehension = (
+                            [q.model_dump() for q in lp.comprehension_questions]
+                            if lp.comprehension_questions
+                            else None
+                        )
                         quiz = [q.model_dump() for q in lp.quiz] if lp.quiz else None
                 elif story.language == Language.en:
                     text_en = page_data.text
@@ -655,7 +663,11 @@ async def package_book(
                     if lp:
                         text_ko = lp.translated_text
                         vocab = [v.model_dump() for v in lp.vocab] if lp.vocab else None
-                        comprehension = [q.model_dump() for q in lp.comprehension_questions] if lp.comprehension_questions else None
+                        comprehension = (
+                            [q.model_dump() for q in lp.comprehension_questions]
+                            if lp.comprehension_questions
+                            else None
+                        )
                         quiz = [q.model_dump() for q in lp.quiz] if lp.quiz else None
 
                 page = Page(
@@ -684,7 +696,9 @@ async def package_book(
             await session.commit()
         except Exception as e:
             await session.rollback()
-            logger.error("Failed to save book to database", book_id=book_id, error=str(e))
+            logger.error(
+                "Failed to save book to database", book_id=book_id, error=str(e)
+            )
             raise StoryBookError(
                 code=ErrorCode.DB_WRITE_FAILED,
                 message=f"책 저장 실패: {e}",
@@ -699,11 +713,7 @@ async def package_book(
             "text": p.text,
             "image_url": image_urls.get(p.page, ""),
             "image_prompt": next(
-                (
-                    ip.positive_prompt
-                    for ip in image_prompts.pages
-                    if ip.page == p.page
-                ),
+                (ip.positive_prompt for ip in image_prompts.pages if ip.page == p.page),
                 "",
             ),
             "audio_url": None,
@@ -713,16 +723,32 @@ async def package_book(
             page_result["text_ko"] = p.text
             if lp:
                 page_result["text_en"] = lp.translated_text
-                page_result["vocab"] = [v.model_dump() for v in lp.vocab] if lp.vocab else None
-                page_result["comprehension_questions"] = [q.model_dump() for q in lp.comprehension_questions] if lp.comprehension_questions else None
-                page_result["quiz"] = [q.model_dump() for q in lp.quiz] if lp.quiz else None
+                page_result["vocab"] = (
+                    [v.model_dump() for v in lp.vocab] if lp.vocab else None
+                )
+                page_result["comprehension_questions"] = (
+                    [q.model_dump() for q in lp.comprehension_questions]
+                    if lp.comprehension_questions
+                    else None
+                )
+                page_result["quiz"] = (
+                    [q.model_dump() for q in lp.quiz] if lp.quiz else None
+                )
         elif story.language == Language.en:
             page_result["text_en"] = p.text
             if lp:
                 page_result["text_ko"] = lp.translated_text
-                page_result["vocab"] = [v.model_dump() for v in lp.vocab] if lp.vocab else None
-                page_result["comprehension_questions"] = [q.model_dump() for q in lp.comprehension_questions] if lp.comprehension_questions else None
-                page_result["quiz"] = [q.model_dump() for q in lp.quiz] if lp.quiz else None
+                page_result["vocab"] = (
+                    [v.model_dump() for v in lp.vocab] if lp.vocab else None
+                )
+                page_result["comprehension_questions"] = (
+                    [q.model_dump() for q in lp.comprehension_questions]
+                    if lp.comprehension_questions
+                    else None
+                )
+                page_result["quiz"] = (
+                    [q.model_dump() for q in lp.quiz] if lp.quiz else None
+                )
 
         page_results.append(page_result)
 
@@ -887,7 +913,9 @@ async def start_series_generation(
             if existing_series:
                 # 시리즈 내 최대 인덱스 조회
                 max_idx_result = await session.execute(
-                    select(func.max(Book.series_index)).where(Book.series_id == series_id)
+                    select(func.max(Book.series_index)).where(
+                        Book.series_id == series_id
+                    )
                 )
                 max_idx = max_idx_result.scalar() or 0
                 series_index = max_idx + 1
@@ -915,11 +943,7 @@ async def start_series_generation(
             series_index = 1
 
     # Build topic: request.topic 우선, 없으면 new_topic_hint, 없으면 기본값
-    topic = (
-        request.topic
-        or request.new_topic_hint
-        or f"{character.name}의 새로운 모험"
-    )
+    topic = request.topic or request.new_topic_hint or f"{character.name}의 새로운 모험"
 
     # appearance 요약 (CharacterSpec.appearance는 max_length=200)
     appearance_src = ""

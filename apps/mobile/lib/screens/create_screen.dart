@@ -20,7 +20,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
   TargetAge _selectedAge = TargetAge.age5to7;
   BookStyle _selectedStyle = BookStyle.watercolor;
   BookTheme? _selectedTheme;
-  List<String> _selectedCharacterIds = [];  // 다중 캐릭터 선택
+  List<String> _selectedCharacterIds = []; // 다중 캐릭터 선택
   bool _isLoading = false;
 
   @override
@@ -40,10 +40,12 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
         targetAge: _selectedAge.value,
         style: _selectedStyle.value,
         theme: _selectedTheme?.value,
-        characterIds: _selectedCharacterIds.isNotEmpty ? _selectedCharacterIds : null,
+        characterIds:
+            _selectedCharacterIds.isNotEmpty ? _selectedCharacterIds : null,
       );
 
-      final jobId = await ref.read(bookCreationProvider.notifier).createBook(spec);
+      final jobId =
+          await ref.read(bookCreationProvider.notifier).createBook(spec);
 
       if (mounted) {
         Navigator.pushReplacementNamed(
@@ -112,7 +114,8 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(AppRadius.md),
-                  borderSide: const BorderSide(color: AppColors.primary, width: 2),
+                  borderSide:
+                      const BorderSide(color: AppColors.primary, width: 2),
                 ),
               ),
               maxLines: 3,
@@ -145,8 +148,11 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                   },
                   selectedColor: AppColors.primaryMedium,
                   labelStyle: TextStyle(
-                    color: isSelected ? AppColors.primary : AppColors.textSecondary,
-                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                    color: isSelected
+                        ? AppColors.primary
+                        : AppColors.textSecondary,
+                    fontWeight:
+                        isSelected ? FontWeight.w600 : FontWeight.normal,
                   ),
                 );
               }).toList(),
@@ -170,8 +176,11 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                   },
                   selectedColor: AppColors.primaryMedium,
                   labelStyle: TextStyle(
-                    color: isSelected ? AppColors.primary : AppColors.textSecondary,
-                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                    color: isSelected
+                        ? AppColors.primary
+                        : AppColors.textSecondary,
+                    fontWeight:
+                        isSelected ? FontWeight.w600 : FontWeight.normal,
                   ),
                 );
               }).toList(),
@@ -194,7 +203,9 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                   },
                   selectedColor: AppColors.primaryMedium,
                   labelStyle: TextStyle(
-                    color: _selectedTheme == null ? AppColors.primary : AppColors.textSecondary,
+                    color: _selectedTheme == null
+                        ? AppColors.primary
+                        : AppColors.textSecondary,
                   ),
                 ),
                 ...BookTheme.values.map((theme) {
@@ -207,8 +218,11 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                     },
                     selectedColor: AppColors.primaryMedium,
                     labelStyle: TextStyle(
-                      color: isSelected ? AppColors.primary : AppColors.textSecondary,
-                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                      color: isSelected
+                          ? AppColors.primary
+                          : AppColors.textSecondary,
+                      fontWeight:
+                          isSelected ? FontWeight.w600 : FontWeight.normal,
                     ),
                   );
                 }),
@@ -259,10 +273,12 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                         children: [
                           const Expanded(child: Divider()),
                           Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: AppSpacing.sm),
                             child: Text(
                               '또는 기존 캐릭터 선택',
-                              style: AppTextStyles.caption.copyWith(color: AppColors.textHint),
+                              style: AppTextStyles.caption
+                                  .copyWith(color: AppColors.textHint),
                             ),
                           ),
                           const Expanded(child: Divider()),
@@ -273,36 +289,42 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                         Padding(
                           padding: const EdgeInsets.only(bottom: AppSpacing.sm),
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: AppSpacing.xs),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: AppSpacing.sm,
+                                vertical: AppSpacing.xs),
                             decoration: BoxDecoration(
                               color: AppColors.primaryMedium,
                               borderRadius: BorderRadius.circular(AppRadius.sm),
                             ),
                             child: Text(
                               '${_selectedCharacterIds.length}명 선택됨 (가족/친구 이야기 가능)',
-                              style: AppTextStyles.caption.copyWith(color: AppColors.primary),
+                              style: AppTextStyles.caption
+                                  .copyWith(color: AppColors.primary),
                             ),
                           ),
                         ),
                       // 기존 캐릭터 목록 (체크박스로 다중 선택)
                       ...characters.map((character) => Padding(
-                        padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                        child: CharacterCard(
-                          name: character.name,
-                          description: character.masterDescription,
-                          isSelected: _selectedCharacterIds.contains(character.id),
-                          showCheckbox: true,
-                          onTap: () {
-                            setState(() {
-                              if (_selectedCharacterIds.contains(character.id)) {
-                                _selectedCharacterIds.remove(character.id);
-                              } else {
-                                _selectedCharacterIds.add(character.id);
-                              }
-                            });
-                          },
-                        ),
-                      )),
+                            padding:
+                                const EdgeInsets.only(bottom: AppSpacing.sm),
+                            child: CharacterCard(
+                              name: character.name,
+                              description: character.masterDescription,
+                              isSelected:
+                                  _selectedCharacterIds.contains(character.id),
+                              showCheckbox: true,
+                              onTap: () {
+                                setState(() {
+                                  if (_selectedCharacterIds
+                                      .contains(character.id)) {
+                                    _selectedCharacterIds.remove(character.id);
+                                  } else {
+                                    _selectedCharacterIds.add(character.id);
+                                  }
+                                });
+                              },
+                            ),
+                          )),
                     ] else ...[
                       const SizedBox(height: AppSpacing.sm),
                       Container(
@@ -314,12 +336,14 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                         ),
                         child: Row(
                           children: [
-                            Icon(Icons.info_outline, color: AppColors.textHint, size: 20),
+                            Icon(Icons.info_outline,
+                                color: AppColors.textHint, size: 20),
                             const SizedBox(width: AppSpacing.sm),
                             Expanded(
                               child: Text(
                                 '캐릭터를 추가하면 같은 캐릭터로 시리즈를 만들 수 있어요!',
-                                style: AppTextStyles.caption.copyWith(color: AppColors.textSecondary),
+                                style: AppTextStyles.caption
+                                    .copyWith(color: AppColors.textSecondary),
                               ),
                             ),
                           ],
@@ -413,7 +437,9 @@ class _CharacterOption extends StatelessWidget {
                     title,
                     style: AppTextStyles.body.copyWith(
                       fontWeight: FontWeight.w600,
-                      color: isSelected ? AppColors.secondary : AppColors.textPrimary,
+                      color: isSelected
+                          ? AppColors.secondary
+                          : AppColors.textPrimary,
                     ),
                   ),
                   const SizedBox(height: 2),

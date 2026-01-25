@@ -25,7 +25,8 @@ class Character {
       id: (json['character_id'] ?? json['id']) as String,
       name: json['name'] as String,
       masterDescription: json['master_description'] as String,
-      appearance: Appearance.fromJson(json['appearance'] as Map<String, dynamic>),
+      appearance:
+          Appearance.fromJson(json['appearance'] as Map<String, dynamic>),
       clothing: Clothing.fromJson(json['clothing'] as Map<String, dynamic>),
       personalityTraits: (json['personality_traits'] as List<dynamic>)
           .map((e) => e as String)

@@ -268,7 +268,8 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
             runSpacing: 4,
             children: (subscription['features'] as List<dynamic>?)
                     ?.map((f) => Chip(
-                          label: Text(f.toString(), style: const TextStyle(fontSize: 12)),
+                          label: Text(f.toString(),
+                              style: const TextStyle(fontSize: 12)),
                           backgroundColor: AppColors.primaryLight,
                         ))
                     .toList() ??
@@ -327,7 +328,8 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
   }
 
   Widget _buildPlanCard(Map<String, dynamic> plan) {
-    final isCurrentPlan = _creditsStatus?['subscription']?['plan'] == plan['id'];
+    final isCurrentPlan =
+        _creditsStatus?['subscription']?['plan'] == plan['id'];
 
     return Container(
       margin: const EdgeInsets.only(bottom: AppSpacing.md),
@@ -352,7 +354,8 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
               ),
               if (isCurrentPlan)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
                     color: AppColors.primary,
                     borderRadius: BorderRadius.circular(4),
@@ -395,7 +398,8 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
                           color: AppColors.success,
                         ),
                         const SizedBox(width: 4),
-                        Text(f.toString(), style: const TextStyle(fontSize: 13)),
+                        Text(f.toString(),
+                            style: const TextStyle(fontSize: 13)),
                       ],
                     ))
                 .toList(),
@@ -573,9 +577,9 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
 
   String _formatNumber(int number) {
     return number.toString().replaceAllMapped(
-      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
-      (m) => '${m[1]},',
-    );
+          RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+          (m) => '${m[1]},',
+        );
   }
 
   String _formatDate(String? isoDate) {

@@ -500,7 +500,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     );
   }
 
-  Future<void> _regeneratePage(BookResult book, int pageNumber, String target) async {
+  Future<void> _regeneratePage(
+      BookResult book, int pageNumber, String target) async {
     if (book.jobId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('이 책은 페이지 재생성을 지원하지 않아요')),
@@ -514,7 +515,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
 
     try {
       final apiClient = ref.read(apiClientProvider);
-      await apiClient.regeneratePage(book.jobId!, pageNumber, regenerateTarget: target);
+      await apiClient.regeneratePage(book.jobId!, pageNumber,
+          regenerateTarget: target);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -663,7 +665,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
 
 AI Story Book으로 만든 동화책이에요!
 아이에게 특별한 이야기를 선물하세요 ✨
-    '''.trim();
+    '''
+        .trim();
     final box = context.findRenderObject() as RenderBox?;
     Share.share(
       shareText,
@@ -767,7 +770,8 @@ class _CoverPage extends StatelessWidget {
           ),
           errorWidget: (context, url, error) => Container(
             color: AppColors.primary,
-            child: const Icon(Icons.broken_image, color: Colors.white, size: 64),
+            child:
+                const Icon(Icons.broken_image, color: Colors.white, size: 64),
           ),
         ),
         Container(
@@ -947,9 +951,7 @@ class _AudioButton extends StatelessWidget {
         width: 48,
         height: 48,
         decoration: BoxDecoration(
-          color: isPlaying
-              ? AppColors.primaryMuted
-              : AppColors.whiteOverlay,
+          color: isPlaying ? AppColors.primaryMuted : AppColors.whiteOverlay,
           borderRadius: BorderRadius.circular(24),
         ),
         child: isLoading
@@ -1083,7 +1085,8 @@ class _LearningModeSheetState extends State<_LearningModeSheet>
             controller: _tabController,
             children: [
               _VocabTab(vocab: widget.page.vocab ?? []),
-              _ComprehensionTab(questions: widget.page.comprehensionQuestions ?? []),
+              _ComprehensionTab(
+                  questions: widget.page.comprehensionQuestions ?? []),
               _QuizTab(quiz: widget.page.quiz ?? []),
             ],
           ),
@@ -1446,8 +1449,7 @@ class _GuideSection extends StatelessWidget {
           ],
         ),
         const SizedBox(height: AppSpacing.sm),
-        if (content != null)
-          Text(content!, style: AppTextStyles.body),
+        if (content != null) Text(content!, style: AppTextStyles.body),
         if (items != null)
           ...items!.map((item) => Padding(
                 padding: const EdgeInsets.only(bottom: AppSpacing.sm),
