@@ -19,13 +19,6 @@ import uuid
 import structlog
 
 from src.core.config import settings
-
-
-def utcnow() -> datetime:
-    """Get current UTC time as timezone-aware datetime."""
-    return datetime.now(timezone.utc)
-
-
 from src.core.errors import StoryBookError, ErrorCode, TransientError, get_backoff
 from src.models.dto import (
     BookSpec,
@@ -40,6 +33,11 @@ from src.models.dto import (
 )
 
 logger = structlog.get_logger()
+
+
+def utcnow() -> datetime:
+    """Get current UTC time as timezone-aware datetime."""
+    return datetime.now(timezone.utc)
 
 T = TypeVar("T")
 
@@ -587,7 +585,6 @@ async def package_book(
     """H. 패키징 및 저장"""
     from src.core.database import AsyncSessionLocal
     from src.models.db import Book, Page
-    from datetime import datetime
 
     book_id = (
         f"book_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"

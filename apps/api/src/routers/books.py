@@ -8,13 +8,6 @@ from datetime import datetime, timezone
 import structlog
 
 from src.core.database import get_db
-
-
-def utcnow() -> datetime:
-    """Get current UTC time as timezone-aware datetime."""
-    return datetime.now(timezone.utc)
-
-
 from src.core.config import settings
 from src.core.dependencies import get_user_key
 from src.models.dto import (
@@ -36,6 +29,11 @@ from src.services.storage import storage_service
 from src.services.credits import credits_service
 
 logger = structlog.get_logger()
+
+
+def utcnow() -> datetime:
+    """Get current UTC time as timezone-aware datetime."""
+    return datetime.now(timezone.utc)
 
 router = APIRouter()
 

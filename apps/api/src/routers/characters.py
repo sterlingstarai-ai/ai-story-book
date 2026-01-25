@@ -6,13 +6,6 @@ import uuid
 from datetime import datetime, timezone
 
 from src.core.database import get_db
-
-
-def utcnow() -> datetime:
-    """Get current UTC time as timezone-aware datetime."""
-    return datetime.now(timezone.utc)
-
-
 from src.core.dependencies import get_user_key
 from src.models.dto import (
     CreateCharacterRequest,
@@ -24,6 +17,11 @@ from src.models.dto import (
 from src.models.db import Character
 from src.services.photo_character import photo_character_service
 from src.services.storage import storage_service
+
+
+def utcnow() -> datetime:
+    """Get current UTC time as timezone-aware datetime."""
+    return datetime.now(timezone.utc)
 
 router = APIRouter()
 
