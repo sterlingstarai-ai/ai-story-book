@@ -7,6 +7,9 @@ from botocore.config import Config
 from botocore.exceptions import ClientError
 import httpx
 import structlog
+from urllib.parse import urlparse
+import ipaddress
+import socket
 
 from src.core.config import settings
 from src.core.errors import StorageError
@@ -15,6 +18,54 @@ logger = structlog.get_logger()
 
 # Cache for bucket existence check
 _bucket_verified = False
+
+# Allowed domains for image fetching (SSRF protection)
+ALLOWED_IMAGE_DOMAINS = {
+    "oaidalleapiprodscus.blob.core.windows.net",  # OpenAI DALL-E
+    "replicate.delivery",  # Replicate
+    "fal.media",  # FAL.ai
+    "s3.amazonaws.com",
+    "r2.cloudflarestorage.com",
+}
+
+
+def _is_url_allowed(url: str) -> bool:
+    """Validate URL for SSRF protection (fail-closed)"""
+    try:
+        parsed = urlparse(url)
+
+        # Only allow http and https
+        if parsed.scheme not in ("http", "https"):
+            return False
+
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+
+        # Check against allowed domains + S3 endpoint from settings
+        s3_host = urlparse(settings.s3_endpoint).hostname or ""
+        s3_public_host = urlparse(settings.s3_public_url).hostname or ""
+        allowed = ALLOWED_IMAGE_DOMAINS | {s3_host, s3_public_host}
+
+        # Check exact match or subdomain match
+        for domain in allowed:
+            if domain and (hostname == domain or hostname.endswith(f".{domain}")):
+                return True
+
+        # Block private IP ranges (fail-closed)
+        try:
+            ip = ipaddress.ip_address(socket.gethostbyname(hostname))
+            if ip.is_private or ip.is_loopback or ip.is_reserved:
+                logger.warning("Blocked private IP in URL", hostname=hostname)
+                return False
+        except (socket.gaierror, ValueError):
+            # SECURITY: Fail-closed - block if we can't resolve
+            logger.warning("DNS resolution failed for URL validation", hostname=hostname)
+            return False
+
+        return False
+    except Exception:
+        return False
 
 
 def get_s3_client():
@@ -70,6 +121,11 @@ async def upload_image_from_url(
     Returns:
         Public URL of uploaded file
     """
+    # SSRF protection: validate URL before fetching
+    if not _is_url_allowed(source_url):
+        logger.warning("Image URL blocked by SSRF protection", url=source_url[:100])
+        raise StorageError(f"URL not allowed: {source_url[:50]}...")
+
     await ensure_bucket_exists()
 
     # Download image

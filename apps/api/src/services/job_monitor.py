@@ -16,7 +16,7 @@ import structlog
 from src.core.config import settings
 from src.core.database import AsyncSessionLocal
 from src.models.db import Job
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, func
 
 logger = structlog.get_logger()
 
@@ -181,37 +181,45 @@ job_monitor = JobMonitor()
 
 
 async def get_job_metrics() -> dict:
-    """Get current job metrics for health check"""
+    """Get current job metrics for health check (uses efficient COUNT queries)"""
     async with AsyncSessionLocal() as session:
-        # Count by status
-        queued = await session.execute(select(Job).where(Job.status == "queued"))
-        queued_count = len(queued.scalars().all())
+        now = datetime.utcnow()
 
-        running = await session.execute(select(Job).where(Job.status == "running"))
-        running_count = len(running.scalars().all())
+        # Count by status - use func.count() for efficient counting
+        queued_result = await session.execute(
+            select(func.count(Job.id)).where(Job.status == "queued")
+        )
+        queued_count = queued_result.scalar() or 0
+
+        running_result = await session.execute(
+            select(func.count(Job.id)).where(Job.status == "running")
+        )
+        running_count = running_result.scalar() or 0
 
         # Count stuck jobs
-        now = datetime.utcnow()
         stuck_threshold = now - timedelta(minutes=STUCK_JOB_TIMEOUT_MINUTES)
-
-        stuck = await session.execute(
-            select(Job).where(
+        stuck_result = await session.execute(
+            select(func.count(Job.id)).where(
                 and_(Job.status == "running", Job.updated_at < stuck_threshold)
             )
         )
-        stuck_count = len(stuck.scalars().all())
+        stuck_count = stuck_result.scalar() or 0
 
         # Count jobs in last hour
         hour_ago = now - timedelta(hours=1)
-        completed = await session.execute(
-            select(Job).where(and_(Job.status == "done", Job.updated_at > hour_ago))
+        completed_result = await session.execute(
+            select(func.count(Job.id)).where(
+                and_(Job.status == "done", Job.updated_at > hour_ago)
+            )
         )
-        completed_count = len(completed.scalars().all())
+        completed_count = completed_result.scalar() or 0
 
-        failed = await session.execute(
-            select(Job).where(and_(Job.status == "failed", Job.updated_at > hour_ago))
+        failed_result = await session.execute(
+            select(func.count(Job.id)).where(
+                and_(Job.status == "failed", Job.updated_at > hour_ago)
+            )
         )
-        failed_count = len(failed.scalars().all())
+        failed_count = failed_result.scalar() or 0
 
         return {
             "queued": queued_count,

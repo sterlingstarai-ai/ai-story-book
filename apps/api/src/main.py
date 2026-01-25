@@ -33,6 +33,23 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class RateLimitHeadersMiddleware(BaseHTTPMiddleware):
+    """Add rate limit headers to responses for client visibility."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+
+        # Add rate limit headers if they were set by check_rate_limit
+        if hasattr(request.state, "rate_limit_remaining"):
+            response.headers["X-RateLimit-Remaining"] = str(
+                request.state.rate_limit_remaining
+            )
+        if hasattr(request.state, "rate_limit_limit"):
+            response.headers["X-RateLimit-Limit"] = str(request.state.rate_limit_limit)
+
+        return response
+
+
 # Configure structured logging
 structlog.configure(
     processors=[
@@ -137,6 +154,9 @@ AI 기반 맞춤형 동화책 생성 API입니다.
 
 # Security headers middleware
 app.add_middleware(SecurityHeadersMiddleware)
+
+# Rate limit headers middleware
+app.add_middleware(RateLimitHeadersMiddleware)
 
 # CORS - Configurable via CORS_ORIGINS env var
 cors_origins = (

@@ -6,15 +6,17 @@ Photo-based Character Service
 import base64
 import httpx
 from typing import Optional
-import os
+
+from src.core.config import settings
 
 
 class PhotoCharacterService:
     """사진 기반 캐릭터 생성 서비스"""
 
     def __init__(self):
-        self.llm_provider = os.getenv("LLM_PROVIDER", "openai")
-        self.api_key = os.getenv("LLM_API_KEY")
+        # Use centralized settings instead of direct os.getenv
+        self.llm_provider = settings.llm_provider
+        self.api_key = settings.llm_api_key
 
     async def analyze_photo(self, image_data: bytes) -> dict:
         """

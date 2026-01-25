@@ -6,6 +6,9 @@ from typing import Any, List, Optional, Literal, Dict
 
 from pydantic import BaseModel, Field, ConfigDict, field_validator, AliasChoices
 
+# Import ErrorCode from canonical source to avoid duplication
+from src.core.errors import ErrorCode  # noqa: E402
+
 
 class Language(str, Enum):
     ko = "ko"
@@ -53,18 +56,8 @@ class JobState(str, Enum):
     done = "done"
 
 
-class ErrorCode(str, Enum):
-    SAFETY_INPUT = "SAFETY_INPUT"
-    SAFETY_OUTPUT = "SAFETY_OUTPUT"
-    LLM_TIMEOUT = "LLM_TIMEOUT"
-    LLM_JSON_INVALID = "LLM_JSON_INVALID"
-    IMAGE_TIMEOUT = "IMAGE_TIMEOUT"
-    IMAGE_RATE_LIMIT = "IMAGE_RATE_LIMIT"
-    IMAGE_FAILED = "IMAGE_FAILED"
-    STORAGE_UPLOAD_FAILED = "STORAGE_UPLOAD_FAILED"
-    DB_WRITE_FAILED = "DB_WRITE_FAILED"
-    QUEUE_FAILED = "QUEUE_FAILED"
-    UNKNOWN = "UNKNOWN"
+# ErrorCode is imported at the top of the file from src.core.errors
+# to avoid duplication with the canonical definition
 
 
 # ==================== Input Models ====================

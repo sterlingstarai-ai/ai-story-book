@@ -134,8 +134,13 @@ async def run_step(
             logger.info(f"Waiting {wait_time}s before retry...")
             await asyncio.sleep(wait_time)
 
-    # 최종 실패
-    raise last_exc if last_exc else RuntimeError(f"Step {step_name} failed")
+    # 최종 실패 - preserve stack trace with 'from' for proper chaining
+    if last_exc:
+        raise StoryBookError(
+            code=ErrorCode.UNKNOWN,
+            message=f"Step '{step_name}' failed after {retries + 1} attempts: {last_exc}",
+        ) from last_exc
+    raise RuntimeError(f"Step {step_name} failed without exception")
 
 
 # ==================== Database Helpers ====================
@@ -594,88 +599,96 @@ async def package_book(
             title_ko = learning_assets.title_translation
 
     async with AsyncSessionLocal() as session:
-        # Create book
-        # character_id: 단일 캐릭터 (기존 호환성), character_ids: 다중 캐릭터
-        primary_char_id = spec.character_ids[0] if spec.character_ids else spec.character_id
-        book = Book(
-            id=book_id,
-            job_id=job_id,
-            title=story.title,
-            language=story.language.value,
-            target_age=story.target_age.value,
-            style=spec.style.value,
-            theme=story.theme,
-            character_id=primary_char_id,
-            character_ids=spec.character_ids,
-            cover_image_url=image_urls.get(0, ""),
-            user_key=user_key,
-            # 시리즈 관련
-            series_id=series_id,
-            series_index=series_index,
-            # 다국어
-            title_ko=title_ko,
-            title_en=title_en,
-            # 학습 자산
-            learning_assets=learning_assets.model_dump() if learning_assets else None,
-        )
-        session.add(book)
-
-        # 학습 자산을 페이지 번호로 매핑
-        learning_by_page = {}
-        if learning_assets:
-            for lp in learning_assets.pages:
-                learning_by_page[lp.page] = lp
-
-        # Create pages
-        for page_data in story.pages:
-            # 다국어 텍스트 처리
-            text_ko = None
-            text_en = None
-            vocab = None
-            comprehension = None
-            quiz = None
-
-            if story.language == Language.ko:
-                text_ko = page_data.text
-                lp = learning_by_page.get(page_data.page)
-                if lp:
-                    text_en = lp.translated_text
-                    vocab = [v.model_dump() for v in lp.vocab] if lp.vocab else None
-                    comprehension = [q.model_dump() for q in lp.comprehension_questions] if lp.comprehension_questions else None
-                    quiz = [q.model_dump() for q in lp.quiz] if lp.quiz else None
-            elif story.language == Language.en:
-                text_en = page_data.text
-                lp = learning_by_page.get(page_data.page)
-                if lp:
-                    text_ko = lp.translated_text
-                    vocab = [v.model_dump() for v in lp.vocab] if lp.vocab else None
-                    comprehension = [q.model_dump() for q in lp.comprehension_questions] if lp.comprehension_questions else None
-                    quiz = [q.model_dump() for q in lp.quiz] if lp.quiz else None
-
-            page = Page(
-                book_id=book_id,
-                page_number=page_data.page,
-                text=page_data.text,
-                image_url=image_urls.get(page_data.page, ""),
-                image_prompt=next(
-                    (
-                        p.positive_prompt
-                        for p in image_prompts.pages
-                        if p.page == page_data.page
-                    ),
-                    "",
-                ),
+        try:
+            # Create book
+            # character_id: 단일 캐릭터 (기존 호환성), character_ids: 다중 캐릭터
+            primary_char_id = spec.character_ids[0] if spec.character_ids else spec.character_id
+            book = Book(
+                id=book_id,
+                job_id=job_id,
+                title=story.title,
+                language=story.language.value,
+                target_age=story.target_age.value,
+                style=spec.style.value,
+                theme=story.theme,
+                character_id=primary_char_id,
+                character_ids=spec.character_ids,
+                cover_image_url=image_urls.get(0, ""),
+                user_key=user_key,
+                # 시리즈 관련
+                series_id=series_id,
+                series_index=series_index,
                 # 다국어
-                text_ko=text_ko,
-                text_en=text_en,
+                title_ko=title_ko,
+                title_en=title_en,
                 # 학습 자산
-                vocab=vocab,
-                comprehension=comprehension,
-                quiz=quiz,
+                learning_assets=learning_assets.model_dump() if learning_assets else None,
             )
-            session.add(page)
+            session.add(book)
 
-        await session.commit()
+            # 학습 자산을 페이지 번호로 매핑
+            learning_by_page = {}
+            if learning_assets:
+                for lp in learning_assets.pages:
+                    learning_by_page[lp.page] = lp
+
+            # Create pages
+            for page_data in story.pages:
+                # 다국어 텍스트 처리
+                text_ko = None
+                text_en = None
+                vocab = None
+                comprehension = None
+                quiz = None
+
+                if story.language == Language.ko:
+                    text_ko = page_data.text
+                    lp = learning_by_page.get(page_data.page)
+                    if lp:
+                        text_en = lp.translated_text
+                        vocab = [v.model_dump() for v in lp.vocab] if lp.vocab else None
+                        comprehension = [q.model_dump() for q in lp.comprehension_questions] if lp.comprehension_questions else None
+                        quiz = [q.model_dump() for q in lp.quiz] if lp.quiz else None
+                elif story.language == Language.en:
+                    text_en = page_data.text
+                    lp = learning_by_page.get(page_data.page)
+                    if lp:
+                        text_ko = lp.translated_text
+                        vocab = [v.model_dump() for v in lp.vocab] if lp.vocab else None
+                        comprehension = [q.model_dump() for q in lp.comprehension_questions] if lp.comprehension_questions else None
+                        quiz = [q.model_dump() for q in lp.quiz] if lp.quiz else None
+
+                page = Page(
+                    book_id=book_id,
+                    page_number=page_data.page,
+                    text=page_data.text,
+                    image_url=image_urls.get(page_data.page, ""),
+                    image_prompt=next(
+                        (
+                            p.positive_prompt
+                            for p in image_prompts.pages
+                            if p.page == page_data.page
+                        ),
+                        "",
+                    ),
+                    # 다국어
+                    text_ko=text_ko,
+                    text_en=text_en,
+                    # 학습 자산
+                    vocab=vocab,
+                    comprehension=comprehension,
+                    quiz=quiz,
+                )
+                session.add(page)
+
+            await session.commit()
+        except Exception as e:
+            await session.rollback()
+            logger.error("Failed to save book to database", book_id=book_id, error=str(e))
+            raise StoryBookError(
+                code=ErrorCode.DB_WRITE_FAILED,
+                message=f"책 저장 실패: {e}",
+            ) from e
 
     # Build page results with learning data
     page_results = []

@@ -260,7 +260,10 @@ class PDFService:
                     if not (settings.debug and ip.is_loopback):
                         return False
             except (socket.gaierror, ValueError):
-                pass  # Let it through if we can't resolve
+                # SECURITY: Fail-closed - block if we can't resolve
+                # This prevents DNS rebinding and other SSRF attacks
+                logger.warning("DNS resolution failed for URL validation", hostname=hostname)
+                return False
 
             return False
         except Exception:

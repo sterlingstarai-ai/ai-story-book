@@ -125,6 +125,14 @@ async def create_book(
     # Create new job
     job_id = f"job_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
 
+    # Deduct credit FIRST (before creating job to avoid race condition)
+    credit_used = await credits_service.use_credit(
+        db, user_key, amount=1, description="책 생성", reference_id=job_id
+    )
+    if not credit_used:
+        raise HTTPException(status_code=402, detail="크레딧 차감에 실패했습니다.")
+
+    # Create job after successful credit deduction
     job = Job(
         id=job_id,
         status="queued",
@@ -135,16 +143,6 @@ async def create_book(
     )
     db.add(job)
     await db.commit()
-
-    # Deduct credit
-    credit_used = await credits_service.use_credit(
-        db, user_key, amount=1, description="책 생성", reference_id=job_id
-    )
-    if not credit_used:
-        # Rollback job if credit deduction fails
-        await db.delete(job)
-        await db.commit()
-        raise HTTPException(status_code=402, detail="크레딧 차감에 실패했습니다.")
 
     # Start background task (Celery or FastAPI BackgroundTasks)
     # 테스트 환경에서는 background_tasks 실행 스킵 (테스트 안정화)
@@ -443,6 +441,14 @@ async def create_series_next(
         f"series_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
     )
 
+    # Deduct credit FIRST (before creating job to avoid race condition)
+    credit_used = await credits_service.use_credit(
+        db, user_key, amount=1, description="시리즈 생성", reference_id=job_id
+    )
+    if not credit_used:
+        raise HTTPException(status_code=402, detail="크레딧 차감에 실패했습니다.")
+
+    # Create job after successful credit deduction
     job = Job(
         id=job_id,
         status="queued",
@@ -452,11 +458,6 @@ async def create_series_next(
     )
     db.add(job)
     await db.commit()
-
-    # Deduct credit
-    await credits_service.use_credit(
-        db, user_key, amount=1, description="시리즈 생성", reference_id=job_id
-    )
 
     # Start background task for series generation
     # 테스트 환경에서는 background_tasks 실행 스킵 (테스트 안정화)
