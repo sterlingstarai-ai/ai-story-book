@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import (
     Column,
     String,
@@ -13,6 +13,11 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 
 from src.core.database import Base
+
+
+def utcnow() -> datetime:
+    """Get current UTC time as timezone-aware datetime."""
+    return datetime.now(timezone.utc)
 
 
 class Job(Base):
@@ -32,8 +37,8 @@ class Job(Base):
     idempotency_key = Column(String(80), nullable=True, index=True)
     retry_count = Column(Integer, default=0)  # Number of retry attempts
     last_retry_at = Column(DateTime, nullable=True)  # Last retry timestamp
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     # Relationships
     story_draft = relationship("StoryDraftDB", back_populates="job", uselist=False)
@@ -47,7 +52,7 @@ class StoryDraftDB(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     job_id = Column(String(60), ForeignKey("jobs.id"), nullable=False, unique=True)
     draft = Column(JSON, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     # Relationships
     job = relationship("Job", back_populates="story_draft")
@@ -59,7 +64,7 @@ class ImagePromptsDB(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     job_id = Column(String(60), ForeignKey("jobs.id"), nullable=False, unique=True)
     prompts = Column(JSON, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     # Relationships
     job = relationship("Job", back_populates="image_prompts")
@@ -79,8 +84,8 @@ class Series(Base):
     character_id = Column(String(60), ForeignKey("characters.id"), nullable=True)
     series_bible = Column(JSON, nullable=True)  # 시리즈 설정 (캐릭터 관계, 세계관 등)
     user_key = Column(String(80), nullable=False, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     # Relationships
     books = relationship(
@@ -107,7 +112,7 @@ class Book(Base):
     pdf_url = Column(String(500), nullable=True)
     audio_url = Column(String(500), nullable=True)
     user_key = Column(String(80), nullable=False, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     # 시리즈 관련 (v0.3)
     series_id = Column(String(60), ForeignKey("series.id"), nullable=True)
@@ -140,7 +145,7 @@ class Page(Base):
     image_url = Column(String(500), nullable=True)
     image_prompt = Column(Text, nullable=True)
     audio_url = Column(String(500), nullable=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     # 다국어 지원 (v0.3)
     text_ko = Column(Text, nullable=True)  # 한국어 텍스트
@@ -174,7 +179,7 @@ class Character(Base):
     personality_traits = Column(JSON, nullable=False)
     visual_style_notes = Column(String(200), nullable=True)
     user_key = Column(String(80), nullable=False, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     # Relationships
     books = relationship("Book", back_populates="character")
@@ -185,7 +190,7 @@ class RateLimit(Base):
 
     user_key = Column(String(80), primary_key=True)
     request_count = Column(Integer, default=0)
-    window_start = Column(DateTime, default=datetime.utcnow)
+    window_start = Column(DateTime, default=utcnow)
 
 
 class UserCredits(Base):
@@ -197,8 +202,8 @@ class UserCredits(Base):
     credits = Column(Integer, default=3)  # 기본 3크레딧 무료 제공
     total_purchased = Column(Integer, default=0)  # 총 구매 크레딧
     total_used = Column(Integer, default=0)  # 총 사용 크레딧
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
 
 class Subscription(Base):
@@ -215,8 +220,8 @@ class Subscription(Base):
     credits_per_month = Column(Integer, nullable=False)  # 월간 크레딧
     current_period_start = Column(DateTime, nullable=False)
     current_period_end = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
 
 class CreditTransaction(Base):
@@ -233,7 +238,7 @@ class CreditTransaction(Base):
     )  # purchase, subscription, usage, refund, bonus
     description = Column(String(200), nullable=True)
     reference_id = Column(String(80), nullable=True)  # book_id, subscription_id 등
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
 
 class DailyStreak(Base):
@@ -246,8 +251,8 @@ class DailyStreak(Base):
     longest_streak = Column(Integer, default=0)  # 최장 연속 일수
     total_days = Column(Integer, default=0)  # 총 읽은 일수
     last_read_date = Column(DateTime, nullable=True)  # 마지막 읽은 날짜
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
 
 class DailyStory(Base):
@@ -262,7 +267,7 @@ class DailyStory(Base):
     book_id = Column(
         String(60), ForeignKey("books.id"), nullable=True
     )  # 생성된 책 (선택)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
 
 class ReadingLog(Base):
@@ -276,4 +281,4 @@ class ReadingLog(Base):
     read_date = Column(DateTime, nullable=False)  # 읽은 날짜
     reading_time = Column(Integer, default=0)  # 읽은 시간 (초)
     completed = Column(Boolean, default=False)  # 끝까지 읽었는지
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)

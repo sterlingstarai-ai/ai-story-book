@@ -9,7 +9,7 @@ Background service that runs periodically to:
 """
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 import structlog
 
@@ -17,6 +17,11 @@ from src.core.config import settings
 from src.core.database import AsyncSessionLocal
 from src.models.db import Job
 from sqlalchemy import select, and_, func
+
+
+def utcnow() -> datetime:
+    """Get current UTC time as timezone-aware datetime."""
+    return datetime.now(timezone.utc)
 
 logger = structlog.get_logger()
 
@@ -66,7 +71,7 @@ class JobMonitor:
 
     async def check_and_recover_jobs(self):
         """Check for stuck jobs and attempt recovery"""
-        now = datetime.utcnow()
+        now = utcnow()
 
         stuck_running_threshold = now - timedelta(minutes=STUCK_JOB_TIMEOUT_MINUTES)
         stuck_queued_threshold = now - timedelta(minutes=QUEUED_JOB_TIMEOUT_MINUTES)
@@ -145,9 +150,9 @@ class JobMonitor:
             # Retry the job
             job.status = "queued"
             job.retry_count = retry_count + 1
-            job.last_retry_at = datetime.utcnow()
+            job.last_retry_at = utcnow()
             job.current_step = f"재시도 중... ({job.retry_count}/{MAX_JOB_RETRIES})"
-            job.updated_at = datetime.utcnow()
+            job.updated_at = utcnow()
 
             logger.info(
                 "Job requeued for retry",
@@ -166,7 +171,7 @@ class JobMonitor:
         job.status = "failed"
         job.error_code = error_code
         job.error_message = message
-        job.updated_at = datetime.utcnow()
+        job.updated_at = utcnow()
 
         logger.warning(
             "Job marked as failed by monitor",
@@ -183,7 +188,7 @@ job_monitor = JobMonitor()
 async def get_job_metrics() -> dict:
     """Get current job metrics for health check (uses efficient COUNT queries)"""
     async with AsyncSessionLocal() as session:
-        now = datetime.utcnow()
+        now = utcnow()
 
         # Count by status - use func.count() for efficient counting
         queued_result = await session.execute(

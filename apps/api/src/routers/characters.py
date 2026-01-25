@@ -3,9 +3,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Optional
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from src.core.database import get_db
+
+
+def utcnow() -> datetime:
+    """Get current UTC time as timezone-aware datetime."""
+    return datetime.now(timezone.utc)
+
+
 from src.core.dependencies import get_user_key
 from src.models.dto import (
     CreateCharacterRequest,
@@ -33,7 +40,7 @@ async def create_character(
     - 책 생성 후 캐릭터 시트를 저장하여 재사용
     - 시리즈 생성 시 character_id로 참조
     """
-    character_id = f"char_{datetime.utcnow().strftime('%Y%m%d')}_{uuid.uuid4().hex[:8]}"
+    character_id = f"char_{utcnow().strftime('%Y%m%d')}_{uuid.uuid4().hex[:8]}"
 
     character = Character(
         id=character_id,
@@ -196,7 +203,7 @@ async def create_character_from_text(
 
         # 캐릭터 ID 생성
         character_id = (
-            f"char_{datetime.utcnow().strftime('%Y%m%d')}_{uuid.uuid4().hex[:8]}"
+            f"char_{utcnow().strftime('%Y%m%d')}_{uuid.uuid4().hex[:8]}"
         )
 
         character = Character(
@@ -265,7 +272,7 @@ async def create_character_from_photo(
 
         # 캐릭터 ID 생성
         character_id = (
-            f"char_{datetime.utcnow().strftime('%Y%m%d')}_{uuid.uuid4().hex[:8]}"
+            f"char_{utcnow().strftime('%Y%m%d')}_{uuid.uuid4().hex[:8]}"
         )
 
         # 원본 사진 저장

@@ -1,12 +1,17 @@
 """Rate limiting using Redis sliding window."""
 
 from fastapi import HTTPException, Request
-from datetime import datetime
+from datetime import datetime, timezone
 import redis.asyncio as redis
 from typing import Optional
 import structlog
 
 from src.core.config import settings
+
+
+def utcnow() -> datetime:
+    """Get current UTC time as timezone-aware datetime."""
+    return datetime.now(timezone.utc)
 
 logger = structlog.get_logger()
 
@@ -30,7 +35,7 @@ class RateLimiter:
             tuple: (is_allowed, remaining_requests)
         """
         r = await self.get_redis()
-        now = datetime.utcnow().timestamp()
+        now = utcnow().timestamp()
         window_start = now - settings.rate_limit_window
 
         key = f"rate_limit:{user_key}"

@@ -14,11 +14,18 @@ H. 패키징 (BookResult 생성, 업로드, 저장)
 
 import asyncio
 from typing import Optional, Callable, Awaitable, TypeVar
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 import structlog
 
 from src.core.config import settings
+
+
+def utcnow() -> datetime:
+    """Get current UTC time as timezone-aware datetime."""
+    return datetime.now(timezone.utc)
+
+
 from src.core.errors import StoryBookError, ErrorCode, TransientError, get_backoff
 from src.models.dto import (
     BookSpec,
@@ -161,7 +168,7 @@ async def update_job_status(job_id: str, step: str, progress: int):
             job.current_step = step
             job.progress = progress
             job.status = "running"
-            job.updated_at = datetime.utcnow()
+            job.updated_at = utcnow()
             await session.commit()
 
 
@@ -180,7 +187,7 @@ async def mark_job_failed(job_id: str, error_code: ErrorCode, message: str):
             job.status = "failed"
             job.error_code = error_code.value
             job.error_message = message
-            job.updated_at = datetime.utcnow()
+            job.updated_at = utcnow()
             await session.commit()
 
     logger.error("Job failed", job_id=job_id, error_code=error_code, message=message)
@@ -201,7 +208,7 @@ async def mark_job_done(job_id: str):
             job.status = "done"
             job.progress = 100
             job.current_step = "완료"
-            job.updated_at = datetime.utcnow()
+            job.updated_at = utcnow()
             await session.commit()
 
     logger.info("Job completed", job_id=job_id)
@@ -583,7 +590,7 @@ async def package_book(
     from datetime import datetime
 
     book_id = (
-        f"book_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+        f"book_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
     )
 
     # 다국어 제목 처리
@@ -761,7 +768,7 @@ async def package_book(
         cover_image_url=image_urls.get(0, ""),
         pages=page_results,
         character_sheet=character,
-        created_at=datetime.utcnow(),
+        created_at=utcnow(),
         # 시리즈 관련
         series_id=series_id,
         series_index=series_index,
@@ -870,7 +877,7 @@ async def regenerate_page(
                     )
                     page.image_url = image_url
 
-        page.updated_at = datetime.utcnow()
+        page.updated_at = utcnow()
         await session.commit()
 
     logger.info(
@@ -925,7 +932,7 @@ async def start_series_generation(
 
         if not series_id:
             # 새 시리즈 생성
-            series_id = f"series_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+            series_id = f"series_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
             series_title = request.series_title or f"{character.name}의 모험 시리즈"
 
             new_series = Series(

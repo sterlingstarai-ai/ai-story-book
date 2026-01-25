@@ -10,6 +10,9 @@ os.environ["TESTING"] = "true"
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test.db"
 os.environ["LLM_PROVIDER"] = "mock"
 os.environ["IMAGE_PROVIDER"] = "mock"
+# S3 credentials for testing (mock values)
+os.environ["S3_ACCESS_KEY"] = "test-access-key"
+os.environ["S3_SECRET_KEY"] = "test-secret-key"
 
 from src.main import app
 from src.core.database import get_db

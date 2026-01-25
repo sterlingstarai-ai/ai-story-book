@@ -3,11 +3,16 @@ Streak Service
 오늘의 동화 스트릭 시스템
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
 from ..models.db import DailyStreak, DailyStory, ReadingLog
+
+
+def utcnow() -> datetime:
+    """Get current UTC time as timezone-aware datetime."""
+    return datetime.now(timezone.utc)
 
 # 오늘의 동화 테마 목록
 DAILY_THEMES = [
@@ -118,7 +123,7 @@ class StreakService:
     ) -> dict:
         """스트릭 정보 조회"""
         streak = await self.get_or_create_streak(db, user_key)
-        today = datetime.utcnow().date()
+        today = utcnow().date()
 
         # 오늘 읽었는지 확인
         read_today = False
@@ -153,8 +158,8 @@ class StreakService:
     ) -> dict:
         """읽기 기록 및 스트릭 업데이트"""
         streak = await self.get_or_create_streak(db, user_key)
-        today = datetime.utcnow().date()
-        today_dt = datetime.utcnow()
+        today = utcnow().date()
+        today_dt = utcnow()
 
         # 오늘 이미 읽었는지 확인
         already_read_today = False
@@ -253,7 +258,7 @@ class StreakService:
 
     async def get_today_story(self, db: AsyncSession) -> dict:
         """오늘의 동화 정보 조회"""
-        today = datetime.utcnow().date()
+        today = utcnow().date()
         today_start = datetime.combine(today, datetime.min.time())
 
         # 오늘 이미 생성된 스토리가 있는지 확인
@@ -302,7 +307,7 @@ class StreakService:
         days: int = 30,
     ) -> list[dict]:
         """최근 읽기 기록 조회"""
-        since = datetime.utcnow() - timedelta(days=days)
+        since = utcnow() - timedelta(days=days)
 
         result = await db.execute(
             select(ReadingLog)

@@ -3,12 +3,17 @@ Credits Service
 크레딧 관리 및 구독 시스템
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 
 from ..models.db import UserCredits, Subscription, CreditTransaction
+
+
+def utcnow() -> datetime:
+    """Get current UTC time as timezone-aware datetime."""
+    return datetime.now(timezone.utc)
 
 
 # 구독 플랜 정의
@@ -187,7 +192,7 @@ class CreditsService:
             select(Subscription).where(
                 Subscription.user_key == user_key,
                 Subscription.status == "active",
-                Subscription.current_period_end > datetime.utcnow(),
+                Subscription.current_period_end > utcnow(),
             )
         )
         return result.scalar_one_or_none()
@@ -210,7 +215,7 @@ class CreditsService:
             existing.status = "cancelled"
 
         # 새 구독 생성
-        now = datetime.utcnow()
+        now = utcnow()
         subscription = Subscription(
             user_key=user_key,
             plan=plan,

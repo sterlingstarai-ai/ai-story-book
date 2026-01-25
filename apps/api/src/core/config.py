@@ -10,7 +10,8 @@ class Settings(BaseSettings):
     testing: bool = False  # Set to True in test environment
 
     # Database
-    database_url: str = "postgresql://storybook:storybook123@localhost:5432/storybook"
+    # SECURITY: No default - must be set via environment variable
+    database_url: str = ""
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"
@@ -20,9 +21,10 @@ class Settings(BaseSettings):
     celery_result_backend: str = "redis://localhost:6379/2"
 
     # S3/Minio
+    # SECURITY: No defaults for credentials - must be set via environment
     s3_endpoint: str = "http://localhost:9000"
-    s3_access_key: str = "minioadmin"
-    s3_secret_key: str = "minioadmin123"
+    s3_access_key: str = ""
+    s3_secret_key: str = ""
     s3_bucket: str = "storybook"
     s3_public_url: str = "http://localhost:9000/storybook"
 

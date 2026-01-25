@@ -4,10 +4,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_
 from typing import Optional
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 import structlog
 
 from src.core.database import get_db
+
+
+def utcnow() -> datetime:
+    """Get current UTC time as timezone-aware datetime."""
+    return datetime.now(timezone.utc)
+
+
 from src.core.config import settings
 from src.core.dependencies import get_user_key
 from src.models.dto import (
@@ -46,7 +53,7 @@ async def check_guardrails(db: AsyncSession, user_key: str):
     Raises HTTPException if guardrails are violated.
     """
     # Check daily job limit per user
-    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     daily_jobs_result = await db.execute(
         select(func.count(Job.id)).where(
             and_(Job.user_key == user_key, Job.created_at >= today_start)
@@ -123,7 +130,7 @@ async def create_book(
             )
 
     # Create new job
-    job_id = f"job_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    job_id = f"job_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
 
     # Deduct credit FIRST (before creating job to avoid race condition)
     credit_used = await credits_service.use_credit(
@@ -373,7 +380,7 @@ async def regenerate_book_page(
 
     # Create regeneration task
     regen_job_id = (
-        f"regen_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+        f"regen_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
     )
 
     background_tasks.add_task(
@@ -442,7 +449,7 @@ async def create_series_next(
 
     # Create new job for series
     job_id = (
-        f"series_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+        f"series_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
     )
 
     # Deduct credit FIRST (before creating job to avoid race condition)
