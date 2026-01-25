@@ -8,8 +8,8 @@
 
 - **타입**: Flutter 모바일 앱 + FastAPI 백엔드
 - **언어**: 한국어 (Korean) 우선
-- **버전**: 0.3.0
-- **상태**: v0.3 개발 완료, CI 전체 통과 ✅
+- **버전**: 0.3.1
+- **상태**: 코드 리뷰 수정 완료, CI 전체 통과 ✅
 
 ## 핵심 차별화 (2개)
 
@@ -428,79 +428,54 @@ flutter test
 
 ---
 
-## 🔴 최근 세션 (2026-01-23)
+## 🔴 최근 세션 (2026-01-26)
 
-### v0.3 기능 개발 완료 + CI 수정
+### 코드 리뷰 이슈 10개 수정
 
-**버전**: 0.3.0
-**상태**: 개발 완료, CI 전체 통과 ✅
+**버전**: 0.3.1
+**상태**: 코드 리뷰 수정 완료, CI 전체 통과 ✅
 
-### v0.3 신규 기능 (3개)
+### 수정된 이슈 (10개)
 
-#### 1. 시리즈 생성 기능
-- `Series` DB 테이블 추가 (시리즈 메타데이터 관리)
-- `Book` 테이블에 `series_id`, `series_index` 컬럼 추가
-- `start_series_generation()` 함수 구현 (시리즈 자동 생성/관리)
+| # | 파일 | 문제 | 수정 |
+|---|------|------|------|
+| 1 | `books.py` | 크레딧 차감 레이스 컨디션 | 크레딧 먼저 차감 후 Job 생성 |
+| 2 | `orchestrator.py` | 스택 트레이스 손실 예외 | `raise ... from last_exc` 패턴 |
+| 3 | `books.py` | 시리즈 생성 롤백 누락 | 크레딧 먼저 차감 후 Job 생성 |
+| 4 | `dto.py` | ErrorCode enum 중복 | `errors.py`에서 import |
+| 5 | `pdf.py` | SSRF fail-open 취약점 | `return False` (fail-closed) |
+| 6 | `orchestrator.py` | DB 세션 정리 누락 | try-except + rollback 추가 |
+| 7 | `photo_character.py` | 직접 os.getenv 사용 | settings 사용 |
+| 8 | `storage.py` | SSRF 보호 누락 | `_is_url_allowed()` 검증 추가 |
+| 9 | `job_monitor.py` | 비효율적 COUNT 쿼리 | `func.count()` 사용 |
+| 10 | `main.py` | Rate limit 헤더 누락 | `RateLimitHeadersMiddleware` 추가 |
 
-#### 2. 다국어 번역 토글 (한/영)
-- `Book` 테이블: `title_ko`, `title_en` 컬럼 추가
-- `Page` 테이블: `text_ko`, `text_en`, `audio_url_ko`, `audio_url_en` 컬럼 추가
-- Flutter `ViewerScreen`: 언어 토글 위젯 (`_LanguageToggle`)
-- `getTitle(language)`, `getText(language)` 헬퍼 메서드
-
-#### 3. 3단계 학습 시스템
-- **단어 학습 (Vocab)**: 페이지별 핵심 단어 + 뜻 + 예문
-- **이해 질문 (Comprehension)**: 스토리 이해도 확인 질문
-- **퀴즈 (Quiz)**: 4지선다 퀴즈 + 정답 해설
-- **부모 가이드 (Parent Guide)**: 요약 + 토론 주제 + 활동 제안
-
-### 추가된 파일
-```
-apps/api/src/prompts/generate_learning_assets.system.jinja2
-apps/api/src/prompts/generate_learning_assets.user.jinja2
-```
-
-### 수정된 주요 파일
+### 수정된 파일 (8개)
 | 파일 | 변경 내용 |
 |------|----------|
-| `db.py` | Series 테이블, Book/Page 다국어+학습 컬럼 |
-| `dto.py` | LearningAssets, VocabItem, QuizItem 등 모델 |
-| `llm.py` | `call_learning_assets()` 함수 + mock 응답 |
-| `orchestrator.py` | 학습 자산 생성 파이프라인, 시리즈 관리 |
-| `books.py` | 다국어/학습 필드 API 응답 포함 |
-| `viewer_screen.dart` | 언어 토글, 학습 모드 시트, 부모 가이드 |
-| `job_status.dart` | Flutter 모델 확장 (시리즈, 다국어, 학습) |
-
-### 이미지 텍스트 금지 정책 강화
-- 모든 `negative_prompt`에 필수 토큰 추가:
-  ```
-  text, letters, words, writing, caption, subtitle, title,
-  watermark, logo, signature, label, number, alphabet,
-  korean text, english text, any text
-  ```
-- `positive_prompt`에 "no text", "textless" 권장
-
-### CI 수정 사항
-| 커밋 | 수정 내용 |
-|------|----------|
-| `441fb2d` | ruff F541 수정 (불필요한 f-string) |
-| `441fb2d` | test_services.py: `credits.id` → `credits.user_key` |
-| `b077a2e` | model_test.dart: BookStyle 7개 (realistic 추가) |
+| `main.py` | +20줄 - RateLimitHeadersMiddleware 추가 |
+| `dto.py` | ErrorCode 중복 제거, errors.py에서 import |
+| `books.py` | 크레딧 먼저 차감 후 Job 생성 (레이스 컨디션 수정) |
+| `orchestrator.py` | 예외 처리 개선, DB 세션 rollback 추가 |
+| `pdf.py` | SSRF fail-closed 적용 |
+| `storage.py` | SSRF 보호 함수 `_is_url_allowed()` 추가 |
+| `job_monitor.py` | `func.count()` 사용한 효율적 COUNT 쿼리 |
+| `photo_character.py` | `settings` 사용으로 중앙화 |
 
 ### CI 결과 (전체 통과)
 ```
-✓ API Tests          1m30s
-✓ Flutter Tests      50s (43/43 통과)
-✓ Security Scan      17s
-✓ Build Docker Images 1m40s
+✓ Flutter Tests      56s
+✓ Security Scan      25s
+✓ API Tests          1m26s
+✓ Build Docker Images 1m34s
 - Deploy to Production (DEPLOY_ENABLED 미설정)
 ```
 
 ### 커밋 히스토리 (최근)
 ```
+285d239 - fix: 코드 리뷰 이슈 10개 수정
+bafa62b - docs: 세션 컨텍스트 업데이트 (v0.3 완료)
 b077a2e - fix: Flutter 테스트 - realistic 스타일 추가 반영
-441fb2d - fix: CI 테스트 오류 수정
-44bcce8 - feat: v0.3 다국어 번역 + 학습 자산 + 시리즈 생성
 ```
 
 ### 다음 세션에서 할 일
