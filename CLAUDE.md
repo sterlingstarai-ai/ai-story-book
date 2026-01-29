@@ -428,66 +428,84 @@ flutter test
 
 ---
 
-## 🔴 최근 세션 (2026-01-26)
+## 🔴 최근 세션 (2026-01-29)
 
-### 코드 리뷰 이슈 10개 수정
+### 종합 코드 리뷰 완료 (8개 프롬프트 실행)
 
-**버전**: 0.3.1
-**상태**: 코드 리뷰 수정 완료, CI 전체 통과 ✅
+**버전**: 0.3.2
+**상태**: 코드 리뷰 + 린팅 수정 완료, CI 전체 통과 ✅
 
-### 수정된 이슈 (10개)
+### 실행한 코드 리뷰
+1. Code Review Specialist - 코드 품질/표준
+2. UiPath XAML - 스킵 (해당 없음)
+3. Python Code Auditor (PEP 8) - 완료
+4. White-Box Security Audit (OWASP) - 완료
+5. Code Review Expert - 완료
+6. Repository Audit & Remediation - 완료
+7. AST Code Analysis - 완료
+8. Bug Detection - 스킵 (중복)
+
+### 수정된 이슈 (9개 Critical/High)
 
 | # | 파일 | 문제 | 수정 |
 |---|------|------|------|
-| 1 | `books.py` | 크레딧 차감 레이스 컨디션 | 크레딧 먼저 차감 후 Job 생성 |
-| 2 | `orchestrator.py` | 스택 트레이스 손실 예외 | `raise ... from last_exc` 패턴 |
-| 3 | `books.py` | 시리즈 생성 롤백 누락 | 크레딧 먼저 차감 후 Job 생성 |
-| 4 | `dto.py` | ErrorCode enum 중복 | `errors.py`에서 import |
-| 5 | `pdf.py` | SSRF fail-open 취약점 | `return False` (fail-closed) |
-| 6 | `orchestrator.py` | DB 세션 정리 누락 | try-except + rollback 추가 |
-| 7 | `photo_character.py` | 직접 os.getenv 사용 | settings 사용 |
-| 8 | `storage.py` | SSRF 보호 누락 | `_is_url_allowed()` 검증 추가 |
-| 9 | `job_monitor.py` | 비효율적 COUNT 쿼리 | `func.count()` 사용 |
-| 10 | `main.py` | Rate limit 헤더 누락 | `RateLimitHeadersMiddleware` 추가 |
+| 1 | `config.py` | 하드코딩된 자격 증명 | 기본값 제거, 환경변수 필수 |
+| 2-9 | 8개 파일 | `datetime.utcnow()` deprecated | timezone-aware `utcnow()` 헬퍼 |
+| 10 | `conftest.py` | 테스트 환경변수 누락 | S3 키 추가 |
+| 11-13 | 3개 파일 | E402 import 순서 | `utcnow()` 함수 위치 이동 |
 
-### 수정된 파일 (8개)
+### 수정된 파일 (10개)
 | 파일 | 변경 내용 |
 |------|----------|
-| `main.py` | +20줄 - RateLimitHeadersMiddleware 추가 |
-| `dto.py` | ErrorCode 중복 제거, errors.py에서 import |
-| `books.py` | 크레딧 먼저 차감 후 Job 생성 (레이스 컨디션 수정) |
-| `orchestrator.py` | 예외 처리 개선, DB 세션 rollback 추가 |
-| `pdf.py` | SSRF fail-closed 적용 |
-| `storage.py` | SSRF 보호 함수 `_is_url_allowed()` 추가 |
-| `job_monitor.py` | `func.count()` 사용한 효율적 COUNT 쿼리 |
-| `photo_character.py` | `settings` 사용으로 중앙화 |
+| `config.py` | 하드코딩된 자격 증명 제거 |
+| `db.py` | utcnow() 헬퍼 추가 |
+| `orchestrator.py` | utcnow() 헬퍼 + import 순서 정리 |
+| `job_monitor.py` | utcnow() 헬퍼 추가 |
+| `credits.py` | utcnow() 헬퍼 추가 |
+| `streak.py` | utcnow() 헬퍼 추가 |
+| `rate_limit.py` | utcnow() 헬퍼 추가 |
+| `books.py` | utcnow() 헬퍼 + import 순서 정리 |
+| `characters.py` | utcnow() 헬퍼 + import 순서 정리 |
+| `conftest.py` | S3 테스트 환경변수 추가 |
 
 ### CI 결과 (전체 통과)
 ```
-✓ Flutter Tests      56s
-✓ Security Scan      25s
-✓ API Tests          1m26s
-✓ Build Docker Images 1m34s
+✓ Security Scan      9s
+✓ Flutter Tests      55s
+✓ API Tests          1m27s
+✓ Build Docker Images 1m16s
 - Deploy to Production (DEPLOY_ENABLED 미설정)
 ```
 
 ### 커밋 히스토리 (최근)
 ```
-285d239 - fix: 코드 리뷰 이슈 10개 수정
-bafa62b - docs: 세션 컨텍스트 업데이트 (v0.3 완료)
-b077a2e - fix: Flutter 테스트 - realistic 스타일 추가 반영
+7215e8f - fix: E402 린팅 에러 수정 - import 순서 정리
+6e0af96 - fix: 코드 리뷰 이슈 수정
+2a62bbe - refactor: 코드 품질 개선 및 포맷팅 정리
 ```
 
+### 생성된 문서
+- `CODE_REVIEW_REPORT.md` - 전체 코드 리뷰 결과 리포트
+
 ### 다음 세션에서 할 일
-1. **프로덕션 배포** (선택): GitHub Secrets 설정 후 Deploy
-2. **실제 API 연동 테스트**: OpenAI API 키로 E2E 테스트
-3. **v0.4 계획**: 추가 기능 논의 (소셜 공유, 북마크 등)
+1. **API 키 설정**: `.env` 파일에 LLM/이미지/TTS API 키 설정
+2. **실제 API 연동 테스트**: E2E 테스트 실행
+3. **프로덕션 배포**: GitHub Secrets 설정 후 Deploy
+
+### 필요한 API 키
+```bash
+# apps/api/.env
+OPENAI_API_KEY=sk-xxx...          # LLM (스토리)
+REPLICATE_API_KEY=r8_xxx...       # 이미지 (또는 FAL_API_KEY)
+ELEVENLABS_API_KEY=xxx...         # TTS (음성)
+```
 
 ### 빠른 재개 명령어
 ```bash
 cd /Users/jmac/Desktop/ai-story-book
 git log --oneline -5  # 최근 커밋 확인
 gh run list --limit 3  # CI 상태 확인
+cat CODE_REVIEW_REPORT.md  # 리뷰 결과 확인
 ```
 
 ### GitHub Actions URL
