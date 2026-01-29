@@ -23,6 +23,7 @@ def utcnow() -> datetime:
     """Get current UTC time as timezone-aware datetime."""
     return datetime.now(timezone.utc)
 
+
 logger = structlog.get_logger()
 
 # Configuration

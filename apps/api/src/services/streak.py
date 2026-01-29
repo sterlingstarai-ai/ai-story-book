@@ -14,6 +14,7 @@ def utcnow() -> datetime:
     """Get current UTC time as timezone-aware datetime."""
     return datetime.now(timezone.utc)
 
+
 # 오늘의 동화 테마 목록
 DAILY_THEMES = [
     {

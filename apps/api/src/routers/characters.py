@@ -23,6 +23,7 @@ def utcnow() -> datetime:
     """Get current UTC time as timezone-aware datetime."""
     return datetime.now(timezone.utc)
 
+
 router = APIRouter()
 
 
@@ -200,9 +201,7 @@ async def create_character_from_text(
         )
 
         # 캐릭터 ID 생성
-        character_id = (
-            f"char_{utcnow().strftime('%Y%m%d')}_{uuid.uuid4().hex[:8]}"
-        )
+        character_id = f"char_{utcnow().strftime('%Y%m%d')}_{uuid.uuid4().hex[:8]}"
 
         character = Character(
             id=character_id,
@@ -269,9 +268,7 @@ async def create_character_from_photo(
         )
 
         # 캐릭터 ID 생성
-        character_id = (
-            f"char_{utcnow().strftime('%Y%m%d')}_{uuid.uuid4().hex[:8]}"
-        )
+        character_id = f"char_{utcnow().strftime('%Y%m%d')}_{uuid.uuid4().hex[:8]}"
 
         # 원본 사진 저장
         photo_key = f"characters/{character_id}/photo.jpg"

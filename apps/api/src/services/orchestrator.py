@@ -39,6 +39,7 @@ def utcnow() -> datetime:
     """Get current UTC time as timezone-aware datetime."""
     return datetime.now(timezone.utc)
 
+
 T = TypeVar("T")
 
 
@@ -586,9 +587,7 @@ async def package_book(
     from src.core.database import AsyncSessionLocal
     from src.models.db import Book, Page
 
-    book_id = (
-        f"book_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
-    )
+    book_id = f"book_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
 
     # 다국어 제목 처리
     title_ko = None
@@ -929,7 +928,9 @@ async def start_series_generation(
 
         if not series_id:
             # 새 시리즈 생성
-            series_id = f"series_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+            series_id = (
+                f"series_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+            )
             series_title = request.series_title or f"{character.name}의 모험 시리즈"
 
             new_series = Series(

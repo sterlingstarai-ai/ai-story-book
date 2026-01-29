@@ -35,6 +35,7 @@ def utcnow() -> datetime:
     """Get current UTC time as timezone-aware datetime."""
     return datetime.now(timezone.utc)
 
+
 router = APIRouter()
 
 
@@ -377,9 +378,7 @@ async def regenerate_book_page(
         raise HTTPException(status_code=404, detail=f"Page {page_number} not found")
 
     # Create regeneration task
-    regen_job_id = (
-        f"regen_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
-    )
+    regen_job_id = f"regen_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
 
     background_tasks.add_task(
         regenerate_page,
@@ -446,9 +445,7 @@ async def create_series_next(
         )
 
     # Create new job for series
-    job_id = (
-        f"series_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
-    )
+    job_id = f"series_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
 
     # Deduct credit FIRST (before creating job to avoid race condition)
     credit_used = await credits_service.use_credit(
