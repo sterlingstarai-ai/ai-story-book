@@ -226,7 +226,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push API image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: apps/api
           file: apps/api/Dockerfile
@@ -238,7 +238,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build and push Worker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: apps/api
           file: apps/api/Dockerfile.worker
