@@ -11,7 +11,7 @@ asyncpg==0.30.0
 
 # Celery
 celery[redis]==5.4.0
-redis==5.2.0
+redis==7.1.0
 
 # Pydantic
 pydantic==2.10.0
