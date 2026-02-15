@@ -20,7 +20,14 @@ def run_async(coro):
         loop.close()
 
 
-@shared_task(bind=True, max_retries=0)
+@shared_task(
+    bind=True,
+    max_retries=0,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    time_limit=720,
+    soft_time_limit=600,
+)
 def generate_book_task(self, job_id: str, spec_dict: dict, user_key: str):
     """
     Celery task for book generation.
@@ -61,7 +68,14 @@ def generate_book_task(self, job_id: str, spec_dict: dict, user_key: str):
         raise
 
 
-@shared_task(bind=True, max_retries=2)
+@shared_task(
+    bind=True,
+    max_retries=2,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    time_limit=180,
+    soft_time_limit=150,
+)
 def regenerate_page_task(
     self,
     job_id: str,

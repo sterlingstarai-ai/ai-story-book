@@ -1,0 +1,447 @@
+"""
+Orchestrator Unit Tests
+오케스트레이터 핵심 로직 단위 테스트
+
+- run_step: 재시도, 타임아웃, 에러 전파
+- moderate_output: 금지 키워드 필터링
+- generate_all_images: 실패 임계값
+- generate_image_with_retry: 재시도/백오프
+"""
+
+import pytest
+import asyncio
+from unittest.mock import AsyncMock, patch, MagicMock
+
+from src.core.errors import StoryBookError, ErrorCode, TransientError
+
+
+# ==================== run_step Tests ====================
+
+
+class TestRunStep:
+    """run_step 재시도/타임아웃/에러 전파 테스트"""
+
+    @pytest.mark.asyncio
+    async def test_run_step_success(self):
+        """정상 실행 시 결과 반환"""
+        from src.services.orchestrator import run_step
+
+        result_fn = AsyncMock(return_value="success")
+
+        with patch("src.services.orchestrator.update_job_status", new_callable=AsyncMock):
+            result = await run_step(
+                job_id="test-job",
+                step_name="test-step",
+                progress=50,
+                fn=result_fn,
+                retries=0,
+                timeout_sec=5,
+            )
+
+        assert result == "success"
+        result_fn.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_run_step_retry_on_transient_error(self):
+        """TransientError 발생 시 재시도"""
+        from src.services.orchestrator import run_step
+
+        call_count = 0
+
+        async def flaky_fn():
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                raise TransientError("temporary failure")
+            return "recovered"
+
+        with patch("src.services.orchestrator.update_job_status", new_callable=AsyncMock):
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                result = await run_step(
+                    job_id="test-job",
+                    step_name="test-step",
+                    progress=50,
+                    fn=flaky_fn,
+                    retries=2,
+                    timeout_sec=5,
+                    backoff=[0, 0],
+                )
+
+        assert result == "recovered"
+        assert call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_run_step_retry_exhausted(self):
+        """재시도 횟수 소진 시 StoryBookError 발생"""
+        from src.services.orchestrator import run_step
+
+        fail_fn = AsyncMock(side_effect=TransientError("always fails"))
+
+        with patch("src.services.orchestrator.update_job_status", new_callable=AsyncMock):
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                with pytest.raises(StoryBookError) as exc_info:
+                    await run_step(
+                        job_id="test-job",
+                        step_name="failing-step",
+                        progress=50,
+                        fn=fail_fn,
+                        retries=2,
+                        timeout_sec=5,
+                        backoff=[0, 0],
+                    )
+
+        assert "failing-step" in str(exc_info.value)
+        assert fail_fn.call_count == 3  # 1 initial + 2 retries
+
+    @pytest.mark.asyncio
+    async def test_run_step_storybook_error_no_retry(self):
+        """StoryBookError는 재시도 없이 즉시 전파"""
+        from src.services.orchestrator import run_step
+
+        safety_error = StoryBookError(
+            code=ErrorCode.SAFETY_INPUT, message="unsafe content"
+        )
+        fail_fn = AsyncMock(side_effect=safety_error)
+
+        with patch("src.services.orchestrator.update_job_status", new_callable=AsyncMock):
+            with pytest.raises(StoryBookError) as exc_info:
+                await run_step(
+                    job_id="test-job",
+                    step_name="safety-check",
+                    progress=50,
+                    fn=fail_fn,
+                    retries=3,  # 재시도 3회 설정했지만
+                    timeout_sec=5,
+                )
+
+        assert exc_info.value.code == ErrorCode.SAFETY_INPUT
+        fail_fn.assert_called_once()  # 1번만 호출됨 (즉시 중단)
+
+    @pytest.mark.asyncio
+    async def test_run_step_timeout(self):
+        """타임아웃 발생 시 재시도 후 실패"""
+        from src.services.orchestrator import run_step
+
+        async def slow_fn():
+            await asyncio.sleep(100)  # 매우 느린 함수
+
+        with patch("src.services.orchestrator.update_job_status", new_callable=AsyncMock):
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                with pytest.raises(StoryBookError):
+                    await run_step(
+                        job_id="test-job",
+                        step_name="slow-step",
+                        progress=50,
+                        fn=slow_fn,
+                        retries=1,
+                        timeout_sec=0.01,  # 매우 짧은 타임아웃
+                        backoff=[0],
+                    )
+
+
+# ==================== moderate_output Tests ====================
+
+
+class TestModerateOutput:
+    """출력 안전성 검사 테스트"""
+
+    def _make_story(self, title="Test Story", page_texts=None):
+        """테스트용 StoryDraft 생성 헬퍼"""
+        from src.models.dto import (
+            StoryDraft,
+            StoryPage,
+            StoryCover,
+            StoryCharacter,
+            StoryContinuity,
+            Language,
+            TargetAge,
+        )
+
+        if page_texts is None:
+            page_texts = ["안녕하세요!", "즐거운 하루!"]
+
+        return StoryDraft(
+            title=title,
+            language=Language.ko,
+            target_age=TargetAge.a5_7,
+            theme="friendship",
+            moral="Be kind",
+            characters=[
+                StoryCharacter(
+                    id="char1", name="Tori", role="main", brief="A bunny"
+                )
+            ],
+            cover=StoryCover(
+                cover_text=title,
+                scene="Meadow",
+                mood="happy",
+                camera="wide shot",
+            ),
+            pages=[
+                StoryPage(
+                    page=i + 1,
+                    text=text,
+                    scene="Scene",
+                    mood="happy",
+                    camera="medium shot",
+                    characters_present=["Tori"],
+                )
+                for i, text in enumerate(page_texts)
+            ],
+            continuity=StoryContinuity(
+                character_consistency_notes="Notes",
+                style_notes_for_images="Style",
+            ),
+        )
+
+    @pytest.mark.asyncio
+    async def test_safe_content_passes(self):
+        """안전한 콘텐츠는 통과"""
+        from src.services.orchestrator import moderate_output
+
+        story = self._make_story(
+            title="토리의 즐거운 하루",
+            page_texts=["토리는 친구들과 놀았어요.", "정말 즐거운 하루였어요!"],
+        )
+        result = await moderate_output(story, {})
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_forbidden_word_in_title(self):
+        """제목에 금지 키워드 포함 시 차단"""
+        from src.services.orchestrator import moderate_output
+
+        story = self._make_story(title="폭력적인 이야기")
+        result = await moderate_output(story, {})
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_forbidden_word_in_page(self):
+        """페이지 텍스트에 금지 키워드 포함 시 차단"""
+        from src.services.orchestrator import moderate_output
+
+        story = self._make_story(
+            page_texts=["좋은 아침이에요.", "누군가를 죽이려고 했어요."]
+        )
+        result = await moderate_output(story, {})
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_english_forbidden_words(self):
+        """영어 금지 키워드도 차단"""
+        from src.services.orchestrator import moderate_output
+
+        story = self._make_story(
+            page_texts=["There was a gun on the table.", "Hello world!"]
+        )
+        result = await moderate_output(story, {})
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_case_insensitive_check(self):
+        """대소문자 구분 없이 검사"""
+        from src.services.orchestrator import moderate_output
+
+        story = self._make_story(
+            page_texts=["MURDER scene described", "Normal text"]
+        )
+        result = await moderate_output(story, {})
+        assert result is False
+
+
+# ==================== generate_image_with_retry Tests ====================
+
+
+class TestGenerateImageWithRetry:
+    """이미지 생성 재시도 테스트"""
+
+    @pytest.mark.asyncio
+    async def test_success_first_attempt(self):
+        """첫 시도에서 성공"""
+        from src.services.orchestrator import generate_image_with_retry
+
+        mock_prompt = MagicMock()
+
+        with patch("src.services.orchestrator.generate_image", new_callable=AsyncMock) as mock_gen:
+            mock_gen.return_value = "https://example.com/image.png"
+            with patch("src.services.orchestrator.settings") as mock_settings:
+                mock_settings.image_max_retries = 3
+                mock_settings.image_timeout = 90
+
+                result = await generate_image_with_retry(mock_prompt, "test-job", 1)
+
+        assert result == "https://example.com/image.png"
+        mock_gen.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_retry_after_failure(self):
+        """실패 후 재시도에서 성공"""
+        from src.services.orchestrator import generate_image_with_retry
+
+        mock_prompt = MagicMock()
+        call_count = 0
+
+        async def flaky_generate(_prompt):
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                raise RuntimeError("API error")
+            return "https://example.com/recovered.png"
+
+        with patch("src.services.orchestrator.generate_image", side_effect=flaky_generate):
+            with patch("src.services.orchestrator.settings") as mock_settings:
+                mock_settings.image_max_retries = 3
+                mock_settings.image_timeout = 90
+                with patch("asyncio.sleep", new_callable=AsyncMock):
+                    result = await generate_image_with_retry(mock_prompt, "test-job", 1)
+
+        assert result == "https://example.com/recovered.png"
+        assert call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_all_retries_exhausted(self):
+        """모든 재시도 실패 시 StoryBookError 발생"""
+        from src.services.orchestrator import generate_image_with_retry
+
+        mock_prompt = MagicMock()
+
+        with patch("src.services.orchestrator.generate_image", new_callable=AsyncMock) as mock_gen:
+            mock_gen.side_effect = RuntimeError("permanent failure")
+            with patch("src.services.orchestrator.settings") as mock_settings:
+                mock_settings.image_max_retries = 2
+                mock_settings.image_timeout = 90
+                with patch("asyncio.sleep", new_callable=AsyncMock):
+                    with pytest.raises(StoryBookError) as exc_info:
+                        await generate_image_with_retry(mock_prompt, "test-job", 3)
+
+        assert exc_info.value.code == ErrorCode.IMAGE_FAILED
+        assert "3" in exc_info.value.message  # page number in message
+
+
+# ==================== generate_all_images Tests ====================
+
+
+class TestGenerateAllImages:
+    """이미지 전체 생성 로직 테스트"""
+
+    def _make_image_prompts(self, page_count=4):
+        """테스트용 ImagePrompts 생성"""
+        from src.models.dto import ImagePrompts, ImagePrompt
+
+        return ImagePrompts(
+            style="watercolor",
+            cover=ImagePrompt(
+                page=0,
+                positive_prompt="A beautiful cover illustration of a bunny adventure",
+                negative_prompt="ugly, blurry, distorted, low quality",
+                seed=12345,
+            ),
+            pages=[
+                ImagePrompt(
+                    page=i + 1,
+                    positive_prompt=f"Page {i + 1} illustration of a bunny adventure scene",
+                    negative_prompt="ugly, blurry, distorted, low quality",
+                    seed=12345 + i + 1,
+                )
+                for i in range(page_count)
+            ],
+        )
+
+    @pytest.mark.asyncio
+    async def test_all_images_success(self):
+        """모든 이미지 성공"""
+        from src.services.orchestrator import generate_all_images
+
+        prompts = self._make_image_prompts(4)
+
+        with patch(
+            "src.services.orchestrator.generate_image_with_retry",
+            new_callable=AsyncMock,
+        ) as mock_gen:
+            mock_gen.return_value = "https://example.com/img.png"
+            with patch(
+                "src.services.orchestrator.update_job_status", new_callable=AsyncMock
+            ):
+                urls = await generate_all_images("test-job", prompts, 5)
+
+        assert len(urls) == 5  # cover + 4 pages
+        assert 0 in urls  # cover
+        for i in range(1, 5):
+            assert i in urls
+
+    @pytest.mark.asyncio
+    async def test_partial_failure_within_threshold(self):
+        """절반 미만 실패 시 계속 진행 (빈 URL 포함)"""
+        from src.services.orchestrator import generate_all_images
+
+        prompts = self._make_image_prompts(4)
+        call_count = 0
+
+        async def partial_failure(prompt, job_id, page):
+            nonlocal call_count
+            call_count += 1
+            if page == 2:  # 1개만 실패 (4개 중)
+                raise RuntimeError("Image gen failed")
+            return f"https://example.com/page_{page}.png"
+
+        with patch(
+            "src.services.orchestrator.generate_image_with_retry",
+            side_effect=partial_failure,
+        ):
+            with patch(
+                "src.services.orchestrator.update_job_status", new_callable=AsyncMock
+            ):
+                urls = await generate_all_images("test-job", prompts, 5)
+
+        assert urls[0] == "https://example.com/page_0.png"  # cover ok
+        assert urls[1] == "https://example.com/page_1.png"  # page 1 ok
+        assert urls[2] == ""  # page 2 failed
+        assert urls[3] == "https://example.com/page_3.png"  # page 3 ok
+
+    @pytest.mark.asyncio
+    async def test_majority_failure_raises_error(self):
+        """절반 이상 실패 시 StoryBookError 발생"""
+        from src.services.orchestrator import generate_all_images
+
+        prompts = self._make_image_prompts(4)
+
+        async def mostly_fail(prompt, job_id, page):
+            if page == 0:  # cover만 성공
+                return "https://example.com/cover.png"
+            raise RuntimeError("Image gen failed")
+
+        with patch(
+            "src.services.orchestrator.generate_image_with_retry",
+            side_effect=mostly_fail,
+        ):
+            with patch(
+                "src.services.orchestrator.update_job_status", new_callable=AsyncMock
+            ):
+                with pytest.raises(StoryBookError) as exc_info:
+                    await generate_all_images("test-job", prompts, 5)
+
+        assert exc_info.value.code == ErrorCode.IMAGE_FAILED
+
+
+# ==================== normalize_input Tests ====================
+
+
+class TestNormalizeInput:
+    """입력 정규화 테스트"""
+
+    @pytest.mark.asyncio
+    async def test_passthrough(self):
+        """BookSpec을 그대로 반환 (현재 구현)"""
+        from src.services.orchestrator import normalize_input
+        from src.models.dto import BookSpec
+
+        spec = BookSpec(
+            topic="토끼 이야기",
+            language="ko",
+            target_age="5-7",
+            style="watercolor",
+        )
+
+        result = await normalize_input(spec)
+        assert result.topic == spec.topic
+        assert result.language == spec.language

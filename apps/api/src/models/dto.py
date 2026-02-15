@@ -94,6 +94,17 @@ class BookSpec(BaseModel):
         default=None, max_length=500, description="시리즈 컨텍스트"
     )
 
+    @field_validator("topic")
+    @classmethod
+    def sanitize_topic(cls, v: str) -> str:
+        """HTML/스크립트 인젝션 방지"""
+        dangerous = ["<script", "javascript:", "onerror=", "onload=", "<iframe"]
+        lower_v = v.lower()
+        for pattern in dangerous:
+            if pattern in lower_v:
+                raise ValueError("허용되지 않는 문자가 포함되어 있습니다")
+        return v.strip()
+
 
 # ==================== Story Models ====================
 

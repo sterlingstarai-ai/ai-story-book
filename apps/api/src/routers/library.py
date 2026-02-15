@@ -2,9 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
+from typing import Optional
+
 from src.core.database import get_db
 from src.core.dependencies import get_user_key
-from src.models.dto import LibraryResponse, BookSummary, TargetAge
+from src.models.dto import LibraryResponse, BookSummary, TargetAge, Style
 from src.models.db import Book
 
 router = APIRouter()
@@ -16,27 +18,47 @@ async def get_library(
     user_key: str = Depends(get_user_key),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    style: Optional[str] = Query(default=None, description="스타일 필터 (watercolor, cartoon 등)"),
+    target_age: Optional[str] = Query(default=None, description="연령대 필터 (3-5, 5-7, 7-9, adult)"),
+    sort: Optional[str] = Query(default="newest", description="정렬: newest, oldest, title"),
 ):
     """
     내 서재 (생성한 책 목록)
 
-    - 최신순 정렬
+    - 정렬: newest(기본), oldest, title
+    - 스타일/연령대 필터
     - 페이지네이션 지원
     """
+    # Build base query with filters
+    base_filter = Book.user_key == user_key
+    filters = [base_filter]
+
+    if style:
+        filters.append(Book.style == style)
+    if target_age:
+        filters.append(Book.target_age == target_age)
+
     # Get total count efficiently using COUNT
-    count_result = await db.execute(
-        select(func.count()).select_from(Book).where(Book.user_key == user_key)
-    )
+    count_query = select(func.count()).select_from(Book)
+    for f in filters:
+        count_query = count_query.where(f)
+    count_result = await db.execute(count_query)
     total = count_result.scalar() or 0
 
-    # Get paginated results
-    result = await db.execute(
-        select(Book)
-        .where(Book.user_key == user_key)
-        .order_by(Book.created_at.desc())
-        .limit(limit)
-        .offset(offset)
-    )
+    # Build query with sort
+    query = select(Book)
+    for f in filters:
+        query = query.where(f)
+
+    if sort == "oldest":
+        query = query.order_by(Book.created_at.asc())
+    elif sort == "title":
+        query = query.order_by(Book.title.asc())
+    else:  # newest (default)
+        query = query.order_by(Book.created_at.desc())
+
+    query = query.limit(limit).offset(offset)
+    result = await db.execute(query)
     books = result.scalars().all()
 
     return LibraryResponse(
