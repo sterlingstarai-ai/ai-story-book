@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_
 from typing import Optional
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 import structlog
 
 from src.core.database import get_db
@@ -27,14 +27,10 @@ from src.services.pdf import pdf_service
 from src.services.tts import tts_service
 from src.services.storage import storage_service
 from src.services.credits import credits_service
+from src.core.utils import utcnow
+from src.core.exceptions import NotFoundError, AuthorizationError
 
 logger = structlog.get_logger()
-
-
-def utcnow() -> datetime:
-    """Get current UTC time as timezone-aware datetime."""
-    return datetime.now(timezone.utc)
-
 
 router = APIRouter()
 
@@ -536,7 +532,10 @@ async def export_book_pdf(
     try:
         pdf_bytes = await pdf_service.generate_pdf(book_data)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(e)}")
+        logger.error("PDF generation failed", book_id=book_id, error=str(e))
+        raise HTTPException(
+            status_code=500, detail="PDF 생성에 실패했습니다. 잠시 후 다시 시도해주세요."
+        )
 
     # Return PDF as response
     # Use URL encoding for Korean filename to avoid header encoding issues
@@ -685,6 +684,9 @@ async def get_page_audio(
         return {"audio_url": audio_url}
 
     except Exception as e:
+        logger.error(
+            "Audio generation failed", book_id=book_id, page_number=page_number, error=str(e)
+        )
         raise HTTPException(
-            status_code=500, detail=f"Audio generation failed: {str(e)}"
+            status_code=500, detail="오디오 생성에 실패했습니다. 잠시 후 다시 시도해주세요."
         )

@@ -10,6 +10,7 @@ from src.routers import books, characters, library, credits, streak
 from src.core.database import get_db  # noqa: F401
 from src.core.rate_limit import check_rate_limit, rate_limiter
 from src.core.exceptions import APIError, api_exception_handler
+from src.core.errors import StoryBookError, SafetyError
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -188,6 +189,31 @@ app.add_middleware(
 app.add_exception_handler(APIError, api_exception_handler)
 
 
+# StoryBookError handler - domain errors from orchestrator/services
+@app.exception_handler(StoryBookError)
+async def storybook_error_handler(request: Request, exc: StoryBookError):
+    """Map domain errors to appropriate HTTP responses."""
+    status_code = 500
+    if isinstance(exc, SafetyError):
+        status_code = 422
+
+    logger.warning(
+        "Domain error",
+        error_code=exc.code.value,
+        message=exc.message,
+        path=request.url.path,
+    )
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "error": {
+                "code": exc.code.value,
+                "message": exc.message,
+            }
+        },
+    )
+
+
 # Global exception handler
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
@@ -197,7 +223,7 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={
             "error": {
                 "code": "INTERNAL_ERROR",
-                "message": str(exc) if settings.debug else "Something went wrong",
+                "message": str(exc) if settings.debug else "서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
             }
         },
     )

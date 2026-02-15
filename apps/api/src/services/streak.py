@@ -3,16 +3,12 @@ Streak Service
 오늘의 동화 스트릭 시스템
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
 from ..models.db import DailyStreak, DailyStory, ReadingLog
-
-
-def utcnow() -> datetime:
-    """Get current UTC time as timezone-aware datetime."""
-    return datetime.now(timezone.utc)
+from ..core.utils import utcnow
 
 
 # 오늘의 동화 테마 목록

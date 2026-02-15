@@ -9,20 +9,15 @@ Background service that runs periodically to:
 """
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import Optional
 import structlog
 
 from src.core.config import settings
 from src.core.database import AsyncSessionLocal
+from src.core.utils import utcnow
 from src.models.db import Job
 from sqlalchemy import select, and_, func
-
-
-def utcnow() -> datetime:
-    """Get current UTC time as timezone-aware datetime."""
-    return datetime.now(timezone.utc)
-
 
 logger = structlog.get_logger()
 

@@ -14,12 +14,13 @@ H. 패키징 (BookResult 생성, 업로드, 저장)
 
 import asyncio
 from typing import Optional, Callable, Awaitable, TypeVar
-from datetime import datetime, timezone
+from datetime import datetime
 import uuid
 import structlog
 
 from src.core.config import settings
 from src.core.errors import StoryBookError, ErrorCode, TransientError, get_backoff
+from src.core.utils import utcnow
 from src.models.dto import (
     BookSpec,
     StoryDraft,
@@ -33,12 +34,6 @@ from src.models.dto import (
 )
 
 logger = structlog.get_logger()
-
-
-def utcnow() -> datetime:
-    """Get current UTC time as timezone-aware datetime."""
-    return datetime.now(timezone.utc)
-
 
 T = TypeVar("T")
 

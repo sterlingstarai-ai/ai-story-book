@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Form
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from typing import Optional
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
+import structlog
 
 from src.core.database import get_db
 from src.core.dependencies import get_user_key
@@ -17,12 +18,10 @@ from src.models.dto import (
 from src.models.db import Character
 from src.services.photo_character import photo_character_service
 from src.services.storage import storage_service
+from src.core.utils import utcnow
+from src.core.exceptions import NotFoundError, AuthorizationError
 
-
-def utcnow() -> datetime:
-    """Get current UTC time as timezone-aware datetime."""
-    return datetime.now(timezone.utc)
-
+logger = structlog.get_logger()
 
 router = APIRouter()
 
@@ -78,11 +77,15 @@ async def list_characters(
     """
     내 캐릭터 목록 조회
     """
-    # Get total count
+    # Validate pagination params
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
+
+    # Get total count (efficient COUNT query)
     count_result = await db.execute(
-        select(Character).where(Character.user_key == user_key)
+        select(func.count(Character.id)).where(Character.user_key == user_key)
     )
-    total = len(count_result.scalars().all())
+    total = count_result.scalar() or 0
 
     # Get paginated results
     result = await db.execute(
@@ -132,10 +135,10 @@ async def get_character(
     character = result.scalar_one_or_none()
 
     if not character:
-        raise HTTPException(status_code=404, detail="Character not found")
+        raise NotFoundError("캐릭터", character_id)
 
     if character.user_key != user_key:
-        raise HTTPException(status_code=403, detail="Access denied")
+        raise AuthorizationError()
 
     return CharacterResponse(
         character_id=character.id,
@@ -162,10 +165,10 @@ async def delete_character(
     character = result.scalar_one_or_none()
 
     if not character:
-        raise HTTPException(status_code=404, detail="Character not found")
+        raise NotFoundError("캐릭터", character_id)
 
     if character.user_key != user_key:
-        raise HTTPException(status_code=403, detail="Access denied")
+        raise AuthorizationError()
 
     await db.delete(character)
     await db.commit()
@@ -232,7 +235,10 @@ async def create_character_from_text(
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"캐릭터 생성 실패: {str(e)}")
+        logger.error("Character creation from text failed", error=str(e))
+        raise HTTPException(
+            status_code=500, detail="캐릭터 생성에 실패했습니다. 잠시 후 다시 시도해주세요."
+        )
 
 
 @router.post("/from-photo")
@@ -335,4 +341,7 @@ async def create_character_from_photo(
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"캐릭터 생성 실패: {str(e)}")
+        logger.error("Character creation from photo failed", error=str(e))
+        raise HTTPException(
+            status_code=500, detail="캐릭터 생성에 실패했습니다. 잠시 후 다시 시도해주세요."
+        )

@@ -9,9 +9,13 @@ from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
 
+import structlog
+
 from src.core.database import get_db
 from src.core.dependencies import get_user_key
 from src.services.credits import credits_service, SUBSCRIPTION_PLANS
+
+logger = structlog.get_logger()
 
 router = APIRouter()
 
@@ -192,7 +196,10 @@ async def subscribe(
             },
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Subscription creation failed", user_key=user_key[:8] + "...", error=str(e))
+        raise HTTPException(
+            status_code=500, detail="구독 처리에 실패했습니다. 잠시 후 다시 시도해주세요."
+        )
 
 
 @router.post("/cancel-subscription")

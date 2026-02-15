@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime
 from sqlalchemy import (
     Column,
     String,
@@ -13,11 +13,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 
 from src.core.database import Base
-
-
-def utcnow() -> datetime:
-    """Get current UTC time as timezone-aware datetime."""
-    return datetime.now(timezone.utc)
+from src.core.utils import utcnow
 
 
 class Job(Base):
