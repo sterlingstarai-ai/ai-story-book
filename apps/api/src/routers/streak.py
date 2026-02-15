@@ -3,7 +3,7 @@ Streak Router
 오늘의 동화 및 스트릭 관련 API
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from typing import Optional
@@ -122,7 +122,7 @@ async def record_reading(
 
 @router.get("/history")
 async def get_reading_history(
-    days: int = 30,
+    days: int = Query(default=30, ge=1, le=365),
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
 ):
@@ -157,8 +157,8 @@ async def get_themes():
 
 @router.get("/calendar")
 async def get_streak_calendar(
-    year: int,
-    month: int,
+    year: int = Query(..., ge=2020, le=2100),
+    month: int = Query(..., ge=1, le=12),
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
 ):

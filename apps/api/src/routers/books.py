@@ -4,7 +4,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_
 from typing import Optional
 import uuid
-from datetime import datetime
 import structlog
 
 from src.core.database import get_db
@@ -33,6 +32,50 @@ from src.core.exceptions import NotFoundError, AuthorizationError
 logger = structlog.get_logger()
 
 router = APIRouter()
+
+
+def _build_page_dict(p) -> dict:
+    """Build standardized page response dict from a Page model."""
+    return {
+        "page_number": p.page_number,
+        "text": p.text,
+        "image_url": p.image_url or "",
+        "image_prompt": p.image_prompt,
+        "audio_url": p.audio_url,
+        "text_ko": p.text_ko,
+        "text_en": p.text_en,
+        "audio_url_ko": p.audio_url_ko,
+        "audio_url_en": p.audio_url_en,
+        "vocab": p.vocab,
+        "comprehension_questions": p.comprehension,
+        "quiz": p.quiz,
+    }
+
+
+def _build_book_dict(book, pages, include_job_id: bool = False) -> dict:
+    """Build standardized book response dict from Book + Pages models."""
+    result = {
+        "book_id": book.id,
+        "title": book.title,
+        "language": book.language,
+        "target_age": book.target_age,
+        "style": book.style,
+        "cover_image_url": book.cover_image_url or "",
+        "series_id": book.series_id,
+        "series_index": book.series_index,
+        "title_ko": book.title_ko,
+        "title_en": book.title_en,
+        "pages": [_build_page_dict(p) for p in pages],
+        "learning_assets": book.learning_assets,
+        "created_at": book.created_at.isoformat(),
+    }
+    if include_job_id:
+        result["job_id"] = book.job_id
+        result["theme"] = book.theme
+        result["character_id"] = book.character_id
+        result["pdf_url"] = book.pdf_url
+        result["audio_url"] = book.audio_url
+    return result
 
 
 def get_idempotency_key(
@@ -135,16 +178,28 @@ async def create_book(
         raise HTTPException(status_code=402, detail="크레딧 차감에 실패했습니다.")
 
     # Create job after successful credit deduction
-    job = Job(
-        id=job_id,
-        status="queued",
-        progress=0,
-        current_step="대기 중",
-        user_key=user_key,
-        idempotency_key=idempotency_key,
-    )
-    db.add(job)
-    await db.commit()
+    # If job creation fails, refund the credit
+    try:
+        job = Job(
+            id=job_id,
+            status="queued",
+            progress=0,
+            current_step="대기 중",
+            user_key=user_key,
+            idempotency_key=idempotency_key,
+        )
+        db.add(job)
+        await db.commit()
+    except Exception as e:
+        logger.error("Job creation failed, refunding credit", job_id=job_id, error=str(e))
+        await db.rollback()
+        await credits_service.add_credits(
+            db, user_key, amount=1,
+            transaction_type="refund",
+            description="잡 생성 실패 환불",
+            reference_id=job_id,
+        )
+        raise HTTPException(status_code=500, detail="잡 생성에 실패했습니다. 크레딧이 환불되었습니다.")
 
     # Start background task (Celery or FastAPI BackgroundTasks)
     # 테스트 환경에서는 background_tasks 실행 스킵 (테스트 안정화)
@@ -181,10 +236,10 @@ async def get_book_status(
     job = result.scalar_one_or_none()
 
     if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise NotFoundError("Job", job_id)
 
     if job.user_key != user_key:
-        raise HTTPException(status_code=403, detail="Access denied")
+        raise AuthorizationError()
 
     # Build response
     response = JobStatus(
@@ -211,48 +266,11 @@ async def get_book_status(
         book = book_result.scalar_one_or_none()
 
         if book:
-            # Build BookResult dict
             pages_result = await db.execute(
                 select(Page).where(Page.book_id == book.id).order_by(Page.page_number)
             )
             pages = pages_result.scalars().all()
-
-            response.result = {
-                "book_id": book.id,
-                "title": book.title,
-                "language": book.language,
-                "target_age": book.target_age,
-                "style": book.style,
-                "cover_image_url": book.cover_image_url,
-                # 시리즈 정보
-                "series_id": book.series_id,
-                "series_index": book.series_index,
-                # 다국어 제목
-                "title_ko": book.title_ko,
-                "title_en": book.title_en,
-                "pages": [
-                    {
-                        "page_number": p.page_number,
-                        "text": p.text,
-                        "image_url": p.image_url,
-                        "image_prompt": p.image_prompt,
-                        "audio_url": p.audio_url,
-                        # 다국어 텍스트
-                        "text_ko": p.text_ko,
-                        "text_en": p.text_en,
-                        "audio_url_ko": p.audio_url_ko,
-                        "audio_url_en": p.audio_url_en,
-                        # 학습 자산
-                        "vocab": p.vocab,
-                        "comprehension_questions": p.comprehension,
-                        "quiz": p.quiz,
-                    }
-                    for p in pages
-                ],
-                # 학습 자산 전체
-                "learning_assets": book.learning_assets,
-                "created_at": book.created_at.isoformat(),
-            }
+            response.result = _build_book_dict(book, pages)
 
     return response
 
@@ -274,10 +292,10 @@ async def get_book_detail(
     book = result.scalar_one_or_none()
 
     if not book:
-        raise HTTPException(status_code=404, detail="Book not found")
+        raise NotFoundError("Book", book_id)
 
     if book.user_key != user_key:
-        raise HTTPException(status_code=403, detail="Access denied")
+        raise AuthorizationError()
 
     # Fetch pages
     pages_result = await db.execute(
@@ -285,47 +303,7 @@ async def get_book_detail(
     )
     pages = pages_result.scalars().all()
 
-    return {
-        "book_id": book.id,
-        "job_id": book.job_id,
-        "title": book.title,
-        "language": book.language,
-        "target_age": book.target_age,
-        "style": book.style,
-        "theme": book.theme,
-        "character_id": book.character_id,
-        "cover_image_url": book.cover_image_url or "",
-        "pdf_url": book.pdf_url,
-        "audio_url": book.audio_url,
-        # 시리즈 정보
-        "series_id": book.series_id,
-        "series_index": book.series_index,
-        # 다국어 제목
-        "title_ko": book.title_ko,
-        "title_en": book.title_en,
-        "pages": [
-            {
-                "page_number": p.page_number,
-                "text": p.text,
-                "image_url": p.image_url or "",
-                "image_prompt": p.image_prompt,
-                "audio_url": p.audio_url,
-                # 다국어 텍스트
-                "text_ko": p.text_ko,
-                "text_en": p.text_en,
-                "audio_url_ko": p.audio_url_ko,
-                "audio_url_en": p.audio_url_en,
-                # 학습 자산
-                "vocab": p.vocab,
-                "comprehension_questions": p.comprehension,
-                "quiz": p.quiz,
-            }
-            for p in pages
-        ],
-        # 학습 자산 전체
-        "learning_assets": book.learning_assets,
-        "created_at": book.created_at.isoformat(),
-    }
+    return _build_book_dict(book, pages, include_job_id=True)
 
 
 @router.post(
@@ -350,10 +328,10 @@ async def regenerate_book_page(
     job = result.scalar_one_or_none()
 
     if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise NotFoundError("Job", job_id)
 
     if job.user_key != user_key:
-        raise HTTPException(status_code=403, detail="Access denied")
+        raise AuthorizationError()
 
     if job.status != "done":
         raise HTTPException(status_code=400, detail="Book generation not complete")
@@ -363,7 +341,7 @@ async def regenerate_book_page(
     book = book_result.scalar_one_or_none()
 
     if not book:
-        raise HTTPException(status_code=404, detail="Book not found")
+        raise NotFoundError("Book", job_id)
 
     page_result = await db.execute(
         select(Page).where(Page.book_id == book.id, Page.page_number == page_number)
@@ -371,7 +349,7 @@ async def regenerate_book_page(
     page = page_result.scalar_one_or_none()
 
     if not page:
-        raise HTTPException(status_code=404, detail=f"Page {page_number} not found")
+        raise NotFoundError("Page", str(page_number))
 
     # Create regeneration task
     regen_job_id = f"regen_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
@@ -413,10 +391,10 @@ async def create_series_next(
     character = char_result.scalar_one_or_none()
 
     if not character:
-        raise HTTPException(status_code=404, detail="Character not found")
+        raise NotFoundError("캐릭터", request.character_id)
 
     if character.user_key != user_key:
-        raise HTTPException(status_code=403, detail="Access denied to character")
+        raise AuthorizationError()
 
     # previous_book_id가 있으면 검증, 없으면 None 유지
     prev_book = None
@@ -427,11 +405,9 @@ async def create_series_next(
         prev_book = book_result.scalar_one_or_none()
 
         if not prev_book:
-            raise HTTPException(status_code=404, detail="Previous book not found")
+            raise NotFoundError("Book", request.previous_book_id)
         if prev_book.user_key != user_key:
-            raise HTTPException(
-                status_code=403, detail="Access denied to previous book"
-            )
+            raise AuthorizationError()
 
     # Check and deduct credits
     has_credits = await credits_service.has_credits(db, user_key, required=1)
@@ -451,15 +427,27 @@ async def create_series_next(
         raise HTTPException(status_code=402, detail="크레딧 차감에 실패했습니다.")
 
     # Create job after successful credit deduction
-    job = Job(
-        id=job_id,
-        status="queued",
-        progress=0,
-        current_step="시리즈 생성 대기 중",
-        user_key=user_key,
-    )
-    db.add(job)
-    await db.commit()
+    # If job creation fails, refund the credit
+    try:
+        job = Job(
+            id=job_id,
+            status="queued",
+            progress=0,
+            current_step="시리즈 생성 대기 중",
+            user_key=user_key,
+        )
+        db.add(job)
+        await db.commit()
+    except Exception as e:
+        logger.error("Series job creation failed, refunding credit", job_id=job_id, error=str(e))
+        await db.rollback()
+        await credits_service.add_credits(
+            db, user_key, amount=1,
+            transaction_type="refund",
+            description="시리즈 잡 생성 실패 환불",
+            reference_id=job_id,
+        )
+        raise HTTPException(status_code=500, detail="잡 생성에 실패했습니다. 크레딧이 환불되었습니다.")
 
     # Start background task for series generation
     # 테스트 환경에서는 background_tasks 실행 스킵 (테스트 안정화)
@@ -494,10 +482,10 @@ async def export_book_pdf(
     book = book_result.scalar_one_or_none()
 
     if not book:
-        raise HTTPException(status_code=404, detail="Book not found")
+        raise NotFoundError("Book", book_id)
 
     if book.user_key != user_key:
-        raise HTTPException(status_code=403, detail="Access denied")
+        raise AuthorizationError()
 
     # Fetch pages
     pages_result = await db.execute(
@@ -570,10 +558,10 @@ async def generate_book_audio(
     book = book_result.scalar_one_or_none()
 
     if not book:
-        raise HTTPException(status_code=404, detail="Book not found")
+        raise NotFoundError("Book", book_id)
 
     if book.user_key != user_key:
-        raise HTTPException(status_code=403, detail="Access denied")
+        raise AuthorizationError()
 
     # Fetch pages
     pages_result = await db.execute(
@@ -582,7 +570,7 @@ async def generate_book_audio(
     pages = pages_result.scalars().all()
 
     if not pages:
-        raise HTTPException(status_code=404, detail="No pages found")
+        raise NotFoundError("Pages", book_id)
 
     # Start background task for audio generation
     background_tasks.add_task(
@@ -600,7 +588,6 @@ async def generate_book_audio(
 async def _generate_audio_for_book(book_id: str, pages: list[dict]):
     """책 오디오 생성 백그라운드 태스크 (5분 타임아웃)"""
     import asyncio
-    from src.core.database import AsyncSessionLocal
 
     try:
         await asyncio.wait_for(_generate_audio_pages(book_id, pages), timeout=300)
@@ -657,10 +644,10 @@ async def get_page_audio(
     book = book_result.scalar_one_or_none()
 
     if not book:
-        raise HTTPException(status_code=404, detail="Book not found")
+        raise NotFoundError("Book", book_id)
 
     if book.user_key != user_key:
-        raise HTTPException(status_code=403, detail="Access denied")
+        raise AuthorizationError()
 
     # Fetch page
     page_result = await db.execute(
@@ -669,7 +656,7 @@ async def get_page_audio(
     page = page_result.scalar_one_or_none()
 
     if not page:
-        raise HTTPException(status_code=404, detail=f"Page {page_number} not found")
+        raise NotFoundError("Page", str(page_number))
 
     # 이미 오디오가 있으면 반환
     if page.audio_url:

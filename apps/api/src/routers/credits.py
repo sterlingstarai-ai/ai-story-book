@@ -3,7 +3,7 @@ Credits Router
 크레딧 및 구독 관련 API
 """
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from typing import Optional
@@ -140,8 +140,8 @@ async def get_credits_balance(
 
 @router.get("/transactions", response_model=list[TransactionResponse])
 async def get_transactions(
-    limit: int = 20,
-    offset: int = 0,
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
 ):

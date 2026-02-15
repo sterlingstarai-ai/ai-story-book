@@ -55,9 +55,11 @@ def generate_book_task(self, job_id: str, spec_dict: dict, user_key: str):
         try:
             from src.core.database import SessionLocal
             from src.models.db import Job
+            from sqlalchemy import select
 
             with SessionLocal() as session:
-                job = session.query(Job).filter(Job.id == job_id).first()
+                result = session.execute(select(Job).where(Job.id == job_id))
+                job = result.scalar_one_or_none()
                 if job:
                     job.status = "failed"
                     job.error_message = str(e)[:300]

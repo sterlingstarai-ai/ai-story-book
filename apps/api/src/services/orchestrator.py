@@ -132,7 +132,7 @@ async def run_step(
         # 재시도 대기
         if attempt < retries:
             wait_time = backoff[min(attempt, len(backoff) - 1)]
-            logger.info(f"Waiting {wait_time}s before retry...")
+            logger.info("Waiting before retry", wait_seconds=wait_time)
             await asyncio.sleep(wait_time)
 
     # 최종 실패 - preserve stack trace with 'from' for proper chaining
@@ -490,18 +490,21 @@ async def generate_all_images(
     for prompt, result in zip(image_prompts.pages, results):
         if isinstance(result, Exception):
             logger.error(
-                f"Failed to generate image for page {prompt.page}", error=str(result)
+                "Failed to generate image for page",
+                page=prompt.page,
+                error=str(result),
             )
             failed_pages.append(prompt.page)
             image_urls[prompt.page] = ""
         else:
             image_urls[prompt.page] = result
 
-    # 절반 이상 실패 시 전체 실패 처리
-    if len(failed_pages) > len(image_prompts.pages) // 2:
+    # 25% 이상 실패 시 전체 실패 처리 (8페이지 기준 2페이지 이상 실패)
+    max_failures = max(1, len(image_prompts.pages) // 4)
+    if len(failed_pages) > max_failures:
         raise StoryBookError(
             code=ErrorCode.IMAGE_FAILED,
-            message=f"이미지 생성 실패가 너무 많습니다: 페이지 {failed_pages}",
+            message=f"이미지 생성 실패가 너무 많습니다 ({len(failed_pages)}/{len(image_prompts.pages)}): 페이지 {failed_pages}",
         )
 
     return image_urls
@@ -521,14 +524,19 @@ async def generate_image_with_retry(prompt, job_id: str, page: int) -> str:
 
         except asyncio.TimeoutError:
             logger.warning(
-                f"Image generation timeout for page {page}, attempt {attempt + 1}"
+                "Image generation timeout",
+                page=page,
+                attempt=attempt + 1,
             )
             if attempt < max_retries - 1:
                 await asyncio.sleep(get_backoff(ErrorCode.IMAGE_TIMEOUT, attempt))
 
         except Exception as e:
             logger.warning(
-                f"Image generation failed for page {page}: {e}, attempt {attempt + 1}"
+                "Image generation failed",
+                page=page,
+                error=str(e),
+                attempt=attempt + 1,
             )
             if attempt < max_retries - 1:
                 await asyncio.sleep(get_backoff(ErrorCode.IMAGE_FAILED, attempt))

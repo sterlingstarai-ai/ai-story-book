@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import Literal, Optional
@@ -7,6 +7,8 @@ from src.core.database import get_db
 from src.core.dependencies import get_user_key
 from src.models.dto import LibraryResponse, BookSummary, TargetAge, Style
 from src.models.db import Book
+from src.core.exceptions import NotFoundError, AuthorizationError
+from src.services.storage import delete_book_files
 
 router = APIRouter()
 
@@ -89,10 +91,10 @@ async def delete_book(
     book = result.scalar_one_or_none()
 
     if not book:
-        raise HTTPException(status_code=404, detail="Book not found")
+        raise NotFoundError("Book", book_id)
 
     if book.user_key != user_key:
-        raise HTTPException(status_code=403, detail="Access denied")
+        raise AuthorizationError()
 
     # Delete pages first
     from src.models.db import Page
@@ -101,5 +103,8 @@ async def delete_book(
 
     await db.delete(book)
     await db.commit()
+
+    # Clean up S3 files (non-blocking, failure doesn't affect response)
+    await delete_book_files(book_id)
 
     return {"message": "Book deleted successfully"}

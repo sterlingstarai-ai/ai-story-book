@@ -3,7 +3,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import Optional
 import uuid
-from datetime import datetime
 import structlog
 
 from src.core.database import get_db
