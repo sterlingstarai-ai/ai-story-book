@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from contextlib import asynccontextmanager
+import uuid
 import structlog
 
 from src.core.config import settings
@@ -11,6 +12,22 @@ from src.core.database import get_db  # noqa: F401
 from src.core.rate_limit import check_rate_limit, rate_limiter
 from src.core.exceptions import APIError, api_exception_handler
 from src.core.errors import StoryBookError, SafetyError
+
+
+class RequestIDMiddleware(BaseHTTPMiddleware):
+    """Assign unique request ID to every request for tracing."""
+
+    async def dispatch(self, request: Request, call_next):
+        request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+        request.state.request_id = request_id
+
+        # Bind to structlog context for all logs in this request
+        structlog.contextvars.clear_contextvars()
+        structlog.contextvars.bind_contextvars(request_id=request_id)
+
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        return response
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -83,13 +100,25 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Shutdown
-    logger.info("Shutting down AI Story Book API")
+    # Shutdown - graceful cleanup
+    logger.info("Shutting down AI Story Book API - starting graceful cleanup")
 
     if not settings.testing:
         await job_monitor.stop()
 
+    # Close rate limiter Redis connection
     await rate_limiter.close()
+
+    # Close database connection pool
+    try:
+        from src.core.database import async_engine
+
+        await async_engine.dispose()
+        logger.info("Database connection pool closed")
+    except Exception as e:
+        logger.warning("Failed to close database pool", error=str(e))
+
+    logger.info("Graceful shutdown complete")
 
 
 app = FastAPI(
@@ -152,6 +181,9 @@ AI 기반 맞춤형 동화책 생성 API입니다.
         "name": "MIT",
     },
 )
+
+# Request ID middleware (outermost - runs first)
+app.add_middleware(RequestIDMiddleware)
 
 # Security headers middleware
 app.add_middleware(SecurityHeadersMiddleware)
@@ -256,11 +288,29 @@ async def detailed_health_check():
     except Exception:
         redis_status = "unhealthy"
 
+    # Check DB connectivity
+    db_status = "healthy"
+    try:
+        from src.core.database import AsyncSessionLocal
+        from sqlalchemy import text
+
+        async with AsyncSessionLocal() as session:
+            await session.execute(text("SELECT 1"))
+    except Exception:
+        db_status = "unhealthy"
+
+    overall_status = (
+        "healthy"
+        if db_status == "healthy" and redis_status == "healthy"
+        else "degraded"
+    )
+
     return {
-        "status": "healthy",
+        "status": overall_status,
         "version": settings.app_version,
         "jobs": job_metrics,
         "services": {
+            "database": db_status,
             "redis": redis_status,
             "llm_provider": settings.llm_provider,
             "image_provider": settings.image_provider,
