@@ -79,9 +79,14 @@ async def _generate_openai(prompt: ImagePrompt) -> str:
                 page=prompt.page,
             )
 
-        result = response.json()
-        data = result.get("data", [])
+        try:
+            result = response.json()
+        except Exception:
+            raise ImageError(
+                ErrorCode.IMAGE_FAILED, "Invalid JSON from OpenAI Image API", page=prompt.page
+            )
 
+        data = result.get("data", [])
         if data:
             return data[0].get("url", "")
 
@@ -148,7 +153,12 @@ async def _generate_replicate(prompt: ImagePrompt) -> str:
                 page=prompt.page,
             )
 
-        prediction = response.json()
+        try:
+            prediction = response.json()
+        except Exception:
+            raise ImageError(
+                ErrorCode.IMAGE_FAILED, "Invalid JSON from Replicate API", page=prompt.page
+            )
         prediction_id = prediction["id"]
 
         # Poll for completion
@@ -223,9 +233,14 @@ async def _generate_fal(prompt: ImagePrompt) -> str:
                 page=prompt.page,
             )
 
-        result = response.json()
-        images = result.get("images", [])
+        try:
+            result = response.json()
+        except Exception:
+            raise ImageError(
+                ErrorCode.IMAGE_FAILED, "Invalid JSON from FAL API", page=prompt.page
+            )
 
+        images = result.get("images", [])
         if images:
             return images[0].get("url", "")
 

@@ -3,24 +3,27 @@ services:
     image: postgres:16-alpine
     container_name: storybook-postgres
     environment:
-      POSTGRES_USER: storybook
-      POSTGRES_PASSWORD: storybook123
-      POSTGRES_DB: storybook
+      POSTGRES_USER: ${POSTGRES_USER:-storybook}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-storybook123}
+      POSTGRES_DB: ${POSTGRES_DB:-storybook}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U storybook"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-storybook}"]
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - storybook-net
 
   redis:
     image: redis:7-alpine
     container_name: storybook-redis
+    command: redis-server --requirepass ${REDIS_PASSWORD:-}
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -28,16 +31,18 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - storybook-net
 
   minio:
     image: minio/minio:latest
     container_name: storybook-minio
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin123
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
     volumes:
       - minio_data:/data
     command: server /data --console-address ":9001"
@@ -46,6 +51,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - storybook-net
 
   api:
     build:
@@ -54,7 +61,7 @@ services:
     container_name: storybook-api
     environment:
       # Database
-      - DATABASE_URL=postgresql+asyncpg://storybook:storybook123@postgres:5432/storybook
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-storybook}:${POSTGRES_PASSWORD:-storybook123}@postgres:5432/${POSTGRES_DB:-storybook}
       # Redis
       - REDIS_URL=redis://redis:6379/0
       # Celery
@@ -63,8 +70,8 @@ services:
       - USE_CELERY=${USE_CELERY:-false}
       # Storage
       - S3_ENDPOINT=http://minio:9000
-      - S3_ACCESS_KEY=minioadmin
-      - S3_SECRET_KEY=minioadmin123
+      - S3_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - S3_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin123}
       - S3_BUCKET=storybook
       - S3_PUBLIC_URL=${S3_PUBLIC_URL:-http://localhost:9000/storybook}
       # LLM - defaults to mock, set LLM_API_KEY to use real provider
@@ -88,8 +95,10 @@ services:
       # Rate Limiting
       - RATE_LIMIT_REQUESTS=${RATE_LIMIT_REQUESTS:-10}
       - RATE_LIMIT_WINDOW=${RATE_LIMIT_WINDOW:-60}
+      # Admin
+      - ADMIN_API_KEY=${ADMIN_API_KEY:-}
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -99,6 +108,8 @@ services:
         condition: service_healthy
     volumes:
       - ../apps/api:/app
+    networks:
+      - storybook-net
 
   worker:
     build:
@@ -108,7 +119,7 @@ services:
     command: celery -A src.worker worker --loglevel=info
     environment:
       # Database
-      - DATABASE_URL=postgresql+asyncpg://storybook:storybook123@postgres:5432/storybook
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-storybook}:${POSTGRES_PASSWORD:-storybook123}@postgres:5432/${POSTGRES_DB:-storybook}
       # Redis
       - REDIS_URL=redis://redis:6379/0
       # Celery
@@ -116,8 +127,8 @@ services:
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
       # Storage
       - S3_ENDPOINT=http://minio:9000
-      - S3_ACCESS_KEY=minioadmin
-      - S3_SECRET_KEY=minioadmin123
+      - S3_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - S3_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin123}
       - S3_BUCKET=storybook
       - S3_PUBLIC_URL=${S3_PUBLIC_URL:-http://localhost:9000/storybook}
       # LLM
@@ -140,6 +151,12 @@ services:
       - api
     volumes:
       - ../apps/api:/app
+    networks:
+      - storybook-net
+
+networks:
+  storybook-net:
+    driver: bridge
 
 volumes:
   postgres_data:

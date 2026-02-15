@@ -11,7 +11,7 @@ from src.main import app
 
 @pytest.fixture
 def user_key():
-    return "test-user-key-12345678901234567890"
+    return "550e8400-e29b-41d4-a716-446655440000"
 
 
 @pytest.fixture

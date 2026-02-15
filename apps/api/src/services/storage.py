@@ -2,6 +2,8 @@
 Storage Service: S3/Minio 파일 업로드
 """
 
+import asyncio
+
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
@@ -16,8 +18,9 @@ from src.core.errors import StorageError
 
 logger = structlog.get_logger()
 
-# Cache for bucket existence check
+# Cache for bucket existence check (protected by lock)
 _bucket_verified = False
+_bucket_lock = asyncio.Lock()
 
 # Allowed domains for image fetching (SSRF protection)
 ALLOWED_IMAGE_DOMAINS = {
@@ -82,29 +85,32 @@ def get_s3_client():
 
 
 async def ensure_bucket_exists():
-    """Ensure the bucket exists, create if not. Cached after first check."""
+    """Ensure the bucket exists, create if not. Thread-safe with asyncio.Lock."""
     global _bucket_verified
 
     if _bucket_verified:
         return
 
-    client = get_s3_client()
-    try:
-        client.head_bucket(Bucket=settings.s3_bucket)
-        _bucket_verified = True
-    except ClientError:
+    async with _bucket_lock:
+        # Double-check after acquiring lock
+        if _bucket_verified:
+            return
+
+        client = get_s3_client()
         try:
-            client.create_bucket(Bucket=settings.s3_bucket)
-            # SECURITY: Do NOT auto-create public bucket policy
-            # Bucket policy must be configured externally by admin
-            logger.info(f"Created bucket: {settings.s3_bucket}")
-            logger.warning(
-                "Bucket created without public policy - configure access policy manually"
-            )
+            client.head_bucket(Bucket=settings.s3_bucket)
             _bucket_verified = True
-        except ClientError as e:
-            logger.error(f"Failed to create bucket: {e}")
-            raise StorageError(f"Failed to create bucket: {e}")
+        except ClientError:
+            try:
+                client.create_bucket(Bucket=settings.s3_bucket)
+                logger.info("Created bucket", bucket=settings.s3_bucket)
+                logger.warning(
+                    "Bucket created without public policy - configure access policy manually"
+                )
+                _bucket_verified = True
+            except ClientError as e:
+                logger.error("Failed to create bucket", error=str(e))
+                raise StorageError(f"Failed to create bucket: {e}")
 
 
 async def upload_image_from_url(

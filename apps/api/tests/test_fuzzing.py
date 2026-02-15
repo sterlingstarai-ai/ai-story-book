@@ -225,21 +225,17 @@ class TestHeaderFuzzing:
 
     @pytest.mark.asyncio
     async def test_very_long_user_key(self, client: AsyncClient):
-        """Test extremely long user key."""
+        """Test extremely long user key - should be rejected (not UUID)."""
         response = await client.get("/v1/library", headers={"X-User-Key": "A" * 10000})
-        # Should reject or truncate
-        assert response.status_code in (200, 400, 413)
+        assert response.status_code == 400
 
     @pytest.mark.asyncio
-    async def test_unicode_user_key(self, client: AsyncClient):
-        """Test unicode in user key - httpx requires ASCII headers."""
-        # httpx library cannot send non-ASCII header values (raises UnicodeEncodeError)
-        # So we test with ASCII-safe characters only
+    async def test_non_uuid_user_key(self, client: AsyncClient):
+        """Test non-UUID user key - should be rejected."""
         response = await client.get(
             "/v1/library", headers={"X-User-Key": "test-key-with-ascii-12345678"}
         )
-        # Should accept valid ASCII user key
-        assert response.status_code == 200
+        assert response.status_code == 400
 
     @pytest.mark.asyncio
     async def test_special_chars_idempotency_key(

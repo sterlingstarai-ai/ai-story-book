@@ -4,10 +4,15 @@ Photo-based Character Service
 """
 
 import base64
+import json
+import re
 import httpx
+import structlog
 from typing import Optional
 
 from src.core.config import settings
+
+logger = structlog.get_logger()
 
 
 class PhotoCharacterService:
@@ -74,10 +79,12 @@ class PhotoCharacterService:
             response.raise_for_status()
             data = response.json()
 
-            import json
-
             content = data["choices"][0]["message"]["content"]
-            return json.loads(content)
+            try:
+                return json.loads(content)
+            except json.JSONDecodeError:
+                logger.error("OpenAI vision returned invalid JSON", content=content[:200])
+                return self._mock_analysis()
 
     async def _analyze_with_anthropic(self, image_base64: str) -> dict:
         """Anthropic Claude Vision으로 분석"""
@@ -116,16 +123,15 @@ class PhotoCharacterService:
             response.raise_for_status()
             data = response.json()
 
-            import json
-
             content = data["content"][0]["text"]
-            # JSON 추출
-            import re
-
-            json_match = re.search(r"\{[\s\S]*\}", content)
-            if json_match:
-                return json.loads(json_match.group())
-            return json.loads(content)
+            try:
+                json_match = re.search(r"\{[\s\S]*\}", content)
+                if json_match:
+                    return json.loads(json_match.group())
+                return json.loads(content)
+            except json.JSONDecodeError:
+                logger.error("Anthropic vision returned invalid JSON", content=content[:200])
+                return self._mock_analysis()
 
     def _get_analysis_prompt(self) -> str:
         """분석 프롬프트"""
@@ -305,10 +311,12 @@ JSON 형식으로 응답해주세요:
             response.raise_for_status()
             data = response.json()
 
-            import json
-
             content = data["choices"][0]["message"]["content"]
-            return json.loads(content)
+            try:
+                return json.loads(content)
+            except json.JSONDecodeError:
+                logger.error("OpenAI text character returned invalid JSON", content=content[:200])
+                raise
 
     async def _generate_text_character_anthropic(self, prompt: str) -> dict:
         """Anthropic으로 텍스트 캐릭터 생성"""
@@ -329,14 +337,15 @@ JSON 형식으로 응답해주세요:
             response.raise_for_status()
             data = response.json()
 
-            import json
-            import re
-
             content = data["content"][0]["text"]
-            json_match = re.search(r"\{[\s\S]*\}", content)
-            if json_match:
-                return json.loads(json_match.group())
-            return json.loads(content)
+            try:
+                json_match = re.search(r"\{[\s\S]*\}", content)
+                if json_match:
+                    return json.loads(json_match.group())
+                return json.loads(content)
+            except json.JSONDecodeError:
+                logger.error("Anthropic text character returned invalid JSON", content=content[:200])
+                raise
 
     def _mock_text_character(
         self, name: str, age: str, traits: list[str], style: str

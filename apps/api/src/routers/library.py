@@ -1,8 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-
-from typing import Optional
+from typing import Literal, Optional
 
 from src.core.database import get_db
 from src.core.dependencies import get_user_key
@@ -18,9 +17,9 @@ async def get_library(
     user_key: str = Depends(get_user_key),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
-    style: Optional[str] = Query(default=None, description="스타일 필터 (watercolor, cartoon 등)"),
-    target_age: Optional[str] = Query(default=None, description="연령대 필터 (3-5, 5-7, 7-9, adult)"),
-    sort: Optional[str] = Query(default="newest", description="정렬: newest, oldest, title"),
+    style: Optional[Style] = Query(default=None, description="스타일 필터 (watercolor, cartoon 등)"),
+    target_age: Optional[TargetAge] = Query(default=None, description="연령대 필터 (3-5, 5-7, 7-9, adult)"),
+    sort: Literal["newest", "oldest", "title"] = Query(default="newest", description="정렬: newest, oldest, title"),
 ):
     """
     내 서재 (생성한 책 목록)

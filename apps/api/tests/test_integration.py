@@ -395,8 +395,8 @@ class TestUserIsolation:
         self, client: AsyncClient, valid_character: dict
     ):
         """Characters should be isolated by user_key."""
-        user1_headers = {"X-User-Key": "user1-key-12345678901234567890"}
-        user2_headers = {"X-User-Key": "user2-key-12345678901234567890"}
+        user1_headers = {"X-User-Key": "550e8400-e29b-41d4-a716-446655440001"}
+        user2_headers = {"X-User-Key": "550e8400-e29b-41d4-a716-446655440002"}
 
         # User 1 creates character
         await client.post(
@@ -416,8 +416,8 @@ class TestUserIsolation:
     @pytest.mark.asyncio
     async def test_library_isolated_by_user(self, client: AsyncClient):
         """Library should be isolated by user_key."""
-        user1_headers = {"X-User-Key": "user1-key-12345678901234567890"}
-        user2_headers = {"X-User-Key": "user2-key-12345678901234567890"}
+        user1_headers = {"X-User-Key": "550e8400-e29b-41d4-a716-446655440001"}
+        user2_headers = {"X-User-Key": "550e8400-e29b-41d4-a716-446655440002"}
 
         # Both users' libraries should be empty
         response1 = await client.get("/v1/library", headers=user1_headers)

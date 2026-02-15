@@ -8,6 +8,7 @@ from sqlalchemy import (
     Boolean,
     ForeignKey,
     JSON,
+    Index,
     UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
@@ -18,6 +19,9 @@ from src.core.utils import utcnow
 
 class Job(Base):
     __tablename__ = "jobs"
+    __table_args__ = (
+        Index("ix_jobs_status_created", "status", "created_at"),
+    )
 
     id = Column(String(60), primary_key=True)
     status = Column(
@@ -94,6 +98,9 @@ class Series(Base):
 
 class Book(Base):
     __tablename__ = "books"
+    __table_args__ = (
+        Index("ix_books_user_created", "user_key", "created_at"),
+    )
 
     id = Column(String(60), primary_key=True)
     job_id = Column(String(60), ForeignKey("jobs.id"), nullable=False, unique=True)
@@ -132,6 +139,7 @@ class Page(Base):
     __tablename__ = "pages"
     __table_args__ = (
         UniqueConstraint("book_id", "page_number", name="uq_page_book_number"),
+        Index("ix_pages_book_id", "book_id"),
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -270,6 +278,9 @@ class ReadingLog(Base):
     """읽기 기록"""
 
     __tablename__ = "reading_logs"
+    __table_args__ = (
+        Index("ix_reading_logs_user_date", "user_key", "read_date"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_key = Column(String(80), nullable=False, index=True)

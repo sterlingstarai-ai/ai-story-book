@@ -598,22 +598,30 @@ async def generate_book_audio(
 
 
 async def _generate_audio_for_book(book_id: str, pages: list[dict]):
-    """책 오디오 생성 백그라운드 태스크"""
+    """책 오디오 생성 백그라운드 태스크 (5분 타임아웃)"""
+    import asyncio
+    from src.core.database import AsyncSessionLocal
+
+    try:
+        await asyncio.wait_for(_generate_audio_pages(book_id, pages), timeout=300)
+    except asyncio.TimeoutError:
+        logger.error("Audio generation timed out", book_id=book_id)
+
+
+async def _generate_audio_pages(book_id: str, pages: list[dict]):
+    """실제 오디오 생성 로직"""
     from src.core.database import AsyncSessionLocal
 
     async with AsyncSessionLocal() as db:
         for page_data in pages:
             try:
-                # TTS 생성
                 audio_bytes = await tts_service.synthesize_page(page_data["text"])
 
-                # S3에 업로드
                 audio_key = f"books/{book_id}/audio/page_{page_data['page_number']}.mp3"
                 audio_url = await storage_service.upload_bytes(
                     audio_bytes, audio_key, content_type="audio/mpeg"
                 )
 
-                # DB 업데이트
                 page_result = await db.execute(
                     select(Page).where(Page.id == page_data["page_id"])
                 )

@@ -77,8 +77,8 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
 
 @pytest.fixture
 def user_key():
-    """Test user key."""
-    return "test-user-key-12345678901234567890"
+    """Test user key (UUID format)."""
+    return "550e8400-e29b-41d4-a716-446655440000"
 
 
 @pytest.fixture
