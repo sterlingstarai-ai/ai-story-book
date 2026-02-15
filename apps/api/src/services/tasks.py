@@ -33,11 +33,11 @@ def generate_book_task(self, job_id: str, spec_dict: dict, user_key: str):
     logger.info("Starting book generation task", job_id=job_id)
 
     try:
-        from src.services.orchestrator import orchestrate_book_creation
+        from src.services.orchestrator import start_book_generation
         from src.models.dto import BookSpec
 
         spec = BookSpec(**spec_dict)
-        result = run_async(orchestrate_book_creation(job_id, spec, user_key))
+        result = run_async(start_book_generation(job_id, spec, user_key))
 
         logger.info("Book generation completed", job_id=job_id)
         return {"status": "success", "book_id": result.book_id if result else None}
@@ -88,7 +88,13 @@ def regenerate_page_task(
     try:
         from src.services.orchestrator import regenerate_page
 
-        result = run_async(regenerate_page(job_id, page_number, target, user_key))
+        result = run_async(regenerate_page(
+            job_id=job_id,
+            book_id=job_id,  # job_id is used to find book
+            page_number=page_number,
+            mode=target,
+            feedback=None,
+        ))
         logger.info(
             "Page regeneration completed", job_id=job_id, page_number=page_number
         )

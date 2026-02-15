@@ -314,7 +314,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('오디오 재생 실패: $e'),
+            content: const Text('오디오 재생에 실패했어요. 잠시 후 다시 시도해주세요.'),
             backgroundColor: AppColors.error,
           ),
         );
@@ -529,7 +529,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('재생성 실패: $e'),
+            content: const Text('재생성에 실패했어요. 잠시 후 다시 시도해주세요.'),
             backgroundColor: AppColors.error,
           ),
         );
@@ -563,7 +563,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('PDF 다운로드 실패: $e'),
+            content: const Text('PDF 다운로드에 실패했어요. 잠시 후 다시 시도해주세요.'),
             backgroundColor: AppColors.error,
           ),
         );
@@ -702,7 +702,7 @@ AI Story Book으로 만든 동화책이에요!
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('PDF 공유 실패: $e'),
+            content: const Text('PDF 공유에 실패했어요. 잠시 후 다시 시도해주세요.'),
             backgroundColor: AppColors.error,
           ),
         );

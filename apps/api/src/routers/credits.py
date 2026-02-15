@@ -3,7 +3,7 @@ Credits Router
 크레딧 및 구독 관련 API
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from typing import Optional
@@ -215,17 +215,33 @@ async def cancel_subscription(
 @router.post("/add")
 async def add_credits(
     request: AddCreditsRequest,
+    x_admin_key: str = Header(None, alias="X-Admin-Key"),
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
 ):
     """
-    크레딧 추가 (구매)
+    크레딧 추가 (구매) - 관리자 인증 필요
 
-    - 실제 결제 로직은 클라이언트에서 처리 후 호출
-    - transaction_id: 외부 결제 시스템의 거래 ID
+    - X-Admin-Key 헤더 필수
+    - transaction_id: 외부 결제 시스템의 거래 ID (필수)
     """
+    # 관리자 인증 확인
+    from src.core.config import settings
+    import hmac
+
+    admin_key = getattr(settings, "admin_api_key", None)
+    if not admin_key or not x_admin_key:
+        raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다")
+    if not hmac.compare_digest(x_admin_key, admin_key):
+        raise HTTPException(status_code=403, detail="관리자 인증에 실패했습니다")
+
     if request.amount <= 0:
         raise HTTPException(status_code=400, detail="Amount must be positive")
+
+    if not request.transaction_id:
+        raise HTTPException(
+            status_code=400, detail="결제 거래 ID(transaction_id)가 필요합니다"
+        )
 
     new_balance = await credits_service.add_credits(
         db=db,

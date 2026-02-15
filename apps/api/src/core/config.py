@@ -61,6 +61,9 @@ class Settings(BaseSettings):
     daily_job_limit_per_user: int = 20  # Max jobs per user per day
     max_pending_jobs: int = 100  # Max pending jobs in queue before rejecting
 
+    # Admin
+    admin_api_key: str = ""  # MUST be set in production for /credits/add
+
     # CORS
     cors_origins: str = (
         ""  # Comma-separated origins, MUST be set explicitly in production

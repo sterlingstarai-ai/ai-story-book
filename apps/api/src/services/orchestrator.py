@@ -323,7 +323,7 @@ async def start_book_generation(
         )
 
         # G. 출력 안전성 검사 (이미지)
-        await run_step(
+        output_safe = await run_step(
             job_id=job_id,
             step_name="결과 확인 중...",
             progress=86,
@@ -331,6 +331,14 @@ async def start_book_generation(
             retries=0,
             timeout_sec=10,
         )
+
+        if not output_safe:
+            from src.core.errors import SafetyError
+
+            raise SafetyError(
+                message="생성된 콘텐츠가 안전 기준을 통과하지 못했습니다",
+                is_input=False,
+            )
 
         # G-2. 학습 자산 생성 (번역 + 어휘 + 질문)
         learning_assets = await run_step(
@@ -483,15 +491,23 @@ async def generate_all_images(
     ]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
+    failed_pages = []
     for prompt, result in zip(image_prompts.pages, results):
         if isinstance(result, Exception):
             logger.error(
                 f"Failed to generate image for page {prompt.page}", error=str(result)
             )
-            # Use placeholder
-            image_urls[prompt.page] = "https://placeholder.com/failed.png"
+            failed_pages.append(prompt.page)
+            image_urls[prompt.page] = ""
         else:
             image_urls[prompt.page] = result
+
+    # 절반 이상 실패 시 전체 실패 처리
+    if len(failed_pages) > len(image_prompts.pages) // 2:
+        raise StoryBookError(
+            code=ErrorCode.IMAGE_FAILED,
+            message=f"이미지 생성 실패가 너무 많습니다: 페이지 {failed_pages}",
+        )
 
     return image_urls
 
@@ -522,8 +538,11 @@ async def generate_image_with_retry(prompt, job_id: str, page: int) -> str:
             if attempt < max_retries - 1:
                 await asyncio.sleep(get_backoff(ErrorCode.IMAGE_FAILED, attempt))
 
-    # 실패 시 placeholder
-    return "https://placeholder.com/failed.png"
+    # 모든 재시도 실패
+    raise StoryBookError(
+        code=ErrorCode.IMAGE_FAILED,
+        message=f"페이지 {page} 이미지 생성이 {max_retries}회 시도 후 실패했습니다",
+    )
 
 
 async def moderate_output(story: StoryDraft, image_urls: dict) -> bool:

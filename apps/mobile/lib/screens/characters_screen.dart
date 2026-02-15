@@ -228,7 +228,7 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('캐릭터 생성 실패: $e'),
+            content: const Text('캐릭터 생성에 실패했어요. 잠시 후 다시 시도해주세요.'),
             backgroundColor: AppColors.error,
           ),
         );
@@ -259,7 +259,7 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('이미지 선택 실패: $e')),
+          const SnackBar(content: Text('이미지를 선택할 수 없어요. 다시 시도해주세요.')),
         );
       }
     }
@@ -316,7 +316,7 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('캐릭터 생성 실패: $e'),
+            content: const Text('캐릭터 생성에 실패했어요. 잠시 후 다시 시도해주세요.'),
             backgroundColor: AppColors.error,
           ),
         );
@@ -882,7 +882,7 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
     '다정한',
     '용감한',
     '재미있는',
-    '똑똒한',
+    '똑똑한',
     '친절한',
     '장난꾸러기',
     '차분한',

@@ -58,7 +58,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('책 생성 실패: $e'),
+            content: const Text('책 생성에 실패했어요. 잠시 후 다시 시도해주세요.'),
             backgroundColor: AppColors.error,
           ),
         );

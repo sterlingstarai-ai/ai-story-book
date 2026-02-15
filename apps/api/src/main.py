@@ -159,17 +159,28 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RateLimitHeadersMiddleware)
 
 # CORS - Configurable via CORS_ORIGINS env var
-cors_origins = (
-    ["*"]
-    if settings.cors_origins == "*"
-    else [origin.strip() for origin in settings.cors_origins.split(",")]
-)
+# 프로덕션에서 와일드카드('*') + credentials 조합은 보안 위험
+if not settings.cors_origins or settings.cors_origins.strip() == "":
+    if settings.debug:
+        cors_origins = ["http://localhost:3000", "http://localhost:8080"]
+    else:
+        cors_origins = []  # 프로덕션에서 미설정 시 CORS 비허용
+        logger.warning("CORS_ORIGINS not set in production - no origins allowed")
+elif settings.cors_origins == "*":
+    if not settings.debug:
+        logger.warning("CORS_ORIGINS='*' in production is insecure, restricting to empty")
+        cors_origins = []
+    else:
+        cors_origins = ["*"]
+else:
+    cors_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["X-User-Key", "X-Idempotency-Key", "Content-Type", "Authorization"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["X-User-Key", "X-Idempotency-Key", "X-Admin-Key", "Content-Type"],
 )
 
 

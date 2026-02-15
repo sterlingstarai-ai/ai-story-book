@@ -41,7 +41,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
       if (mounted) {
         setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('크레딧 정보를 불러오지 못했어요: $e')),
+          const SnackBar(content: Text('크레딧 정보를 불러오지 못했어요. 잠시 후 다시 시도해주세요.')),
         );
       }
     }
@@ -526,7 +526,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('구독 실패: $e')),
+          const SnackBar(content: Text('구독에 실패했어요. 잠시 후 다시 시도해주세요.')),
         );
       }
     }
@@ -569,7 +569,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('취소 실패: $e')),
+          const SnackBar(content: Text('구독 취소에 실패했어요. 잠시 후 다시 시도해주세요.')),
         );
       }
     }
