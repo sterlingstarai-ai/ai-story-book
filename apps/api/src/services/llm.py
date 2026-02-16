@@ -96,7 +96,14 @@ async def _call_openai(
                 ErrorCode.LLM_TIMEOUT, f"OpenAI API error: {response.status_code}"
             )
 
-        data = response.json()
+        try:
+            data = response.json()
+        except Exception as e:
+            logger.error("OpenAI response JSON parse error", body=response.text[:200])
+            raise LLMError(
+                ErrorCode.LLM_JSON_INVALID,
+                f"OpenAI 응답 JSON 파싱 실패: {e}",
+            ) from e
         return data["choices"][0]["message"]["content"]
 
 
@@ -327,7 +334,14 @@ async def _call_anthropic(
                 ErrorCode.LLM_TIMEOUT, f"Anthropic API error: {response.status_code}"
             )
 
-        data = response.json()
+        try:
+            data = response.json()
+        except Exception as e:
+            logger.error("Anthropic response JSON parse error", body=response.text[:200])
+            raise LLMError(
+                ErrorCode.LLM_JSON_INVALID,
+                f"Anthropic 응답 JSON 파싱 실패: {e}",
+            ) from e
         return data["content"][0]["text"]
 
 

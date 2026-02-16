@@ -156,27 +156,40 @@ class CreditsService:
         description: str = "크레딧 구매",
         reference_id: Optional[str] = None,
     ) -> int:
-        """크레딧 충전"""
-        user_credits = await self.get_or_create_credits(db, user_key)
+        """크레딧 충전 (원자적 UPDATE)"""
+        # ensure user exists
+        await self.get_or_create_credits(db, user_key)
 
-        user_credits.credits += amount
+        # 원자적 UPDATE
+        values = {
+            "credits": UserCredits.credits + amount,
+        }
         if transaction_type == "purchase":
-            user_credits.total_purchased += amount
+            values["total_purchased"] = UserCredits.total_purchased + amount
 
+        stmt = (
+            update(UserCredits)
+            .where(UserCredits.user_key == user_key)
+            .values(**values)
+        )
+        await db.execute(stmt)
         await db.commit()
+
+        # 새 잔액 조회
+        new_balance = await self.get_credits(db, user_key)
 
         # 거래 기록
         await self._record_transaction(
             db=db,
             user_key=user_key,
             amount=amount,
-            balance_after=user_credits.credits,
+            balance_after=new_balance,
             transaction_type=transaction_type,
             description=description,
             reference_id=reference_id,
         )
 
-        return user_credits.credits
+        return new_balance
 
     async def get_active_subscription(
         self,

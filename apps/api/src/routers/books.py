@@ -592,12 +592,15 @@ async def _generate_audio_for_book(book_id: str, pages: list[dict]):
     try:
         await asyncio.wait_for(_generate_audio_pages(book_id, pages), timeout=300)
     except asyncio.TimeoutError:
-        logger.error("Audio generation timed out", book_id=book_id)
+        logger.error("Audio generation timed out", book_id=book_id, total_pages=len(pages))
 
 
 async def _generate_audio_pages(book_id: str, pages: list[dict]):
-    """실제 오디오 생성 로직"""
+    """실제 오디오 생성 로직 (페이지별 상태 추적)"""
     from src.core.database import AsyncSessionLocal
+
+    succeeded = 0
+    failed_pages = []
 
     async with AsyncSessionLocal() as db:
         for page_data in pages:
@@ -616,14 +619,31 @@ async def _generate_audio_pages(book_id: str, pages: list[dict]):
                 if page:
                     page.audio_url = audio_url
                     await db.commit()
+                    succeeded += 1
 
             except Exception as e:
+                failed_pages.append(page_data["page_number"])
                 logger.warning(
                     "Audio generation failed for page",
+                    book_id=book_id,
                     page_number=page_data["page_number"],
                     error=str(e),
                 )
                 continue
+
+    if failed_pages:
+        logger.warning(
+            "Audio generation partially failed",
+            book_id=book_id,
+            succeeded=succeeded,
+            failed_pages=failed_pages,
+        )
+    else:
+        logger.info(
+            "Audio generation completed",
+            book_id=book_id,
+            total_pages=succeeded,
+        )
 
 
 @router.get("/{book_id}/pages/{page_number}/audio")

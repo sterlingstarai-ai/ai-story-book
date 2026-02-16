@@ -4,10 +4,13 @@ TTS (Text-to-Speech) Service
 """
 
 import httpx
+import structlog
 from typing import Optional
 from abc import ABC, abstractmethod
 
 from ..core.config import settings
+
+logger = structlog.get_logger()
 
 
 class BaseTTSProvider(ABC):
@@ -49,7 +52,18 @@ class GoogleTTSProvider(BaseTTSProvider):
                 f"{self.base_url}?key={self.api_key}",
                 json=payload,
             )
-            response.raise_for_status()
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as e:
+                logger.error(
+                    "Google TTS API error",
+                    status=e.response.status_code,
+                    body=e.response.text[:200],
+                )
+                raise ValueError(
+                    f"Google TTS API error: {e.response.status_code}"
+                ) from e
+
             data = response.json()
 
             # Base64 디코딩
@@ -95,7 +109,17 @@ class ElevenLabsProvider(BaseTTSProvider):
                     "Content-Type": "application/json",
                 },
             )
-            response.raise_for_status()
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as e:
+                logger.error(
+                    "ElevenLabs TTS API error",
+                    status=e.response.status_code,
+                    body=e.response.text[:200],
+                )
+                raise ValueError(
+                    f"ElevenLabs TTS API error: {e.response.status_code}"
+                ) from e
             return response.content
 
 

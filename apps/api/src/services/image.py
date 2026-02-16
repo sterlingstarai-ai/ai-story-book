@@ -159,7 +159,13 @@ async def _generate_replicate(prompt: ImagePrompt) -> str:
             raise ImageError(
                 ErrorCode.IMAGE_FAILED, "Invalid JSON from Replicate API", page=prompt.page
             )
-        prediction_id = prediction["id"]
+        prediction_id = prediction.get("id")
+        if not prediction_id:
+            raise ImageError(
+                ErrorCode.IMAGE_FAILED,
+                "Replicate API response missing 'id' field",
+                page=prompt.page,
+            )
 
         # Poll for completion
         for _ in range(60):  # Max 60 attempts (1 per second)
@@ -173,7 +179,10 @@ async def _generate_replicate(prompt: ImagePrompt) -> str:
             if poll_response.status_code != 200:
                 continue
 
-            result = poll_response.json()
+            try:
+                result = poll_response.json()
+            except Exception:
+                continue
             status = result.get("status")
 
             if status == "succeeded":

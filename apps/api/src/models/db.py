@@ -129,7 +129,12 @@ class Book(Base):
 
     # Relationships
     job = relationship("Job", back_populates="book")
-    pages = relationship("Page", back_populates="book", order_by="Page.page_number")
+    pages = relationship(
+        "Page",
+        back_populates="book",
+        order_by="Page.page_number",
+        cascade="all, delete-orphan",
+    )
     character = relationship("Character", back_populates="books")
     series = relationship("Series", back_populates="books")
 

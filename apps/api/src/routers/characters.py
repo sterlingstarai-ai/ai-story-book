@@ -175,7 +175,7 @@ async def delete_character(
     return {"message": "Character deleted successfully"}
 
 
-@router.post("/from-text")
+@router.post("/from-text", response_model=CharacterResponse)
 async def create_character_from_text(
     name: str = Form(..., description="캐릭터 이름"),
     age: str = Form(..., description="나이 (예: 5살, 30대)"),
@@ -222,16 +222,23 @@ async def create_character_from_text(
         await db.commit()
         await db.refresh(character)
 
-        return {
-            "character_id": character.id,
-            "name": character.name,
-            "master_description": character.master_description,
-            "appearance": character.appearance,
-            "clothing": character.clothing,
-            "personality_traits": character.personality_traits,
-            "visual_style_notes": character.visual_style_notes,
-            "created_at": character.created_at.isoformat(),
-        }
+        return CharacterResponse(
+            character_id=character.id,
+            name=character.name,
+            master_description=character.master_description,
+            appearance=CharacterAppearance(
+                **{k: v or "알 수 없음" for k, v in character.appearance.items()}
+            ),
+            clothing=CharacterClothing(
+                **{
+                    k: v or "알 수 없음" if k != "accessories" else v or "없음"
+                    for k, v in character.clothing.items()
+                }
+            ),
+            personality_traits=character.personality_traits,
+            visual_style_notes=character.visual_style_notes,
+            created_at=character.created_at,
+        )
 
     except Exception as e:
         logger.error("Character creation from text failed", error=str(e))
@@ -240,7 +247,7 @@ async def create_character_from_text(
         )
 
 
-@router.post("/from-photo")
+@router.post("/from-photo", response_model=CharacterResponse)
 async def create_character_from_photo(
     photo: UploadFile = File(..., description="캐릭터 생성용 사진"),
     name: Optional[str] = Form(None, description="캐릭터 이름 (없으면 AI 제안)"),
@@ -277,7 +284,7 @@ async def create_character_from_photo(
 
         # 원본 사진 저장
         photo_key = f"characters/{character_id}/photo.jpg"
-        photo_url = await storage_service.upload_bytes(
+        await storage_service.upload_bytes(
             data=contents,
             key=photo_key,
             content_type=photo.content_type or "image/jpeg",
@@ -326,18 +333,16 @@ async def create_character_from_photo(
         await db.commit()
         await db.refresh(character)
 
-        return {
-            "character_id": character.id,
-            "name": character.name,
-            "master_description": character.master_description,
-            "appearance": character.appearance,
-            "clothing": character.clothing,
-            "personality_traits": character.personality_traits,
-            "visual_style_notes": character.visual_style_notes,
-            "photo_url": photo_url,
-            "photo_analysis": character_data.get("photo_analysis", {}),
-            "created_at": character.created_at.isoformat(),
-        }
+        return CharacterResponse(
+            character_id=character.id,
+            name=character.name,
+            master_description=character.master_description,
+            appearance=CharacterAppearance(**normalized_appearance),
+            clothing=CharacterClothing(**normalized_clothing),
+            personality_traits=character.personality_traits,
+            visual_style_notes=character.visual_style_notes,
+            created_at=character.created_at,
+        )
 
     except Exception as e:
         logger.error("Character creation from photo failed", error=str(e))

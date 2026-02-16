@@ -96,11 +96,7 @@ async def delete_book(
     if book.user_key != user_key:
         raise AuthorizationError()
 
-    # Delete pages first
-    from src.models.db import Page
-
-    await db.execute(Page.__table__.delete().where(Page.book_id == book_id))
-
+    # cascade="all, delete-orphan" on Book.pages handles Page deletion
     await db.delete(book)
     await db.commit()
 

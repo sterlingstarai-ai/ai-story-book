@@ -834,7 +834,6 @@ async def regenerate_page(
     from src.models.db import Book, Page, StoryDraftDB
     from src.services.llm import call_text_rewrite
     from src.services.image import generate_image
-    from src.services.storage import storage_service
     from sqlalchemy import select
 
     logger.info(
@@ -883,15 +882,19 @@ async def regenerate_page(
         if mode in ["image", "both"]:
             # Generate new image
             if page.image_prompt:
-                image_data = await generate_image(
-                    page.image_prompt,
-                    seed=None,  # New random seed
+                import random
+
+                from src.models.dto import ImagePrompt
+
+                regen_prompt = ImagePrompt(
+                    page=page_number,
+                    positive_prompt=page.image_prompt,
+                    negative_prompt="text, letters, words, watermark, blurry, deformed",
+                    seed=random.randint(1, 2147483647),
+                    aspect_ratio="3:4",
                 )
-                if image_data:
-                    # Upload new image
-                    image_url = await storage_service.upload_image(
-                        image_data, f"{book_id}/page_{page_number}_v2.png"
-                    )
+                image_url = await generate_image(regen_prompt)
+                if image_url:
                     page.image_url = image_url
 
         page.updated_at = utcnow()

@@ -5,7 +5,7 @@ Streak Service
 
 from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update
 
 from ..models.db import DailyStreak, DailyStory, ReadingLog
 from ..core.utils import utcnow
@@ -153,7 +153,7 @@ class StreakService:
         reading_time: int = 0,
         completed: bool = False,
     ) -> dict:
-        """읽기 기록 및 스트릭 업데이트"""
+        """읽기 기록 및 스트릭 업데이트 (원자적)"""
         streak = await self.get_or_create_streak(db, user_key)
         today = utcnow().date()
         today_dt = utcnow()
@@ -173,30 +173,53 @@ class StreakService:
         )
         db.add(reading_log)
 
-        # 스트릭 업데이트 (오늘 처음 읽는 경우)
+        # 스트릭 업데이트 (오늘 처음 읽는 경우만, 원자적 조건부 UPDATE)
         if not already_read_today:
-            # 연속 스트릭 확인
+            # 새 스트릭 값 계산
             if streak.last_read_date:
                 days_since = (today - streak.last_read_date.date()).days
                 if days_since == 1:
-                    # 연속 성공
-                    streak.current_streak += 1
+                    new_streak = streak.current_streak + 1
                 elif days_since > 1:
-                    # 스트릭 끊김 - 1부터 다시
-                    streak.current_streak = 1
+                    new_streak = 1
+                else:
+                    new_streak = streak.current_streak
             else:
-                # 첫 읽기
-                streak.current_streak = 1
+                new_streak = 1
 
-            # 최장 스트릭 갱신
-            if streak.current_streak > streak.longest_streak:
-                streak.longest_streak = streak.current_streak
+            new_longest = max(new_streak, streak.longest_streak)
+            new_total = streak.total_days + 1
 
-            # 총 일수 증가
-            streak.total_days += 1
+            # 조건부 UPDATE: last_read_date가 변경되지 않은 경우만 업데이트 (동시성 보호)
+            if streak.last_read_date:
+                condition = DailyStreak.last_read_date == streak.last_read_date
+            else:
+                condition = DailyStreak.last_read_date.is_(None)
 
-            # 마지막 읽은 날짜 업데이트
-            streak.last_read_date = today_dt
+            stmt = (
+                update(DailyStreak)
+                .where(
+                    DailyStreak.user_key == user_key,
+                    condition,
+                )
+                .values(
+                    current_streak=new_streak,
+                    longest_streak=new_longest,
+                    total_days=new_total,
+                    last_read_date=today_dt,
+                )
+            )
+            result = await db.execute(stmt)
+            affected = result.rowcount if hasattr(result, "rowcount") else 0
+
+            if affected > 0:
+                streak.current_streak = new_streak
+                streak.longest_streak = new_longest
+                streak.total_days = new_total
+            else:
+                # 다른 요청이 먼저 업데이트함 - 최신 값 재조회
+                already_read_today = True
+                await db.refresh(streak)
 
         await db.commit()
 

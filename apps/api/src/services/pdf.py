@@ -59,7 +59,8 @@ class PDFService:
                     pdfmetrics.registerFont(TTFont("Korean", font_path))
                     self.font_name = "Korean"
                     return
-                except Exception:
+                except Exception as e:
+                    logger.debug("Font registration failed", path=font_path, error=str(e))
                     continue
 
         # 폰트를 찾지 못하면 기본 폰트 사용
@@ -107,8 +108,9 @@ class PDFService:
                         preserveAspectRatio=True,
                         anchor="c",
                     )
-            except Exception:
+            except Exception as e:
                 # 이미지 로드 실패 시 배경색으로 대체
+                logger.warning("Cover image load failed, using fallback", error=str(e))
                 c.setFillColorRGB(0.4, 0.4, 0.8)
                 c.rect(0, 0, width, height, fill=1)
 
@@ -150,8 +152,12 @@ class PDFService:
                         preserveAspectRatio=True,
                         anchor="nw",
                     )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(
+                    "Page image load failed",
+                    page=page.page_number,
+                    error=str(e),
+                )
 
         # 텍스트 영역
         text_x = image_width + self.margin
@@ -205,24 +211,22 @@ class PDFService:
         c.drawString((width - copy_width) / 2, self.margin, copyright_text)
 
     def _wrap_text(self, text: str, max_width: float, font_size: int) -> list[str]:
-        """텍스트를 지정된 너비에 맞게 줄바꿈"""
-        words = text.split()
+        """텍스트를 지정된 너비에 맞게 줄바꿈 (한국어 문자 단위 지원)"""
         lines = []
         current_line = ""
+        current_width = 0.0
 
-        for word in words:
-            test_line = f"{current_line} {word}".strip()
-            # 간단한 너비 계산 (한글은 대략 font_size, 영문은 font_size * 0.5)
-            estimated_width = sum(
-                font_size if ord(c) > 127 else font_size * 0.5 for c in test_line
-            )
+        for char in text:
+            # 한글/CJK 문자는 font_size, 영문/숫자는 font_size * 0.5
+            char_width = font_size if ord(char) > 127 else font_size * 0.5
 
-            if estimated_width <= max_width:
-                current_line = test_line
-            else:
-                if current_line:
-                    lines.append(current_line)
-                current_line = word
+            if current_width + char_width > max_width and current_line:
+                lines.append(current_line)
+                current_line = ""
+                current_width = 0.0
+
+            current_line += char
+            current_width += char_width
 
         if current_line:
             lines.append(current_line)
