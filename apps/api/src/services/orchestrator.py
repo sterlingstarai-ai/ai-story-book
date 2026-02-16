@@ -14,7 +14,6 @@ H. 패키징 (BookResult 생성, 업로드, 저장)
 
 import asyncio
 from typing import Optional, Callable, Awaitable, TypeVar
-from datetime import datetime
 import uuid
 import structlog
 

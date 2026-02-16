@@ -3,7 +3,7 @@ Streak Service
 오늘의 동화 스트릭 시스템
 """
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
