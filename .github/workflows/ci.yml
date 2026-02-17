@@ -94,6 +94,7 @@ jobs:
           echo "Migration check passed"
 
       - name: Run tests
+        id: api_tests
         working-directory: apps/api
         env:
           DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/test_db
@@ -107,7 +108,7 @@ jobs:
         continue-on-error: true
 
       - name: Upload test logs on failure
-        if: failure()
+        if: steps.api_tests.outcome == 'failure'
         uses: actions/upload-artifact@v4
         with:
           name: api-test-logs
@@ -115,16 +116,22 @@ jobs:
           retention-days: 7
 
       - name: Upload coverage
+        if: steps.api_tests.outcome == 'success'
         uses: codecov/codecov-action@v3
         with:
           files: apps/api/coverage.xml
           flags: api
 
       - name: Check coverage threshold
+        if: steps.api_tests.outcome == 'success'
         working-directory: apps/api
         run: |
           pip install coverage
           coverage report --fail-under=40 || echo "Coverage below threshold - please add more tests"
+
+      - name: Fail if API tests failed
+        if: steps.api_tests.outcome == 'failure'
+        run: exit 1
 
   # ===================
   # Security Scan
@@ -180,12 +187,13 @@ jobs:
           flutter analyze --no-fatal-infos --no-fatal-warnings
 
       - name: Run tests
+        id: flutter_tests
         working-directory: apps/mobile
         run: flutter test --coverage 2>&1 | tee test-output.log
         continue-on-error: true
 
       - name: Upload test logs on failure
-        if: failure()
+        if: steps.flutter_tests.outcome == 'failure'
         uses: actions/upload-artifact@v4
         with:
           name: flutter-test-logs
@@ -195,10 +203,15 @@ jobs:
           retention-days: 7
 
       - name: Upload coverage
+        if: steps.flutter_tests.outcome == 'success'
         uses: codecov/codecov-action@v3
         with:
           files: apps/mobile/coverage/lcov.info
           flags: flutter
+
+      - name: Fail if Flutter tests failed
+        if: steps.flutter_tests.outcome == 'failure'
+        run: exit 1
 
   # ===================
   # Build Docker Images
