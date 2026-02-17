@@ -108,7 +108,7 @@ class TestImageAPIFailures:
             return "https://example.com/image.png"
 
         with patch("src.services.image.generate_image", side_effect=mock_generate):
-            with patch("src.core.config.settings") as mock_settings:
+            with patch("src.services.orchestrator.settings") as mock_settings:
                 mock_settings.image_max_retries = 5
                 mock_settings.image_timeout = 10
 
@@ -135,7 +135,7 @@ class TestImageAPIFailures:
             raise ImageError(ErrorCode.IMAGE_FAILED, "Server error 500", page=1)
 
         with patch("src.services.image.generate_image", side_effect=mock_generate_fail):
-            with patch("src.core.config.settings") as mock_settings:
+            with patch("src.services.orchestrator.settings") as mock_settings:
                 mock_settings.image_max_retries = 2
                 mock_settings.image_timeout = 5
 

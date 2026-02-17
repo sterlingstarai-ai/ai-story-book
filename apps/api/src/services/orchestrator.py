@@ -48,6 +48,7 @@ PROGRESS_IMAGES_START = 50
 PROGRESS_IMAGES_END = 85
 PROGRESS_LEARNING_ASSETS = 92
 PROGRESS_PACKAGE = 100
+PLACEHOLDER_IMAGE_URL = "https://placeholder.invalid/image-unavailable.png"
 
 
 # ==================== Step Runner ====================
@@ -495,6 +496,14 @@ async def generate_all_images(
             )
             failed_pages.append(prompt.page)
             image_urls[prompt.page] = ""
+        elif _is_placeholder_image_url(result):
+            logger.warning(
+                "Image generation fell back to placeholder",
+                page=prompt.page,
+                url=result,
+            )
+            failed_pages.append(prompt.page)
+            image_urls[prompt.page] = result
         else:
             image_urls[prompt.page] = result
 
@@ -509,11 +518,22 @@ async def generate_all_images(
     return image_urls
 
 
+async def generate_image(prompt) -> str:
+    """Thin wrapper for easier testing/patching."""
+    from src.services.image import generate_image as image_generate
+
+    return await image_generate(prompt)
+
+
+def _is_placeholder_image_url(url: str) -> bool:
+    return isinstance(url, str) and "placeholder" in url
+
+
 async def generate_image_with_retry(prompt, job_id: str, page: int) -> str:
     """이미지 생성 (재시도 포함)"""
-    from src.services.image import generate_image
+    max_retries = max(1, int(settings.image_max_retries))
+    last_error: Exception | None = None
 
-    max_retries = settings.image_max_retries
     for attempt in range(max_retries):
         try:
             url = await asyncio.wait_for(
@@ -521,7 +541,8 @@ async def generate_image_with_retry(prompt, job_id: str, page: int) -> str:
             )
             return url
 
-        except asyncio.TimeoutError:
+        except asyncio.TimeoutError as e:
+            last_error = e
             logger.warning(
                 "Image generation timeout",
                 page=page,
@@ -531,6 +552,7 @@ async def generate_image_with_retry(prompt, job_id: str, page: int) -> str:
                 await asyncio.sleep(get_backoff(ErrorCode.IMAGE_TIMEOUT, attempt))
 
         except Exception as e:
+            last_error = e
             logger.warning(
                 "Image generation failed",
                 page=page,
@@ -540,11 +562,21 @@ async def generate_image_with_retry(prompt, job_id: str, page: int) -> str:
             if attempt < max_retries - 1:
                 await asyncio.sleep(get_backoff(ErrorCode.IMAGE_FAILED, attempt))
 
-    # 모든 재시도 실패
+    # 모든 재시도 실패: 서비스 레벨 ImageError는 placeholder로 강등
+    if isinstance(last_error, StoryBookError):
+        placeholder = f"{PLACEHOLDER_IMAGE_URL}?page={page}"
+        logger.warning(
+            "Image generation exhausted retries, returning placeholder",
+            page=page,
+            error_code=last_error.code.value,
+            placeholder=placeholder,
+        )
+        return placeholder
+
     raise StoryBookError(
         code=ErrorCode.IMAGE_FAILED,
         message=f"페이지 {page} 이미지 생성이 {max_retries}회 시도 후 실패했습니다",
-    )
+    ) from last_error
 
 
 async def moderate_output(story: StoryDraft, image_urls: dict) -> bool:
@@ -912,10 +944,11 @@ async def start_series_generation(
     job_id: str, request: SeriesNextRequest, user_key: str, character, prev_book
 ):
     """시리즈 다음 권 생성 - 기존 캐릭터로 새 이야기"""
+    from sqlalchemy import func, select
+
     from src.core.database import AsyncSessionLocal
-    from src.models.db import Series, Book
-    from src.models.dto import CharacterSpec
-    from sqlalchemy import select, func
+    from src.models.db import Book, Series
+    from src.models.dto import CharacterSpec, Language
 
     logger.info(
         "Starting series generation",
@@ -925,38 +958,32 @@ async def start_series_generation(
         prev_book_id=request.previous_book_id,
     )
 
-    # 시리즈 처리: 기존 시리즈 사용 또는 새로 생성
-    series_id = request.series_id
+    # 시리즈 ID 결정 우선순위:
+    # 1) request.series_id
+    # 2) previous_book_id로 조회한 책의 series_id
+    # 3) 신규 시리즈 생성
+    series_id = request.series_id or (prev_book.series_id if prev_book else None)
     series_index = 1
 
     async with AsyncSessionLocal() as session:
         if series_id:
-            # 기존 시리즈 조회 및 인덱스 계산
-            series_result = await session.execute(
-                select(Series).where(Series.id == series_id)
-            )
+            series_result = await session.execute(select(Series).where(Series.id == series_id))
             existing_series = series_result.scalar_one_or_none()
-
             if existing_series:
-                # 시리즈 내 최대 인덱스 조회
                 max_idx_result = await session.execute(
-                    select(func.max(Book.series_index)).where(
-                        Book.series_id == series_id
-                    )
+                    select(func.max(Book.series_index)).where(Book.series_id == series_id)
                 )
                 max_idx = max_idx_result.scalar() or 0
                 series_index = max_idx + 1
             else:
-                # series_id가 제공되었지만 존재하지 않으면 새로 생성
+                # 외부에서 전달된 series_id가 유효하지 않으면 신규 시리즈로 대체
                 series_id = None
 
         if not series_id:
-            # 새 시리즈 생성
             series_id = (
                 f"series_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
             )
             series_title = request.series_title or f"{character.name}의 모험 시리즈"
-
             new_series = Series(
                 id=series_id,
                 title=series_title,
@@ -971,13 +998,11 @@ async def start_series_generation(
             await session.commit()
             series_index = 1
 
-    # Build topic: request.topic 우선, 없으면 new_topic_hint, 없으면 기본값
     topic = request.topic or request.new_topic_hint or f"{character.name}의 새로운 모험"
 
-    # appearance 요약 (CharacterSpec.appearance는 max_length=200)
     appearance_src = ""
     if isinstance(getattr(character, "appearance", None), dict):
-        parts = []
+        parts: list[str] = []
         for k in ["face", "hair", "skin", "body"]:
             v = character.appearance.get(k)
             if v:
@@ -985,12 +1010,12 @@ async def start_series_generation(
         appearance_src = ", ".join(parts)
     if not appearance_src:
         appearance_src = character.master_description or ""
-    appearance_src = appearance_src[:200]  # 200자 제한 준수
+    appearance_src = appearance_src[:200]
 
-    # language: prev_book 있으면 사용, 없으면 request.language
-    language = prev_book.language if prev_book else request.language
+    language = request.language
+    if prev_book and prev_book.language in {lang.value for lang in Language}:
+        language = Language(prev_book.language)
 
-    # series_context: prev_book 있으면 후속편 명시
     series_context = (
         f"이전 책 '{prev_book.title}'의 후속편입니다. 시리즈 {series_index}권."
         if prev_book

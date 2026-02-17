@@ -87,6 +87,7 @@ class RateLimitError(APIError):
 def api_error_response(error: APIError) -> JSONResponse:
     """Create standardized error response."""
     content = {
+        "detail": error.message,
         "error": {
             "code": error.error_code,
             "message": error.message,

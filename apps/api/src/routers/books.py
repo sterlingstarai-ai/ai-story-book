@@ -396,7 +396,6 @@ async def create_series_next(
     if character.user_key != user_key:
         raise AuthorizationError()
 
-    # previous_book_id가 있으면 검증, 없으면 None 유지
     prev_book = None
     if request.previous_book_id:
         book_result = await db.execute(
@@ -453,12 +452,12 @@ async def create_series_next(
     # 테스트 환경에서는 background_tasks 실행 스킵 (테스트 안정화)
     from src.services.orchestrator import start_series_generation
 
-    if not settings.testing:
+    if settings.testing:
+        logger.info("Skipping series background task in testing mode", job_id=job_id)
+    else:
         background_tasks.add_task(
             start_series_generation, job_id, request, user_key, character, prev_book
         )
-    else:
-        logger.info("Skipping series background task in testing mode", job_id=job_id)
 
     return CreateBookResponse(
         job_id=job_id, status=JobState.queued, estimated_time_seconds=120

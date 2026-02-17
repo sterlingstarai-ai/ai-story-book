@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, List, Optional, Literal, Dict
+from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field, ConfigDict, field_validator, AliasChoices
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 # Import ErrorCode from canonical source to avoid duplication
 from src.core.errors import ErrorCode  # noqa: E402
@@ -407,24 +407,18 @@ class SeriesNextRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     character_id: str = Field(min_length=1, max_length=60)
-    topic: str = Field(min_length=1, max_length=200)  # 필수로 변경
-
+    topic: str = Field(min_length=1, max_length=200)
+    previous_book_id: Optional[str] = Field(default=None, max_length=60)
+    new_topic_hint: Optional[str] = Field(default=None, max_length=200)
     # 시리즈 식별 (없으면 새 시리즈 생성)
     series_id: Optional[str] = Field(default=None, max_length=60)
     series_title: Optional[str] = Field(default=None, max_length=100)
-
-    # 기본 설정
     theme: Optional[Theme] = None
     language: Language = Language.ko
     target_age: TargetAge = TargetAge.a5_7
     style: Style = Style.watercolor
     page_count: int = Field(ge=4, le=12, default=8)
     forbidden_elements: Optional[List[str]] = Field(default=None, max_length=20)
-
-    # 기존 설계 확장 호환
-    previous_book_id: Optional[str] = Field(default=None, max_length=60)
-    new_topic_hint: Optional[str] = Field(default=None, max_length=200)
-
 
 # ==================== Character API Models ====================
 
