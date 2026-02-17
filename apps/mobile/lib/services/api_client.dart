@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import '../core/api_error.dart';
 import '../models/models.dart';
 
@@ -20,21 +21,24 @@ class ApiClient {
             'Content-Type': 'application/json',
           },
         )) {
-    _dio.interceptors.add(LogInterceptor(
-      requestBody: true,
-      responseBody: true,
-    ));
+    if (kDebugMode) {
+      _dio.interceptors.add(LogInterceptor(
+        requestBody: true,
+        responseBody: true,
+      ));
+    }
 
     // Error handling interceptor
     _dio.interceptors.add(InterceptorsWrapper(
       onError: (error, handler) {
         // Convert to standardized ApiError
         final apiError = ApiError.fromDioException(error);
-        handler.reject(DioException(
-          requestOptions: error.requestOptions,
-          error: apiError,
-          message: apiError.userMessage,
-        ));
+        handler.reject(
+          error.copyWith(
+            error: apiError,
+            message: apiError.userMessage,
+          ),
+        );
       },
     ));
   }
