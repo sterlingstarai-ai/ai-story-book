@@ -57,8 +57,8 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('책 생성에 실패했어요. 잠시 후 다시 시도해주세요.'),
+          const SnackBar(
+            content: Text('책 생성에 실패했어요. 잠시 후 다시 시도해주세요.'),
             backgroundColor: AppColors.error,
           ),
         );
@@ -336,7 +336,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                         ),
                         child: Row(
                           children: [
-                            Icon(Icons.info_outline,
+                            const Icon(Icons.info_outline,
                                 color: AppColors.textHint, size: 20),
                             const SizedBox(width: AppSpacing.sm),
                             Expanded(
@@ -363,13 +363,13 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
       ),
       bottomNavigationBar: Container(
         padding: const EdgeInsets.all(AppSpacing.lg),
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           color: AppColors.surface,
           boxShadow: [
             BoxShadow(
               color: AppColors.blackOverlayLight,
               blurRadius: 10,
-              offset: const Offset(0, -4),
+              offset: Offset(0, -4),
             ),
           ],
         ),
@@ -423,7 +423,7 @@ class _CharacterOption extends StatelessWidget {
               width: 48,
               height: 48,
               decoration: BoxDecoration(
-                color: iconColor.withOpacity(0.15),
+                color: iconColor.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(AppRadius.md),
               ),
               child: Icon(icon, color: iconColor, size: 24),
@@ -453,7 +453,7 @@ class _CharacterOption extends StatelessWidget {
               ),
             ),
             if (isSelected)
-              Icon(Icons.check_circle, color: AppColors.secondary, size: 24),
+              const Icon(Icons.check_circle, color: AppColors.secondary, size: 24),
           ],
         ),
       ),

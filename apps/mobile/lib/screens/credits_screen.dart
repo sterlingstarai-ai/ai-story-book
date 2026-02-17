@@ -116,7 +116,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
-                  '총 ${totalUsed}권 생성',
+                  '총 $totalUsed권 생성',
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 12,
@@ -322,7 +322,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
           style: AppTextStyles.heading2,
         ),
         const SizedBox(height: AppSpacing.md),
-        ...plans.map((plan) => _buildPlanCard(plan)).toList(),
+        ...plans.map((plan) => _buildPlanCard(plan)),
       ],
     );
   }

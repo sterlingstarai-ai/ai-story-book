@@ -150,7 +150,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
             right: AppSpacing.md,
             bottom: AppSpacing.sm,
           ),
-          decoration: BoxDecoration(
+          decoration: const BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
@@ -203,7 +203,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
             top: AppSpacing.md,
             bottom: MediaQuery.of(context).padding.bottom + AppSpacing.md,
           ),
-          decoration: BoxDecoration(
+          decoration: const BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.bottomCenter,
               end: Alignment.topCenter,
@@ -262,7 +262,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                   Text(
                     _currentPage == 0
                         ? '표지'
-                        : '${_currentPage} / ${totalPages - 1}',
+                        : '$_currentPage / ${totalPages - 1}',
                     style: AppTextStyles.body.copyWith(color: Colors.white),
                   ),
                   _NavButton(
@@ -313,8 +313,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('오디오 재생에 실패했어요. 잠시 후 다시 시도해주세요.'),
+          const SnackBar(
+            content: Text('오디오 재생에 실패했어요. 잠시 후 다시 시도해주세요.'),
             backgroundColor: AppColors.error,
           ),
         );
@@ -528,8 +528,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('재생성에 실패했어요. 잠시 후 다시 시도해주세요.'),
+          const SnackBar(
+            content: Text('재생성에 실패했어요. 잠시 후 다시 시도해주세요.'),
             backgroundColor: AppColors.error,
           ),
         );
@@ -562,8 +562,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('PDF 다운로드에 실패했어요. 잠시 후 다시 시도해주세요.'),
+          const SnackBar(
+            content: Text('PDF 다운로드에 실패했어요. 잠시 후 다시 시도해주세요.'),
             backgroundColor: AppColors.error,
           ),
         );
@@ -689,6 +689,7 @@ AI Story Book으로 만든 동화책이에요!
       final fileName = '${book.title.replaceAll(' ', '_')}.pdf';
       final file = File('${directory.path}/$fileName');
       await file.writeAsBytes(pdfBytes);
+      if (!mounted) return;
 
       final box = context.findRenderObject() as RenderBox?;
       await Share.shareXFiles(
@@ -701,8 +702,8 @@ AI Story Book으로 만든 동화책이에요!
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('PDF 공유에 실패했어요. 잠시 후 다시 시도해주세요.'),
+          const SnackBar(
+            content: Text('PDF 공유에 실패했어요. 잠시 후 다시 시도해주세요.'),
             backgroundColor: AppColors.error,
           ),
         );
@@ -775,7 +776,7 @@ class _CoverPage extends StatelessWidget {
           ),
         ),
         Container(
-          decoration: BoxDecoration(
+          decoration: const BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
@@ -1284,9 +1285,9 @@ class _QuizCardState extends State<_QuizCard> {
 
               Color? backgroundColor;
               if (_showResult && isAnswer) {
-                backgroundColor = AppColors.success.withOpacity(0.2);
+                backgroundColor = AppColors.success.withValues(alpha: 0.2);
               } else if (_showResult && isSelected && !isCorrect) {
-                backgroundColor = AppColors.error.withOpacity(0.2);
+                backgroundColor = AppColors.error.withValues(alpha: 0.2);
               } else if (isSelected) {
                 backgroundColor = AppColors.primaryLight;
               }
