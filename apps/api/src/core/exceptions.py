@@ -3,6 +3,8 @@ Standardized exception handling for consistent API error responses.
 """
 
 from fastapi import HTTPException, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from typing import Optional, Any
 import structlog
@@ -84,17 +86,100 @@ class RateLimitError(APIError):
         )
 
 
-def api_error_response(error: APIError) -> JSONResponse:
-    """Create standardized error response."""
+def _get_request_id(request: Request) -> Optional[str]:
+    """Read request ID set by middleware, if available."""
+    return getattr(getattr(request, "state", None), "request_id", None)
+
+
+def _http_error_code(status_code: int) -> str:
+    """Map HTTP status to stable error code."""
+    if status_code == 400:
+        return "BAD_REQUEST"
+    if status_code == 401:
+        return "UNAUTHORIZED"
+    if status_code == 403:
+        return "FORBIDDEN"
+    if status_code == 404:
+        return "NOT_FOUND"
+    if status_code == 409:
+        return "CONFLICT"
+    if status_code == 422:
+        return "VALIDATION_ERROR"
+    if status_code == 429:
+        return "RATE_LIMIT_EXCEEDED"
+    if 500 <= status_code < 600:
+        return "INTERNAL_ERROR"
+    return "HTTP_ERROR"
+
+
+def _normalize_http_detail(detail: Any) -> tuple[str, Optional[Any]]:
+    """Normalize HTTPException detail into user message + optional details."""
+    if isinstance(detail, str):
+        return detail, None
+
+    if isinstance(detail, list):
+        return "입력 정보를 확인해주세요.", detail
+
+    if isinstance(detail, dict):
+        msg = detail.get("message") or detail.get("detail")
+        if isinstance(msg, str):
+            extra = {k: v for k, v in detail.items() if k not in {"message", "detail"}}
+            return msg, extra or detail
+        return "요청 처리 중 오류가 발생했습니다.", detail
+
+    if detail is None:
+        return "요청 처리 중 오류가 발생했습니다.", None
+
+    return str(detail), detail
+
+
+def _build_error_content(
+    *,
+    code: str,
+    message: str,
+    details: Optional[Any],
+    request_id: Optional[str],
+) -> dict:
+    safe_details = (
+        jsonable_encoder(
+            details,
+            custom_encoder={
+                ValueError: str,
+                Exception: str,
+            },
+        )
+        if details is not None
+        else None
+    )
+
     content = {
-        "detail": error.message,
+        "detail": message,
         "error": {
-            "code": error.error_code,
-            "message": error.message,
-        }
+            "code": code,
+            "message": message,
+        },
     }
-    if error.details:
-        content["error"]["details"] = error.details
+
+    if safe_details is not None:
+        content["error"]["details"] = safe_details
+    if request_id:
+        content["request_id"] = request_id
+
+    return content
+
+
+def api_error_response(
+    error: APIError,
+    *,
+    request_id: Optional[str] = None,
+) -> JSONResponse:
+    """Create standardized APIError response."""
+    content = _build_error_content(
+        code=error.error_code,
+        message=error.message,
+        details=error.details if error.details else None,
+        request_id=request_id,
+    )
 
     return JSONResponse(
         status_code=error.status_code,
@@ -110,4 +195,60 @@ async def api_exception_handler(request: Request, exc: APIError) -> JSONResponse
         message=exc.message,
         path=request.url.path,
     )
-    return api_error_response(exc)
+    return api_error_response(exc, request_id=_get_request_id(request))
+
+
+async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    """Handle plain HTTPException with standardized envelope."""
+    message, details = _normalize_http_detail(exc.detail)
+    code = _http_error_code(exc.status_code)
+
+    logger.warning(
+        "HTTP error",
+        status_code=exc.status_code,
+        error_code=code,
+        message=message,
+        path=request.url.path,
+    )
+
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=_build_error_content(
+            code=code,
+            message=message,
+            details=details,
+            request_id=_get_request_id(request),
+        ),
+    )
+
+
+async def validation_exception_handler(
+    request: Request,
+    exc: RequestValidationError,
+) -> JSONResponse:
+    """Handle request schema validation errors consistently."""
+    details = jsonable_encoder(
+        exc.errors(),
+        custom_encoder={
+            ValueError: str,
+            Exception: str,
+        },
+    )
+    message = "입력 정보를 확인해주세요."
+    logger.warning(
+        "Validation error",
+        error_code="VALIDATION_ERROR",
+        errors_count=len(details),
+        path=request.url.path,
+    )
+
+    return JSONResponse(
+        status_code=422,
+        content=_build_error_content(
+            code="VALIDATION_ERROR",
+            message=message,
+            details=details,
+            request_id=_get_request_id(request),
+        )
+        | {"detail": details},
+    )

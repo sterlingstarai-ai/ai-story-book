@@ -1,4 +1,5 @@
-from fastapi import FastAPI, Request, Depends
+from fastapi import FastAPI, Request, Depends, HTTPException
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -10,7 +11,12 @@ from src.core.config import settings
 from src.routers import books, characters, library, credits, streak
 from src.core.database import get_db  # noqa: F401
 from src.core.rate_limit import check_rate_limit, rate_limiter
-from src.core.exceptions import APIError, api_exception_handler
+from src.core.exceptions import (
+    APIError,
+    api_exception_handler,
+    http_exception_handler,
+    validation_exception_handler,
+)
 from src.core.errors import StoryBookError, SafetyError
 
 
@@ -219,6 +225,8 @@ app.add_middleware(
 
 # API error handler for standardized responses
 app.add_exception_handler(APIError, api_exception_handler)
+app.add_exception_handler(HTTPException, http_exception_handler)
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
 
 
 # StoryBookError handler - domain errors from orchestrator/services
@@ -235,14 +243,20 @@ async def storybook_error_handler(request: Request, exc: StoryBookError):
         message=exc.message,
         path=request.url.path,
     )
+    content = {
+        "detail": exc.message,
+        "error": {
+            "code": exc.code.value,
+            "message": exc.message,
+            "details": exc.details or None,
+        },
+    }
+    if hasattr(request.state, "request_id"):
+        content["request_id"] = request.state.request_id
+
     return JSONResponse(
         status_code=status_code,
-        content={
-            "error": {
-                "code": exc.code.value,
-                "message": exc.message,
-            }
-        },
+        content=content,
     )
 
 
@@ -250,14 +264,22 @@ async def storybook_error_handler(request: Request, exc: StoryBookError):
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error("Unhandled exception", error=str(exc), path=request.url.path)
+    message = (
+        str(exc) if settings.debug else "서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+    )
+    content = {
+        "detail": message,
+        "error": {
+            "code": "INTERNAL_ERROR",
+            "message": message,
+        },
+    }
+    if hasattr(request.state, "request_id"):
+        content["request_id"] = request.state.request_id
+
     return JSONResponse(
         status_code=500,
-        content={
-            "error": {
-                "code": "INTERNAL_ERROR",
-                "message": str(exc) if settings.debug else "서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
-            }
-        },
+        content=content,
     )
 
 
