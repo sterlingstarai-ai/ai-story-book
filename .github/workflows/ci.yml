@@ -72,7 +72,7 @@ jobs:
         working-directory: apps/api
         run: |
           pip install ruff
-          ruff check src/
+          ruff check src/ tests/
 
       - name: Check for security vulnerabilities
         working-directory: apps/api
@@ -182,9 +182,7 @@ jobs:
       - name: Run analyzer
         working-directory: apps/mobile
         run: |
-          flutter analyze --no-fatal-infos 2>&1 | tee analyze-output.log
-          # Fail only on errors, not warnings
-          flutter analyze --no-fatal-infos --no-fatal-warnings
+          flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | tee analyze-output.log
 
       - name: Run tests
         id: flutter_tests
