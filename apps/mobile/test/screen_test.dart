@@ -12,7 +12,6 @@ import 'package:ai_story_book/screens/library_screen.dart';
 import 'package:ai_story_book/screens/loading_screen.dart';
 import 'package:ai_story_book/screens/credits_screen.dart';
 import 'package:ai_story_book/screens/characters_screen.dart';
-import 'package:ai_story_book/utils/constants.dart';
 import 'package:ai_story_book/widgets/common_widgets.dart';
 
 // ==================== Helpers ====================
@@ -107,7 +106,7 @@ void main() {
   // ==================== CreateScreen Tests ====================
 
   group('CreateScreen', () {
-    List<Override> _createOverrides([List<Character>? chars]) => [
+    List<Override> createOverrides([List<Character>? chars]) => [
           charactersProvider
               .overrideWith(() => _MockCharactersNotifier(chars ?? _sampleCharacters)),
         ];
@@ -115,7 +114,7 @@ void main() {
     testWidgets('renders app bar with title', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CreateScreen(),
-        overrides: _createOverrides(),
+        overrides: createOverrides(),
       ));
       await tester.pumpAndSettle();
 
@@ -125,7 +124,7 @@ void main() {
     testWidgets('renders topic input field', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CreateScreen(),
-        overrides: _createOverrides(),
+        overrides: createOverrides(),
       ));
       await tester.pumpAndSettle();
 
@@ -136,7 +135,7 @@ void main() {
     testWidgets('renders age selection chips', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CreateScreen(),
-        overrides: _createOverrides(),
+        overrides: createOverrides(),
       ));
       await tester.pumpAndSettle();
 
@@ -149,7 +148,7 @@ void main() {
     testWidgets('renders style selection chips', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CreateScreen(),
-        overrides: _createOverrides(),
+        overrides: createOverrides(),
       ));
       await tester.pumpAndSettle();
 
@@ -162,7 +161,7 @@ void main() {
     testWidgets('renders theme section (offstage accessible)', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CreateScreen(),
-        overrides: _createOverrides(),
+        overrides: createOverrides(),
       ));
       await tester.pumpAndSettle();
 
@@ -174,7 +173,7 @@ void main() {
     testWidgets('renders character section with characters', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CreateScreen(),
-        overrides: _createOverrides(),
+        overrides: createOverrides(),
       ));
       await tester.pumpAndSettle();
 
@@ -188,7 +187,7 @@ void main() {
     testWidgets('renders character section with empty list', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CreateScreen(),
-        overrides: _createOverrides([]),
+        overrides: createOverrides([]),
       ));
       await tester.pumpAndSettle();
 
@@ -203,7 +202,7 @@ void main() {
     testWidgets('renders submit button', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CreateScreen(),
-        overrides: _createOverrides(),
+        overrides: createOverrides(),
       ));
       await tester.pumpAndSettle();
 
@@ -213,7 +212,7 @@ void main() {
     testWidgets('validates empty topic on submit', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CreateScreen(),
-        overrides: _createOverrides(),
+        overrides: createOverrides(),
       ));
       await tester.pumpAndSettle();
 
@@ -227,7 +226,7 @@ void main() {
     testWidgets('validates short topic on submit', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CreateScreen(),
-        overrides: _createOverrides(),
+        overrides: createOverrides(),
       ));
       await tester.pumpAndSettle();
 
@@ -260,7 +259,7 @@ void main() {
   // ==================== LibraryScreen Tests ====================
 
   group('LibraryScreen', () {
-    List<Override> _libraryOverrides([List<LibraryBook>? books]) => [
+    List<Override> libraryOverrides([List<LibraryBook>? books]) => [
           libraryProvider
               .overrideWith(() => _MockLibraryNotifier(books ?? _sampleBooks)),
         ];
@@ -268,7 +267,7 @@ void main() {
     testWidgets('renders app bar with title', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const LibraryScreen(),
-        overrides: _libraryOverrides(),
+        overrides: libraryOverrides(),
       ));
       // Use pump + short delay instead of pumpAndSettle to avoid RefreshIndicator issues
       await tester.pump();
@@ -280,7 +279,7 @@ void main() {
     testWidgets('renders refresh button', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const LibraryScreen(),
-        overrides: _libraryOverrides(),
+        overrides: libraryOverrides(),
       ));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
@@ -291,7 +290,7 @@ void main() {
     testWidgets('renders book grid when data available', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const LibraryScreen(),
-        overrides: _libraryOverrides(),
+        overrides: libraryOverrides(),
       ));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
@@ -304,7 +303,7 @@ void main() {
     testWidgets('shows empty state when no books', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const LibraryScreen(),
-        overrides: _libraryOverrides([]),
+        overrides: libraryOverrides([]),
       ));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
@@ -343,7 +342,7 @@ void main() {
     testWidgets('renders bottom navigation bar', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const LibraryScreen(),
-        overrides: _libraryOverrides(),
+        overrides: libraryOverrides(),
       ));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
@@ -486,7 +485,7 @@ void main() {
   // ==================== CharactersScreen Tests ====================
 
   group('CharactersScreen', () {
-    List<Override> _charOverrides([List<Character>? chars]) => [
+    List<Override> charOverrides([List<Character>? chars]) => [
           charactersProvider
               .overrideWith(() => _MockCharactersNotifier(chars ?? _sampleCharacters)),
         ];
@@ -494,7 +493,7 @@ void main() {
     testWidgets('renders app bar with title', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CharactersScreen(),
-        overrides: _charOverrides(),
+        overrides: charOverrides(),
       ));
       await tester.pumpAndSettle();
 
@@ -504,7 +503,7 @@ void main() {
     testWidgets('renders character list when data available', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CharactersScreen(),
-        overrides: _charOverrides(),
+        overrides: charOverrides(),
       ));
       await tester.pumpAndSettle();
 
@@ -515,7 +514,7 @@ void main() {
     testWidgets('shows character descriptions', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CharactersScreen(),
-        overrides: _charOverrides(),
+        overrides: charOverrides(),
       ));
       await tester.pumpAndSettle();
 
@@ -526,7 +525,7 @@ void main() {
     testWidgets('shows personality traits as chips', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CharactersScreen(),
-        overrides: _charOverrides(),
+        overrides: charOverrides(),
       ));
       await tester.pumpAndSettle();
 
@@ -538,7 +537,7 @@ void main() {
     testWidgets('shows empty state when no characters', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CharactersScreen(),
-        overrides: _charOverrides([]),
+        overrides: charOverrides([]),
       ));
       await tester.pumpAndSettle();
 
@@ -579,7 +578,7 @@ void main() {
     testWidgets('renders add character card in list', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CharactersScreen(),
-        overrides: _charOverrides(),
+        overrides: charOverrides(),
       ));
       await tester.pumpAndSettle();
 
@@ -590,7 +589,7 @@ void main() {
     testWidgets('renders FAB button', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CharactersScreen(),
-        overrides: _charOverrides(),
+        overrides: charOverrides(),
       ));
       await tester.pumpAndSettle();
 
@@ -601,7 +600,7 @@ void main() {
     testWidgets('renders bottom navigation bar', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CharactersScreen(),
-        overrides: _charOverrides(),
+        overrides: charOverrides(),
       ));
       await tester.pumpAndSettle();
 
