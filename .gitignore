@@ -36,6 +36,8 @@ build/
 .coverage
 htmlcov/
 .pytest_cache/
+test.db
+apps/mobile/coverage/
 
 # Local
 *.local
