@@ -53,6 +53,7 @@ async def test_detailed_health_check_healthy():
             assert response.status_code == 200
             data = response.json()
             assert data["services"]["redis"] == "healthy"
+            assert data["services"]["job_monitor"] == "healthy"
             assert "services" in data
             assert "config" in data
 
@@ -72,6 +73,24 @@ async def test_detailed_health_check_redis_degraded():
             assert response.status_code == 200
             data = response.json()
             assert data["services"]["redis"] == "unhealthy"
+            assert data["status"] == "degraded"
+
+
+@pytest.mark.asyncio
+async def test_detailed_health_check_job_metrics_failure_degraded():
+    """Detailed health check should degrade when job metrics collection fails."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch(
+            "src.main.rate_limiter.ping", new=AsyncMock(return_value=True)
+        ), patch(
+            "src.services.job_monitor.get_job_metrics",
+            new=AsyncMock(side_effect=RuntimeError("job monitor down")),
+        ):
+            response = await client.get("/health/detailed")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["services"]["job_monitor"] == "unhealthy"
             assert data["status"] == "degraded"
 
 

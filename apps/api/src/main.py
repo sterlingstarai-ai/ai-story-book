@@ -297,11 +297,13 @@ async def detailed_health_check():
     """Detailed health check with job metrics and external API status"""
     from src.services.job_monitor import get_job_metrics
 
+    jobs_status = "healthy"
     try:
         job_metrics = await get_job_metrics()
     except Exception as e:
         logger.error("Failed to get job metrics", error=str(e))
         job_metrics = {"error": str(e)}
+        jobs_status = "unhealthy"
 
     # Check Redis connectivity
     redis_status = "healthy"
@@ -324,7 +326,9 @@ async def detailed_health_check():
 
     overall_status = (
         "healthy"
-        if db_status == "healthy" and redis_status == "healthy"
+        if db_status == "healthy"
+        and redis_status == "healthy"
+        and jobs_status == "healthy"
         else "degraded"
     )
 
@@ -335,6 +339,7 @@ async def detailed_health_check():
         "services": {
             "database": db_status,
             "redis": redis_status,
+            "job_monitor": jobs_status,
             "llm_provider": settings.llm_provider,
             "image_provider": settings.image_provider,
         },
