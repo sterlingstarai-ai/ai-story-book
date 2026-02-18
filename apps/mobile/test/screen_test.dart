@@ -645,6 +645,24 @@ void main() {
       // Let the mock futures complete so timers are cleaned up
       await tester.pump(const Duration(milliseconds: 200));
     });
+
+    testWidgets('subscription start button tap does not throw', (tester) async {
+      await tester.pumpWidget(buildTestableWidget(
+        const CreditsScreen(),
+        overrides: [
+          apiClientProvider.overrideWithValue(_MockApiClient()),
+        ],
+      ));
+      await tester.pump(const Duration(milliseconds: 200));
+
+      final startButton = find.text('구독 시작하기');
+      expect(startButton, findsOneWidget);
+
+      await tester.tap(startButton);
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+    });
   });
 }
 
