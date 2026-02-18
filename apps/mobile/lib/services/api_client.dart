@@ -12,6 +12,7 @@ class ApiClient {
   ApiClient({
     required String baseUrl,
     required String userKey,
+    bool enableLogging = kDebugMode,
   })  : _userKey = userKey,
         _dio = Dio(BaseOptions(
           baseUrl: baseUrl,
@@ -21,7 +22,7 @@ class ApiClient {
             'Content-Type': 'application/json',
           },
         )) {
-    if (kDebugMode) {
+    if (enableLogging) {
       _dio.interceptors.add(LogInterceptor(
         requestBody: true,
         responseBody: true,

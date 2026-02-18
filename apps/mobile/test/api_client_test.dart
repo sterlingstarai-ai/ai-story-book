@@ -37,6 +37,7 @@ void main() {
       final client = ApiClient(
         baseUrl: 'http://${server.address.host}:${server.port}',
         userKey: 'test-user',
+        enableLogging: false,
       );
 
       final newBalance = await client.addCredits(
