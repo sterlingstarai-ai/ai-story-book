@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_
 from typing import Optional
 from datetime import timedelta
+import math
 import uuid
 import structlog
 
@@ -168,7 +169,7 @@ async def check_guardrails(db: AsyncSession, user_key: str):
 
     if daily_job_count >= settings.daily_job_limit_per_user:
         next_day_start = today_start + timedelta(days=1)
-        retry_after = max(1, int((next_day_start - now).total_seconds()))
+        retry_after = max(1, math.ceil((next_day_start - now).total_seconds()))
         raise HTTPException(
             status_code=429,
             detail={

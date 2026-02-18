@@ -74,7 +74,7 @@ class TestErrorResponseFormat:
         from src.routers import books as books_router
 
         monkeypatch.setattr(books_router.settings, "daily_job_limit_per_user", 0)
-        fixed_now = datetime(2026, 2, 18, 12, 0, 0, tzinfo=timezone.utc)
+        fixed_now = datetime(2026, 2, 18, 12, 0, 0, 500_000, tzinfo=timezone.utc)
         monkeypatch.setattr(books_router, "utcnow", lambda: fixed_now)
 
         response = await client.post(
