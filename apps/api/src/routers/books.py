@@ -32,6 +32,7 @@ from src.core.exceptions import (
     InternalServerError,
     NotFoundError,
     PaymentRequiredError,
+    ValidationError,
 )
 
 logger = structlog.get_logger()
@@ -370,7 +371,7 @@ async def regenerate_book_page(
         raise AuthorizationError()
 
     if job.status != "done":
-        raise HTTPException(status_code=400, detail="Book generation not complete")
+        raise ValidationError("Book generation not complete")
 
     # Verify page exists
     book_result = await db.execute(select(Book).where(Book.job_id == job_id))

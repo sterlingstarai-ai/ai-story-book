@@ -162,6 +162,33 @@ class TestErrorResponseFormat:
         assert body["detail"] == "파일 크기는 10MB 이하여야 합니다."
         assert body["error"]["message"] == body["detail"]
 
+    @pytest.mark.asyncio
+    async def test_regenerate_before_completion_uses_validation_error(
+        self,
+        client: AsyncClient,
+        headers: dict,
+        valid_book_spec: dict,
+    ):
+        """Regeneration before completion should use standardized VALIDATION_ERROR."""
+        create_response = await client.post(
+            "/v1/books",
+            json=valid_book_spec,
+            headers=headers,
+        )
+        job_id = create_response.json()["job_id"]
+
+        response = await client.post(
+            f"/v1/books/{job_id}/pages/1/regenerate",
+            json={"regenerate_target": "text"},
+            headers=headers,
+        )
+
+        assert response.status_code == 400
+        body = response.json()
+        assert body["error"]["code"] == "VALIDATION_ERROR"
+        assert body["detail"] == "Book generation not complete"
+        assert body["error"]["message"] == body["detail"]
+
 
 class TestHttpDetailNormalization:
     def test_normalize_http_detail_ignores_non_code_error_string(self):
