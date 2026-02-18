@@ -99,6 +99,20 @@ void main() {
       expect(status.currentStep, equals('generating_story'));
     });
 
+    test('fromJson coerces mixed scalar types', () {
+      final json = {
+        'job_id': 12345,
+        'status': 'running',
+        'progress': '75',
+      };
+
+      final status = JobStatus.fromJson(json);
+
+      expect(status.jobId, equals('12345'));
+      expect(status.status, equals(JobState.running));
+      expect(status.progress, equals(75));
+    });
+
     test('isComplete returns true for done status', () {
       final status = JobStatus(
         jobId: 'job-123',
@@ -180,6 +194,26 @@ void main() {
       expect(result.pages.length, equals(1));
       expect(result.characterId, equals('char-123'));
     });
+
+    test('fromJson parses numeric series index string', () {
+      final json = {
+        'book_id': 'book-123',
+        'title': '토끼의 모험',
+        'cover_image_url': 'https://example.com/cover.jpg',
+        'pages': [
+          {
+            'page_number': 1,
+            'text': '옛날 옛적에...',
+            'image_url': 'https://example.com/page1.jpg',
+          },
+        ],
+        'series_index': '2',
+      };
+
+      final result = BookResult.fromJson(json);
+
+      expect(result.seriesIndex, equals(2));
+    });
   });
 
   group('PageResult', () {
@@ -195,6 +229,28 @@ void main() {
       expect(page.pageNumber, equals(1));
       expect(page.text, equals('옛날 옛적에...'));
       expect(page.imageUrl, equals('https://example.com/page1.jpg'));
+    });
+
+    test('fromJson parses string page number and quiz option coercion', () {
+      final json = {
+        'page_number': '2',
+        'text': '다음 날...',
+        'image_url': 'https://example.com/page2.jpg',
+        'quiz': [
+          {
+            'question': '정답은?',
+            'options': ['하나', 2],
+            'answer_index': '1',
+          },
+        ],
+      };
+
+      final page = PageResult.fromJson(json);
+
+      expect(page.pageNumber, equals(2));
+      expect(page.quiz, isNotNull);
+      expect(page.quiz!.first.options, equals(['하나', '2']));
+      expect(page.quiz!.first.answerIndex, equals(1));
     });
   });
 
@@ -230,6 +286,37 @@ void main() {
       expect(character.appearance.face, equals('둥근 얼굴'));
       expect(character.clothing.top, equals('티셔츠'));
       expect(character.personalityTraits, contains('호기심'));
+    });
+
+    test('fromJson coerces mixed scalar types', () {
+      final json = {
+        'character_id': 777,
+        'name': 123,
+        'master_description': '설명',
+        'appearance': {
+          'age_visual': '5세',
+          'face': 9,
+          'hair': '없음',
+          'skin': '갈색 털',
+          'body': '통통함',
+        },
+        'clothing': {
+          'top': '티셔츠',
+          'bottom': '바지',
+          'shoes': '운동화',
+          'accessories': 0,
+        },
+        'personality_traits': ['호기심', 42],
+        'created_at': '2024-01-01T00:00:00Z',
+      };
+
+      final character = Character.fromJson(json);
+
+      expect(character.id, equals('777'));
+      expect(character.name, equals('123'));
+      expect(character.appearance.face, equals('9'));
+      expect(character.clothing.accessories, equals('0'));
+      expect(character.personalityTraits, equals(['호기심', '42']));
     });
   });
 
@@ -285,6 +372,24 @@ void main() {
       expect(book.targetAge, equals('5-7'));
       expect(book.theme, equals('우정'));
     });
+
+    test('fromJson coerces mixed scalar types', () {
+      final json = {
+        'book_id': 100,
+        'title': '숫자 제목',
+        'cover_image_url': 'https://example.com/cover.jpg',
+        'target_age': 7,
+        'style': 'watercolor',
+        'theme': 123,
+        'created_at': '2024-01-01T00:00:00Z',
+      };
+
+      final book = LibraryBook.fromJson(json);
+
+      expect(book.id, equals('100'));
+      expect(book.targetAge, equals('7'));
+      expect(book.theme, equals('123'));
+    });
   });
 
   group('LibraryResponse', () {
@@ -307,6 +412,34 @@ void main() {
 
       expect(response.books.length, equals(1));
       expect(response.total, equals(1));
+    });
+
+    test('fromJson falls back total to books length when omitted', () {
+      final json = {
+        'books': [
+          {
+            'id': 'book-123',
+            'title': '토끼의 모험',
+            'cover_image_url': 'https://example.com/cover.jpg',
+            'target_age': '5-7',
+            'style': 'watercolor',
+            'created_at': '2024-01-01T00:00:00Z',
+          },
+          {
+            'id': 'book-456',
+            'title': '곰의 모험',
+            'cover_image_url': 'https://example.com/cover2.jpg',
+            'target_age': '7-9',
+            'style': 'cartoon',
+            'created_at': '2024-01-02T00:00:00Z',
+          },
+        ],
+      };
+
+      final response = LibraryResponse.fromJson(json);
+
+      expect(response.books.length, equals(2));
+      expect(response.total, equals(2));
     });
   });
 }

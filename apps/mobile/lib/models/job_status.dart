@@ -1,3 +1,5 @@
+import 'json_parsing.dart';
+
 /// Job 상태
 enum JobState {
   queued,
@@ -34,16 +36,20 @@ class JobStatus {
   });
 
   factory JobStatus.fromJson(Map<String, dynamic> json) {
+    final resultJson =
+        JsonParsing.asNullableMap(json['result'], field: 'result');
+
     return JobStatus(
-      jobId: json['job_id'] as String,
-      status: JobState.fromString(json['status'] as String),
-      progress: json['progress'] as int? ?? 0,
-      currentStep: json['current_step'] as String?,
-      errorCode: json['error_code'] as String?,
-      errorMessage: json['error_message'] as String?,
-      result: json['result'] != null
-          ? BookResult.fromJson(json['result'] as Map<String, dynamic>)
-          : null,
+      jobId: JsonParsing.asRequiredString(json['job_id'], field: 'job_id'),
+      status: JobState.fromString(
+        JsonParsing.asRequiredString(json['status'], field: 'status'),
+      ),
+      progress:
+          JsonParsing.asOptionalInt(json['progress'], field: 'progress') ?? 0,
+      currentStep: JsonParsing.asOptionalString(json['current_step']),
+      errorCode: JsonParsing.asOptionalString(json['error_code']),
+      errorMessage: JsonParsing.asOptionalString(json['error_message']),
+      result: resultJson == null ? null : BookResult.fromJson(resultJson),
     );
   }
 
@@ -84,23 +90,33 @@ class BookResult {
   });
 
   factory BookResult.fromJson(Map<String, dynamic> json) {
+    final pages = JsonParsing.asList(json['pages'], field: 'pages')
+        .map((page) => PageResult.fromJson(
+              JsonParsing.asMap(page, field: 'pages[]'),
+            ))
+        .toList();
+    final learningAssetsJson = JsonParsing.asNullableMap(
+        json['learning_assets'],
+        field: 'learning_assets');
+
     return BookResult(
-      bookId: json['book_id'] as String,
-      jobId: json['job_id'] as String?,
-      title: json['title'] as String,
-      coverImageUrl: json['cover_image_url'] as String,
-      pages: (json['pages'] as List<dynamic>)
-          .map((p) => PageResult.fromJson(p as Map<String, dynamic>))
-          .toList(),
-      characterId: json['character_id'] as String?,
-      seriesId: json['series_id'] as String?,
-      seriesIndex: json['series_index'] as int?,
-      titleKo: json['title_ko'] as String?,
-      titleEn: json['title_en'] as String?,
-      learningAssets: json['learning_assets'] != null
-          ? LearningAssets.fromJson(
-              json['learning_assets'] as Map<String, dynamic>)
-          : null,
+      bookId: JsonParsing.asRequiredString(json['book_id'], field: 'book_id'),
+      jobId: JsonParsing.asOptionalString(json['job_id']),
+      title: JsonParsing.asRequiredString(json['title'], field: 'title'),
+      coverImageUrl: JsonParsing.asRequiredString(
+        json['cover_image_url'],
+        field: 'cover_image_url',
+      ),
+      pages: pages,
+      characterId: JsonParsing.asOptionalString(json['character_id']),
+      seriesId: JsonParsing.asOptionalString(json['series_id']),
+      seriesIndex: JsonParsing.asOptionalInt(json['series_index'],
+          field: 'series_index'),
+      titleKo: JsonParsing.asOptionalString(json['title_ko']),
+      titleEn: JsonParsing.asOptionalString(json['title_en']),
+      learningAssets: learningAssetsJson == null
+          ? null
+          : LearningAssets.fromJson(learningAssetsJson),
     );
   }
 
@@ -143,31 +159,39 @@ class PageResult {
   });
 
   factory PageResult.fromJson(Map<String, dynamic> json) {
+    final vocab = JsonParsing.asNullableList(json['vocab'], field: 'vocab')
+        ?.map((item) => VocabItem.fromJson(
+              JsonParsing.asMap(item, field: 'vocab[]'),
+            ))
+        .toList();
+    final comprehensionQuestions = JsonParsing.asNullableList(
+      json['comprehension_questions'],
+      field: 'comprehension_questions',
+    )
+        ?.map((item) => ComprehensionQuestion.fromJson(
+              JsonParsing.asMap(item, field: 'comprehension_questions[]'),
+            ))
+        .toList();
+    final quiz = JsonParsing.asNullableList(json['quiz'], field: 'quiz')
+        ?.map((item) => QuizItem.fromJson(
+              JsonParsing.asMap(item, field: 'quiz[]'),
+            ))
+        .toList();
+
     return PageResult(
-      pageNumber: json['page_number'] as int,
-      text: json['text'] as String,
-      imageUrl: json['image_url'] as String,
-      audioUrl: json['audio_url'] as String?,
-      textKo: json['text_ko'] as String?,
-      textEn: json['text_en'] as String?,
-      audioUrlKo: json['audio_url_ko'] as String?,
-      audioUrlEn: json['audio_url_en'] as String?,
-      vocab: json['vocab'] != null
-          ? (json['vocab'] as List<dynamic>)
-              .map((v) => VocabItem.fromJson(v as Map<String, dynamic>))
-              .toList()
-          : null,
-      comprehensionQuestions: json['comprehension_questions'] != null
-          ? (json['comprehension_questions'] as List<dynamic>)
-              .map((q) =>
-                  ComprehensionQuestion.fromJson(q as Map<String, dynamic>))
-              .toList()
-          : null,
-      quiz: json['quiz'] != null
-          ? (json['quiz'] as List<dynamic>)
-              .map((q) => QuizItem.fromJson(q as Map<String, dynamic>))
-              .toList()
-          : null,
+      pageNumber:
+          JsonParsing.asRequiredInt(json['page_number'], field: 'page_number'),
+      text: JsonParsing.asRequiredString(json['text'], field: 'text'),
+      imageUrl:
+          JsonParsing.asRequiredString(json['image_url'], field: 'image_url'),
+      audioUrl: JsonParsing.asOptionalString(json['audio_url']),
+      textKo: JsonParsing.asOptionalString(json['text_ko']),
+      textEn: JsonParsing.asOptionalString(json['text_en']),
+      audioUrlKo: JsonParsing.asOptionalString(json['audio_url_ko']),
+      audioUrlEn: JsonParsing.asOptionalString(json['audio_url_en']),
+      vocab: vocab,
+      comprehensionQuestions: comprehensionQuestions,
+      quiz: quiz,
     );
   }
 
@@ -200,9 +224,9 @@ class VocabItem {
 
   factory VocabItem.fromJson(Map<String, dynamic> json) {
     return VocabItem(
-      word: json['word'] as String,
-      meaning: json['meaning'] as String,
-      example: json['example'] as String?,
+      word: JsonParsing.asRequiredString(json['word'], field: 'word'),
+      meaning: JsonParsing.asRequiredString(json['meaning'], field: 'meaning'),
+      example: JsonParsing.asOptionalString(json['example']),
     );
   }
 }
@@ -219,8 +243,9 @@ class ComprehensionQuestion {
 
   factory ComprehensionQuestion.fromJson(Map<String, dynamic> json) {
     return ComprehensionQuestion(
-      question: json['question'] as String,
-      answer: json['answer'] as String?,
+      question:
+          JsonParsing.asRequiredString(json['question'], field: 'question'),
+      answer: JsonParsing.asOptionalString(json['answer']),
     );
   }
 }
@@ -240,12 +265,18 @@ class QuizItem {
   });
 
   factory QuizItem.fromJson(Map<String, dynamic> json) {
+    final options = JsonParsing.asList(json['options'], field: 'options')
+        .map((option) =>
+            JsonParsing.asRequiredString(option, field: 'options[]'))
+        .toList();
+
     return QuizItem(
-      question: json['question'] as String,
-      options:
-          (json['options'] as List<dynamic>).map((o) => o as String).toList(),
-      answerIndex: json['answer_index'] as int,
-      explanation: json['explanation'] as String?,
+      question:
+          JsonParsing.asRequiredString(json['question'], field: 'question'),
+      options: options,
+      answerIndex: JsonParsing.asRequiredInt(json['answer_index'],
+          field: 'answer_index'),
+      explanation: JsonParsing.asOptionalString(json['explanation']),
     );
   }
 }
@@ -263,14 +294,25 @@ class ParentGuide {
   });
 
   factory ParentGuide.fromJson(Map<String, dynamic> json) {
+    final discussionPrompts = JsonParsing.asList(
+      json['discussion_prompts'],
+      field: 'discussion_prompts',
+    )
+        .map((prompt) =>
+            JsonParsing.asRequiredString(prompt, field: 'discussion_prompts[]'))
+        .toList();
+    final activities = JsonParsing.asList(
+      json['activities'],
+      field: 'activities',
+    )
+        .map((activity) =>
+            JsonParsing.asRequiredString(activity, field: 'activities[]'))
+        .toList();
+
     return ParentGuide(
-      summary: json['summary'] as String,
-      discussionPrompts: (json['discussion_prompts'] as List<dynamic>)
-          .map((p) => p as String)
-          .toList(),
-      activities: (json['activities'] as List<dynamic>)
-          .map((a) => a as String)
-          .toList(),
+      summary: JsonParsing.asRequiredString(json['summary'], field: 'summary'),
+      discussionPrompts: discussionPrompts,
+      activities: activities,
     );
   }
 }
@@ -291,11 +333,21 @@ class LearningAssets {
 
   factory LearningAssets.fromJson(Map<String, dynamic> json) {
     return LearningAssets(
-      sourceLanguage: json['source_language'] as String,
-      targetLanguage: json['target_language'] as String,
-      titleTranslation: json['title_translation'] as String,
-      parentGuide:
-          ParentGuide.fromJson(json['parent_guide'] as Map<String, dynamic>),
+      sourceLanguage: JsonParsing.asRequiredString(
+        json['source_language'],
+        field: 'source_language',
+      ),
+      targetLanguage: JsonParsing.asRequiredString(
+        json['target_language'],
+        field: 'target_language',
+      ),
+      titleTranslation: JsonParsing.asRequiredString(
+        json['title_translation'],
+        field: 'title_translation',
+      ),
+      parentGuide: ParentGuide.fromJson(
+        JsonParsing.asMap(json['parent_guide'], field: 'parent_guide'),
+      ),
     );
   }
 }

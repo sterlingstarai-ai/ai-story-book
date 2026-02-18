@@ -4,11 +4,17 @@ from fastapi import HTTPException, Request
 import redis.asyncio as redis
 from typing import Optional
 import structlog
+import uuid
 
 from src.core.config import settings
 from src.core.utils import utcnow
 
 logger = structlog.get_logger()
+
+
+def _rate_limit_member(now_ts: float) -> str:
+    """Build unique sorted-set member to prevent timestamp collision overrides."""
+    return f"{now_ts}:{uuid.uuid4().hex}"
 
 
 class RateLimiter:
@@ -34,12 +40,13 @@ class RateLimiter:
         window_start = now - settings.rate_limit_window
 
         key = f"rate_limit:{user_key}"
+        member = _rate_limit_member(now)
 
         pipe = r.pipeline()
         # Remove old entries
         pipe.zremrangebyscore(key, 0, window_start)
         # Add current request
-        pipe.zadd(key, {str(now): now})
+        pipe.zadd(key, {member: now})
         # Count requests in window
         pipe.zcard(key)
         # Set expiry
@@ -53,9 +60,28 @@ class RateLimiter:
 
         return is_allowed, remaining
 
+    async def ping(self) -> bool:
+        """Check Redis connectivity without mutating rate-limit state."""
+        try:
+            r = await self.get_redis()
+            pong = await r.ping()
+            return bool(pong)
+        except redis.RedisError:
+            return False
+
     async def close(self):
-        if self._redis:
+        if not self._redis:
+            return
+
+        # redis-py async client API changed across versions (`close` -> `aclose`).
+        # Prefer `aclose` when available and fall back to legacy `close`.
+        aclose = getattr(self._redis, "aclose", None)
+        if aclose is not None:
+            await aclose()
+        else:
             await self._redis.close()
+
+        self._redis = None
 
 
 rate_limiter = RateLimiter()
@@ -84,6 +110,7 @@ async def check_rate_limit(request: Request):
                     "message": f"요청 한도 초과. {settings.rate_limit_window}초 후 다시 시도해주세요.",
                     "retry_after": settings.rate_limit_window,
                 },
+                headers={"Retry-After": str(settings.rate_limit_window)},
             )
     except redis.RedisError as e:
         # If Redis is down, log and allow request (fail open for availability)
@@ -93,6 +120,8 @@ async def check_rate_limit(request: Request):
             user_key=user_key[:8] + "..." if user_key else None,
             error=str(e),
         )
+    except HTTPException:
+        raise
     except Exception as e:
         # Unexpected errors should be logged but not block requests
         logger.error(

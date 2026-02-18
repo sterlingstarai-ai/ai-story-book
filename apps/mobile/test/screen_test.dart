@@ -12,7 +12,6 @@ import 'package:ai_story_book/screens/library_screen.dart';
 import 'package:ai_story_book/screens/loading_screen.dart';
 import 'package:ai_story_book/screens/credits_screen.dart';
 import 'package:ai_story_book/screens/characters_screen.dart';
-import 'package:ai_story_book/utils/constants.dart';
 import 'package:ai_story_book/widgets/common_widgets.dart';
 
 // ==================== Helpers ====================
@@ -107,7 +106,7 @@ void main() {
   // ==================== CreateScreen Tests ====================
 
   group('CreateScreen', () {
-    List<Override> _createOverrides([List<Character>? chars]) => [
+    List<Override> createOverrides([List<Character>? chars]) => [
           charactersProvider
               .overrideWith(() => _MockCharactersNotifier(chars ?? _sampleCharacters)),
         ];
@@ -115,7 +114,7 @@ void main() {
     testWidgets('renders app bar with title', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CreateScreen(),
-        overrides: _createOverrides(),
+        overrides: createOverrides(),
       ));
       await tester.pumpAndSettle();
 
@@ -125,7 +124,7 @@ void main() {
     testWidgets('renders topic input field', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CreateScreen(),
-        overrides: _createOverrides(),
+        overrides: createOverrides(),
       ));
       await tester.pumpAndSettle();
 
@@ -136,7 +135,7 @@ void main() {
     testWidgets('renders age selection chips', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CreateScreen(),
-        overrides: _createOverrides(),
+        overrides: createOverrides(),
       ));
       await tester.pumpAndSettle();
 
@@ -149,7 +148,7 @@ void main() {
     testWidgets('renders style selection chips', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CreateScreen(),
-        overrides: _createOverrides(),
+        overrides: createOverrides(),
       ));
       await tester.pumpAndSettle();
 
@@ -162,7 +161,7 @@ void main() {
     testWidgets('renders theme section (offstage accessible)', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CreateScreen(),
-        overrides: _createOverrides(),
+        overrides: createOverrides(),
       ));
       await tester.pumpAndSettle();
 
@@ -174,7 +173,7 @@ void main() {
     testWidgets('renders character section with characters', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CreateScreen(),
-        overrides: _createOverrides(),
+        overrides: createOverrides(),
       ));
       await tester.pumpAndSettle();
 
@@ -188,7 +187,7 @@ void main() {
     testWidgets('renders character section with empty list', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CreateScreen(),
-        overrides: _createOverrides([]),
+        overrides: createOverrides([]),
       ));
       await tester.pumpAndSettle();
 
@@ -203,7 +202,7 @@ void main() {
     testWidgets('renders submit button', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CreateScreen(),
-        overrides: _createOverrides(),
+        overrides: createOverrides(),
       ));
       await tester.pumpAndSettle();
 
@@ -213,7 +212,7 @@ void main() {
     testWidgets('validates empty topic on submit', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CreateScreen(),
-        overrides: _createOverrides(),
+        overrides: createOverrides(),
       ));
       await tester.pumpAndSettle();
 
@@ -227,7 +226,7 @@ void main() {
     testWidgets('validates short topic on submit', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CreateScreen(),
-        overrides: _createOverrides(),
+        overrides: createOverrides(),
       ));
       await tester.pumpAndSettle();
 
@@ -260,7 +259,7 @@ void main() {
   // ==================== LibraryScreen Tests ====================
 
   group('LibraryScreen', () {
-    List<Override> _libraryOverrides([List<LibraryBook>? books]) => [
+    List<Override> libraryOverrides([List<LibraryBook>? books]) => [
           libraryProvider
               .overrideWith(() => _MockLibraryNotifier(books ?? _sampleBooks)),
         ];
@@ -268,7 +267,7 @@ void main() {
     testWidgets('renders app bar with title', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const LibraryScreen(),
-        overrides: _libraryOverrides(),
+        overrides: libraryOverrides(),
       ));
       // Use pump + short delay instead of pumpAndSettle to avoid RefreshIndicator issues
       await tester.pump();
@@ -280,7 +279,7 @@ void main() {
     testWidgets('renders refresh button', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const LibraryScreen(),
-        overrides: _libraryOverrides(),
+        overrides: libraryOverrides(),
       ));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
@@ -291,7 +290,7 @@ void main() {
     testWidgets('renders book grid when data available', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const LibraryScreen(),
-        overrides: _libraryOverrides(),
+        overrides: libraryOverrides(),
       ));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
@@ -304,7 +303,7 @@ void main() {
     testWidgets('shows empty state when no books', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const LibraryScreen(),
-        overrides: _libraryOverrides([]),
+        overrides: libraryOverrides([]),
       ));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
@@ -343,7 +342,7 @@ void main() {
     testWidgets('renders bottom navigation bar', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const LibraryScreen(),
-        overrides: _libraryOverrides(),
+        overrides: libraryOverrides(),
       ));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
@@ -486,7 +485,7 @@ void main() {
   // ==================== CharactersScreen Tests ====================
 
   group('CharactersScreen', () {
-    List<Override> _charOverrides([List<Character>? chars]) => [
+    List<Override> charOverrides([List<Character>? chars]) => [
           charactersProvider
               .overrideWith(() => _MockCharactersNotifier(chars ?? _sampleCharacters)),
         ];
@@ -494,7 +493,7 @@ void main() {
     testWidgets('renders app bar with title', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CharactersScreen(),
-        overrides: _charOverrides(),
+        overrides: charOverrides(),
       ));
       await tester.pumpAndSettle();
 
@@ -504,7 +503,7 @@ void main() {
     testWidgets('renders character list when data available', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CharactersScreen(),
-        overrides: _charOverrides(),
+        overrides: charOverrides(),
       ));
       await tester.pumpAndSettle();
 
@@ -515,7 +514,7 @@ void main() {
     testWidgets('shows character descriptions', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CharactersScreen(),
-        overrides: _charOverrides(),
+        overrides: charOverrides(),
       ));
       await tester.pumpAndSettle();
 
@@ -526,7 +525,7 @@ void main() {
     testWidgets('shows personality traits as chips', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CharactersScreen(),
-        overrides: _charOverrides(),
+        overrides: charOverrides(),
       ));
       await tester.pumpAndSettle();
 
@@ -538,7 +537,7 @@ void main() {
     testWidgets('shows empty state when no characters', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CharactersScreen(),
-        overrides: _charOverrides([]),
+        overrides: charOverrides([]),
       ));
       await tester.pumpAndSettle();
 
@@ -579,7 +578,7 @@ void main() {
     testWidgets('renders add character card in list', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CharactersScreen(),
-        overrides: _charOverrides(),
+        overrides: charOverrides(),
       ));
       await tester.pumpAndSettle();
 
@@ -590,7 +589,7 @@ void main() {
     testWidgets('renders FAB button', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CharactersScreen(),
-        overrides: _charOverrides(),
+        overrides: charOverrides(),
       ));
       await tester.pumpAndSettle();
 
@@ -601,7 +600,7 @@ void main() {
     testWidgets('renders bottom navigation bar', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CharactersScreen(),
-        overrides: _charOverrides(),
+        overrides: charOverrides(),
       ));
       await tester.pumpAndSettle();
 
@@ -645,6 +644,132 @@ void main() {
 
       // Let the mock futures complete so timers are cleaned up
       await tester.pump(const Duration(milliseconds: 200));
+    });
+
+    testWidgets('subscription start button tap does not throw', (tester) async {
+      await tester.pumpWidget(buildTestableWidget(
+        const CreditsScreen(),
+        overrides: [
+          apiClientProvider.overrideWithValue(_MockApiClient()),
+        ],
+      ));
+      await tester.pump(const Duration(milliseconds: 200));
+
+      final startButton = find.text('구독 시작하기');
+      expect(startButton, findsOneWidget);
+
+      await tester.tap(startButton);
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('credit purchase button shows subscription guidance dialog',
+        (tester) async {
+      await tester.pumpWidget(buildTestableWidget(
+        const CreditsScreen(),
+        overrides: [
+          apiClientProvider.overrideWithValue(_MockApiClient()),
+        ],
+      ));
+      await tester.pump(const Duration(milliseconds: 200));
+
+      final purchaseButton = find.text('크레딧 구매');
+      expect(purchaseButton, findsOneWidget);
+
+      await tester.tap(purchaseButton);
+      await tester.pumpAndSettle();
+
+      expect(find.text('크레딧 팩 구매 준비 중'), findsOneWidget);
+      expect(find.text('구독 플랜 보기'), findsOneWidget);
+
+      await tester.tap(find.text('구독 플랜 보기'));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('renders transactions when amount is string without throwing',
+        (tester) async {
+      await tester.pumpWidget(buildTestableWidget(
+        const CreditsScreen(),
+        overrides: [
+          apiClientProvider.overrideWithValue(
+            _MockApiClient(
+              transactions: [
+                {
+                  'id': 1,
+                  'amount': '5',
+                  'balance_after': 15,
+                  'transaction_type': 'purchase',
+                  'description': null,
+                  'created_at': '2026-01-01T12:30:00Z',
+                },
+              ],
+            ),
+          ),
+        ],
+      ));
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(find.text('거래 내역'), findsOneWidget);
+      expect(find.text('purchase'), findsOneWidget);
+      expect(find.text('+5'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('handles malformed credits status payload without crashing',
+        (tester) async {
+      await tester.pumpWidget(buildTestableWidget(
+        const CreditsScreen(),
+        overrides: [
+          apiClientProvider.overrideWithValue(
+            _MockApiClient(
+              creditsStatus: {
+                'credits': 'unexpected',
+                'subscription': {
+                  'plan_name': 123,
+                  'credits_per_month': '10',
+                  'current_period_end': '2026-02-20T00:00:00Z',
+                  'features': 'not-a-list',
+                },
+                'available_plans': 'not-a-list',
+              },
+            ),
+          ),
+        ],
+      ));
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(find.text('123 구독'), findsOneWidget);
+      expect(find.text('월간 크레딧'), findsOneWidget);
+      expect(find.text('구독 플랜'), findsOneWidget);
+      expect(find.text('현재 이용 가능한 구독 플랜이 없습니다.'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('handles non-string map keys in plan payload', (tester) async {
+      await tester.pumpWidget(buildTestableWidget(
+        const CreditsScreen(),
+        overrides: [
+          apiClientProvider.overrideWithValue(
+            _MockApiClient(
+              creditsStatus: {
+                'credits': {'credits': 2, 'total_purchased': 0, 'total_used': 1},
+                'subscription': null,
+                'available_plans': [
+                  {1: 'invalid-key-map'},
+                ],
+              },
+            ),
+          ),
+        ],
+      ));
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(find.text('구독 플랜'), findsOneWidget);
+      expect(find.text('플랜'), findsOneWidget);
+      expect(tester.takeException(), isNull);
     });
   });
 }
@@ -701,22 +826,33 @@ class _MockErrorLibraryNotifier extends LibraryNotifier {
 
 /// Minimal mock API client that avoids actual HTTP calls
 class _MockApiClient extends ApiClient {
-  _MockApiClient() : super(baseUrl: 'http://localhost', userKey: 'test-key');
+  final Map<String, dynamic> creditsStatus;
+  final List<dynamic> transactions;
+
+  _MockApiClient({
+    this.creditsStatus = const {
+      'credits': {'credits': 10, 'total_purchased': 0, 'total_used': 5},
+      'subscription': null,
+      'available_plans': [],
+    },
+    this.transactions = const [],
+  })
+      : super(
+          baseUrl: 'http://localhost',
+          userKey: 'test-key',
+          enableLogging: false,
+        );
 
   @override
   Future<Map<String, dynamic>> getCreditsStatus() async {
     await Future.delayed(const Duration(milliseconds: 50));
-    return {
-      'credits': {'credits': 10, 'total_purchased': 0, 'total_used': 5},
-      'subscription': null,
-      'available_plans': [],
-    };
+    return creditsStatus;
   }
 
   @override
   Future<List<dynamic>> getTransactions({int limit = 20, int offset = 0}) async {
     await Future.delayed(const Duration(milliseconds: 50));
-    return [];
+    return transactions;
   }
 }
 

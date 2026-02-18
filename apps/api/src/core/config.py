@@ -1,8 +1,10 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+
     # App
     app_name: str = "AI Story Book API"
     app_version: str = "0.1.0"
@@ -68,10 +70,5 @@ class Settings(BaseSettings):
     cors_origins: str = (
         ""  # Comma-separated origins, MUST be set explicitly in production
     )
-
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-
 
 settings = Settings()

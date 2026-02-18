@@ -5,6 +5,7 @@ Security Tests
 
 import pytest
 from httpx import AsyncClient
+from unittest.mock import AsyncMock
 
 
 class TestRateLimiting:
@@ -29,6 +30,56 @@ class TestRateLimiting:
         """Short X-User-Key should be rejected."""
         response = await client.get("/v1/library", headers={"X-User-Key": "short"})
         assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_exceeded_returns_429_with_headers(
+        self,
+        client: AsyncClient,
+        headers: dict,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Exceeded rate limit should return 429 and expose rate-limit headers."""
+        from src.core import rate_limit
+        from src.core.config import settings
+
+        monkeypatch.setattr(
+            rate_limit.rate_limiter,
+            "is_allowed",
+            AsyncMock(return_value=(False, 0)),
+        )
+
+        response = await client.get("/v1/library", headers=headers)
+
+        assert response.status_code == 429
+        body = response.json()
+        assert body["error"]["code"] == "rate_limit_exceeded"
+        assert body["error"]["message"] == body["detail"]
+        assert body["error"]["details"]["retry_after"] == settings.rate_limit_window
+        assert response.headers.get("Retry-After") == str(settings.rate_limit_window)
+        assert response.headers.get("X-RateLimit-Remaining") == "0"
+        assert response.headers.get("X-RateLimit-Limit") == str(settings.rate_limit_requests)
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_headers_present_when_request_allowed(
+        self,
+        client: AsyncClient,
+        headers: dict,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Allowed requests should still include X-RateLimit headers."""
+        from src.core import rate_limit
+
+        monkeypatch.setattr(
+            rate_limit.rate_limiter,
+            "is_allowed",
+            AsyncMock(return_value=(True, 7)),
+        )
+
+        response = await client.get("/v1/library", headers=headers)
+
+        assert response.status_code == 200
+        assert response.headers.get("X-RateLimit-Remaining") == "7"
+        assert response.headers.get("X-RateLimit-Limit") is not None
 
 
 class TestSecurityHeaders:

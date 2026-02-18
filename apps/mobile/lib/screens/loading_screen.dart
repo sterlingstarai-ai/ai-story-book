@@ -273,17 +273,17 @@ class _AnimatedBookIconState extends State<_AnimatedBookIcon>
         width: 120,
         height: 120,
         decoration: BoxDecoration(
-          gradient: LinearGradient(
+          gradient: const LinearGradient(
             colors: [AppColors.primary, AppColors.secondary],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
           borderRadius: BorderRadius.circular(AppRadius.xl),
-          boxShadow: [
+          boxShadow: const [
             BoxShadow(
               color: AppColors.primaryStrong,
               blurRadius: 30,
-              offset: const Offset(0, 10),
+              offset: Offset(0, 10),
             ),
           ],
         ),

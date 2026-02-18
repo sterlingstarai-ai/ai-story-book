@@ -3,6 +3,8 @@ from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_
 from typing import Optional
+from datetime import timedelta
+import math
 import uuid
 import structlog
 
@@ -27,7 +29,13 @@ from src.services.tts import tts_service
 from src.services.storage import storage_service
 from src.services.credits import credits_service
 from src.core.utils import utcnow
-from src.core.exceptions import NotFoundError, AuthorizationError
+from src.core.exceptions import (
+    AuthorizationError,
+    InternalServerError,
+    NotFoundError,
+    PaymentRequiredError,
+    ValidationError,
+)
 
 logger = structlog.get_logger()
 
@@ -85,13 +93,73 @@ def get_idempotency_key(
     return x_idempotency_key
 
 
+async def _create_job_with_credit(
+    *,
+    db: AsyncSession,
+    user_key: str,
+    job_id: str,
+    current_step: str,
+    credit_description: str,
+    refund_description: str,
+    idempotency_key: Optional[str] = None,
+):
+    """
+    Create a queued job with credit deduction and automatic refund on failure.
+    """
+    has_credits = await credits_service.has_credits(db, user_key, required=1)
+    if not has_credits:
+        raise PaymentRequiredError("크레딧이 부족합니다. 크레딧을 충전해주세요.")
+
+    credit_used = await credits_service.use_credit(
+        db,
+        user_key,
+        amount=1,
+        description=credit_description,
+        reference_id=job_id,
+    )
+    if not credit_used:
+        raise PaymentRequiredError("크레딧 차감에 실패했습니다.")
+
+    try:
+        job = Job(
+            id=job_id,
+            status="queued",
+            progress=0,
+            current_step=current_step,
+            user_key=user_key,
+            idempotency_key=idempotency_key,
+        )
+        db.add(job)
+        await db.commit()
+    except Exception as e:
+        logger.error(
+            "Job creation failed, refunding credit",
+            job_id=job_id,
+            user_key=user_key,
+            error=str(e),
+        )
+        await db.rollback()
+        await credits_service.add_credits(
+            db,
+            user_key,
+            amount=1,
+            transaction_type="refund",
+            description=refund_description,
+            reference_id=job_id,
+        )
+        raise InternalServerError(
+            message="잡 생성에 실패했습니다. 크레딧이 환불되었습니다."
+        ) from e
+
+
 async def check_guardrails(db: AsyncSession, user_key: str):
     """
     Check system guardrails before creating a new job.
     Raises HTTPException if guardrails are violated.
     """
     # Check daily job limit per user
-    today_start = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    now = utcnow()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     daily_jobs_result = await db.execute(
         select(func.count(Job.id)).where(
             and_(Job.user_key == user_key, Job.created_at >= today_start)
@@ -100,6 +168,8 @@ async def check_guardrails(db: AsyncSession, user_key: str):
     daily_job_count = daily_jobs_result.scalar() or 0
 
     if daily_job_count >= settings.daily_job_limit_per_user:
+        next_day_start = today_start + timedelta(days=1)
+        retry_after = max(1, math.ceil((next_day_start - now).total_seconds()))
         raise HTTPException(
             status_code=429,
             detail={
@@ -107,7 +177,9 @@ async def check_guardrails(db: AsyncSession, user_key: str):
                 "message": f"일일 생성 한도({settings.daily_job_limit_per_user}권)를 초과했습니다. 내일 다시 시도해주세요.",
                 "limit": settings.daily_job_limit_per_user,
                 "used": daily_job_count,
+                "retry_after": retry_after,
             },
+            headers={"Retry-After": str(retry_after)},
         )
 
     # Check total pending jobs in system
@@ -124,6 +196,7 @@ async def check_guardrails(db: AsyncSession, user_key: str):
                 "message": "시스템이 현재 많은 요청을 처리 중입니다. 잠시 후 다시 시도해주세요.",
                 "retry_after": 60,
             },
+            headers={"Retry-After": "60"},
         )
 
 
@@ -145,13 +218,6 @@ async def create_book(
     # Check guardrails (daily limit, system load)
     await check_guardrails(db, user_key)
 
-    # Check credits
-    has_credits = await credits_service.has_credits(db, user_key, required=1)
-    if not has_credits:
-        raise HTTPException(
-            status_code=402, detail="크레딧이 부족합니다. 크레딧을 충전해주세요."
-        )
-
     # Check idempotency
     if idempotency_key:
         result = await db.execute(
@@ -170,36 +236,15 @@ async def create_book(
     # Create new job
     job_id = f"job_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
 
-    # Deduct credit FIRST (before creating job to avoid race condition)
-    credit_used = await credits_service.use_credit(
-        db, user_key, amount=1, description="책 생성", reference_id=job_id
+    await _create_job_with_credit(
+        db=db,
+        user_key=user_key,
+        job_id=job_id,
+        current_step="대기 중",
+        credit_description="책 생성",
+        refund_description="잡 생성 실패 환불",
+        idempotency_key=idempotency_key,
     )
-    if not credit_used:
-        raise HTTPException(status_code=402, detail="크레딧 차감에 실패했습니다.")
-
-    # Create job after successful credit deduction
-    # If job creation fails, refund the credit
-    try:
-        job = Job(
-            id=job_id,
-            status="queued",
-            progress=0,
-            current_step="대기 중",
-            user_key=user_key,
-            idempotency_key=idempotency_key,
-        )
-        db.add(job)
-        await db.commit()
-    except Exception as e:
-        logger.error("Job creation failed, refunding credit", job_id=job_id, error=str(e))
-        await db.rollback()
-        await credits_service.add_credits(
-            db, user_key, amount=1,
-            transaction_type="refund",
-            description="잡 생성 실패 환불",
-            reference_id=job_id,
-        )
-        raise HTTPException(status_code=500, detail="잡 생성에 실패했습니다. 크레딧이 환불되었습니다.")
 
     # Start background task (Celery or FastAPI BackgroundTasks)
     # 테스트 환경에서는 background_tasks 실행 스킵 (테스트 안정화)
@@ -334,7 +379,7 @@ async def regenerate_book_page(
         raise AuthorizationError()
 
     if job.status != "done":
-        raise HTTPException(status_code=400, detail="Book generation not complete")
+        raise ValidationError("Book generation not complete")
 
     # Verify page exists
     book_result = await db.execute(select(Book).where(Book.job_id == job_id))
@@ -396,7 +441,6 @@ async def create_series_next(
     if character.user_key != user_key:
         raise AuthorizationError()
 
-    # previous_book_id가 있으면 검증, 없으면 None 유지
     prev_book = None
     if request.previous_book_id:
         book_result = await db.execute(
@@ -409,56 +453,28 @@ async def create_series_next(
         if prev_book.user_key != user_key:
             raise AuthorizationError()
 
-    # Check and deduct credits
-    has_credits = await credits_service.has_credits(db, user_key, required=1)
-    if not has_credits:
-        raise HTTPException(
-            status_code=402, detail="크레딧이 부족합니다. 크레딧을 충전해주세요."
-        )
-
     # Create new job for series
     job_id = f"series_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
 
-    # Deduct credit FIRST (before creating job to avoid race condition)
-    credit_used = await credits_service.use_credit(
-        db, user_key, amount=1, description="시리즈 생성", reference_id=job_id
+    await _create_job_with_credit(
+        db=db,
+        user_key=user_key,
+        job_id=job_id,
+        current_step="시리즈 생성 대기 중",
+        credit_description="시리즈 생성",
+        refund_description="시리즈 잡 생성 실패 환불",
     )
-    if not credit_used:
-        raise HTTPException(status_code=402, detail="크레딧 차감에 실패했습니다.")
-
-    # Create job after successful credit deduction
-    # If job creation fails, refund the credit
-    try:
-        job = Job(
-            id=job_id,
-            status="queued",
-            progress=0,
-            current_step="시리즈 생성 대기 중",
-            user_key=user_key,
-        )
-        db.add(job)
-        await db.commit()
-    except Exception as e:
-        logger.error("Series job creation failed, refunding credit", job_id=job_id, error=str(e))
-        await db.rollback()
-        await credits_service.add_credits(
-            db, user_key, amount=1,
-            transaction_type="refund",
-            description="시리즈 잡 생성 실패 환불",
-            reference_id=job_id,
-        )
-        raise HTTPException(status_code=500, detail="잡 생성에 실패했습니다. 크레딧이 환불되었습니다.")
 
     # Start background task for series generation
     # 테스트 환경에서는 background_tasks 실행 스킵 (테스트 안정화)
     from src.services.orchestrator import start_series_generation
 
-    if not settings.testing:
+    if settings.testing:
+        logger.info("Skipping series background task in testing mode", job_id=job_id)
+    else:
         background_tasks.add_task(
             start_series_generation, job_id, request, user_key, character, prev_book
         )
-    else:
-        logger.info("Skipping series background task in testing mode", job_id=job_id)
 
     return CreateBookResponse(
         job_id=job_id, status=JobState.queued, estimated_time_seconds=120
@@ -521,9 +537,9 @@ async def export_book_pdf(
         pdf_bytes = await pdf_service.generate_pdf(book_data)
     except Exception as e:
         logger.error("PDF generation failed", book_id=book_id, error=str(e))
-        raise HTTPException(
-            status_code=500, detail="PDF 생성에 실패했습니다. 잠시 후 다시 시도해주세요."
-        )
+        raise InternalServerError(
+            "PDF 생성에 실패했습니다. 잠시 후 다시 시도해주세요."
+        ) from e
 
     # Return PDF as response
     # Use URL encoding for Korean filename to avoid header encoding issues
@@ -622,6 +638,15 @@ async def _generate_audio_pages(book_id: str, pages: list[dict]):
                     succeeded += 1
 
             except Exception as e:
+                try:
+                    await db.rollback()
+                except Exception as rollback_error:
+                    logger.warning(
+                        "Audio generation rollback failed",
+                        book_id=book_id,
+                        page_number=page_data["page_number"],
+                        error=str(rollback_error),
+                    )
                 failed_pages.append(page_data["page_number"])
                 logger.warning(
                     "Audio generation failed for page",
@@ -699,9 +724,18 @@ async def get_page_audio(
         return {"audio_url": audio_url}
 
     except Exception as e:
+        try:
+            await db.rollback()
+        except Exception as rollback_error:
+            logger.warning(
+                "Audio generation rollback failed",
+                book_id=book_id,
+                page_number=page_number,
+                error=str(rollback_error),
+            )
         logger.error(
             "Audio generation failed", book_id=book_id, page_number=page_number, error=str(e)
         )
-        raise HTTPException(
-            status_code=500, detail="오디오 생성에 실패했습니다. 잠시 후 다시 시도해주세요."
-        )
+        raise InternalServerError(
+            "오디오 생성에 실패했습니다. 잠시 후 다시 시도해주세요."
+        ) from e

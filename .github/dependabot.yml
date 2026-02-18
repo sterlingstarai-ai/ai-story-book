@@ -5,6 +5,10 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    ignore:
+      # celery[redis]==5.4.0 currently conflicts with redis>=7
+      - dependency-name: "redis"
+        versions: [">=7.0.0"]
     labels:
       - "dependencies"
       - "python"
@@ -14,6 +18,13 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    ignore:
+      # build_runner>=2.10.0 requires Dart >=3.7, but CI/runtime is on Dart 3.6
+      - dependency-name: "build_runner"
+        versions: [">=2.10.0"]
+      # major lint-rule jump needs a dedicated lint-fix rollout
+      - dependency-name: "flutter_lints"
+        versions: [">=6.0.0"]
     labels:
       - "dependencies"
       - "flutter"

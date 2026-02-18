@@ -19,21 +19,40 @@ class ApiError implements Exception {
     final response = e.response;
 
     if (response != null) {
+      final statusCode = response.statusCode ?? 500;
       final data = response.data;
       if (data is Map<String, dynamic> && data.containsKey('error')) {
-        final error = data['error'] as Map<String, dynamic>;
+        final error = data['error'];
+        if (error is Map<String, dynamic>) {
+          final envelopeCode = _nonEmptyString(error['code']) ??
+              _nonEmptyString(error['error_code']);
+          final envelopeMessage = _nonEmptyString(error['message']);
+          return ApiError(
+            code: envelopeCode ?? _codeFromStatus(statusCode),
+            message: envelopeMessage ??
+                _messageFromDetail(data['detail']) ??
+                '알 수 없는 오류가 발생했습니다.',
+            statusCode: statusCode,
+            details: error['details'] ?? _detailsFromDetail(data['detail']),
+          );
+        }
+      }
+
+      if (data is Map<String, dynamic> && data.containsKey('detail')) {
         return ApiError(
-          code: error['code'] as String? ?? 'UNKNOWN_ERROR',
-          message: error['message'] as String? ?? '알 수 없는 오류가 발생했습니다.',
-          statusCode: response.statusCode ?? 500,
-          details: error['details'],
+          code: _codeFromStatus(statusCode),
+          message: _messageFromDetail(data['detail']) ?? '요청 처리 중 오류가 발생했습니다.',
+          statusCode: statusCode,
+          details: _detailsFromDetail(data['detail']),
         );
       }
+
       // Fallback for non-standard error responses
       return ApiError(
-        code: 'API_ERROR',
+        code: _codeFromStatus(statusCode),
         message: data?.toString() ?? '서버 오류가 발생했습니다.',
-        statusCode: response.statusCode ?? 500,
+        statusCode: statusCode,
+        details: data is Map<String, dynamic> ? data : null,
       );
     }
 
@@ -68,6 +87,74 @@ class ApiError implements Exception {
     }
   }
 
+  static String _codeFromStatus(int statusCode) {
+    switch (statusCode) {
+      case 400:
+        return 'BAD_REQUEST';
+      case 401:
+        return 'UNAUTHORIZED';
+      case 402:
+        return 'PAYMENT_REQUIRED';
+      case 403:
+        return 'FORBIDDEN';
+      case 404:
+        return 'NOT_FOUND';
+      case 409:
+        return 'CONFLICT';
+      case 422:
+        return 'VALIDATION_ERROR';
+      case 429:
+        return 'RATE_LIMIT_EXCEEDED';
+      case 502:
+        return 'BAD_GATEWAY';
+      case 503:
+        return 'SERVICE_UNAVAILABLE';
+      case 504:
+        return 'GATEWAY_TIMEOUT';
+      default:
+        if (statusCode >= 500) return 'INTERNAL_ERROR';
+        return 'API_ERROR';
+    }
+  }
+
+  static String? _messageFromDetail(dynamic detail) {
+    if (detail is String && detail.isNotEmpty) {
+      return detail;
+    }
+    if (detail is Map<String, dynamic>) {
+      final msg = _nonEmptyString(detail['message']) ?? _nonEmptyString(detail['detail']);
+      if (msg != null) {
+        return msg;
+      }
+
+      final error = detail['error'];
+      if (error is Map<String, dynamic>) {
+        final nestedMessage = _nonEmptyString(error['message']);
+        if (nestedMessage != null) {
+          return nestedMessage;
+        }
+      }
+      return '요청 처리 중 오류가 발생했습니다.';
+    }
+    if (detail is List) {
+      return '입력 정보를 확인해주세요.';
+    }
+    return null;
+  }
+
+  static dynamic _detailsFromDetail(dynamic detail) {
+    if (detail is Map<String, dynamic> || detail is List) {
+      return detail;
+    }
+    return null;
+  }
+
+  static String? _nonEmptyString(dynamic value) {
+    if (value is! String) return null;
+    final trimmed = value.trim();
+    return trimmed.isNotEmpty ? trimmed : null;
+  }
+
   /// User-friendly error message
   String get userMessage {
     switch (code) {
@@ -75,12 +162,22 @@ class ApiError implements Exception {
         return message;
       case 'VALIDATION_ERROR':
         return '입력 정보를 확인해주세요.';
+      case 'BAD_REQUEST':
+        return message;
+      case 'UNAUTHORIZED':
+        return '로그인이 필요합니다.';
       case 'FORBIDDEN':
         return '접근 권한이 없습니다.';
       case 'PAYMENT_REQUIRED':
         return '크레딧이 부족합니다.';
+      case 'INTERNAL_ERROR':
+        return '서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.';
       case 'RATE_LIMIT_EXCEEDED':
         return '요청이 너무 많습니다. 잠시 후 다시 시도해주세요.';
+      case 'BAD_GATEWAY':
+      case 'SERVICE_UNAVAILABLE':
+      case 'GATEWAY_TIMEOUT':
+        return '서버가 일시적으로 불안정합니다. 잠시 후 다시 시도해주세요.';
       case 'TIMEOUT':
         return message;
       case 'CONNECTION_ERROR':

@@ -126,17 +126,16 @@ class TestRunStep:
             await asyncio.sleep(100)  # 매우 느린 함수
 
         with patch("src.services.orchestrator.update_job_status", new_callable=AsyncMock):
-            with patch("asyncio.sleep", new_callable=AsyncMock):
-                with pytest.raises(StoryBookError):
-                    await run_step(
-                        job_id="test-job",
-                        step_name="slow-step",
-                        progress=50,
-                        fn=slow_fn,
-                        retries=1,
-                        timeout_sec=0.01,  # 매우 짧은 타임아웃
-                        backoff=[0],
-                    )
+            with pytest.raises(StoryBookError):
+                await run_step(
+                    job_id="test-job",
+                    step_name="slow-step",
+                    progress=50,
+                    fn=slow_fn,
+                    retries=1,
+                    timeout_sec=0.01,  # 매우 짧은 타임아웃
+                    backoff=[0],
+                )
 
 
 # ==================== moderate_output Tests ====================
@@ -159,6 +158,8 @@ class TestModerateOutput:
 
         if page_texts is None:
             page_texts = ["안녕하세요!", "즐거운 하루!"]
+        if len(page_texts) < 4:
+            page_texts = page_texts + [page_texts[-1]] * (4 - len(page_texts))
 
         return StoryDraft(
             title=title,

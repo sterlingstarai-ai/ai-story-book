@@ -3,7 +3,7 @@ Storage Service: S3/Minio 파일 업로드
 """
 
 import asyncio
-
+import inspect
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
@@ -84,6 +84,16 @@ def get_s3_client():
     )
 
 
+async def _call_s3(method, **kwargs):
+    """
+    Execute S3 client method that may be sync (boto3) or async (mock/testing).
+    """
+    result = method(**kwargs)
+    if inspect.isawaitable(result):
+        return await result
+    return result
+
+
 async def ensure_bucket_exists():
     """Ensure the bucket exists, create if not. Thread-safe with asyncio.Lock."""
     global _bucket_verified
@@ -98,11 +108,11 @@ async def ensure_bucket_exists():
 
         client = get_s3_client()
         try:
-            client.head_bucket(Bucket=settings.s3_bucket)
+            await _call_s3(client.head_bucket, Bucket=settings.s3_bucket)
             _bucket_verified = True
         except ClientError:
             try:
-                client.create_bucket(Bucket=settings.s3_bucket)
+                await _call_s3(client.create_bucket, Bucket=settings.s3_bucket)
                 logger.info("Created bucket", bucket=settings.s3_bucket)
                 logger.warning(
                     "Bucket created without public policy - configure access policy manually"
@@ -151,7 +161,8 @@ async def upload_image_from_url(
 
     try:
         s3_client = get_s3_client()
-        s3_client.put_object(
+        await _call_s3(
+            s3_client.put_object,
             Bucket=settings.s3_bucket,
             Key=s3_key,
             Body=image_data,
@@ -183,7 +194,8 @@ async def upload_file(
 
     try:
         s3_client = get_s3_client()
-        s3_client.put_object(
+        await _call_s3(
+            s3_client.put_object,
             Bucket=settings.s3_bucket,
             Key=s3_key,
             Body=data,
@@ -203,7 +215,8 @@ async def delete_book_files(book_id: str):
         prefix = f"books/{book_id}/"
 
         # List objects
-        response = s3_client.list_objects_v2(
+        response = await _call_s3(
+            s3_client.list_objects_v2,
             Bucket=settings.s3_bucket,
             Prefix=prefix,
         )
@@ -211,7 +224,8 @@ async def delete_book_files(book_id: str):
         # Delete objects
         objects = response.get("Contents", [])
         if objects:
-            s3_client.delete_objects(
+            await _call_s3(
+                s3_client.delete_objects,
                 Bucket=settings.s3_bucket,
                 Delete={"Objects": [{"Key": obj["Key"]} for obj in objects]},
             )
@@ -245,7 +259,8 @@ class StorageService:
 
         try:
             s3_client = get_s3_client()
-            s3_client.put_object(
+            await _call_s3(
+                s3_client.put_object,
                 Bucket=settings.s3_bucket,
                 Key=key,
                 Body=data,

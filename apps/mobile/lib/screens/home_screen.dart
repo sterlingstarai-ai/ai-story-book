@@ -18,14 +18,14 @@ class HomeScreen extends ConsumerWidget {
         child: CustomScrollView(
           slivers: [
             // 헤더
-            SliverToBoxAdapter(
+            const SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.all(AppSpacing.lg),
+                padding: EdgeInsets.all(AppSpacing.lg),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('AI 동화책', style: AppTextStyles.heading1),
-                    const SizedBox(height: AppSpacing.sm),
+                    Text('AI 동화책', style: AppTextStyles.heading1),
+                    SizedBox(height: AppSpacing.sm),
                     Text(
                       '아이를 위한 맞춤 동화를 만들어보세요',
                       style: AppTextStyles.bodySmall,
@@ -141,7 +141,7 @@ class HomeScreen extends ConsumerWidget {
           ],
         ),
       ),
-      bottomNavigationBar: _BottomNavBar(currentIndex: 0),
+      bottomNavigationBar: const _BottomNavBar(currentIndex: 0),
     );
   }
 }
@@ -159,27 +159,27 @@ class _CreateBookCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(AppSpacing.lg),
         decoration: BoxDecoration(
-          gradient: LinearGradient(
+          gradient: const LinearGradient(
             colors: [AppColors.primary, AppColors.secondary],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
           borderRadius: BorderRadius.circular(AppRadius.xl),
-          boxShadow: [
+          boxShadow: const [
             BoxShadow(
               color: AppColors.primaryStrong,
               blurRadius: 20,
-              offset: const Offset(0, 8),
+              offset: Offset(0, 8),
             ),
           ],
         ),
         child: Row(
           children: [
-            Expanded(
+            const Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     '새 동화책 만들기',
                     style: TextStyle(
                       fontSize: 20,
@@ -187,7 +187,7 @@ class _CreateBookCard extends StatelessWidget {
                       color: Colors.white,
                     ),
                   ),
-                  const SizedBox(height: AppSpacing.sm),
+                  SizedBox(height: AppSpacing.sm),
                   Text(
                     'AI가 아이만을 위한\n특별한 이야기를 만들어드려요',
                     style: TextStyle(
@@ -227,13 +227,13 @@ class _BottomNavBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         color: AppColors.surface,
         boxShadow: [
           BoxShadow(
             color: AppColors.blackOverlayLight,
             blurRadius: 10,
-            offset: const Offset(0, -4),
+            offset: Offset(0, -4),
           ),
         ],
       ),

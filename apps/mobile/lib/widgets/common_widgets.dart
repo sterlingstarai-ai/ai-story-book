@@ -102,11 +102,11 @@ class BookCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: AppColors.surface,
           borderRadius: BorderRadius.circular(AppRadius.lg),
-          boxShadow: [
+          boxShadow: const [
             BoxShadow(
               color: AppColors.blackOverlayShadow,
               blurRadius: 10,
-              offset: const Offset(0, 4),
+              offset: Offset(0, 4),
             ),
           ],
         ),
@@ -216,7 +216,7 @@ class CharacterCard extends StatelessWidget {
                   backgroundColor: AppColors.secondaryLight,
                   child: Text(
                     name.isNotEmpty ? name[0] : '?',
-                    style: TextStyle(
+                    style: const TextStyle(
                       color: AppColors.secondary,
                       fontWeight: FontWeight.bold,
                     ),

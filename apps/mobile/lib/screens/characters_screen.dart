@@ -227,8 +227,8 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('캐릭터 생성에 실패했어요. 잠시 후 다시 시도해주세요.'),
+          const SnackBar(
+            content: Text('캐릭터 생성에 실패했어요. 잠시 후 다시 시도해주세요.'),
             backgroundColor: AppColors.error,
           ),
         );
@@ -315,8 +315,8 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('캐릭터 생성에 실패했어요. 잠시 후 다시 시도해주세요.'),
+          const SnackBar(
+            content: Text('캐릭터 생성에 실패했어요. 잠시 후 다시 시도해주세요.'),
             backgroundColor: AppColors.error,
           ),
         );
@@ -423,7 +423,7 @@ class _AddCharacterCard extends StatelessWidget {
                 ],
               ),
             ),
-            Icon(
+            const Icon(
               Icons.chevron_right,
               color: AppColors.primary,
             ),
@@ -453,11 +453,11 @@ class _CharacterListItem extends StatelessWidget {
         decoration: BoxDecoration(
           color: AppColors.surface,
           borderRadius: BorderRadius.circular(AppRadius.md),
-          boxShadow: [
+          boxShadow: const [
             BoxShadow(
               color: AppColors.blackOverlayLight,
               blurRadius: 10,
-              offset: const Offset(0, 4),
+              offset: Offset(0, 4),
             ),
           ],
         ),
@@ -468,7 +468,7 @@ class _CharacterListItem extends StatelessWidget {
               width: 60,
               height: 60,
               decoration: BoxDecoration(
-                gradient: LinearGradient(
+                gradient: const LinearGradient(
                   colors: [AppColors.primary, AppColors.secondary],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
@@ -571,7 +571,7 @@ class _CharacterDetailSheet extends StatelessWidget {
                     width: 80,
                     height: 80,
                     decoration: BoxDecoration(
-                      gradient: LinearGradient(
+                      gradient: const LinearGradient(
                         colors: [AppColors.primary, AppColors.secondary],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
@@ -609,13 +609,13 @@ class _CharacterDetailSheet extends StatelessWidget {
               const SizedBox(height: AppSpacing.lg),
 
               // 설명
-              _SectionTitle('설명'),
+              const _SectionTitle('설명'),
               Text(character.masterDescription, style: AppTextStyles.body),
 
               const SizedBox(height: AppSpacing.lg),
 
               // 성격
-              _SectionTitle('성격'),
+              const _SectionTitle('성격'),
               Wrap(
                 spacing: AppSpacing.sm,
                 runSpacing: AppSpacing.sm,
@@ -642,7 +642,7 @@ class _CharacterDetailSheet extends StatelessWidget {
               const SizedBox(height: AppSpacing.lg),
 
               // 외형
-              _SectionTitle('외형'),
+              const _SectionTitle('외형'),
               _DetailRow('나이', character.appearance.ageVisual),
               _DetailRow('얼굴', character.appearance.face),
               _DetailRow('머리', character.appearance.hair),
@@ -652,7 +652,7 @@ class _CharacterDetailSheet extends StatelessWidget {
               const SizedBox(height: AppSpacing.lg),
 
               // 의상
-              _SectionTitle('의상'),
+              const _SectionTitle('의상'),
               _DetailRow('상의', character.clothing.top),
               _DetailRow('하의', character.clothing.bottom),
               _DetailRow('신발', character.clothing.shoes),
@@ -660,7 +660,7 @@ class _CharacterDetailSheet extends StatelessWidget {
 
               if (character.visualStyleNotes != null) ...[
                 const SizedBox(height: AppSpacing.lg),
-                _SectionTitle('스타일 노트'),
+                const _SectionTitle('스타일 노트'),
                 Text(character.visualStyleNotes!, style: AppTextStyles.body),
               ],
 
@@ -738,13 +738,13 @@ class _CharactersBottomNavBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         color: AppColors.surface,
         boxShadow: [
           BoxShadow(
             color: AppColors.blackOverlayLight,
             blurRadius: 10,
-            offset: const Offset(0, -4),
+            offset: Offset(0, -4),
           ),
         ],
       ),

@@ -40,7 +40,7 @@ class AIStoryBookApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: _buildTheme(),
       initialRoute: '/',
-      onGenerateRoute: _onGenerateRoute,
+      onGenerateRoute: buildAppRoute,
     );
   }
 
@@ -87,47 +87,64 @@ class AIStoryBookApp extends StatelessWidget {
       ),
     );
   }
+}
 
-  Route<dynamic>? _onGenerateRoute(RouteSettings settings) {
-    switch (settings.name) {
-      case '/':
-        return MaterialPageRoute(
-          builder: (_) => const HomeScreen(),
-        );
+Route<dynamic> buildAppRoute(RouteSettings settings) {
+  switch (settings.name) {
+    case '/':
+      return MaterialPageRoute(
+        builder: (_) => const HomeScreen(),
+      );
 
-      case '/create':
-        return MaterialPageRoute(
-          builder: (_) => const CreateScreen(),
-          fullscreenDialog: true,
-        );
+    case '/create':
+      return MaterialPageRoute(
+        builder: (_) => const CreateScreen(),
+        fullscreenDialog: true,
+      );
 
-      case '/loading':
-        final jobId = settings.arguments as String;
-        return MaterialPageRoute(
-          builder: (_) => LoadingScreen(jobId: jobId),
-        );
+    case '/loading':
+      final jobId = _readRouteStringArg(settings.arguments);
+      if (jobId == null) {
+        return _homeRoute();
+      }
+      return MaterialPageRoute(
+        builder: (_) => LoadingScreen(jobId: jobId),
+      );
 
-      case '/viewer':
-        final bookId = settings.arguments as String;
-        return MaterialPageRoute(
-          builder: (_) => ViewerScreen(bookId: bookId),
-          fullscreenDialog: true,
-        );
+    case '/viewer':
+      final bookId = _readRouteStringArg(settings.arguments);
+      if (bookId == null) {
+        return _homeRoute();
+      }
+      return MaterialPageRoute(
+        builder: (_) => ViewerScreen(bookId: bookId),
+        fullscreenDialog: true,
+      );
 
-      case '/library':
-        return MaterialPageRoute(
-          builder: (_) => const LibraryScreen(),
-        );
+    case '/library':
+      return MaterialPageRoute(
+        builder: (_) => const LibraryScreen(),
+      );
 
-      case '/characters':
-        return MaterialPageRoute(
-          builder: (_) => const CharactersScreen(),
-        );
+    case '/characters':
+      return MaterialPageRoute(
+        builder: (_) => const CharactersScreen(),
+      );
 
-      default:
-        return MaterialPageRoute(
-          builder: (_) => const HomeScreen(),
-        );
-    }
+    default:
+      return _homeRoute();
   }
+}
+
+Route<dynamic> _homeRoute() {
+  return MaterialPageRoute(
+    builder: (_) => const HomeScreen(),
+  );
+}
+
+String? _readRouteStringArg(dynamic argument) {
+  if (argument is String && argument.isNotEmpty) {
+    return argument;
+  }
+  return null;
 }

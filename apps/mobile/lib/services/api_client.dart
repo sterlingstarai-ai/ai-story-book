@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import '../core/api_error.dart';
 import '../models/models.dart';
 
@@ -11,6 +12,7 @@ class ApiClient {
   ApiClient({
     required String baseUrl,
     required String userKey,
+    bool enableLogging = kDebugMode,
   })  : _userKey = userKey,
         _dio = Dio(BaseOptions(
           baseUrl: baseUrl,
@@ -20,21 +22,24 @@ class ApiClient {
             'Content-Type': 'application/json',
           },
         )) {
-    _dio.interceptors.add(LogInterceptor(
-      requestBody: true,
-      responseBody: true,
-    ));
+    if (enableLogging) {
+      _dio.interceptors.add(LogInterceptor(
+        requestBody: true,
+        responseBody: true,
+      ));
+    }
 
     // Error handling interceptor
     _dio.interceptors.add(InterceptorsWrapper(
       onError: (error, handler) {
         // Convert to standardized ApiError
         final apiError = ApiError.fromDioException(error);
-        handler.reject(DioException(
-          requestOptions: error.requestOptions,
-          error: apiError,
-          message: apiError.userMessage,
-        ));
+        handler.reject(
+          error.copyWith(
+            error: apiError,
+            message: apiError.userMessage,
+          ),
+        );
       },
     ));
   }
@@ -61,7 +66,9 @@ class ApiClient {
       options: Options(headers: headers),
     );
 
-    return CreateBookResponse.fromJson(response.data as Map<String, dynamic>);
+    return CreateBookResponse.fromJson(
+      _asJsonMap(response.data, context: '/v1/books response'),
+    );
   }
 
   /// 책 생성 상태 조회
@@ -71,7 +78,9 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    return JobStatus.fromJson(response.data as Map<String, dynamic>);
+    return JobStatus.fromJson(
+      _asJsonMap(response.data, context: '/v1/books/$jobId response'),
+    );
   }
 
   /// 페이지 재생성
@@ -103,7 +112,9 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    return CreateBookResponse.fromJson(response.data as Map<String, dynamic>);
+    return CreateBookResponse.fromJson(
+      _asJsonMap(response.data, context: '/v1/books/series response'),
+    );
   }
 
   // ==================== Characters ====================
@@ -116,7 +127,9 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    return Character.fromJson(response.data as Map<String, dynamic>);
+    return Character.fromJson(
+      _asJsonMap(response.data, context: '/v1/characters create response'),
+    );
   }
 
   /// 캐릭터 목록
@@ -126,9 +139,21 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    final data = response.data as Map<String, dynamic>;
-    return (data['characters'] as List<dynamic>)
-        .map((c) => Character.fromJson(c as Map<String, dynamic>))
+    final data = _asJsonMap(response.data, context: '/v1/characters response');
+    final characters = _asJsonList(
+      data['characters'],
+      context: '/v1/characters.characters',
+    );
+
+    return characters
+        .asMap()
+        .entries
+        .map((entry) => Character.fromJson(
+              _asJsonMap(
+                entry.value,
+                context: '/v1/characters.characters[${entry.key}]',
+              ),
+            ))
         .toList();
   }
 
@@ -139,7 +164,10 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    return Character.fromJson(response.data as Map<String, dynamic>);
+    return Character.fromJson(
+      _asJsonMap(response.data,
+          context: '/v1/characters/$characterId response'),
+    );
   }
 
   /// 사진에서 캐릭터 생성
@@ -166,7 +194,8 @@ class ApiClient {
       ),
     );
 
-    return response.data as Map<String, dynamic>;
+    return _asJsonMap(response.data,
+        context: '/v1/characters/from-photo response');
   }
 
   /// 텍스트로 캐릭터 생성 (사진 없이)
@@ -192,7 +221,8 @@ class ApiClient {
       ),
     );
 
-    return response.data as Map<String, dynamic>;
+    return _asJsonMap(response.data,
+        context: '/v1/characters/from-text response');
   }
 
   // ==================== Library ====================
@@ -211,7 +241,9 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    return LibraryResponse.fromJson(response.data as Map<String, dynamic>);
+    return LibraryResponse.fromJson(
+      _asJsonMap(response.data, context: '/v1/library response'),
+    );
   }
 
   /// 책 상세 (서재에서 조회)
@@ -221,7 +253,9 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    return BookResult.fromJson(response.data as Map<String, dynamic>);
+    return BookResult.fromJson(
+      _asJsonMap(response.data, context: '/v1/books/$bookId/detail response'),
+    );
   }
 
   /// PDF 다운로드
@@ -259,8 +293,11 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    final data = response.data as Map<String, dynamic>;
-    return data['audio_url'] as String;
+    final data = _asJsonMap(
+      response.data,
+      context: '/v1/books/$bookId/pages/$pageNumber/audio response',
+    );
+    return _asString(data['audio_url'], field: 'audio_url');
   }
 
   // ==================== Credits ====================
@@ -272,7 +309,7 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    return response.data as Map<String, dynamic>;
+    return _asJsonMap(response.data, context: '/v1/credits/status response');
   }
 
   /// 크레딧 잔액 조회
@@ -282,8 +319,9 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    final data = response.data as Map<String, dynamic>;
-    return data['credits'] as int;
+    final data =
+        _asJsonMap(response.data, context: '/v1/credits/balance response');
+    return _asInt(data['credits'], field: 'credits');
   }
 
   /// 거래 내역 조회
@@ -295,7 +333,8 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    return response.data as List<dynamic>;
+    return _asJsonList(response.data,
+        context: '/v1/credits/transactions response');
   }
 
   /// 구독 시작
@@ -315,19 +354,27 @@ class ApiClient {
     );
   }
 
-  /// 크레딧 추가 (구매)
-  Future<int> addCredits(int amount, {String? transactionId}) async {
+  /// 크레딧 추가 (관리자 결제 확정용)
+  /// 서버 정책상 관리자 키와 외부 결제 transactionId가 필요합니다.
+  Future<int> addCredits(
+    int amount, {
+    required String transactionId,
+    required String adminKey,
+  }) async {
     final response = await _dio.post(
       '/v1/credits/add',
       data: {
         'amount': amount,
-        if (transactionId != null) 'transaction_id': transactionId,
+        'transaction_id': transactionId,
       },
-      options: Options(headers: _headers),
+      options: Options(headers: {
+        ..._headers,
+        'X-Admin-Key': adminKey,
+      }),
     );
 
-    final data = response.data as Map<String, dynamic>;
-    return data['new_balance'] as int;
+    final data = _asJsonMap(response.data, context: '/v1/credits/add response');
+    return _asInt(data['new_balance'], field: 'new_balance');
   }
 
   // ==================== Streak ====================
@@ -339,7 +386,7 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    return response.data as Map<String, dynamic>;
+    return _asJsonMap(response.data, context: '/v1/streak/info response');
   }
 
   /// 오늘의 동화 조회
@@ -349,7 +396,7 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    return response.data as Map<String, dynamic>;
+    return _asJsonMap(response.data, context: '/v1/streak/today response');
   }
 
   /// 읽기 기록
@@ -368,7 +415,7 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    return response.data as Map<String, dynamic>;
+    return _asJsonMap(response.data, context: '/v1/streak/read response');
   }
 
   /// 읽기 기록 히스토리
@@ -379,8 +426,9 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    final data = response.data as Map<String, dynamic>;
-    return data['history'] as List<dynamic>;
+    final data =
+        _asJsonMap(response.data, context: '/v1/streak/history response');
+    return _asJsonList(data['history'], context: '/v1/streak/history.history');
   }
 
   /// 스트릭 캘린더
@@ -391,7 +439,60 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    return response.data as Map<String, dynamic>;
+    return _asJsonMap(response.data, context: '/v1/streak/calendar response');
+  }
+
+  Map<String, dynamic> _asJsonMap(dynamic value, {required String context}) {
+    if (value is Map<String, dynamic>) {
+      return value;
+    }
+    if (value is Map) {
+      final mapped = <String, dynamic>{};
+      for (final entry in value.entries) {
+        if (entry.key == null) {
+          continue;
+        }
+        mapped[entry.key.toString()] = entry.value;
+      }
+      return mapped;
+    }
+    throw FormatException('Expected JSON object for $context');
+  }
+
+  List<dynamic> _asJsonList(dynamic value, {required String context}) {
+    if (value is List<dynamic>) {
+      return value;
+    }
+    if (value is List) {
+      return List<dynamic>.from(value);
+    }
+    throw FormatException('Expected JSON array for $context');
+  }
+
+  int _asInt(dynamic value, {required String field}) {
+    if (value is int) {
+      return value;
+    }
+    if (value is num) {
+      return value.toInt();
+    }
+    if (value is String) {
+      final parsed = int.tryParse(value);
+      if (parsed != null) {
+        return parsed;
+      }
+    }
+    throw FormatException('Expected integer for $field');
+  }
+
+  String _asString(dynamic value, {required String field}) {
+    if (value is String) {
+      return value;
+    }
+    if (value == null) {
+      throw FormatException('Expected string for $field');
+    }
+    return value.toString();
   }
 }
 
@@ -407,8 +508,19 @@ class CreateBookResponse {
 
   factory CreateBookResponse.fromJson(Map<String, dynamic> json) {
     return CreateBookResponse(
-      jobId: json['job_id'] as String,
-      status: json['status'] as String,
+      jobId: _readRequiredString(json, 'job_id'),
+      status: _readRequiredString(json, 'status'),
     );
+  }
+
+  static String _readRequiredString(Map<String, dynamic> json, String field) {
+    final value = json[field];
+    if (value is String) {
+      return value;
+    }
+    if (value == null) {
+      throw FormatException('Missing required field: $field');
+    }
+    return value.toString();
   }
 }
