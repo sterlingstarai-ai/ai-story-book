@@ -142,6 +142,26 @@ class TestErrorResponseFormat:
         assert body["detail"] == "이미지 파일만 업로드 가능합니다."
         assert body["error"]["message"] == body["detail"]
 
+    @pytest.mark.asyncio
+    async def test_character_photo_oversized_file_uses_validation_error(
+        self,
+        client: AsyncClient,
+        headers: dict,
+    ):
+        """Oversized image uploads should return standardized VALIDATION_ERROR."""
+        oversized = b"0" * (10 * 1024 * 1024 + 1)
+        response = await client.post(
+            "/v1/characters/from-photo",
+            files={"photo": ("large.jpg", oversized, "image/jpeg")},
+            headers=headers,
+        )
+
+        assert response.status_code == 400
+        body = response.json()
+        assert body["error"]["code"] == "VALIDATION_ERROR"
+        assert body["detail"] == "파일 크기는 10MB 이하여야 합니다."
+        assert body["error"]["message"] == body["detail"]
+
 
 class TestHttpDetailNormalization:
     def test_normalize_http_detail_ignores_non_code_error_string(self):
