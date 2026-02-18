@@ -49,5 +49,37 @@ void main() {
       expect(newBalance, 42);
       await requestHandled.future.timeout(const Duration(seconds: 1));
     });
+
+    test('getCreditsBalance parses numeric string payload', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+
+      final requestHandled = Completer<void>();
+      server.listen((request) async {
+        if (request.method != 'GET' || request.uri.path != '/v1/credits/balance') {
+          request.response.statusCode = HttpStatus.notFound;
+          await request.response.close();
+          return;
+        }
+
+        expect(request.headers.value('x-user-key'), 'test-user');
+
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({'credits': '12'}));
+        await request.response.close();
+        requestHandled.complete();
+      });
+
+      final client = ApiClient(
+        baseUrl: 'http://${server.address.host}:${server.port}',
+        userKey: 'test-user',
+        enableLogging: false,
+      );
+
+      final credits = await client.getCreditsBalance();
+
+      expect(credits, 12);
+      await requestHandled.future.timeout(const Duration(seconds: 1));
+    });
   });
 }

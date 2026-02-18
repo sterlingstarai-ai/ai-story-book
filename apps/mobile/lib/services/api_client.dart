@@ -131,9 +131,15 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    final data = response.data as Map<String, dynamic>;
-    return (data['characters'] as List<dynamic>)
-        .map((c) => Character.fromJson(c as Map<String, dynamic>))
+    final data = _asJsonMap(response.data, context: '/v1/characters response');
+    final characters = _asJsonList(
+      data['characters'],
+      context: '/v1/characters.characters',
+    );
+
+    return characters
+        .whereType<Map>()
+        .map((c) => Character.fromJson(Map<String, dynamic>.from(c)))
         .toList();
   }
 
@@ -264,8 +270,11 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    final data = response.data as Map<String, dynamic>;
-    return data['audio_url'] as String;
+    final data = _asJsonMap(
+      response.data,
+      context: '/v1/books/$bookId/pages/$pageNumber/audio response',
+    );
+    return _asString(data['audio_url'], field: 'audio_url');
   }
 
   // ==================== Credits ====================
@@ -287,8 +296,8 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    final data = response.data as Map<String, dynamic>;
-    return data['credits'] as int;
+    final data = _asJsonMap(response.data, context: '/v1/credits/balance response');
+    return _asInt(data['credits'], field: 'credits');
   }
 
   /// 거래 내역 조회
@@ -300,7 +309,7 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    return response.data as List<dynamic>;
+    return _asJsonList(response.data, context: '/v1/credits/transactions response');
   }
 
   /// 구독 시작
@@ -339,8 +348,8 @@ class ApiClient {
       }),
     );
 
-    final data = response.data as Map<String, dynamic>;
-    return data['new_balance'] as int;
+    final data = _asJsonMap(response.data, context: '/v1/credits/add response');
+    return _asInt(data['new_balance'], field: 'new_balance');
   }
 
   // ==================== Streak ====================
@@ -392,8 +401,8 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    final data = response.data as Map<String, dynamic>;
-    return data['history'] as List<dynamic>;
+    final data = _asJsonMap(response.data, context: '/v1/streak/history response');
+    return _asJsonList(data['history'], context: '/v1/streak/history.history');
   }
 
   /// 스트릭 캘린더
@@ -405,6 +414,59 @@ class ApiClient {
     );
 
     return response.data as Map<String, dynamic>;
+  }
+
+  Map<String, dynamic> _asJsonMap(dynamic value, {required String context}) {
+    if (value is Map<String, dynamic>) {
+      return value;
+    }
+    if (value is Map) {
+      final mapped = <String, dynamic>{};
+      for (final entry in value.entries) {
+        if (entry.key == null) {
+          continue;
+        }
+        mapped[entry.key.toString()] = entry.value;
+      }
+      return mapped;
+    }
+    throw FormatException('Expected JSON object for $context');
+  }
+
+  List<dynamic> _asJsonList(dynamic value, {required String context}) {
+    if (value is List<dynamic>) {
+      return value;
+    }
+    if (value is List) {
+      return List<dynamic>.from(value);
+    }
+    throw FormatException('Expected JSON array for $context');
+  }
+
+  int _asInt(dynamic value, {required String field}) {
+    if (value is int) {
+      return value;
+    }
+    if (value is num) {
+      return value.toInt();
+    }
+    if (value is String) {
+      final parsed = int.tryParse(value);
+      if (parsed != null) {
+        return parsed;
+      }
+    }
+    throw FormatException('Expected integer for $field');
+  }
+
+  String _asString(dynamic value, {required String field}) {
+    if (value is String) {
+      return value;
+    }
+    if (value == null) {
+      throw FormatException('Expected string for $field');
+    }
+    return value.toString();
   }
 }
 
