@@ -88,3 +88,36 @@ class TestErrorResponseFormat:
         assert body["error"]["code"] == "daily_limit_exceeded"
         assert body["error"]["message"] == body["detail"]
         assert body["error"]["details"]["limit"] == 0
+
+    @pytest.mark.asyncio
+    async def test_internal_server_error_uses_standard_api_error_envelope(
+        self,
+        client: AsyncClient,
+        headers: dict,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Handled server failures should return INTERNAL_ERROR with request ID."""
+        from src.routers import credits as credits_router
+
+        async def _raise_subscription_error(*args, **kwargs):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(
+            credits_router.credits_service,
+            "create_subscription",
+            _raise_subscription_error,
+        )
+
+        response = await client.post(
+            "/v1/credits/subscribe",
+            json={"plan": "basic"},
+            headers=headers,
+        )
+
+        assert response.status_code == 500
+        body = response.json()
+        assert body["error"]["code"] == "INTERNAL_ERROR"
+        assert body["detail"] == body["error"]["message"]
+        assert body["detail"] == "구독 처리에 실패했습니다. 잠시 후 다시 시도해주세요."
+        assert isinstance(body.get("request_id"), str)
+        assert body["request_id"]

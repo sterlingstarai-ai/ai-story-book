@@ -74,6 +74,22 @@ class PaymentRequiredError(APIError):
         )
 
 
+class InternalServerError(APIError):
+    """Server-side processing error."""
+
+    def __init__(
+        self,
+        message: str = "서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
+        details: Optional[Any] = None,
+    ):
+        super().__init__(
+            status_code=500,
+            error_code="INTERNAL_ERROR",
+            message=message,
+            details=details,
+        )
+
+
 class RateLimitError(APIError):
     """Rate limit exceeded error."""
 

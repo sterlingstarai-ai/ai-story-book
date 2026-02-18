@@ -18,7 +18,7 @@ from src.models.db import Character
 from src.services.photo_character import photo_character_service
 from src.services.storage import storage_service
 from src.core.utils import utcnow
-from src.core.exceptions import NotFoundError, AuthorizationError
+from src.core.exceptions import AuthorizationError, InternalServerError, NotFoundError
 
 logger = structlog.get_logger()
 
@@ -242,9 +242,7 @@ async def create_character_from_text(
 
     except Exception as e:
         logger.error("Character creation from text failed", error=str(e))
-        raise HTTPException(
-            status_code=500, detail="캐릭터 생성에 실패했습니다. 잠시 후 다시 시도해주세요."
-        )
+        raise InternalServerError("캐릭터 생성에 실패했습니다. 잠시 후 다시 시도해주세요.")
 
 
 @router.post("/from-photo", response_model=CharacterResponse)
@@ -346,6 +344,4 @@ async def create_character_from_photo(
 
     except Exception as e:
         logger.error("Character creation from photo failed", error=str(e))
-        raise HTTPException(
-            status_code=500, detail="캐릭터 생성에 실패했습니다. 잠시 후 다시 시도해주세요."
-        )
+        raise InternalServerError("캐릭터 생성에 실패했습니다. 잠시 후 다시 시도해주세요.")

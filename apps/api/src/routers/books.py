@@ -29,6 +29,7 @@ from src.services.credits import credits_service
 from src.core.utils import utcnow
 from src.core.exceptions import (
     AuthorizationError,
+    InternalServerError,
     NotFoundError,
     PaymentRequiredError,
 )
@@ -143,9 +144,8 @@ async def _create_job_with_credit(
             description=refund_description,
             reference_id=job_id,
         )
-        raise HTTPException(
-            status_code=500,
-            detail="잡 생성에 실패했습니다. 크레딧이 환불되었습니다.",
+        raise InternalServerError(
+            message="잡 생성에 실패했습니다. 크레딧이 환불되었습니다."
         ) from e
 
 
@@ -528,9 +528,7 @@ async def export_book_pdf(
         pdf_bytes = await pdf_service.generate_pdf(book_data)
     except Exception as e:
         logger.error("PDF generation failed", book_id=book_id, error=str(e))
-        raise HTTPException(
-            status_code=500, detail="PDF 생성에 실패했습니다. 잠시 후 다시 시도해주세요."
-        )
+        raise InternalServerError("PDF 생성에 실패했습니다. 잠시 후 다시 시도해주세요.")
 
     # Return PDF as response
     # Use URL encoding for Korean filename to avoid header encoding issues
@@ -709,6 +707,4 @@ async def get_page_audio(
         logger.error(
             "Audio generation failed", book_id=book_id, page_number=page_number, error=str(e)
         )
-        raise HTTPException(
-            status_code=500, detail="오디오 생성에 실패했습니다. 잠시 후 다시 시도해주세요."
-        )
+        raise InternalServerError("오디오 생성에 실패했습니다. 잠시 후 다시 시도해주세요.")

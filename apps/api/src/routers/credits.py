@@ -3,7 +3,7 @@ Credits Router
 크레딧 및 구독 관련 API
 """
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from typing import Optional
@@ -13,7 +13,12 @@ import structlog
 
 from src.core.database import get_db
 from src.core.dependencies import get_user_key
-from src.core.exceptions import AuthorizationError, NotFoundError, ValidationError
+from src.core.exceptions import (
+    AuthorizationError,
+    InternalServerError,
+    NotFoundError,
+    ValidationError,
+)
 from src.services.credits import credits_service, SUBSCRIPTION_PLANS
 
 logger = structlog.get_logger()
@@ -198,9 +203,7 @@ async def subscribe(
         }
     except Exception as e:
         logger.error("Subscription creation failed", user_key=user_key[:8] + "...", error=str(e))
-        raise HTTPException(
-            status_code=500, detail="구독 처리에 실패했습니다. 잠시 후 다시 시도해주세요."
-        )
+        raise InternalServerError("구독 처리에 실패했습니다. 잠시 후 다시 시도해주세요.")
 
 
 @router.post("/cancel-subscription")
