@@ -1,3 +1,5 @@
+import 'json_parsing.dart';
+
 /// 서재의 책 모델
 class LibraryBook {
   final String id;
@@ -20,13 +22,25 @@ class LibraryBook {
 
   factory LibraryBook.fromJson(Map<String, dynamic> json) {
     return LibraryBook(
-      id: (json['book_id'] ?? json['id']) as String,
-      title: json['title'] as String,
-      coverImageUrl: json['cover_image_url'] as String,
-      targetAge: json['target_age'] as String,
-      style: json['style'] as String,
-      theme: json['theme'] as String?,
-      createdAt: DateTime.parse(json['created_at'] as String),
+      id: JsonParsing.asRequiredString(
+        json['book_id'] ?? json['id'],
+        field: 'book_id',
+      ),
+      title: JsonParsing.asRequiredString(json['title'], field: 'title'),
+      coverImageUrl: JsonParsing.asRequiredString(
+        json['cover_image_url'],
+        field: 'cover_image_url',
+      ),
+      targetAge: JsonParsing.asRequiredString(
+        json['target_age'],
+        field: 'target_age',
+      ),
+      style: JsonParsing.asRequiredString(json['style'], field: 'style'),
+      theme: JsonParsing.asOptionalString(json['theme']),
+      createdAt: JsonParsing.asRequiredDateTime(
+        json['created_at'],
+        field: 'created_at',
+      ),
     );
   }
 }
@@ -42,11 +56,16 @@ class LibraryResponse {
   });
 
   factory LibraryResponse.fromJson(Map<String, dynamic> json) {
+    final books = JsonParsing.asList(json['books'], field: 'books')
+        .map((book) => LibraryBook.fromJson(
+              JsonParsing.asMap(book, field: 'books[]'),
+            ))
+        .toList();
+
     return LibraryResponse(
-      books: (json['books'] as List<dynamic>)
-          .map((b) => LibraryBook.fromJson(b as Map<String, dynamic>))
-          .toList(),
-      total: json['total'] as int,
+      books: books,
+      total: JsonParsing.asOptionalInt(json['total'], field: 'total') ??
+          books.length,
     );
   }
 }
