@@ -117,7 +117,7 @@ jobs:
 
       - name: Upload coverage
         if: steps.api_tests.outcome == 'success'
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v5
         with:
           files: apps/api/coverage.xml
           flags: api
@@ -202,7 +202,7 @@ jobs:
 
       - name: Upload coverage
         if: steps.flutter_tests.outcome == 'success'
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v5
         with:
           files: apps/mobile/coverage/lcov.info
           flags: flutter
