@@ -16,6 +16,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
   bool _isLoading = true;
   Map<String, dynamic>? _creditsStatus;
   List<dynamic> _transactions = [];
+  final GlobalKey _plansSectionKey = GlobalKey();
 
   @override
   void initState() {
@@ -315,6 +316,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
     final plans = _creditsStatus?['available_plans'] as List<dynamic>? ?? [];
 
     return Column(
+      key: _plansSectionKey,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
@@ -467,7 +469,17 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
   }
 
   void _scrollToPlans() {
-    // TODO: Implement scroll to plans section
+    final context = _plansSectionKey.currentContext;
+    if (context == null) {
+      return;
+    }
+
+    Scrollable.ensureVisible(
+      context,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+      alignment: 0.1,
+    );
   }
 
   void _showPurchaseDialog() {
