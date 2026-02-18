@@ -55,6 +55,7 @@ class TestRateLimiting:
         assert body["error"]["code"] == "rate_limit_exceeded"
         assert body["error"]["message"] == body["detail"]
         assert body["error"]["details"]["retry_after"] == settings.rate_limit_window
+        assert response.headers.get("Retry-After") == str(settings.rate_limit_window)
         assert response.headers.get("X-RateLimit-Remaining") == "0"
         assert response.headers.get("X-RateLimit-Limit") == str(settings.rate_limit_requests)
 

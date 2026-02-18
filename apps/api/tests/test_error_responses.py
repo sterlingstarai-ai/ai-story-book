@@ -5,6 +5,7 @@ Error response format tests
 
 import pytest
 from httpx import AsyncClient
+from unittest.mock import AsyncMock
 from src.core.exceptions import _http_error_code, _normalize_http_detail
 
 
@@ -89,6 +90,28 @@ class TestErrorResponseFormat:
         assert body["error"]["code"] == "daily_limit_exceeded"
         assert body["error"]["message"] == body["detail"]
         assert body["error"]["details"]["limit"] == 0
+
+    @pytest.mark.asyncio
+    async def test_http_exception_preserves_retry_after_header(
+        self,
+        client: AsyncClient,
+        headers: dict,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Standardized HTTPException responses should preserve response headers."""
+        from src.core import rate_limit
+        from src.core.config import settings
+
+        monkeypatch.setattr(
+            rate_limit.rate_limiter,
+            "is_allowed",
+            AsyncMock(return_value=(False, 0)),
+        )
+
+        response = await client.get("/v1/library", headers=headers)
+
+        assert response.status_code == 429
+        assert response.headers.get("Retry-After") == str(settings.rate_limit_window)
 
     @pytest.mark.asyncio
     async def test_internal_server_error_uses_standard_api_error_envelope(

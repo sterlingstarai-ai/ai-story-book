@@ -100,6 +100,7 @@ async def check_rate_limit(request: Request):
                     "message": f"요청 한도 초과. {settings.rate_limit_window}초 후 다시 시도해주세요.",
                     "retry_after": settings.rate_limit_window,
                 },
+                headers={"Retry-After": str(settings.rate_limit_window)},
             )
     except redis.RedisError as e:
         # If Redis is down, log and allow request (fail open for availability)

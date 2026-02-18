@@ -279,6 +279,7 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
             details=details,
             request_id=_get_request_id(request),
         ),
+        headers=exc.headers,
     )
 
 

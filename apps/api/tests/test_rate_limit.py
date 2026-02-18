@@ -87,6 +87,7 @@ async def test_check_rate_limit_raises_429_when_limit_exceeded(
     assert exc.value.status_code == 429
     assert request.state.rate_limit_remaining == 0
     assert request.state.rate_limit_limit == settings.rate_limit_requests
+    assert exc.value.headers == {"Retry-After": str(settings.rate_limit_window)}
 
 
 @pytest.mark.asyncio
