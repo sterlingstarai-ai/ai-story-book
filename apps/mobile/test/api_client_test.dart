@@ -81,5 +81,22 @@ void main() {
       expect(credits, 12);
       await requestHandled.future.timeout(const Duration(seconds: 1));
     });
+
+    test('CreateBookResponse.fromJson stringifies non-string values', () {
+      final parsed = CreateBookResponse.fromJson({
+        'job_id': 12345,
+        'status': 1,
+      });
+
+      expect(parsed.jobId, '12345');
+      expect(parsed.status, '1');
+    });
+
+    test('CreateBookResponse.fromJson throws on missing required fields', () {
+      expect(
+        () => CreateBookResponse.fromJson({'status': 'queued'}),
+        throwsA(isA<FormatException>()),
+      );
+    });
   });
 }

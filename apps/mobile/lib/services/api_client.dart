@@ -496,8 +496,19 @@ class CreateBookResponse {
 
   factory CreateBookResponse.fromJson(Map<String, dynamic> json) {
     return CreateBookResponse(
-      jobId: json['job_id'] as String,
-      status: json['status'] as String,
+      jobId: _readRequiredString(json, 'job_id'),
+      status: _readRequiredString(json, 'status'),
     );
+  }
+
+  static String _readRequiredString(Map<String, dynamic> json, String field) {
+    final value = json[field];
+    if (value is String) {
+      return value;
+    }
+    if (value == null) {
+      throw FormatException('Missing required field: $field');
+    }
+    return value.toString();
   }
 }
