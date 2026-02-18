@@ -13,6 +13,7 @@ import structlog
 
 from src.core.database import get_db
 from src.core.dependencies import get_user_key
+from src.core.exceptions import AuthorizationError, NotFoundError, ValidationError
 from src.services.credits import credits_service, SUBSCRIPTION_PLANS
 
 logger = structlog.get_logger()
@@ -175,9 +176,9 @@ async def subscribe(
     - 실제 결제 로직은 클라이언트에서 처리 후 호출
     """
     if request.plan not in SUBSCRIPTION_PLANS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid plan. Available: {list(SUBSCRIPTION_PLANS.keys())}",
+        raise ValidationError(
+            message="유효하지 않은 구독 플랜입니다.",
+            details={"available_plans": list(SUBSCRIPTION_PLANS.keys())},
         )
 
     try:
@@ -211,7 +212,7 @@ async def cancel_subscription(
     success = await credits_service.cancel_subscription(db, user_key)
 
     if not success:
-        raise HTTPException(status_code=404, detail="활성 구독이 없습니다.")
+        raise NotFoundError("활성 구독", user_key)
 
     return {
         "status": "success",
@@ -222,7 +223,7 @@ async def cancel_subscription(
 @router.post("/add")
 async def add_credits(
     request: AddCreditsRequest,
-    x_admin_key: str = Header(None, alias="X-Admin-Key"),
+    x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key"),
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
 ):
@@ -238,16 +239,17 @@ async def add_credits(
 
     admin_key = getattr(settings, "admin_api_key", None)
     if not admin_key or not x_admin_key:
-        raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다")
+        raise AuthorizationError("관리자 권한이 필요합니다")
     if not hmac.compare_digest(x_admin_key, admin_key):
-        raise HTTPException(status_code=403, detail="관리자 인증에 실패했습니다")
+        raise AuthorizationError("관리자 인증에 실패했습니다")
 
     if request.amount <= 0:
-        raise HTTPException(status_code=400, detail="Amount must be positive")
+        raise ValidationError("Amount must be positive")
 
     if not request.transaction_id:
-        raise HTTPException(
-            status_code=400, detail="결제 거래 ID(transaction_id)가 필요합니다"
+        raise ValidationError(
+            "결제 거래 ID(transaction_id)가 필요합니다",
+            details={"field": "transaction_id"},
         )
 
     new_balance = await credits_service.add_credits(
