@@ -724,6 +724,15 @@ async def get_page_audio(
         return {"audio_url": audio_url}
 
     except Exception as e:
+        try:
+            await db.rollback()
+        except Exception as rollback_error:
+            logger.warning(
+                "Audio generation rollback failed",
+                book_id=book_id,
+                page_number=page_number,
+                error=str(rollback_error),
+            )
         logger.error(
             "Audio generation failed", book_id=book_id, page_number=page_number, error=str(e)
         )

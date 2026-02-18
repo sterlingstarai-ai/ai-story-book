@@ -81,3 +81,24 @@ async def test_generate_audio_pages_rolls_back_and_continues_after_commit_failur
     assert synthesize_mock.await_count == 2
     assert upload_mock.await_count == 2
     assert page_two.audio_url == "https://cdn.example.com/audio-2.mp3"
+
+
+@pytest.mark.asyncio
+async def test_get_page_audio_rolls_back_when_commit_fails():
+    from src.core.exceptions import InternalServerError
+    from src.routers.books import get_page_audio
+
+    book = SimpleNamespace(id="book-123", user_key="user-123")
+    page = SimpleNamespace(id="page-1", text="hello", audio_url=None)
+    fake_db = _FakeDbSession([book, page])
+
+    synthesize_mock = AsyncMock(return_value=b"audio-1")
+    upload_mock = AsyncMock(return_value="https://cdn.example.com/audio-1.mp3")
+
+    with patch("src.routers.books.tts_service.synthesize_page", new=synthesize_mock):
+        with patch("src.routers.books.storage_service.upload_bytes", new=upload_mock):
+            with pytest.raises(InternalServerError):
+                await get_page_audio("book-123", 1, db=fake_db, user_key="user-123")
+
+    assert fake_db.commit_calls == 1
+    assert fake_db.rollback_calls == 1
