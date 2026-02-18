@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 from fastapi import HTTPException
+import redis.asyncio as redis
 from src.core.config import settings
 from src.core.rate_limit import RateLimiter, check_rate_limit, rate_limiter
 
@@ -102,3 +103,25 @@ async def test_check_rate_limit_allows_when_within_limit(
 
     assert request.state.rate_limit_remaining == 3
     assert request.state.rate_limit_limit == settings.rate_limit_requests
+
+
+@pytest.mark.asyncio
+async def test_ping_returns_true_when_redis_responds(monkeypatch: pytest.MonkeyPatch):
+    limiter = RateLimiter()
+    redis_client = MagicMock()
+    redis_client.ping = AsyncMock(return_value=True)
+    monkeypatch.setattr(limiter, "get_redis", AsyncMock(return_value=redis_client))
+
+    assert await limiter.ping() is True
+
+
+@pytest.mark.asyncio
+async def test_ping_returns_false_on_redis_error(monkeypatch: pytest.MonkeyPatch):
+    limiter = RateLimiter()
+    monkeypatch.setattr(
+        limiter,
+        "get_redis",
+        AsyncMock(side_effect=redis.RedisError("Connection refused")),
+    )
+
+    assert await limiter.ping() is False

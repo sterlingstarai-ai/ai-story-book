@@ -60,6 +60,15 @@ class RateLimiter:
 
         return is_allowed, remaining
 
+    async def ping(self) -> bool:
+        """Check Redis connectivity without mutating rate-limit state."""
+        try:
+            r = await self.get_redis()
+            pong = await r.ping()
+            return bool(pong)
+        except redis.RedisError:
+            return False
+
     async def close(self):
         if self._redis:
             await self._redis.close()

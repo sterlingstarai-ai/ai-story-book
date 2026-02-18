@@ -306,7 +306,8 @@ async def detailed_health_check():
     # Check Redis connectivity
     redis_status = "healthy"
     try:
-        await rate_limiter.is_allowed("health_check_probe")
+        if not await rate_limiter.ping():
+            redis_status = "unhealthy"
     except Exception:
         redis_status = "unhealthy"
 
