@@ -134,6 +134,38 @@ def _http_error_code(status_code: int) -> str:
     return "HTTP_ERROR"
 
 
+def _is_likely_error_code(value: str) -> bool:
+    """Heuristic for machine-readable error codes (not prose)."""
+    normalized = value.strip()
+    if not normalized or " " in normalized:
+        return False
+    return all(ch.isalnum() or ch in {"_", "-"} for ch in normalized)
+
+
+def _extract_explicit_http_error_code(detail: dict[str, Any]) -> Optional[str]:
+    """Extract explicit error code from HTTPException detail payload."""
+    for code_key in ("error_code", "code"):
+        code_value = detail.get(code_key)
+        if isinstance(code_value, str):
+            normalized = code_value.strip()
+            if normalized:
+                return normalized
+
+    error_field = detail.get("error")
+    if isinstance(error_field, str):
+        normalized = error_field.strip()
+        if _is_likely_error_code(normalized):
+            return normalized
+    elif isinstance(error_field, dict):
+        nested_code = error_field.get("error_code") or error_field.get("code")
+        if isinstance(nested_code, str):
+            normalized = nested_code.strip()
+            if normalized:
+                return normalized
+
+    return None
+
+
 def _normalize_http_detail(detail: Any) -> tuple[str, Optional[Any], Optional[str]]:
     """Normalize HTTPException detail into message/details/optional explicit code."""
     if isinstance(detail, str):
@@ -143,12 +175,7 @@ def _normalize_http_detail(detail: Any) -> tuple[str, Optional[Any], Optional[st
         return "입력 정보를 확인해주세요.", detail, None
 
     if isinstance(detail, dict):
-        explicit_code = None
-        for code_key in ("error_code", "code", "error"):
-            code_value = detail.get(code_key)
-            if isinstance(code_value, str) and code_value.strip():
-                explicit_code = code_value
-                break
+        explicit_code = _extract_explicit_http_error_code(detail)
 
         msg = detail.get("message") or detail.get("detail")
         if isinstance(msg, str):
@@ -157,7 +184,7 @@ def _normalize_http_detail(detail: Any) -> tuple[str, Optional[Any], Optional[st
                 for k, v in detail.items()
                 if k not in {"message", "detail", "error", "error_code", "code"}
             }
-            return msg, extra or detail, explicit_code
+            return msg, extra or None, explicit_code
         return "요청 처리 중 오류가 발생했습니다.", detail, explicit_code
 
     if detail is None:

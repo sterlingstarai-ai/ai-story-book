@@ -5,6 +5,7 @@ Error response format tests
 
 import pytest
 from httpx import AsyncClient
+from src.core.exceptions import _normalize_http_detail
 
 
 class TestErrorResponseFormat:
@@ -121,3 +122,30 @@ class TestErrorResponseFormat:
         assert body["detail"] == "구독 처리에 실패했습니다. 잠시 후 다시 시도해주세요."
         assert isinstance(body.get("request_id"), str)
         assert body["request_id"]
+
+
+class TestHttpDetailNormalization:
+    def test_normalize_http_detail_ignores_non_code_error_string(self):
+        message, details, explicit_code = _normalize_http_detail(
+            {
+                "error": "internal server error",
+                "message": "처리 중 오류가 발생했습니다.",
+            }
+        )
+
+        assert explicit_code is None
+        assert message == "처리 중 오류가 발생했습니다."
+        assert details is None
+
+    def test_normalize_http_detail_reads_nested_error_code(self):
+        message, details, explicit_code = _normalize_http_detail(
+            {
+                "error": {"code": "system_overloaded"},
+                "message": "요청이 많습니다.",
+                "retry_after": 60,
+            }
+        )
+
+        assert explicit_code == "system_overloaded"
+        assert message == "요청이 많습니다."
+        assert details == {"retry_after": 60}
