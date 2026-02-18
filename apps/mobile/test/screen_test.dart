@@ -688,6 +688,35 @@ void main() {
 
       expect(tester.takeException(), isNull);
     });
+
+    testWidgets('renders transactions when amount is string without throwing',
+        (tester) async {
+      await tester.pumpWidget(buildTestableWidget(
+        const CreditsScreen(),
+        overrides: [
+          apiClientProvider.overrideWithValue(
+            _MockApiClient(
+              transactions: [
+                {
+                  'id': 1,
+                  'amount': '5',
+                  'balance_after': 15,
+                  'transaction_type': 'purchase',
+                  'description': null,
+                  'created_at': '2026-01-01T12:30:00Z',
+                },
+              ],
+            ),
+          ),
+        ],
+      ));
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(find.text('거래 내역'), findsOneWidget);
+      expect(find.text('purchase'), findsOneWidget);
+      expect(find.text('+5'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
   });
 }
 
@@ -743,7 +772,10 @@ class _MockErrorLibraryNotifier extends LibraryNotifier {
 
 /// Minimal mock API client that avoids actual HTTP calls
 class _MockApiClient extends ApiClient {
-  _MockApiClient() : super(baseUrl: 'http://localhost', userKey: 'test-key');
+  final List<dynamic> transactions;
+
+  _MockApiClient({this.transactions = const []})
+      : super(baseUrl: 'http://localhost', userKey: 'test-key');
 
   @override
   Future<Map<String, dynamic>> getCreditsStatus() async {
@@ -758,7 +790,7 @@ class _MockApiClient extends ApiClient {
   @override
   Future<List<dynamic>> getTransactions({int limit = 20, int offset = 0}) async {
     await Future.delayed(const Duration(milliseconds: 50));
-    return [];
+    return transactions;
   }
 }
 

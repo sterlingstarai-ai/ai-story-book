@@ -444,17 +444,21 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
             separatorBuilder: (_, __) => const Divider(height: 1),
             itemBuilder: (context, index) {
               final tx = _transactions[index];
-              final isPositive = (tx['amount'] as int) > 0;
+              final amount = _parseAmount(tx['amount']);
+              final isPositive = amount > 0;
+              final description = _coerceText(tx['description']) ??
+                  _coerceText(tx['transaction_type']) ??
+                  '거래';
 
               return ListTile(
                 leading: Icon(
                   isPositive ? Icons.add_circle : Icons.remove_circle,
                   color: isPositive ? AppColors.success : AppColors.error,
                 ),
-                title: Text(tx['description'] ?? tx['transaction_type']),
-                subtitle: Text(_formatDateTime(tx['created_at'])),
+                title: Text(description),
+                subtitle: Text(_formatDateTime(_coerceText(tx['created_at']))),
                 trailing: Text(
-                  '${isPositive ? '+' : ''}${tx['amount']}',
+                  '${isPositive ? '+' : ''}$amount',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     color: isPositive ? AppColors.success : AppColors.error,
@@ -596,5 +600,29 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
     } catch (e) {
       return isoDate;
     }
+  }
+
+  int _parseAmount(dynamic value) {
+    if (value is int) {
+      return value;
+    }
+    if (value is num) {
+      return value.toInt();
+    }
+    if (value is String) {
+      return int.tryParse(value) ?? 0;
+    }
+    return 0;
+  }
+
+  String? _coerceText(dynamic value) {
+    if (value == null) {
+      return null;
+    }
+    final text = value.toString().trim();
+    if (text.isEmpty) {
+      return null;
+    }
+    return text;
   }
 }
