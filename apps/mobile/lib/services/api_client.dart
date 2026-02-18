@@ -146,8 +146,14 @@ class ApiClient {
     );
 
     return characters
-        .whereType<Map>()
-        .map((c) => Character.fromJson(Map<String, dynamic>.from(c)))
+        .asMap()
+        .entries
+        .map((entry) => Character.fromJson(
+              _asJsonMap(
+                entry.value,
+                context: '/v1/characters.characters[${entry.key}]',
+              ),
+            ))
         .toList();
   }
 
@@ -159,7 +165,8 @@ class ApiClient {
     );
 
     return Character.fromJson(
-      _asJsonMap(response.data, context: '/v1/characters/$characterId response'),
+      _asJsonMap(response.data,
+          context: '/v1/characters/$characterId response'),
     );
   }
 
@@ -187,7 +194,8 @@ class ApiClient {
       ),
     );
 
-    return _asJsonMap(response.data, context: '/v1/characters/from-photo response');
+    return _asJsonMap(response.data,
+        context: '/v1/characters/from-photo response');
   }
 
   /// 텍스트로 캐릭터 생성 (사진 없이)
@@ -213,7 +221,8 @@ class ApiClient {
       ),
     );
 
-    return _asJsonMap(response.data, context: '/v1/characters/from-text response');
+    return _asJsonMap(response.data,
+        context: '/v1/characters/from-text response');
   }
 
   // ==================== Library ====================
@@ -310,7 +319,8 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    final data = _asJsonMap(response.data, context: '/v1/credits/balance response');
+    final data =
+        _asJsonMap(response.data, context: '/v1/credits/balance response');
     return _asInt(data['credits'], field: 'credits');
   }
 
@@ -323,7 +333,8 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    return _asJsonList(response.data, context: '/v1/credits/transactions response');
+    return _asJsonList(response.data,
+        context: '/v1/credits/transactions response');
   }
 
   /// 구독 시작
@@ -415,7 +426,8 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    final data = _asJsonMap(response.data, context: '/v1/streak/history response');
+    final data =
+        _asJsonMap(response.data, context: '/v1/streak/history response');
     return _asJsonList(data['history'], context: '/v1/streak/history.history');
   }
 

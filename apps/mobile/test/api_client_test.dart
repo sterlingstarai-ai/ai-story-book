@@ -8,7 +8,8 @@ import 'package:ai_story_book/services/api_client.dart';
 
 void main() {
   group('ApiClient', () {
-    test('addCredits sends admin key header and transaction_id payload', () async {
+    test('addCredits sends admin key header and transaction_id payload',
+        () async {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       addTearDown(() => server.close(force: true));
 
@@ -56,7 +57,8 @@ void main() {
 
       final requestHandled = Completer<void>();
       server.listen((request) async {
-        if (request.method != 'GET' || request.uri.path != '/v1/credits/balance') {
+        if (request.method != 'GET' ||
+            request.uri.path != '/v1/credits/balance') {
           request.response.statusCode = HttpStatus.notFound;
           await request.response.close();
           return;
@@ -79,6 +81,44 @@ void main() {
       final credits = await client.getCreditsBalance();
 
       expect(credits, 12);
+      await requestHandled.future.timeout(const Duration(seconds: 1));
+    });
+
+    test('getCharacters throws on malformed list entries', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+
+      final requestHandled = Completer<void>();
+      server.listen((request) async {
+        if (request.method != 'GET' || request.uri.path != '/v1/characters') {
+          request.response.statusCode = HttpStatus.notFound;
+          await request.response.close();
+          return;
+        }
+
+        expect(request.headers.value('x-user-key'), 'test-user');
+
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(
+          jsonEncode({
+            'characters': ['invalid-item'],
+            'total': 1,
+          }),
+        );
+        await request.response.close();
+        requestHandled.complete();
+      });
+
+      final client = ApiClient(
+        baseUrl: 'http://${server.address.host}:${server.port}',
+        userKey: 'test-user',
+        enableLogging: false,
+      );
+
+      expect(
+        () => client.getCharacters(),
+        throwsA(isA<FormatException>()),
+      );
       await requestHandled.future.timeout(const Duration(seconds: 1));
     });
 
