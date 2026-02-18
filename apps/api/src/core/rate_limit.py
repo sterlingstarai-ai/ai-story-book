@@ -100,6 +100,8 @@ async def check_rate_limit(request: Request):
             user_key=user_key[:8] + "..." if user_key else None,
             error=str(e),
         )
+    except HTTPException:
+        raise
     except Exception as e:
         # Unexpected errors should be logged but not block requests
         logger.error(
