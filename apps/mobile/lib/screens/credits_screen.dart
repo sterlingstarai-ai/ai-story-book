@@ -80,9 +80,9 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
   }
 
   Widget _buildCreditsCard() {
-    final credits = _creditsStatus?['credits'] ?? {};
-    final currentCredits = credits['credits'] ?? 0;
-    final totalUsed = credits['total_used'] ?? 0;
+    final credits = _asMap(_creditsStatus?['credits']);
+    final currentCredits = _parseAmount(credits['credits']);
+    final totalUsed = _parseAmount(credits['total_used']);
 
     return Container(
       padding: const EdgeInsets.all(AppSpacing.lg),
@@ -171,9 +171,9 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
   }
 
   Widget _buildSubscriptionCard() {
-    final subscription = _creditsStatus?['subscription'];
+    final subscription = _asMap(_creditsStatus?['subscription']);
 
-    if (subscription == null) {
+    if (subscription.isEmpty) {
       return Container(
         padding: const EdgeInsets.all(AppSpacing.lg),
         decoration: BoxDecoration(
@@ -227,7 +227,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
                   const Icon(Icons.card_membership, color: AppColors.primary),
                   const SizedBox(width: AppSpacing.sm),
                   Text(
-                    '${subscription['plan_name']} 구독',
+                    '${_coerceText(subscription['plan_name']) ?? '기본'} 구독',
                     style: AppTextStyles.heading3,
                   ),
                 ],
@@ -254,7 +254,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
             children: [
               _buildSubscriptionInfo(
                 '월간 크레딧',
-                '${subscription['credits_per_month']}개',
+                '${_parseAmount(subscription['credits_per_month'])}개',
               ),
               const SizedBox(width: AppSpacing.lg),
               _buildSubscriptionInfo(
@@ -267,14 +267,13 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
           Wrap(
             spacing: 8,
             runSpacing: 4,
-            children: (subscription['features'] as List<dynamic>?)
-                    ?.map((f) => Chip(
+            children: _asList(subscription['features'])
+                    .map((f) => Chip(
                           label: Text(f.toString(),
                               style: const TextStyle(fontSize: 12)),
                           backgroundColor: AppColors.primaryLight,
                         ))
-                    .toList() ??
-                [],
+                    .toList(),
           ),
           const SizedBox(height: AppSpacing.md),
           TextButton(
@@ -313,7 +312,11 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
   }
 
   Widget _buildPlansSection() {
-    final plans = _creditsStatus?['available_plans'] as List<dynamic>? ?? [];
+    final plans = _asList(_creditsStatus?['available_plans']);
+    final planMaps = plans
+        .whereType<Map>()
+        .map((plan) => Map<String, dynamic>.from(plan))
+        .toList();
 
     return Column(
       key: _plansSectionKey,
@@ -324,14 +327,19 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
           style: AppTextStyles.heading2,
         ),
         const SizedBox(height: AppSpacing.md),
-        ...plans.map((plan) => _buildPlanCard(plan)),
+        ...planMaps.map(_buildPlanCard),
       ],
     );
   }
 
   Widget _buildPlanCard(Map<String, dynamic> plan) {
+    final planId = _coerceText(plan['id']) ?? '';
+    final planName = _coerceText(plan['name']) ?? '플랜';
+    final price = _parseAmount(plan['price']);
+    final creditsPerMonth = _parseAmount(plan['credits_per_month']);
+    final features = _asList(plan['features']);
     final isCurrentPlan =
-        _creditsStatus?['subscription']?['plan'] == plan['id'];
+        _coerceText(_asMap(_creditsStatus?['subscription'])['plan']) == planId;
 
     return Container(
       margin: const EdgeInsets.only(bottom: AppSpacing.md),
@@ -351,7 +359,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                plan['name'],
+                planName,
                 style: AppTextStyles.heading3,
               ),
               if (isCurrentPlan)
@@ -374,7 +382,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            plan['price'] == 0 ? '무료' : '₩${_formatNumber(plan['price'])}/월',
+            price == 0 ? '무료' : '₩${_formatNumber(price)}/월',
             style: const TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.bold,
@@ -383,14 +391,14 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            '월 ${plan['credits_per_month']}권 생성 가능',
+            '월 $creditsPerMonth권 생성 가능',
             style: const TextStyle(color: AppColors.textSecondary),
           ),
           const SizedBox(height: AppSpacing.md),
           Wrap(
             spacing: 8,
             runSpacing: 4,
-            children: (plan['features'] as List<dynamic>)
+            children: features
                 .map((f) => Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -406,11 +414,11 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
                     ))
                 .toList(),
           ),
-          if (!isCurrentPlan && plan['id'] != 'free') ...[
+          if (!isCurrentPlan && planId != 'free' && planId.isNotEmpty) ...[
             const SizedBox(height: AppSpacing.md),
             PrimaryButton(
               text: '구독하기',
-              onPressed: () => _subscribe(plan['id']),
+              onPressed: () => _subscribe(planId),
             ),
           ],
         ],
@@ -624,5 +632,25 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
       return null;
     }
     return text;
+  }
+
+  Map<String, dynamic> _asMap(dynamic value) {
+    if (value is Map<String, dynamic>) {
+      return value;
+    }
+    if (value is Map) {
+      return Map<String, dynamic>.from(value);
+    }
+    return <String, dynamic>{};
+  }
+
+  List<dynamic> _asList(dynamic value) {
+    if (value is List<dynamic>) {
+      return value;
+    }
+    if (value is List) {
+      return List<dynamic>.from(value);
+    }
+    return const <dynamic>[];
   }
 }

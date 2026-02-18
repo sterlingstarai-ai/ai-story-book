@@ -717,6 +717,35 @@ void main() {
       expect(find.text('+5'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
+
+    testWidgets('handles malformed credits status payload without crashing',
+        (tester) async {
+      await tester.pumpWidget(buildTestableWidget(
+        const CreditsScreen(),
+        overrides: [
+          apiClientProvider.overrideWithValue(
+            _MockApiClient(
+              creditsStatus: {
+                'credits': 'unexpected',
+                'subscription': {
+                  'plan_name': 123,
+                  'credits_per_month': '10',
+                  'current_period_end': '2026-02-20T00:00:00Z',
+                  'features': 'not-a-list',
+                },
+                'available_plans': 'not-a-list',
+              },
+            ),
+          ),
+        ],
+      ));
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(find.text('123 구독'), findsOneWidget);
+      expect(find.text('월간 크레딧'), findsOneWidget);
+      expect(find.text('구독 플랜'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
   });
 }
 
@@ -772,19 +801,23 @@ class _MockErrorLibraryNotifier extends LibraryNotifier {
 
 /// Minimal mock API client that avoids actual HTTP calls
 class _MockApiClient extends ApiClient {
+  final Map<String, dynamic> creditsStatus;
   final List<dynamic> transactions;
 
-  _MockApiClient({this.transactions = const []})
+  _MockApiClient({
+    this.creditsStatus = const {
+      'credits': {'credits': 10, 'total_purchased': 0, 'total_used': 5},
+      'subscription': null,
+      'available_plans': [],
+    },
+    this.transactions = const [],
+  })
       : super(baseUrl: 'http://localhost', userKey: 'test-key');
 
   @override
   Future<Map<String, dynamic>> getCreditsStatus() async {
     await Future.delayed(const Duration(milliseconds: 50));
-    return {
-      'credits': {'credits': 10, 'total_purchased': 0, 'total_used': 5},
-      'subscription': null,
-      'available_plans': [],
-    };
+    return creditsStatus;
   }
 
   @override
