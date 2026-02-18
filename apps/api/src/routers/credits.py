@@ -202,8 +202,24 @@ async def subscribe(
             },
         }
     except Exception as e:
-        logger.error("Subscription creation failed", user_key=user_key[:8] + "...", error=str(e))
-        raise InternalServerError("구독 처리에 실패했습니다. 잠시 후 다시 시도해주세요.")
+        try:
+            await db.rollback()
+        except Exception as rollback_error:
+            logger.warning(
+                "Subscription rollback failed",
+                user_key=user_key[:8] + "...",
+                error=str(rollback_error),
+                original_error=str(e),
+            )
+
+        logger.error(
+            "Subscription creation failed",
+            user_key=user_key[:8] + "...",
+            error=str(e),
+        )
+        raise InternalServerError(
+            "구독 처리에 실패했습니다. 잠시 후 다시 시도해주세요."
+        ) from e
 
 
 @router.post("/cancel-subscription")
