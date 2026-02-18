@@ -126,3 +126,35 @@ async def test_ping_returns_false_on_redis_error(monkeypatch: pytest.MonkeyPatch
     )
 
     assert await limiter.ping() is False
+
+
+@pytest.mark.asyncio
+async def test_close_prefers_aclose_when_available():
+    limiter = RateLimiter()
+    redis_client = MagicMock()
+    redis_client.aclose = AsyncMock()
+    redis_client.close = AsyncMock()
+    limiter._redis = redis_client
+
+    await limiter.close()
+
+    redis_client.aclose.assert_awaited_once()
+    redis_client.close.assert_not_called()
+    assert limiter._redis is None
+
+
+@pytest.mark.asyncio
+async def test_close_falls_back_to_close_when_aclose_missing():
+    limiter = RateLimiter()
+
+    class LegacyRedisClient:
+        def __init__(self):
+            self.close = AsyncMock()
+
+    redis_client = LegacyRedisClient()
+    limiter._redis = redis_client
+
+    await limiter.close()
+
+    redis_client.close.assert_awaited_once()
+    assert limiter._redis is None

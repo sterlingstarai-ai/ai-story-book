@@ -70,8 +70,18 @@ class RateLimiter:
             return False
 
     async def close(self):
-        if self._redis:
+        if not self._redis:
+            return
+
+        # redis-py async client API changed across versions (`close` -> `aclose`).
+        # Prefer `aclose` when available and fall back to legacy `close`.
+        aclose = getattr(self._redis, "aclose", None)
+        if aclose is not None:
+            await aclose()
+        else:
             await self._redis.close()
+
+        self._redis = None
 
 
 rate_limiter = RateLimiter()
