@@ -5,7 +5,7 @@ Error response format tests
 
 import pytest
 from httpx import AsyncClient
-from src.core.exceptions import _normalize_http_detail
+from src.core.exceptions import _http_error_code, _normalize_http_detail
 
 
 class TestErrorResponseFormat:
@@ -149,3 +149,13 @@ class TestHttpDetailNormalization:
         assert explicit_code == "system_overloaded"
         assert message == "요청이 많습니다."
         assert details == {"retry_after": 60}
+
+
+class TestHttpStatusCodeMapping:
+    def test_http_error_code_covers_gateway_and_service_statuses(self):
+        assert _http_error_code(502) == "BAD_GATEWAY"
+        assert _http_error_code(503) == "SERVICE_UNAVAILABLE"
+        assert _http_error_code(504) == "GATEWAY_TIMEOUT"
+
+    def test_http_error_code_fallback_for_unmapped_status(self):
+        assert _http_error_code(418) == "HTTP_ERROR"
