@@ -836,7 +836,11 @@ class _MockApiClient extends ApiClient {
     },
     this.transactions = const [],
   })
-      : super(baseUrl: 'http://localhost', userKey: 'test-key');
+      : super(
+          baseUrl: 'http://localhost',
+          userKey: 'test-key',
+          enableLogging: false,
+        );
 
   @override
   Future<Map<String, dynamic>> getCreditsStatus() async {
