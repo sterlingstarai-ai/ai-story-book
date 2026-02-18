@@ -663,6 +663,31 @@ void main() {
 
       expect(tester.takeException(), isNull);
     });
+
+    testWidgets('credit purchase button shows subscription guidance dialog',
+        (tester) async {
+      await tester.pumpWidget(buildTestableWidget(
+        const CreditsScreen(),
+        overrides: [
+          apiClientProvider.overrideWithValue(_MockApiClient()),
+        ],
+      ));
+      await tester.pump(const Duration(milliseconds: 200));
+
+      final purchaseButton = find.text('크레딧 구매');
+      expect(purchaseButton, findsOneWidget);
+
+      await tester.tap(purchaseButton);
+      await tester.pumpAndSettle();
+
+      expect(find.text('크레딧 팩 구매 준비 중'), findsOneWidget);
+      expect(find.text('구독 플랜 보기'), findsOneWidget);
+
+      await tester.tap(find.text('구독 플랜 보기'));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+    });
   });
 }
 

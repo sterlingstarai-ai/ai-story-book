@@ -155,7 +155,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
             children: [
               Expanded(
                 child: OutlinedButton(
-                  onPressed: () => _showPurchaseDialog(),
+                  onPressed: _showPurchaseUnavailableDialog,
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.white,
                     side: const BorderSide(color: Colors.white70),
@@ -482,45 +482,29 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
     );
   }
 
-  void _showPurchaseDialog() {
+  void _showPurchaseUnavailableDialog() {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('크레딧 구매'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _buildPurchaseOption(5, 4900),
-            _buildPurchaseOption(15, 12900),
-            _buildPurchaseOption(30, 22900),
-          ],
+        title: const Text('크레딧 팩 구매 준비 중'),
+        content: const Text(
+          '현재는 구독 플랜을 통해서만 크레딧을 이용할 수 있어요.\n'
+          '아래 버튼에서 구독 플랜을 확인해주세요.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('취소'),
+            child: const Text('닫기'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _scrollToPlans();
+            },
+            child: const Text('구독 플랜 보기'),
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildPurchaseOption(int credits, int price) {
-    return ListTile(
-      title: Text('$credits 크레딧'),
-      subtitle: Text('₩${_formatNumber(price)}'),
-      trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-      onTap: () {
-        Navigator.pop(context);
-        _purchaseCredits(credits, price);
-      },
-    );
-  }
-
-  Future<void> _purchaseCredits(int credits, int price) async {
-    // TODO: Implement in-app purchase flow
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('인앱 결제 기능은 준비 중입니다.')),
     );
   }
 
