@@ -1,3 +1,5 @@
+import 'json_parsing.dart';
+
 /// 캐릭터 시트 모델
 class Character {
   final String id;
@@ -21,18 +23,35 @@ class Character {
   });
 
   factory Character.fromJson(Map<String, dynamic> json) {
+    final personalityTraits = JsonParsing.asList(
+      json['personality_traits'],
+      field: 'personality_traits',
+    )
+        .map((trait) =>
+            JsonParsing.asRequiredString(trait, field: 'personality_traits[]'))
+        .toList();
+
     return Character(
-      id: (json['character_id'] ?? json['id']) as String,
-      name: json['name'] as String,
-      masterDescription: json['master_description'] as String,
-      appearance:
-          Appearance.fromJson(json['appearance'] as Map<String, dynamic>),
-      clothing: Clothing.fromJson(json['clothing'] as Map<String, dynamic>),
-      personalityTraits: (json['personality_traits'] as List<dynamic>)
-          .map((e) => e as String)
-          .toList(),
-      visualStyleNotes: json['visual_style_notes'] as String?,
-      createdAt: DateTime.parse(json['created_at'] as String),
+      id: JsonParsing.asRequiredString(
+        json['character_id'] ?? json['id'],
+        field: 'character_id',
+      ),
+      name: JsonParsing.asRequiredString(json['name'], field: 'name'),
+      masterDescription: JsonParsing.asRequiredString(
+        json['master_description'],
+        field: 'master_description',
+      ),
+      appearance: Appearance.fromJson(
+        JsonParsing.asMap(json['appearance'], field: 'appearance'),
+      ),
+      clothing: Clothing.fromJson(
+        JsonParsing.asMap(json['clothing'], field: 'clothing'),
+      ),
+      personalityTraits: personalityTraits,
+      visualStyleNotes:
+          JsonParsing.asOptionalString(json['visual_style_notes']),
+      createdAt: JsonParsing.asRequiredDateTime(json['created_at'],
+          field: 'created_at'),
     );
   }
 
@@ -65,11 +84,12 @@ class Appearance {
 
   factory Appearance.fromJson(Map<String, dynamic> json) {
     return Appearance(
-      ageVisual: json['age_visual'] as String,
-      face: json['face'] as String,
-      hair: json['hair'] as String,
-      skin: json['skin'] as String,
-      body: json['body'] as String,
+      ageVisual:
+          JsonParsing.asRequiredString(json['age_visual'], field: 'age_visual'),
+      face: JsonParsing.asRequiredString(json['face'], field: 'face'),
+      hair: JsonParsing.asRequiredString(json['hair'], field: 'hair'),
+      skin: JsonParsing.asRequiredString(json['skin'], field: 'skin'),
+      body: JsonParsing.asRequiredString(json['body'], field: 'body'),
     );
   }
 
@@ -98,10 +118,11 @@ class Clothing {
 
   factory Clothing.fromJson(Map<String, dynamic> json) {
     return Clothing(
-      top: json['top'] as String,
-      bottom: json['bottom'] as String,
-      shoes: json['shoes'] as String,
-      accessories: json['accessories'] as String,
+      top: JsonParsing.asRequiredString(json['top'], field: 'top'),
+      bottom: JsonParsing.asRequiredString(json['bottom'], field: 'bottom'),
+      shoes: JsonParsing.asRequiredString(json['shoes'], field: 'shoes'),
+      accessories: JsonParsing.asRequiredString(json['accessories'],
+          field: 'accessories'),
     );
   }
 

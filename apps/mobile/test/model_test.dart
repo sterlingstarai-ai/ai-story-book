@@ -287,6 +287,37 @@ void main() {
       expect(character.clothing.top, equals('티셔츠'));
       expect(character.personalityTraits, contains('호기심'));
     });
+
+    test('fromJson coerces mixed scalar types', () {
+      final json = {
+        'character_id': 777,
+        'name': 123,
+        'master_description': '설명',
+        'appearance': {
+          'age_visual': '5세',
+          'face': 9,
+          'hair': '없음',
+          'skin': '갈색 털',
+          'body': '통통함',
+        },
+        'clothing': {
+          'top': '티셔츠',
+          'bottom': '바지',
+          'shoes': '운동화',
+          'accessories': 0,
+        },
+        'personality_traits': ['호기심', 42],
+        'created_at': '2024-01-01T00:00:00Z',
+      };
+
+      final character = Character.fromJson(json);
+
+      expect(character.id, equals('777'));
+      expect(character.name, equals('123'));
+      expect(character.appearance.face, equals('9'));
+      expect(character.clothing.accessories, equals('0'));
+      expect(character.personalityTraits, equals(['호기심', '42']));
+    });
   });
 
   group('Appearance', () {
