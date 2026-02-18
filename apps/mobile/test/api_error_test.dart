@@ -122,5 +122,56 @@ void main() {
         '서버가 일시적으로 불안정합니다. 잠시 후 다시 시도해주세요.',
       );
     });
+
+    test('handles non-string envelope code without cast error', () {
+      final requestOptions = RequestOptions(path: '/v1/books');
+      final response = Response(
+        requestOptions: requestOptions,
+        statusCode: 500,
+        data: {
+          'error': {
+            'code': 1234,
+            'message': 'broken envelope code type',
+          },
+        },
+      );
+
+      final dioError = DioException(
+        requestOptions: requestOptions,
+        response: response,
+        type: DioExceptionType.badResponse,
+      );
+
+      final apiError = ApiError.fromDioException(dioError);
+
+      expect(apiError.code, 'INTERNAL_ERROR');
+      expect(apiError.message, 'broken envelope code type');
+      expect(apiError.statusCode, 500);
+    });
+
+    test('reads nested error message from detail map fallback', () {
+      final requestOptions = RequestOptions(path: '/v1/books');
+      final response = Response(
+        requestOptions: requestOptions,
+        statusCode: 503,
+        data: {
+          'detail': {
+            'error': {'message': 'upstream unavailable'},
+          },
+        },
+      );
+
+      final dioError = DioException(
+        requestOptions: requestOptions,
+        response: response,
+        type: DioExceptionType.badResponse,
+      );
+
+      final apiError = ApiError.fromDioException(dioError);
+
+      expect(apiError.code, 'SERVICE_UNAVAILABLE');
+      expect(apiError.message, 'upstream unavailable');
+      expect(apiError.statusCode, 503);
+    });
   });
 }

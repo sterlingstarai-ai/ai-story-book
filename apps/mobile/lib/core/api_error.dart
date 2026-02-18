@@ -24,9 +24,12 @@ class ApiError implements Exception {
       if (data is Map<String, dynamic> && data.containsKey('error')) {
         final error = data['error'];
         if (error is Map<String, dynamic>) {
+          final envelopeCode = _nonEmptyString(error['code']) ??
+              _nonEmptyString(error['error_code']);
+          final envelopeMessage = _nonEmptyString(error['message']);
           return ApiError(
-            code: error['code'] as String? ?? _codeFromStatus(statusCode),
-            message: (error['message'] as String?) ??
+            code: envelopeCode ?? _codeFromStatus(statusCode),
+            message: envelopeMessage ??
                 _messageFromDetail(data['detail']) ??
                 '알 수 없는 오류가 발생했습니다.',
             statusCode: statusCode,
@@ -119,9 +122,17 @@ class ApiError implements Exception {
       return detail;
     }
     if (detail is Map<String, dynamic>) {
-      final msg = detail['message'] ?? detail['detail'];
-      if (msg is String && msg.isNotEmpty) {
+      final msg = _nonEmptyString(detail['message']) ?? _nonEmptyString(detail['detail']);
+      if (msg != null) {
         return msg;
+      }
+
+      final error = detail['error'];
+      if (error is Map<String, dynamic>) {
+        final nestedMessage = _nonEmptyString(error['message']);
+        if (nestedMessage != null) {
+          return nestedMessage;
+        }
       }
       return '요청 처리 중 오류가 발생했습니다.';
     }
@@ -136,6 +147,12 @@ class ApiError implements Exception {
       return detail;
     }
     return null;
+  }
+
+  static String? _nonEmptyString(dynamic value) {
+    if (value is! String) return null;
+    final trimmed = value.trim();
+    return trimmed.isNotEmpty ? trimmed : null;
   }
 
   /// User-friendly error message
