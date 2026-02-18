@@ -537,7 +537,9 @@ async def export_book_pdf(
         pdf_bytes = await pdf_service.generate_pdf(book_data)
     except Exception as e:
         logger.error("PDF generation failed", book_id=book_id, error=str(e))
-        raise InternalServerError("PDF 생성에 실패했습니다. 잠시 후 다시 시도해주세요.")
+        raise InternalServerError(
+            "PDF 생성에 실패했습니다. 잠시 후 다시 시도해주세요."
+        ) from e
 
     # Return PDF as response
     # Use URL encoding for Korean filename to avoid header encoding issues
@@ -636,6 +638,15 @@ async def _generate_audio_pages(book_id: str, pages: list[dict]):
                     succeeded += 1
 
             except Exception as e:
+                try:
+                    await db.rollback()
+                except Exception as rollback_error:
+                    logger.warning(
+                        "Audio generation rollback failed",
+                        book_id=book_id,
+                        page_number=page_data["page_number"],
+                        error=str(rollback_error),
+                    )
                 failed_pages.append(page_data["page_number"])
                 logger.warning(
                     "Audio generation failed for page",
@@ -716,4 +727,6 @@ async def get_page_audio(
         logger.error(
             "Audio generation failed", book_id=book_id, page_number=page_number, error=str(e)
         )
-        raise InternalServerError("오디오 생성에 실패했습니다. 잠시 후 다시 시도해주세요.")
+        raise InternalServerError(
+            "오디오 생성에 실패했습니다. 잠시 후 다시 시도해주세요."
+        ) from e
