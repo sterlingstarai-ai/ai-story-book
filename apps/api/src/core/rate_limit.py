@@ -4,11 +4,17 @@ from fastapi import HTTPException, Request
 import redis.asyncio as redis
 from typing import Optional
 import structlog
+import uuid
 
 from src.core.config import settings
 from src.core.utils import utcnow
 
 logger = structlog.get_logger()
+
+
+def _rate_limit_member(now_ts: float) -> str:
+    """Build unique sorted-set member to prevent timestamp collision overrides."""
+    return f"{now_ts}:{uuid.uuid4().hex}"
 
 
 class RateLimiter:
@@ -34,12 +40,13 @@ class RateLimiter:
         window_start = now - settings.rate_limit_window
 
         key = f"rate_limit:{user_key}"
+        member = _rate_limit_member(now)
 
         pipe = r.pipeline()
         # Remove old entries
         pipe.zremrangebyscore(key, 0, window_start)
         # Add current request
-        pipe.zadd(key, {str(now): now})
+        pipe.zadd(key, {member: now})
         # Count requests in window
         pipe.zcard(key)
         # Set expiry
