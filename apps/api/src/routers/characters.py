@@ -30,6 +30,25 @@ logger = structlog.get_logger()
 router = APIRouter()
 
 
+async def _rollback_safely(
+    db: AsyncSession,
+    *,
+    operation: str,
+    error: Exception,
+    **log_kwargs,
+) -> None:
+    try:
+        await db.rollback()
+    except Exception as rollback_error:
+        logger.warning(
+            "DB rollback failed",
+            operation=operation,
+            error=str(rollback_error),
+            original_error=str(error),
+            **log_kwargs,
+        )
+
+
 @router.post("", response_model=CharacterResponse)
 async def create_character(
     request: CreateCharacterRequest,
@@ -56,8 +75,24 @@ async def create_character(
     )
 
     db.add(character)
-    await db.commit()
-    await db.refresh(character)
+    try:
+        await db.commit()
+        await db.refresh(character)
+    except Exception as e:
+        await _rollback_safely(
+            db,
+            operation="create_character",
+            error=e,
+            user_key=user_key[:8] + "...",
+        )
+        logger.error(
+            "Character creation failed",
+            user_key=user_key[:8] + "...",
+            error=str(e),
+        )
+        raise InternalServerError(
+            "캐릭터 저장에 실패했습니다. 잠시 후 다시 시도해주세요."
+        ) from e
 
     return CharacterResponse(
         character_id=character.id,
@@ -175,7 +210,25 @@ async def delete_character(
         raise AuthorizationError()
 
     await db.delete(character)
-    await db.commit()
+    try:
+        await db.commit()
+    except Exception as e:
+        await _rollback_safely(
+            db,
+            operation="delete_character",
+            error=e,
+            user_key=user_key[:8] + "...",
+            character_id=character_id,
+        )
+        logger.error(
+            "Character deletion failed",
+            user_key=user_key[:8] + "...",
+            character_id=character_id,
+            error=str(e),
+        )
+        raise InternalServerError(
+            "캐릭터 삭제에 실패했습니다. 잠시 후 다시 시도해주세요."
+        ) from e
 
     return {"message": "Character deleted successfully"}
 
@@ -246,8 +299,16 @@ async def create_character_from_text(
         )
 
     except Exception as e:
+        await _rollback_safely(
+            db,
+            operation="create_character_from_text",
+            error=e,
+            user_key=user_key[:8] + "...",
+        )
         logger.error("Character creation from text failed", error=str(e))
-        raise InternalServerError("캐릭터 생성에 실패했습니다. 잠시 후 다시 시도해주세요.")
+        raise InternalServerError(
+            "캐릭터 생성에 실패했습니다. 잠시 후 다시 시도해주세요."
+        ) from e
 
 
 @router.post("/from-photo", response_model=CharacterResponse)
@@ -348,5 +409,13 @@ async def create_character_from_photo(
         )
 
     except Exception as e:
+        await _rollback_safely(
+            db,
+            operation="create_character_from_photo",
+            error=e,
+            user_key=user_key[:8] + "...",
+        )
         logger.error("Character creation from photo failed", error=str(e))
-        raise InternalServerError("캐릭터 생성에 실패했습니다. 잠시 후 다시 시도해주세요.")
+        raise InternalServerError(
+            "캐릭터 생성에 실패했습니다. 잠시 후 다시 시도해주세요."
+        ) from e
