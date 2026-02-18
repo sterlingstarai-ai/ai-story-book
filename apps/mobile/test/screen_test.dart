@@ -744,6 +744,7 @@ void main() {
       expect(find.text('123 구독'), findsOneWidget);
       expect(find.text('월간 크레딧'), findsOneWidget);
       expect(find.text('구독 플랜'), findsOneWidget);
+      expect(find.text('현재 이용 가능한 구독 플랜이 없습니다.'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 

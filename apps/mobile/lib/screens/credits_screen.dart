@@ -324,7 +324,13 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
           style: AppTextStyles.heading2,
         ),
         const SizedBox(height: AppSpacing.md),
-        ...planMaps.map(_buildPlanCard),
+        if (planMaps.isEmpty)
+          const Text(
+            '현재 이용 가능한 구독 플랜이 없습니다.',
+            style: TextStyle(color: AppColors.textSecondary),
+          )
+        else
+          ...planMaps.map(_buildPlanCard),
       ],
     );
   }
