@@ -27,7 +27,11 @@ from src.services.tts import tts_service
 from src.services.storage import storage_service
 from src.services.credits import credits_service
 from src.core.utils import utcnow
-from src.core.exceptions import NotFoundError, AuthorizationError
+from src.core.exceptions import (
+    AuthorizationError,
+    NotFoundError,
+    PaymentRequiredError,
+)
 
 logger = structlog.get_logger()
 
@@ -83,6 +87,66 @@ def get_idempotency_key(
 ) -> Optional[str]:
     """Extract idempotency key from header"""
     return x_idempotency_key
+
+
+async def _create_job_with_credit(
+    *,
+    db: AsyncSession,
+    user_key: str,
+    job_id: str,
+    current_step: str,
+    credit_description: str,
+    refund_description: str,
+    idempotency_key: Optional[str] = None,
+):
+    """
+    Create a queued job with credit deduction and automatic refund on failure.
+    """
+    has_credits = await credits_service.has_credits(db, user_key, required=1)
+    if not has_credits:
+        raise PaymentRequiredError("크레딧이 부족합니다. 크레딧을 충전해주세요.")
+
+    credit_used = await credits_service.use_credit(
+        db,
+        user_key,
+        amount=1,
+        description=credit_description,
+        reference_id=job_id,
+    )
+    if not credit_used:
+        raise PaymentRequiredError("크레딧 차감에 실패했습니다.")
+
+    try:
+        job = Job(
+            id=job_id,
+            status="queued",
+            progress=0,
+            current_step=current_step,
+            user_key=user_key,
+            idempotency_key=idempotency_key,
+        )
+        db.add(job)
+        await db.commit()
+    except Exception as e:
+        logger.error(
+            "Job creation failed, refunding credit",
+            job_id=job_id,
+            user_key=user_key,
+            error=str(e),
+        )
+        await db.rollback()
+        await credits_service.add_credits(
+            db,
+            user_key,
+            amount=1,
+            transaction_type="refund",
+            description=refund_description,
+            reference_id=job_id,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="잡 생성에 실패했습니다. 크레딧이 환불되었습니다.",
+        ) from e
 
 
 async def check_guardrails(db: AsyncSession, user_key: str):
@@ -145,13 +209,6 @@ async def create_book(
     # Check guardrails (daily limit, system load)
     await check_guardrails(db, user_key)
 
-    # Check credits
-    has_credits = await credits_service.has_credits(db, user_key, required=1)
-    if not has_credits:
-        raise HTTPException(
-            status_code=402, detail="크레딧이 부족합니다. 크레딧을 충전해주세요."
-        )
-
     # Check idempotency
     if idempotency_key:
         result = await db.execute(
@@ -170,36 +227,15 @@ async def create_book(
     # Create new job
     job_id = f"job_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
 
-    # Deduct credit FIRST (before creating job to avoid race condition)
-    credit_used = await credits_service.use_credit(
-        db, user_key, amount=1, description="책 생성", reference_id=job_id
+    await _create_job_with_credit(
+        db=db,
+        user_key=user_key,
+        job_id=job_id,
+        current_step="대기 중",
+        credit_description="책 생성",
+        refund_description="잡 생성 실패 환불",
+        idempotency_key=idempotency_key,
     )
-    if not credit_used:
-        raise HTTPException(status_code=402, detail="크레딧 차감에 실패했습니다.")
-
-    # Create job after successful credit deduction
-    # If job creation fails, refund the credit
-    try:
-        job = Job(
-            id=job_id,
-            status="queued",
-            progress=0,
-            current_step="대기 중",
-            user_key=user_key,
-            idempotency_key=idempotency_key,
-        )
-        db.add(job)
-        await db.commit()
-    except Exception as e:
-        logger.error("Job creation failed, refunding credit", job_id=job_id, error=str(e))
-        await db.rollback()
-        await credits_service.add_credits(
-            db, user_key, amount=1,
-            transaction_type="refund",
-            description="잡 생성 실패 환불",
-            reference_id=job_id,
-        )
-        raise HTTPException(status_code=500, detail="잡 생성에 실패했습니다. 크레딧이 환불되었습니다.")
 
     # Start background task (Celery or FastAPI BackgroundTasks)
     # 테스트 환경에서는 background_tasks 실행 스킵 (테스트 안정화)
@@ -408,45 +444,17 @@ async def create_series_next(
         if prev_book.user_key != user_key:
             raise AuthorizationError()
 
-    # Check and deduct credits
-    has_credits = await credits_service.has_credits(db, user_key, required=1)
-    if not has_credits:
-        raise HTTPException(
-            status_code=402, detail="크레딧이 부족합니다. 크레딧을 충전해주세요."
-        )
-
     # Create new job for series
     job_id = f"series_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
 
-    # Deduct credit FIRST (before creating job to avoid race condition)
-    credit_used = await credits_service.use_credit(
-        db, user_key, amount=1, description="시리즈 생성", reference_id=job_id
+    await _create_job_with_credit(
+        db=db,
+        user_key=user_key,
+        job_id=job_id,
+        current_step="시리즈 생성 대기 중",
+        credit_description="시리즈 생성",
+        refund_description="시리즈 잡 생성 실패 환불",
     )
-    if not credit_used:
-        raise HTTPException(status_code=402, detail="크레딧 차감에 실패했습니다.")
-
-    # Create job after successful credit deduction
-    # If job creation fails, refund the credit
-    try:
-        job = Job(
-            id=job_id,
-            status="queued",
-            progress=0,
-            current_step="시리즈 생성 대기 중",
-            user_key=user_key,
-        )
-        db.add(job)
-        await db.commit()
-    except Exception as e:
-        logger.error("Series job creation failed, refunding credit", job_id=job_id, error=str(e))
-        await db.rollback()
-        await credits_service.add_credits(
-            db, user_key, amount=1,
-            transaction_type="refund",
-            description="시리즈 잡 생성 실패 환불",
-            reference_id=job_id,
-        )
-        raise HTTPException(status_code=500, detail="잡 생성에 실패했습니다. 크레딧이 환불되었습니다.")
 
     # Start background task for series generation
     # 테스트 환경에서는 background_tasks 실행 스킵 (테스트 안정화)
