@@ -66,7 +66,9 @@ class ApiClient {
       options: Options(headers: headers),
     );
 
-    return CreateBookResponse.fromJson(response.data as Map<String, dynamic>);
+    return CreateBookResponse.fromJson(
+      _asJsonMap(response.data, context: '/v1/books response'),
+    );
   }
 
   /// 책 생성 상태 조회
@@ -76,7 +78,9 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    return JobStatus.fromJson(response.data as Map<String, dynamic>);
+    return JobStatus.fromJson(
+      _asJsonMap(response.data, context: '/v1/books/$jobId response'),
+    );
   }
 
   /// 페이지 재생성
@@ -108,7 +112,9 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    return CreateBookResponse.fromJson(response.data as Map<String, dynamic>);
+    return CreateBookResponse.fromJson(
+      _asJsonMap(response.data, context: '/v1/books/series response'),
+    );
   }
 
   // ==================== Characters ====================
@@ -121,7 +127,9 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    return Character.fromJson(response.data as Map<String, dynamic>);
+    return Character.fromJson(
+      _asJsonMap(response.data, context: '/v1/characters create response'),
+    );
   }
 
   /// 캐릭터 목록
@@ -150,7 +158,9 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    return Character.fromJson(response.data as Map<String, dynamic>);
+    return Character.fromJson(
+      _asJsonMap(response.data, context: '/v1/characters/$characterId response'),
+    );
   }
 
   /// 사진에서 캐릭터 생성
@@ -177,7 +187,7 @@ class ApiClient {
       ),
     );
 
-    return response.data as Map<String, dynamic>;
+    return _asJsonMap(response.data, context: '/v1/characters/from-photo response');
   }
 
   /// 텍스트로 캐릭터 생성 (사진 없이)
@@ -203,7 +213,7 @@ class ApiClient {
       ),
     );
 
-    return response.data as Map<String, dynamic>;
+    return _asJsonMap(response.data, context: '/v1/characters/from-text response');
   }
 
   // ==================== Library ====================
@@ -222,7 +232,9 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    return LibraryResponse.fromJson(response.data as Map<String, dynamic>);
+    return LibraryResponse.fromJson(
+      _asJsonMap(response.data, context: '/v1/library response'),
+    );
   }
 
   /// 책 상세 (서재에서 조회)
@@ -232,7 +244,9 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    return BookResult.fromJson(response.data as Map<String, dynamic>);
+    return BookResult.fromJson(
+      _asJsonMap(response.data, context: '/v1/books/$bookId/detail response'),
+    );
   }
 
   /// PDF 다운로드
@@ -286,7 +300,7 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    return response.data as Map<String, dynamic>;
+    return _asJsonMap(response.data, context: '/v1/credits/status response');
   }
 
   /// 크레딧 잔액 조회
@@ -361,7 +375,7 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    return response.data as Map<String, dynamic>;
+    return _asJsonMap(response.data, context: '/v1/streak/info response');
   }
 
   /// 오늘의 동화 조회
@@ -371,7 +385,7 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    return response.data as Map<String, dynamic>;
+    return _asJsonMap(response.data, context: '/v1/streak/today response');
   }
 
   /// 읽기 기록
@@ -390,7 +404,7 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    return response.data as Map<String, dynamic>;
+    return _asJsonMap(response.data, context: '/v1/streak/read response');
   }
 
   /// 읽기 기록 히스토리
@@ -413,7 +427,7 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    return response.data as Map<String, dynamic>;
+    return _asJsonMap(response.data, context: '/v1/streak/calendar response');
   }
 
   Map<String, dynamic> _asJsonMap(dynamic value, {required String context}) {
