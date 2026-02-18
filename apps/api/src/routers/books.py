@@ -3,6 +3,7 @@ from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_
 from typing import Optional
+from datetime import timedelta
 import uuid
 import structlog
 
@@ -156,7 +157,8 @@ async def check_guardrails(db: AsyncSession, user_key: str):
     Raises HTTPException if guardrails are violated.
     """
     # Check daily job limit per user
-    today_start = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    now = utcnow()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     daily_jobs_result = await db.execute(
         select(func.count(Job.id)).where(
             and_(Job.user_key == user_key, Job.created_at >= today_start)
@@ -165,6 +167,8 @@ async def check_guardrails(db: AsyncSession, user_key: str):
     daily_job_count = daily_jobs_result.scalar() or 0
 
     if daily_job_count >= settings.daily_job_limit_per_user:
+        next_day_start = today_start + timedelta(days=1)
+        retry_after = max(1, int((next_day_start - now).total_seconds()))
         raise HTTPException(
             status_code=429,
             detail={
@@ -172,7 +176,9 @@ async def check_guardrails(db: AsyncSession, user_key: str):
                 "message": f"일일 생성 한도({settings.daily_job_limit_per_user}권)를 초과했습니다. 내일 다시 시도해주세요.",
                 "limit": settings.daily_job_limit_per_user,
                 "used": daily_job_count,
+                "retry_after": retry_after,
             },
+            headers={"Retry-After": str(retry_after)},
         )
 
     # Check total pending jobs in system
@@ -189,6 +195,7 @@ async def check_guardrails(db: AsyncSession, user_key: str):
                 "message": "시스템이 현재 많은 요청을 처리 중입니다. 잠시 후 다시 시도해주세요.",
                 "retry_after": 60,
             },
+            headers={"Retry-After": "60"},
         )
 
 

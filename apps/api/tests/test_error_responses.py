@@ -90,6 +90,10 @@ class TestErrorResponseFormat:
         assert body["error"]["code"] == "daily_limit_exceeded"
         assert body["error"]["message"] == body["detail"]
         assert body["error"]["details"]["limit"] == 0
+        assert body["error"]["details"]["retry_after"] > 0
+        assert response.headers.get("Retry-After") == str(
+            body["error"]["details"]["retry_after"]
+        )
 
     @pytest.mark.asyncio
     async def test_http_exception_preserves_retry_after_header(
@@ -112,6 +116,36 @@ class TestErrorResponseFormat:
 
         assert response.status_code == 429
         assert response.headers.get("Retry-After") == str(settings.rate_limit_window)
+
+    @pytest.mark.asyncio
+    async def test_system_overloaded_preserves_retry_after_header(
+        self,
+        client: AsyncClient,
+        headers: dict,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Overload guardrail should expose Retry-After on standardized response."""
+        from src.routers import books as books_router
+
+        monkeypatch.setattr(books_router.settings, "daily_job_limit_per_user", 999_999)
+        monkeypatch.setattr(books_router.settings, "max_pending_jobs", 0)
+
+        response = await client.post(
+            "/v1/books",
+            json={
+                "topic": "테스트 주제",
+                "language": "ko",
+                "target_age": "5-7",
+                "style": "watercolor",
+            },
+            headers=headers,
+        )
+
+        assert response.status_code == 503
+        body = response.json()
+        assert body["error"]["code"] == "system_overloaded"
+        assert body["error"]["details"]["retry_after"] == 60
+        assert response.headers.get("Retry-After") == "60"
 
     @pytest.mark.asyncio
     async def test_internal_server_error_uses_standard_api_error_envelope(
