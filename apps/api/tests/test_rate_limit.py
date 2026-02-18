@@ -158,3 +158,12 @@ async def test_close_falls_back_to_close_when_aclose_missing():
 
     redis_client.close.assert_awaited_once()
     assert limiter._redis is None
+
+
+@pytest.mark.asyncio
+async def test_close_noop_when_redis_not_initialized():
+    limiter = RateLimiter()
+
+    await limiter.close()
+
+    assert limiter._redis is None

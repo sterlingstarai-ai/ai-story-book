@@ -4,6 +4,7 @@ Error response format tests
 """
 
 import pytest
+from datetime import datetime, timezone
 from httpx import AsyncClient
 from unittest.mock import AsyncMock
 from src.core.exceptions import _http_error_code, _normalize_http_detail
@@ -73,6 +74,8 @@ class TestErrorResponseFormat:
         from src.routers import books as books_router
 
         monkeypatch.setattr(books_router.settings, "daily_job_limit_per_user", 0)
+        fixed_now = datetime(2026, 2, 18, 12, 0, 0, tzinfo=timezone.utc)
+        monkeypatch.setattr(books_router, "utcnow", lambda: fixed_now)
 
         response = await client.post(
             "/v1/books",
@@ -90,10 +93,8 @@ class TestErrorResponseFormat:
         assert body["error"]["code"] == "daily_limit_exceeded"
         assert body["error"]["message"] == body["detail"]
         assert body["error"]["details"]["limit"] == 0
-        assert body["error"]["details"]["retry_after"] > 0
-        assert response.headers.get("Retry-After") == str(
-            body["error"]["details"]["retry_after"]
-        )
+        assert body["error"]["details"]["retry_after"] == 43_200
+        assert response.headers.get("Retry-After") == "43200"
 
     @pytest.mark.asyncio
     async def test_http_exception_preserves_retry_after_header(
