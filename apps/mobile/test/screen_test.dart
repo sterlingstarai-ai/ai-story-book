@@ -746,6 +746,30 @@ void main() {
       expect(find.text('구독 플랜'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
+
+    testWidgets('handles non-string map keys in plan payload', (tester) async {
+      await tester.pumpWidget(buildTestableWidget(
+        const CreditsScreen(),
+        overrides: [
+          apiClientProvider.overrideWithValue(
+            _MockApiClient(
+              creditsStatus: {
+                'credits': {'credits': 2, 'total_purchased': 0, 'total_used': 1},
+                'subscription': null,
+                'available_plans': [
+                  {1: 'invalid-key-map'},
+                ],
+              },
+            ),
+          ),
+        ],
+      ));
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(find.text('구독 플랜'), findsOneWidget);
+      expect(find.text('플랜'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
   });
 }
 

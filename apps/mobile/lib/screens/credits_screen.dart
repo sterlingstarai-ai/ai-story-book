@@ -313,10 +313,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
 
   Widget _buildPlansSection() {
     final plans = _asList(_creditsStatus?['available_plans']);
-    final planMaps = plans
-        .whereType<Map>()
-        .map((plan) => Map<String, dynamic>.from(plan))
-        .toList();
+    final planMaps = plans.map(_asMap).where((plan) => plan.isNotEmpty).toList();
 
     return Column(
       key: _plansSectionKey,
@@ -639,7 +636,14 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
       return value;
     }
     if (value is Map) {
-      return Map<String, dynamic>.from(value);
+      final mapped = <String, dynamic>{};
+      for (final entry in value.entries) {
+        if (entry.key == null) {
+          continue;
+        }
+        mapped[entry.key.toString()] = entry.value;
+      }
+      return mapped;
     }
     return <String, dynamic>{};
   }
