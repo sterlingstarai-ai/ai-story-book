@@ -17,7 +17,11 @@ NC='\033[0m'
 
 # Configuration
 BASE_URL="${1:-http://localhost:8000}"
-TEST_USER_KEY="smoke-test-$(date +%s)"
+if command -v uuidgen >/dev/null 2>&1; then
+    TEST_USER_KEY="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+else
+    TEST_USER_KEY="550e8400-e29b-41d4-a716-446655440000"
+fi
 TIMEOUT=30
 
 # Counters
@@ -26,12 +30,12 @@ FAILED=0
 
 log_pass() {
     echo -e "${GREEN}PASS${NC}: $1"
-    ((PASSED++))
+    PASSED=$((PASSED + 1))
 }
 
 log_fail() {
     echo -e "${RED}FAIL${NC}: $1"
-    ((FAILED++))
+    FAILED=$((FAILED + 1))
 }
 
 log_info() {
@@ -218,13 +222,13 @@ main() {
     echo "========================================"
     echo ""
 
-    # Run tests
-    test_health
-    test_characters_list
-    test_library
-    test_credits_balance
-    test_streak_info
-    test_book_creation
+    # Run tests (continue even if some tests fail)
+    test_health || true
+    test_characters_list || true
+    test_library || true
+    test_credits_balance || true
+    test_streak_info || true
+    test_book_creation || true
 
     # Summary
     echo ""
