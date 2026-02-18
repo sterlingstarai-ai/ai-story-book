@@ -107,30 +107,47 @@ def _http_error_code(status_code: int) -> str:
         return "VALIDATION_ERROR"
     if status_code == 429:
         return "RATE_LIMIT_EXCEEDED"
+    if status_code == 502:
+        return "BAD_GATEWAY"
+    if status_code == 503:
+        return "SERVICE_UNAVAILABLE"
+    if status_code == 504:
+        return "GATEWAY_TIMEOUT"
     if 500 <= status_code < 600:
         return "INTERNAL_ERROR"
     return "HTTP_ERROR"
 
 
-def _normalize_http_detail(detail: Any) -> tuple[str, Optional[Any]]:
-    """Normalize HTTPException detail into user message + optional details."""
+def _normalize_http_detail(detail: Any) -> tuple[str, Optional[Any], Optional[str]]:
+    """Normalize HTTPException detail into message/details/optional explicit code."""
     if isinstance(detail, str):
-        return detail, None
+        return detail, None, None
 
     if isinstance(detail, list):
-        return "입력 정보를 확인해주세요.", detail
+        return "입력 정보를 확인해주세요.", detail, None
 
     if isinstance(detail, dict):
+        explicit_code = None
+        for code_key in ("error_code", "code", "error"):
+            code_value = detail.get(code_key)
+            if isinstance(code_value, str) and code_value.strip():
+                explicit_code = code_value
+                break
+
         msg = detail.get("message") or detail.get("detail")
         if isinstance(msg, str):
-            extra = {k: v for k, v in detail.items() if k not in {"message", "detail"}}
-            return msg, extra or detail
-        return "요청 처리 중 오류가 발생했습니다.", detail
+            extra = {
+                k: v
+                for k, v in detail.items()
+                if k not in {"message", "detail", "error", "error_code", "code"}
+            }
+            return msg, extra or detail, explicit_code
+        return "요청 처리 중 오류가 발생했습니다.", detail, explicit_code
 
     if detail is None:
-        return "요청 처리 중 오류가 발생했습니다.", None
+        return "요청 처리 중 오류가 발생했습니다.", None, None
 
-    return str(detail), detail
+    return str(detail), detail, None
 
 
 def _build_error_content(
@@ -200,8 +217,8 @@ async def api_exception_handler(request: Request, exc: APIError) -> JSONResponse
 
 async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
     """Handle plain HTTPException with standardized envelope."""
-    message, details = _normalize_http_detail(exc.detail)
-    code = _http_error_code(exc.status_code)
+    message, details, explicit_code = _normalize_http_detail(exc.detail)
+    code = explicit_code or _http_error_code(exc.status_code)
 
     logger.warning(
         "HTTP error",

@@ -59,3 +59,32 @@ class TestErrorResponseFormat:
         assert body["detail"] == body["error"]["message"]
         assert isinstance(body.get("request_id"), str)
         assert body["request_id"]
+
+    @pytest.mark.asyncio
+    async def test_http_detail_dict_preserves_explicit_error_code(
+        self,
+        client: AsyncClient,
+        headers: dict,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """HTTPException detail dict with 'error' should preserve that code."""
+        from src.routers import books as books_router
+
+        monkeypatch.setattr(books_router.settings, "daily_job_limit_per_user", 0)
+
+        response = await client.post(
+            "/v1/books",
+            json={
+                "topic": "테스트 주제",
+                "language": "ko",
+                "target_age": "5-7",
+                "style": "watercolor",
+            },
+            headers=headers,
+        )
+
+        assert response.status_code == 429
+        body = response.json()
+        assert body["error"]["code"] == "daily_limit_exceeded"
+        assert body["error"]["message"] == body["detail"]
+        assert body["error"]["details"]["limit"] == 0
