@@ -123,6 +123,25 @@ class TestErrorResponseFormat:
         assert isinstance(body.get("request_id"), str)
         assert body["request_id"]
 
+    @pytest.mark.asyncio
+    async def test_character_photo_invalid_content_type_uses_validation_error(
+        self,
+        client: AsyncClient,
+        headers: dict,
+    ):
+        """Invalid photo uploads should return standardized VALIDATION_ERROR."""
+        response = await client.post(
+            "/v1/characters/from-photo",
+            files={"photo": ("not-image.txt", b"plain text", "text/plain")},
+            headers=headers,
+        )
+
+        assert response.status_code == 400
+        body = response.json()
+        assert body["error"]["code"] == "VALIDATION_ERROR"
+        assert body["detail"] == "이미지 파일만 업로드 가능합니다."
+        assert body["error"]["message"] == body["detail"]
+
 
 class TestHttpDetailNormalization:
     def test_normalize_http_detail_ignores_non_code_error_string(self):

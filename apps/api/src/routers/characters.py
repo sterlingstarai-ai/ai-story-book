@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Form
+from fastapi import APIRouter, Depends, File, UploadFile, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import Optional
@@ -18,7 +18,12 @@ from src.models.db import Character
 from src.services.photo_character import photo_character_service
 from src.services.storage import storage_service
 from src.core.utils import utcnow
-from src.core.exceptions import AuthorizationError, InternalServerError, NotFoundError
+from src.core.exceptions import (
+    AuthorizationError,
+    InternalServerError,
+    NotFoundError,
+    ValidationError,
+)
 
 logger = structlog.get_logger()
 
@@ -262,12 +267,12 @@ async def create_character_from_photo(
     """
     # 파일 검증
     if not photo.content_type or not photo.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="이미지 파일만 업로드 가능합니다.")
+        raise ValidationError("이미지 파일만 업로드 가능합니다.")
 
     # 파일 크기 제한 (10MB)
     contents = await photo.read()
     if len(contents) > 10 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="파일 크기는 10MB 이하여야 합니다.")
+        raise ValidationError("파일 크기는 10MB 이하여야 합니다.")
 
     try:
         # 사진 분석 및 캐릭터 데이터 생성

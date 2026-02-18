@@ -98,5 +98,29 @@ void main() {
       expect(apiError.code, 'TIMEOUT');
       expect(apiError.statusCode, 0);
     });
+
+    test('maps 503 fallback to service unavailable code', () {
+      final requestOptions = RequestOptions(path: '/v1/books');
+      final response = Response(
+        requestOptions: requestOptions,
+        statusCode: 503,
+        data: {'detail': 'temporarily unavailable'},
+      );
+
+      final dioError = DioException(
+        requestOptions: requestOptions,
+        response: response,
+        type: DioExceptionType.badResponse,
+      );
+
+      final apiError = ApiError.fromDioException(dioError);
+
+      expect(apiError.code, 'SERVICE_UNAVAILABLE');
+      expect(apiError.message, 'temporarily unavailable');
+      expect(
+        apiError.userMessage,
+        '서버가 일시적으로 불안정합니다. 잠시 후 다시 시도해주세요.',
+      );
+    });
   });
 }

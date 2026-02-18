@@ -102,6 +102,12 @@ class ApiError implements Exception {
         return 'VALIDATION_ERROR';
       case 429:
         return 'RATE_LIMIT_EXCEEDED';
+      case 502:
+        return 'BAD_GATEWAY';
+      case 503:
+        return 'SERVICE_UNAVAILABLE';
+      case 504:
+        return 'GATEWAY_TIMEOUT';
       default:
         if (statusCode >= 500) return 'INTERNAL_ERROR';
         return 'API_ERROR';
@@ -151,6 +157,10 @@ class ApiError implements Exception {
         return '서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.';
       case 'RATE_LIMIT_EXCEEDED':
         return '요청이 너무 많습니다. 잠시 후 다시 시도해주세요.';
+      case 'BAD_GATEWAY':
+      case 'SERVICE_UNAVAILABLE':
+      case 'GATEWAY_TIMEOUT':
+        return '서버가 일시적으로 불안정합니다. 잠시 후 다시 시도해주세요.';
       case 'TIMEOUT':
         return message;
       case 'CONNECTION_ERROR':
