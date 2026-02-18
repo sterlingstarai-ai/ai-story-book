@@ -319,15 +319,23 @@ class ApiClient {
     );
   }
 
-  /// 크레딧 추가 (구매)
-  Future<int> addCredits(int amount, {String? transactionId}) async {
+  /// 크레딧 추가 (관리자 결제 확정용)
+  /// 서버 정책상 관리자 키와 외부 결제 transactionId가 필요합니다.
+  Future<int> addCredits(
+    int amount, {
+    required String transactionId,
+    required String adminKey,
+  }) async {
     final response = await _dio.post(
       '/v1/credits/add',
       data: {
         'amount': amount,
-        if (transactionId != null) 'transaction_id': transactionId,
+        'transaction_id': transactionId,
       },
-      options: Options(headers: _headers),
+      options: Options(headers: {
+        ..._headers,
+        'X-Admin-Key': adminKey,
+      }),
     );
 
     final data = response.data as Map<String, dynamic>;
