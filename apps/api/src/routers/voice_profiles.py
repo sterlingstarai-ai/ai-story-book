@@ -1,0 +1,290 @@
+"""
+Voice Profiles Router
+가족 목소리 프로필 CRUD + 동의 철회
+"""
+
+from __future__ import annotations
+
+import uuid
+from typing import Optional
+from urllib.parse import urlparse
+
+from fastapi import APIRouter, Depends, File, UploadFile
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.core.database import get_db
+from src.core.dependencies import get_user_key
+from src.core.exceptions import InternalServerError, NotFoundError, ValidationError
+from src.core.utils import utcnow
+from src.models.db import VoiceProfile
+from src.services.storage import storage_service
+
+router = APIRouter()
+_MAX_SAMPLE_AUDIO_BYTES = 15 * 1024 * 1024
+
+
+class VoiceProfileCreateRequest(BaseModel):
+    label: str = Field(min_length=1, max_length=40)
+    relationship: Optional[str] = Field(default=None, max_length=30)
+    sample_audio_url: str = Field(min_length=8, max_length=500)
+    provider_voice_id: Optional[str] = Field(default=None, max_length=120)
+    consented: bool = False
+
+
+class VoiceProfileUpdateRequest(BaseModel):
+    label: Optional[str] = Field(default=None, min_length=1, max_length=40)
+    relationship: Optional[str] = Field(default=None, max_length=30)
+    sample_audio_url: Optional[str] = Field(default=None, min_length=8, max_length=500)
+    provider_voice_id: Optional[str] = Field(default=None, max_length=120)
+    consented: Optional[bool] = None
+    active: Optional[bool] = None
+
+
+def _normalize_required_label(value: str) -> str:
+    normalized = value.strip()
+    if not normalized:
+        raise ValidationError("라벨은 공백일 수 없습니다.")
+    return normalized
+
+
+def _normalize_optional_text(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _normalize_required_url(value: str) -> str:
+    normalized = value.strip()
+    if not normalized:
+        raise ValidationError("샘플 오디오 URL은 공백일 수 없습니다.")
+
+    parsed = urlparse(normalized)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValidationError("유효한 샘플 오디오 URL이 필요합니다.")
+    return normalized
+
+
+def _serialize(profile: VoiceProfile) -> dict:
+    return {
+        "id": profile.id,
+        "label": profile.label,
+        "relationship": profile.relationship,
+        "sample_audio_url": profile.sample_audio_url,
+        "provider_voice_id": profile.provider_voice_id,
+        "consented": profile.consented,
+        "active": profile.active,
+        "created_at": profile.created_at,
+        "updated_at": profile.updated_at,
+    }
+
+
+def _audio_extension(content_type: Optional[str], filename: Optional[str]) -> str:
+    if filename:
+        lowered = filename.lower()
+        for ext in (".m4a", ".mp3", ".wav", ".aac", ".ogg", ".webm"):
+            if lowered.endswith(ext):
+                return ext
+
+    mapping = {
+        "audio/mpeg": ".mp3",
+        "audio/mp3": ".mp3",
+        "audio/wav": ".wav",
+        "audio/x-wav": ".wav",
+        "audio/mp4": ".m4a",
+        "audio/aac": ".aac",
+        "audio/ogg": ".ogg",
+        "audio/webm": ".webm",
+    }
+    if content_type:
+        return mapping.get(content_type.lower(), ".m4a")
+    return ".m4a"
+
+
+@router.post("/upload-sample")
+async def upload_voice_sample(
+    sample: UploadFile = File(..., description="음성 샘플 파일"),
+    user_key: str = Depends(get_user_key),
+):
+    if not sample.content_type or not sample.content_type.startswith("audio/"):
+        raise ValidationError("오디오 파일만 업로드 가능합니다.")
+
+    data = await sample.read()
+    if not data:
+        raise ValidationError("빈 파일은 업로드할 수 없습니다.")
+    if len(data) > _MAX_SAMPLE_AUDIO_BYTES:
+        raise ValidationError("샘플 오디오는 15MB 이하여야 합니다.")
+
+    ext = _audio_extension(sample.content_type, sample.filename)
+    object_key = f"voice-samples/{user_key}/{utcnow().strftime('%Y%m%d')}_{uuid.uuid4().hex}{ext}"
+
+    try:
+        url = await storage_service.upload_bytes(
+            data=data,
+            key=object_key,
+            content_type=sample.content_type or "audio/mp4",
+        )
+    except Exception as exc:
+        raise InternalServerError(
+            "샘플 오디오 업로드에 실패했습니다. 잠시 후 다시 시도해주세요."
+        ) from exc
+
+    return {
+        "sample_audio_url": url,
+        "content_type": sample.content_type,
+        "size_bytes": len(data),
+    }
+
+
+@router.get("")
+async def list_voice_profiles(
+    db: AsyncSession = Depends(get_db),
+    user_key: str = Depends(get_user_key),
+):
+    result = await db.execute(
+        select(VoiceProfile)
+        .where(VoiceProfile.user_key == user_key)
+        .order_by(VoiceProfile.created_at.desc())
+    )
+    profiles = result.scalars().all()
+    return {
+        "profiles": [_serialize(profile) for profile in profiles],
+    }
+
+
+@router.post("")
+async def create_voice_profile(
+    request: VoiceProfileCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    user_key: str = Depends(get_user_key),
+):
+    count_result = await db.execute(
+        select(VoiceProfile.id).where(VoiceProfile.user_key == user_key)
+    )
+    if len(count_result.all()) >= 5:
+        raise ValidationError("음성 프로필은 최대 5개까지 생성할 수 있습니다.")
+
+    if not request.consented:
+        raise ValidationError("가족 목소리 등록에는 보호자 동의가 필요합니다.")
+
+    normalized_label = _normalize_required_label(request.label)
+    normalized_relationship = _normalize_optional_text(request.relationship)
+    normalized_sample_url = _normalize_required_url(request.sample_audio_url)
+    normalized_provider_voice_id = _normalize_optional_text(request.provider_voice_id)
+
+    profile = VoiceProfile(
+        id=f"voice_{utcnow().strftime('%Y%m%d')}_{uuid.uuid4().hex[:8]}",
+        user_key=user_key,
+        label=normalized_label,
+        relationship=normalized_relationship,
+        sample_audio_url=normalized_sample_url,
+        provider_voice_id=normalized_provider_voice_id,
+        consented=True,
+        active=True,
+    )
+    db.add(profile)
+    await db.commit()
+    await db.refresh(profile)
+    return _serialize(profile)
+
+
+@router.patch("/{profile_id}")
+async def update_voice_profile(
+    profile_id: str,
+    request: VoiceProfileUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    user_key: str = Depends(get_user_key),
+):
+    result = await db.execute(
+        select(VoiceProfile).where(
+            VoiceProfile.id == profile_id,
+            VoiceProfile.user_key == user_key,
+        )
+    )
+    profile = result.scalar_one_or_none()
+    if not profile:
+        raise NotFoundError("음성 프로필", profile_id)
+
+    data = request.model_dump(exclude_none=True)
+    if "label" in data:
+        data["label"] = _normalize_required_label(str(data["label"]))
+    if "sample_audio_url" in data:
+        data["sample_audio_url"] = _normalize_required_url(str(data["sample_audio_url"]))
+    if "relationship" in data:
+        data["relationship"] = _normalize_optional_text(data["relationship"])
+    if "provider_voice_id" in data:
+        data["provider_voice_id"] = _normalize_optional_text(data["provider_voice_id"])
+
+    if request.active is True:
+        consented_after_update = profile.consented
+        if "consented" in data:
+            consented_after_update = bool(data["consented"])
+        if not consented_after_update:
+            raise ValidationError("동의가 없는 음성 프로필은 활성화할 수 없습니다.")
+
+    for key, value in data.items():
+        setattr(profile, key, value)
+
+    # 동의 철회 시 활성 해제 + 공급자 음성 키 제거
+    if request.consented is False:
+        profile.active = False
+        profile.provider_voice_id = None
+
+    await db.commit()
+    await db.refresh(profile)
+    return _serialize(profile)
+
+
+@router.post("/{profile_id}/revoke-consent")
+async def revoke_voice_profile_consent(
+    profile_id: str,
+    db: AsyncSession = Depends(get_db),
+    user_key: str = Depends(get_user_key),
+):
+    result = await db.execute(
+        select(VoiceProfile).where(
+            VoiceProfile.id == profile_id,
+            VoiceProfile.user_key == user_key,
+        )
+    )
+    profile = result.scalar_one_or_none()
+    if not profile:
+        raise NotFoundError("음성 프로필", profile_id)
+
+    profile.consented = False
+    profile.active = False
+    profile.provider_voice_id = None
+    await db.commit()
+    await db.refresh(profile)
+
+    return {
+        "status": "success",
+        "profile": _serialize(profile),
+    }
+
+
+@router.delete("/{profile_id}")
+async def delete_voice_profile(
+    profile_id: str,
+    db: AsyncSession = Depends(get_db),
+    user_key: str = Depends(get_user_key),
+):
+    result = await db.execute(
+        select(VoiceProfile).where(
+            VoiceProfile.id == profile_id,
+            VoiceProfile.user_key == user_key,
+        )
+    )
+    profile = result.scalar_one_or_none()
+    if not profile:
+        raise NotFoundError("음성 프로필", profile_id)
+
+    await db.delete(profile)
+    await db.commit()
+
+    return {
+        "status": "success",
+        "profile_id": profile_id,
+    }

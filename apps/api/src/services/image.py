@@ -71,7 +71,7 @@ async def _generate_openai(prompt: ImagePrompt) -> str:
             logger.error(
                 "OpenAI Image API error",
                 status=response.status_code,
-                body=response.text,
+                body_length=len(response.text or ""),
             )
             raise ImageError(
                 ErrorCode.IMAGE_FAILED,
@@ -145,7 +145,7 @@ async def _generate_replicate(prompt: ImagePrompt) -> str:
             logger.error(
                 "Replicate create error",
                 status=response.status_code,
-                body=response.text,
+                body_length=len(response.text or ""),
             )
             raise ImageError(
                 ErrorCode.IMAGE_FAILED,
@@ -234,7 +234,9 @@ async def _generate_fal(prompt: ImagePrompt) -> str:
 
         if response.status_code != 200:
             logger.error(
-                "FAL API error", status=response.status_code, body=response.text
+                "FAL API error",
+                status=response.status_code,
+                body_length=len(response.text or ""),
             )
             raise ImageError(
                 ErrorCode.IMAGE_FAILED,

@@ -17,7 +17,14 @@ class BaseTTSProvider(ABC):
     """TTS 제공자 기본 클래스"""
 
     @abstractmethod
-    async def synthesize(self, text: str, voice: str = "default") -> bytes:
+    async def synthesize(
+        self,
+        text: str,
+        voice: str = "default",
+        *,
+        language: str = "ko",
+        speaking_rate: float = 0.9,
+    ) -> bytes:
         """텍스트를 오디오로 변환"""
         pass
 
@@ -29,20 +36,32 @@ class GoogleTTSProvider(BaseTTSProvider):
         self.api_key = settings.google_tts_api_key
         self.base_url = "https://texttospeech.googleapis.com/v1/text:synthesize"
 
-    async def synthesize(self, text: str, voice: str = "ko-KR-Neural2-A") -> bytes:
+    async def synthesize(
+        self,
+        text: str,
+        voice: str = "ko-KR-Neural2-A",
+        *,
+        language: str = "ko",
+        speaking_rate: float = 0.9,
+    ) -> bytes:
         """Google Cloud TTS로 오디오 생성"""
         if not self.api_key:
             raise ValueError("GOOGLE_TTS_API_KEY not configured")
 
+        language_code = "ko-KR" if language == "ko" else "en-US"
+        resolved_voice = voice
+        if voice in {"default", "ko-KR-Neural2-A"}:
+            resolved_voice = "ko-KR-Neural2-A" if language == "ko" else "en-US-Neural2-F"
+
         payload = {
             "input": {"text": text},
             "voice": {
-                "languageCode": "ko-KR",
-                "name": voice,
+                "languageCode": language_code,
+                "name": resolved_voice,
             },
             "audioConfig": {
                 "audioEncoding": "MP3",
-                "speakingRate": 0.9,  # 아이들을 위해 약간 느리게
+                "speakingRate": speaking_rate,
                 "pitch": 0.0,
             },
         }
@@ -82,7 +101,14 @@ class ElevenLabsProvider(BaseTTSProvider):
         # ElevenLabs의 한국어 지원 음성 ID
         self.voice_id = settings.elevenlabs_voice_id
 
-    async def synthesize(self, text: str, voice: str = "default") -> bytes:
+    async def synthesize(
+        self,
+        text: str,
+        voice: str = "default",
+        *,
+        language: str = "ko",
+        speaking_rate: float = 0.9,
+    ) -> bytes:
         """ElevenLabs로 오디오 생성"""
         if not self.api_key:
             raise ValueError("ELEVENLABS_API_KEY not configured")
@@ -97,6 +123,7 @@ class ElevenLabsProvider(BaseTTSProvider):
                 "similarity_boost": 0.75,
                 "style": 0.5,
                 "use_speaker_boost": True,
+                "speed": speaking_rate,
             },
         }
 
@@ -126,7 +153,14 @@ class ElevenLabsProvider(BaseTTSProvider):
 class MockTTSProvider(BaseTTSProvider):
     """Mock TTS Provider for testing"""
 
-    async def synthesize(self, text: str, voice: str = "default") -> bytes:
+    async def synthesize(
+        self,
+        text: str,
+        voice: str = "default",
+        *,
+        language: str = "ko",
+        speaking_rate: float = 0.9,
+    ) -> bytes:
         """빈 MP3 반환 (테스트용)"""
         # 최소한의 유효한 MP3 헤더
         return bytes(
@@ -154,6 +188,13 @@ class MockTTSProvider(BaseTTSProvider):
 class TTSService:
     """TTS 서비스"""
 
+    AGE_SPEED_MAP = {
+        "3-5": 0.65,
+        "5-7": 0.80,
+        "7-9": 0.90,
+        "adult": 1.00,
+    }
+
     def __init__(self):
         self.provider = self._get_provider()
 
@@ -168,15 +209,35 @@ class TTSService:
         else:
             return MockTTSProvider()
 
-    async def synthesize_page(self, text: str, voice: Optional[str] = None) -> bytes:
+    def _resolve_speed(self, target_age: Optional[str]) -> float:
+        if not target_age:
+            return 0.9
+        return self.AGE_SPEED_MAP.get(target_age, 0.9)
+
+    async def synthesize_page(
+        self,
+        text: str,
+        voice: Optional[str] = None,
+        *,
+        target_age: Optional[str] = None,
+        language: str = "ko",
+    ) -> bytes:
         """페이지 텍스트를 오디오로 변환"""
         voice = voice or "default"
-        return await self.provider.synthesize(text, voice)
+        return await self.provider.synthesize(
+            text,
+            voice,
+            language=language,
+            speaking_rate=self._resolve_speed(target_age),
+        )
 
     async def synthesize_book(
         self,
         pages: list[dict],
         voice: Optional[str] = None,
+        *,
+        target_age: Optional[str] = None,
+        language: str = "ko",
     ) -> list[bytes]:
         """
         책 전체 페이지를 오디오로 변환
@@ -190,7 +251,12 @@ class TTSService:
         """
         results = []
         for page in pages:
-            audio = await self.synthesize_page(page["text"], voice)
+            audio = await self.synthesize_page(
+                page["text"],
+                voice,
+                target_age=target_age,
+                language=language,
+            )
             results.append(audio)
         return results
 

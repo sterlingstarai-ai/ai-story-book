@@ -4,15 +4,40 @@ Streak Router
 """
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
-from typing import Optional
+from typing import Literal, Optional
 
 from src.core.database import get_db
-from src.core.dependencies import get_user_key
+from src.core.dependencies import get_profile_id, get_user_key
+from src.core.exceptions import ValidationError
+from src.models.db import ChildProfile
 from src.services.streak import streak_service, DAILY_THEMES
 
 router = APIRouter()
+
+
+async def _validate_profile_ownership(
+    db: AsyncSession,
+    user_key: str,
+    profile_id: Optional[str],
+) -> Optional[str]:
+    if not isinstance(profile_id, str):
+        return None
+    normalized = profile_id.strip()
+    if not normalized:
+        return None
+    result = await db.execute(
+        select(ChildProfile).where(
+            ChildProfile.id == normalized,
+            ChildProfile.user_key == user_key,
+        )
+    )
+    profile = result.scalar_one_or_none()
+    if not profile:
+        raise ValidationError("유효하지 않은 프로필입니다.")
+    return normalized
 
 
 # ==================== Response Models ====================
@@ -49,6 +74,21 @@ class ReadingResultResponse(BaseModel):
     milestones: list[dict]
 
 
+class ReadingReportResponse(BaseModel):
+    period: Literal["weekly", "monthly"]
+    period_days: int
+    from_date: str
+    to_date: str
+    total_books_read: int
+    total_sessions: int
+    total_reading_minutes: int
+    average_reading_minutes: float
+    preferred_theme: Optional[str]
+    streak: dict
+    learning_progress: dict
+    daily_breakdown: list[dict]
+
+
 # ==================== Endpoints ====================
 
 
@@ -56,6 +96,7 @@ class ReadingResultResponse(BaseModel):
 async def get_streak_info(
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
+    profile_id: Optional[str] = Depends(get_profile_id),
 ):
     """
     스트릭 정보 조회
@@ -65,7 +106,12 @@ async def get_streak_info(
     - total_days: 총 읽은 일수
     - read_today: 오늘 읽었는지 여부
     """
-    info = await streak_service.get_streak_info(db, user_key)
+    scoped_profile_id = await _validate_profile_ownership(db, user_key, profile_id)
+    info = await streak_service.get_streak_info(
+        db,
+        user_key,
+        profile_id=scoped_profile_id,
+    )
     return StreakInfoResponse(**info)
 
 
@@ -101,6 +147,7 @@ async def record_reading(
     request: ReadingLogRequest,
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
+    profile_id: Optional[str] = Depends(get_profile_id),
 ):
     """
     읽기 기록
@@ -109,12 +156,14 @@ async def record_reading(
     - 오늘 처음 읽는 경우 스트릭 증가
     - 마일스톤 달성 시 알림
     """
+    scoped_profile_id = await _validate_profile_ownership(db, user_key, profile_id)
     result = await streak_service.record_reading(
         db=db,
         user_key=user_key,
         book_id=request.book_id,
         reading_time=request.reading_time,
         completed=request.completed,
+        profile_id=scoped_profile_id,
     )
 
     return ReadingResultResponse(**result)
@@ -125,6 +174,7 @@ async def get_reading_history(
     days: int = Query(default=30, ge=1, le=365),
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
+    profile_id: Optional[str] = Depends(get_profile_id),
 ):
     """
     읽기 기록 조회
@@ -132,7 +182,13 @@ async def get_reading_history(
     - 최근 N일간의 읽기 기록
     - 날짜별 그룹화
     """
-    history = await streak_service.get_reading_history(db, user_key, days)
+    scoped_profile_id = await _validate_profile_ownership(db, user_key, profile_id)
+    history = await streak_service.get_reading_history(
+        db,
+        user_key,
+        days,
+        profile_id=scoped_profile_id,
+    )
     return {"history": history}
 
 
@@ -161,6 +217,7 @@ async def get_streak_calendar(
     month: int = Query(..., ge=1, le=12),
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
+    profile_id: Optional[str] = Depends(get_profile_id),
 ):
     """
     스트릭 캘린더 조회
@@ -177,8 +234,12 @@ async def get_streak_calendar(
 
     # 읽기 기록 조회
     days_diff = (last_day - first_day).days + 1
+    scoped_profile_id = await _validate_profile_ownership(db, user_key, profile_id)
     history = await streak_service.get_reading_history(
-        db, user_key, days=days_diff + 30
+        db,
+        user_key,
+        days=days_diff + 30,
+        profile_id=scoped_profile_id,
     )
 
     # 해당 월의 날짜만 필터링
@@ -205,4 +266,29 @@ async def get_streak_calendar(
         "month": month,
         "days": calendar_data,
         "total_read_days": len(month_history),
+    }
+
+
+@router.get("/report", response_model=ReadingReportResponse)
+async def get_reading_report(
+    period: Literal["weekly", "monthly"] = Query(
+        default="weekly",
+        description="리포트 기간 (weekly|monthly)",
+    ),
+    db: AsyncSession = Depends(get_db),
+    user_key: str = Depends(get_user_key),
+    profile_id: Optional[str] = Depends(get_profile_id),
+):
+    """읽기 통계 리포트 (부모 대시보드용)"""
+    days = 7 if period == "weekly" else 30
+    scoped_profile_id = await _validate_profile_ownership(db, user_key, profile_id)
+    report = await streak_service.get_reading_report(
+        db=db,
+        user_key=user_key,
+        days=days,
+        profile_id=scoped_profile_id,
+    )
+    return {
+        "period": period,
+        **report,
     }

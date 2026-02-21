@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, File, UploadFile, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import Optional
+import random
 import uuid
 import structlog
 
@@ -13,10 +14,12 @@ from src.models.dto import (
     CharacterListResponse,
     CharacterAppearance,
     CharacterClothing,
+    ImagePrompt,
 )
 from src.models.db import Character
 from src.services.photo_character import photo_character_service
 from src.services.storage import storage_service
+from src.services.image import generate_image
 from src.core.utils import utcnow
 from src.core.exceptions import (
     AuthorizationError,
@@ -47,6 +50,136 @@ async def _rollback_safely(
             original_error=str(error),
             **log_kwargs,
         )
+
+
+_MAX_CHARACTER_IMAGE_BYTES = 10 * 1024 * 1024
+
+
+async def _validate_and_read_image(upload: UploadFile) -> bytes:
+    if not upload.content_type or not upload.content_type.startswith("image/"):
+        raise ValidationError("이미지 파일만 업로드 가능합니다.")
+
+    contents = await upload.read()
+    if len(contents) > _MAX_CHARACTER_IMAGE_BYTES:
+        raise ValidationError("파일 크기는 10MB 이하여야 합니다.")
+    return contents
+
+
+def _normalize_character_payload(character_data: dict) -> tuple[dict, dict]:
+    appearance = character_data.get("appearance", {})
+    clothing = character_data.get("clothing", {})
+
+    normalized_appearance = {
+        "age_visual": appearance.get("age_visual", "알 수 없음"),
+        "face": (
+            f"{appearance.get('eye_color', '')} 눈, "
+            f"{appearance.get('distinctive_features', [''])[0] if appearance.get('distinctive_features') else ''}"
+        ).strip(", ")
+        or "알 수 없음",
+        "hair": f"{appearance.get('hair_color', '')} {appearance.get('hair_style', '')}".strip()
+        or "알 수 없음",
+        "skin": appearance.get("skin_tone", "알 수 없음"),
+        "body": appearance.get("body_type", "알 수 없음"),
+    }
+
+    accessories_list = clothing.get("accessories", [])
+    normalized_clothing = {
+        "top": clothing.get("top", "알 수 없음"),
+        "bottom": clothing.get("bottom", "알 수 없음"),
+        "shoes": clothing.get("shoes", "알 수 없음"),
+        "accessories": ", ".join(accessories_list)
+        if isinstance(accessories_list, list)
+        else str(accessories_list) or "없음",
+    }
+    return normalized_appearance, normalized_clothing
+
+
+def _content_type_to_extension(content_type: Optional[str]) -> str:
+    mapping = {
+        "image/jpeg": ".jpg",
+        "image/jpg": ".jpg",
+        "image/png": ".png",
+        "image/webp": ".webp",
+    }
+    if not content_type:
+        return ".jpg"
+    return mapping.get(content_type.lower(), ".jpg")
+
+
+def _build_character_dict(
+    character: Character,
+    *,
+    normalized_appearance: dict,
+    normalized_clothing: dict,
+) -> dict:
+    return {
+        "character_id": character.id,
+        "name": character.name,
+        "master_description": character.master_description,
+        "appearance": CharacterAppearance(**normalized_appearance).model_dump(),
+        "clothing": CharacterClothing(**normalized_clothing).model_dump(),
+        "personality_traits": character.personality_traits,
+        "visual_style_notes": character.visual_style_notes,
+        "created_at": character.created_at,
+    }
+
+
+async def _generate_character_sheet_urls(
+    *,
+    character_data: dict,
+    style: str,
+) -> list[str]:
+    scene_prompts = character_data.get("sheet_scene_prompts")
+    if not isinstance(scene_prompts, list):
+        scene_prompts = []
+    normalized_scenes = [
+        str(item).strip() for item in scene_prompts if str(item).strip()
+    ][:3]
+
+    if not normalized_scenes:
+        normalized_scenes = [
+            "front full-body pose, neutral smile, clean background",
+            "side walking pose, gentle motion, clean background",
+            "happy expression pose, arms open, clean background",
+        ]
+
+    master_description = character_data.get(
+        "master_description",
+        "cute storybook character",
+    )
+    negative_prompt = (
+        "blurry, low quality, extra limbs, deformed face, watermark, "
+        "logo, text, scary, violent, nsfw"
+    )
+
+    urls: list[str] = []
+    for index, scene in enumerate(normalized_scenes, start=1):
+        prompt_text = (
+            f"{master_description}. Character sheet turn-around frame {index}. "
+            f"{scene}. Keep identity and colors consistent. "
+            f"Children storybook illustration, {style}."
+        )
+
+        try:
+            image_url = await generate_image(
+                ImagePrompt(
+                    page=index,
+                    positive_prompt=prompt_text,
+                    negative_prompt=negative_prompt,
+                    seed=random.randint(1, 2_147_483_647),
+                    aspect_ratio="3:4",
+                    guidance_notes="character_sheet",
+                )
+            )
+            if image_url:
+                urls.append(image_url)
+        except Exception as exc:
+            logger.warning(
+                "Character sheet image generation failed",
+                error=str(exc),
+                frame=index,
+            )
+    return urls
 
 
 @router.post("", response_model=CharacterResponse)
@@ -326,61 +459,28 @@ async def create_character_from_photo(
     - AI가 동화 스타일로 변환
     - 자동으로 캐릭터 시트 생성
     """
-    # 파일 검증
-    if not photo.content_type or not photo.content_type.startswith("image/"):
-        raise ValidationError("이미지 파일만 업로드 가능합니다.")
-
-    # 파일 크기 제한 (10MB)
-    contents = await photo.read()
-    if len(contents) > 10 * 1024 * 1024:
-        raise ValidationError("파일 크기는 10MB 이하여야 합니다.")
+    contents = await _validate_and_read_image(photo)
 
     try:
-        # 사진 분석 및 캐릭터 데이터 생성
         character_data = await photo_character_service.create_character_from_photo(
             image_data=contents,
             user_name=name,
             style=style,
         )
 
-        # 캐릭터 ID 생성
         character_id = f"char_{utcnow().strftime('%Y%m%d')}_{uuid.uuid4().hex[:8]}"
 
-        # 원본 사진 저장
-        photo_key = f"characters/{character_id}/photo.jpg"
+        ext = _content_type_to_extension(photo.content_type)
+        photo_key = f"characters/{character_id}/photo{ext}"
         await storage_service.upload_bytes(
             data=contents,
             key=photo_key,
             content_type=photo.content_type or "image/jpeg",
         )
 
-        # 캐릭터 생성 - CharacterResponse 스키마에 맞게 정규화
-        appearance = character_data.get("appearance", {})
-        clothing = character_data.get("clothing", {})
-
-        # Convert from-photo format to standard CharacterAppearance format
-        normalized_appearance = {
-            "age_visual": appearance.get("age_visual", "알 수 없음"),
-            "face": f"{appearance.get('eye_color', '')} 눈, {appearance.get('distinctive_features', [''])[0] if appearance.get('distinctive_features') else ''}".strip(
-                ", "
-            )
-            or "알 수 없음",
-            "hair": f"{appearance.get('hair_color', '')} {appearance.get('hair_style', '')}".strip()
-            or "알 수 없음",
-            "skin": appearance.get("skin_tone", "알 수 없음"),
-            "body": appearance.get("body_type", "알 수 없음"),
-        }
-
-        # Convert clothing - accessories as string, not list
-        accessories_list = clothing.get("accessories", [])
-        normalized_clothing = {
-            "top": clothing.get("top", "알 수 없음"),
-            "bottom": clothing.get("bottom", "알 수 없음"),
-            "shoes": clothing.get("shoes", "알 수 없음"),
-            "accessories": ", ".join(accessories_list)
-            if isinstance(accessories_list, list)
-            else str(accessories_list) or "없음",
-        }
+        normalized_appearance, normalized_clothing = _normalize_character_payload(
+            character_data
+        )
 
         character = Character(
             id=character_id,
@@ -397,16 +497,11 @@ async def create_character_from_photo(
         await db.commit()
         await db.refresh(character)
 
-        return CharacterResponse(
-            character_id=character.id,
-            name=character.name,
-            master_description=character.master_description,
-            appearance=CharacterAppearance(**normalized_appearance),
-            clothing=CharacterClothing(**normalized_clothing),
-            personality_traits=character.personality_traits,
-            visual_style_notes=character.visual_style_notes,
-            created_at=character.created_at,
-        )
+        return CharacterResponse(**_build_character_dict(
+            character,
+            normalized_appearance=normalized_appearance,
+            normalized_clothing=normalized_clothing,
+        ))
 
     except Exception as e:
         await _rollback_safely(
@@ -418,4 +513,94 @@ async def create_character_from_photo(
         logger.error("Character creation from photo failed", error=str(e))
         raise InternalServerError(
             "캐릭터 생성에 실패했습니다. 잠시 후 다시 시도해주세요."
+        ) from e
+
+
+@router.post("/from-drawing")
+async def create_character_from_drawing(
+    drawing: UploadFile = File(..., description="아이 그림 이미지"),
+    name: Optional[str] = Form(None, description="캐릭터 이름 (없으면 AI 제안)"),
+    style: str = Form("storybook_crayon", description="스타일"),
+    generate_sheet: bool = Form(True, description="캐릭터 시트 생성 여부"),
+    db: AsyncSession = Depends(get_db),
+    user_key: str = Depends(get_user_key),
+):
+    """
+    아이 그림을 캐릭터로 변환한다.
+
+    - 그림 분석으로 캐릭터 외형/성격 추론
+    - 캐릭터 레코드 저장
+    - 선택적으로 캐릭터 시트 이미지(포즈 3종) 생성
+    """
+    contents = await _validate_and_read_image(drawing)
+    source_image_url: Optional[str] = None
+
+    try:
+        character_data = await photo_character_service.create_character_from_drawing(
+            image_data=contents,
+            user_name=name,
+            style=style,
+        )
+
+        character_id = f"char_{utcnow().strftime('%Y%m%d')}_{uuid.uuid4().hex[:8]}"
+
+        ext = _content_type_to_extension(drawing.content_type)
+        drawing_key = f"characters/{character_id}/drawing{ext}"
+        try:
+            source_image_url = await storage_service.upload_bytes(
+                data=contents,
+                key=drawing_key,
+                content_type=drawing.content_type or "image/jpeg",
+            )
+        except Exception as storage_error:
+            logger.warning(
+                "Source drawing upload failed; continuing without stored source URL",
+                error=str(storage_error),
+            )
+
+        normalized_appearance, normalized_clothing = _normalize_character_payload(
+            character_data
+        )
+
+        character = Character(
+            id=character_id,
+            name=character_data["name"],
+            master_description=character_data["master_description"],
+            appearance=normalized_appearance,
+            clothing=normalized_clothing,
+            personality_traits=character_data.get("personality_traits", []),
+            visual_style_notes=character_data.get("visual_style_notes", ""),
+            user_key=user_key,
+        )
+        db.add(character)
+        await db.commit()
+        await db.refresh(character)
+
+        sheet_urls: list[str] = []
+        if generate_sheet:
+            sheet_urls = await _generate_character_sheet_urls(
+                character_data=character_data,
+                style=style,
+            )
+
+        base = _build_character_dict(
+            character,
+            normalized_appearance=normalized_appearance,
+            normalized_clothing=normalized_clothing,
+        )
+        return {
+            **base,
+            "source_image_url": source_image_url,
+            "character_sheet_urls": sheet_urls,
+        }
+    except Exception as e:
+        await _rollback_safely(
+            db,
+            operation="create_character_from_drawing",
+            error=e,
+            user_key=user_key[:8] + "...",
+        )
+        logger.error("Character creation from drawing failed", error=str(e))
+        raise InternalServerError(
+            "그림 기반 캐릭터 생성에 실패했습니다. 잠시 후 다시 시도해주세요."
         ) from e

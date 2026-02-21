@@ -140,14 +140,15 @@ class JobMonitor:
 
     async def _handle_stuck_job(self, session, job: Job, reason: str):
         """Handle a stuck job - retry or fail"""
+        max_job_retries = max(0, int(settings.job_max_retries))
         retry_count = job.retry_count or 0
 
-        if retry_count < MAX_JOB_RETRIES:
+        if retry_count < max_job_retries:
             # Retry the job
             job.status = "queued"
             job.retry_count = retry_count + 1
             job.last_retry_at = utcnow()
-            job.current_step = f"재시도 중... ({job.retry_count}/{MAX_JOB_RETRIES})"
+            job.current_step = f"재시도 중... ({job.retry_count}/{max_job_retries})"
             job.updated_at = utcnow()
 
             logger.info(
@@ -159,7 +160,7 @@ class JobMonitor:
         else:
             # Max retries exceeded, mark as failed
             await self._mark_job_failed(
-                session, job, reason, f"Max retries ({MAX_JOB_RETRIES}) exceeded"
+                session, job, reason, f"Max retries ({max_job_retries}) exceeded"
             )
 
     async def _mark_job_failed(self, session, job: Job, error_code: str, message: str):

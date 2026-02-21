@@ -122,7 +122,8 @@ class ApiError implements Exception {
       return detail;
     }
     if (detail is Map<String, dynamic>) {
-      final msg = _nonEmptyString(detail['message']) ?? _nonEmptyString(detail['detail']);
+      final msg = _nonEmptyString(detail['message']) ??
+          _nonEmptyString(detail['detail']);
       if (msg != null) {
         return msg;
       }
@@ -169,7 +170,7 @@ class ApiError implements Exception {
       case 'FORBIDDEN':
         return '접근 권한이 없습니다.';
       case 'PAYMENT_REQUIRED':
-        return '크레딧이 부족합니다.';
+        return message;
       case 'INTERNAL_ERROR':
         return '서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.';
       case 'RATE_LIMIT_EXCEEDED':

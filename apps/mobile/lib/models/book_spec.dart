@@ -6,6 +6,7 @@ class BookSpec {
   final String style;
   final int pageCount;
   final String? theme;
+  final String? protagonistName;
   final String? characterId; // 단일 캐릭터 (기존 호환)
   final List<String>? characterIds; // 다중 캐릭터 (가족 등)
   final List<String>? forbiddenElements;
@@ -17,6 +18,7 @@ class BookSpec {
     required this.style,
     this.pageCount = 8,
     this.theme,
+    this.protagonistName,
     this.characterId,
     this.characterIds,
     this.forbiddenElements,
@@ -29,6 +31,7 @@ class BookSpec {
         'style': style,
         'page_count': pageCount,
         if (theme != null) 'theme': theme,
+        if (protagonistName != null) 'protagonist_name': protagonistName,
         if (characterId != null) 'character_id': characterId,
         if (characterIds != null && characterIds!.isNotEmpty)
           'character_ids': characterIds,
@@ -65,6 +68,11 @@ enum BookStyle {
 
 /// 테마 옵션
 enum BookTheme {
+  lunarNewYear('설날', '설날'),
+  chuseok('추석', '추석'),
+  childrensDay('어린이날', '어린이날'),
+  christmas('크리스마스', '크리스마스'),
+  lifestyle('생활습관', '생활습관'),
   emotionalCoaching('감정코칭', '감정코칭'),
   friendship('우정', '우정'),
   family('가족', '가족'),

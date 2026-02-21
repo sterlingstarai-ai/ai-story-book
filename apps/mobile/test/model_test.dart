@@ -252,6 +252,52 @@ void main() {
       expect(page.quiz!.first.options, equals(['하나', '2']));
       expect(page.quiz!.first.answerIndex, equals(1));
     });
+
+    test('hasLearningContent is true when only comprehension exists', () {
+      final page = PageResult(
+        pageNumber: 1,
+        text: '본문',
+        imageUrl: 'https://example.com/page.jpg',
+        comprehensionQuestions: [
+          ComprehensionQuestion(
+            question: '누가 주인공인가요?',
+            answer: '토끼예요.',
+          ),
+        ],
+      );
+
+      expect(page.hasLearningContent, isTrue);
+    });
+
+    test('hasLearningContent is true when only quiz exists', () {
+      final page = PageResult(
+        pageNumber: 1,
+        text: '본문',
+        imageUrl: 'https://example.com/page.jpg',
+        quiz: [
+          QuizItem(
+            question: '정답은?',
+            options: ['하나', '둘'],
+            answerIndex: 0,
+          ),
+        ],
+      );
+
+      expect(page.hasLearningContent, isTrue);
+    });
+
+    test('hasLearningContent is false when all learning assets are empty', () {
+      final page = PageResult(
+        pageNumber: 1,
+        text: '본문',
+        imageUrl: 'https://example.com/page.jpg',
+        vocab: const [],
+        comprehensionQuestions: const [],
+        quiz: const [],
+      );
+
+      expect(page.hasLearningContent, isFalse);
+    });
   });
 
   group('Character', () {

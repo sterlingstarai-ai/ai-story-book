@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../utils/constants.dart';
+import '../widgets/app_shell.dart';
 import '../widgets/common_widgets.dart';
 import '../providers/providers.dart';
 
@@ -11,22 +12,34 @@ class HomeScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final libraryAsync = ref.watch(libraryProvider);
+    final streakAsync = ref.watch(homeStreakProvider);
 
-    return Scaffold(
-      backgroundColor: AppColors.background,
+    return AppShell(
+      currentIndex: 0,
       body: SafeArea(
         child: CustomScrollView(
           slivers: [
             // 헤더
-            const SliverToBoxAdapter(
+            SliverToBoxAdapter(
               child: Padding(
-                padding: EdgeInsets.all(AppSpacing.lg),
+                padding: const EdgeInsets.all(AppSpacing.lg),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('AI 동화책', style: AppTextStyles.heading1),
-                    SizedBox(height: AppSpacing.sm),
-                    Text(
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text('AI 동화책', style: AppTextStyles.heading1),
+                        ),
+                        IconButton(
+                          onPressed: () =>
+                              Navigator.pushNamed(context, '/settings'),
+                          icon: const Icon(Icons.settings_outlined),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    const Text(
                       '아이를 위한 맞춤 동화를 만들어보세요',
                       style: AppTextStyles.bodySmall,
                     ),
@@ -41,6 +54,37 @@ class HomeScreen extends ConsumerWidget {
                 padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
                 child: _CreateBookCard(
                   onTap: () => Navigator.pushNamed(context, '/create'),
+                ),
+              ),
+            ),
+
+            const SliverToBoxAdapter(
+              child: SizedBox(height: AppSpacing.xl),
+            ),
+
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+                child: streakAsync.when(
+                  data: (streak) => _StreakSummaryCard(
+                    data: streak,
+                    onTapPrimary: () {
+                      if (streak.todayBookId != null) {
+                        Navigator.pushNamed(
+                          context,
+                          '/viewer',
+                          arguments: streak.todayBookId,
+                        );
+                      } else {
+                        Navigator.pushNamed(context, '/create');
+                      }
+                    },
+                  ),
+                  loading: () => const _StreakLoadingCard(),
+                  error: (error, _) => _StreakErrorCard(
+                    message: '스트릭 정보를 불러오지 못했어요.',
+                    onRetry: () => ref.invalidate(homeStreakProvider),
+                  ),
                 ),
               ),
             ),
@@ -141,7 +185,6 @@ class HomeScreen extends ConsumerWidget {
           ],
         ),
       ),
-      bottomNavigationBar: const _BottomNavBar(currentIndex: 0),
     );
   }
 }
@@ -218,111 +261,297 @@ class _CreateBookCard extends StatelessWidget {
   }
 }
 
-/// 하단 네비게이션 바
-class _BottomNavBar extends StatelessWidget {
-  final int currentIndex;
+class _StreakSummaryCard extends StatelessWidget {
+  final HomeStreakSnapshot data;
+  final VoidCallback onTapPrimary;
 
-  const _BottomNavBar({required this.currentIndex});
+  const _StreakSummaryCard({
+    required this.data,
+    required this.onTapPrimary,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final recentDays = _recentDays(data.readDates);
+
     return Container(
-      decoration: const BoxDecoration(
-        color: AppColors.surface,
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.blackOverlayLight,
-            blurRadius: 10,
-            offset: Offset(0, -4),
-          ),
-        ],
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [
+            Color(0xFFFFEDD5),
+            Color(0xFFFFFBEB),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(
+          color: const Color(0xFFFED7AA),
+        ),
       ),
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.lg,
-            vertical: AppSpacing.sm,
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              _NavItem(
-                icon: Icons.home_rounded,
-                label: '홈',
-                isSelected: currentIndex == 0,
-                onTap: currentIndex == 0
-                    ? () {}
-                    : () => Navigator.pushReplacementNamed(context, '/'),
+              const Text('🔥', style: TextStyle(fontSize: 24)),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(
+                  '${data.currentStreak}일 연속 읽기',
+                  style: AppTextStyles.heading3,
+                ),
               ),
-              _NavItem(
-                icon: Icons.add_circle_rounded,
-                label: '만들기',
-                isSelected: currentIndex == 1,
-                onTap: () => Navigator.pushNamed(context, '/create'),
-              ),
-              _NavItem(
-                icon: Icons.auto_stories_rounded,
-                label: '서재',
-                isSelected: currentIndex == 2,
-                onTap: () =>
-                    Navigator.pushReplacementNamed(context, '/library'),
-              ),
-              _NavItem(
-                icon: Icons.people_rounded,
-                label: '캐릭터',
-                isSelected: currentIndex == 3,
-                onTap: () =>
-                    Navigator.pushReplacementNamed(context, '/characters'),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: data.readToday
+                      ? AppColors.successLight
+                      : AppColors.blackOverlayLight,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  data.readToday ? '오늘 읽음' : '오늘 미완료',
+                  style: AppTextStyles.caption.copyWith(
+                    color: AppColors.textPrimary,
+                  ),
+                ),
               ),
             ],
           ),
-        ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            '총 ${data.totalDays}일 읽었어요 · 최고 ${data.longestStreak}일',
+            style: AppTextStyles.bodySmall,
+          ),
+          const SizedBox(height: AppSpacing.md),
+          _TodayStoryPanel(
+            themeName: data.todayThemeName,
+            topic: data.todayTopic,
+            hasTodayBook: data.todayBookId != null,
+            onTap: onTapPrimary,
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Text(
+            '최근 7일',
+            style: AppTextStyles.caption.copyWith(
+              color: AppColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: recentDays
+                .map((entry) => _RecentDayDot(
+                      weekday: entry.label,
+                      read: entry.read,
+                    ))
+                .toList(),
+          ),
+        ],
       ),
     );
   }
+
+  List<_RecentDayEntry> _recentDays(Set<String> readDates) {
+    final now = DateTime.now();
+    final entries = <_RecentDayEntry>[];
+    for (var i = 6; i >= 0; i--) {
+      final date = now.subtract(Duration(days: i));
+      final key =
+          '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+      entries.add(
+        _RecentDayEntry(
+          label: _weekdayLabel(date.weekday),
+          read: readDates.contains(key),
+        ),
+      );
+    }
+    return entries;
+  }
+
+  String _weekdayLabel(int weekday) {
+    switch (weekday) {
+      case DateTime.monday:
+        return '월';
+      case DateTime.tuesday:
+        return '화';
+      case DateTime.wednesday:
+        return '수';
+      case DateTime.thursday:
+        return '목';
+      case DateTime.friday:
+        return '금';
+      case DateTime.saturday:
+        return '토';
+      case DateTime.sunday:
+        return '일';
+      default:
+        return '-';
+    }
+  }
 }
 
-class _NavItem extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final bool isSelected;
+class _TodayStoryPanel extends StatelessWidget {
+  final String themeName;
+  final String topic;
+  final bool hasTodayBook;
   final VoidCallback onTap;
 
-  const _NavItem({
-    required this.icon,
-    required this.label,
-    required this.isSelected,
+  const _TodayStoryPanel({
+    required this.themeName,
+    required this.topic,
+    required this.hasTodayBook,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final color = isSelected ? AppColors.primary : AppColors.textHint;
-
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md,
-          vertical: AppSpacing.sm,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: color, size: 24),
-            const SizedBox(height: AppSpacing.xs),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                color: color,
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-              ),
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '오늘의 동화 · $themeName',
+            style: AppTextStyles.caption.copyWith(
+              color: AppColors.textSecondary,
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            topic,
+            style: AppTextStyles.body,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          PrimaryButton(
+            text: hasTodayBook ? '이어 읽기' : '오늘 동화 만들기',
+            onPressed: onTap,
+            isFullWidth: false,
+          ),
+        ],
       ),
     );
   }
+}
+
+class _RecentDayDot extends StatelessWidget {
+  final String weekday;
+  final bool read;
+
+  const _RecentDayDot({
+    required this.weekday,
+    required this.read,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Container(
+          width: 18,
+          height: 18,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: read ? AppColors.success : AppColors.divider,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          weekday,
+          style: AppTextStyles.caption,
+        ),
+      ],
+    );
+  }
+}
+
+class _StreakLoadingCard extends StatelessWidget {
+  const _StreakLoadingCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: AppColors.divider),
+      ),
+      child: const Row(
+        children: [
+          SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          SizedBox(width: AppSpacing.sm),
+          Text('스트릭 정보를 불러오는 중...'),
+        ],
+      ),
+    );
+  }
+}
+
+class _StreakErrorCard extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+
+  const _StreakErrorCard({
+    required this.message,
+    required this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: AppColors.divider),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.error_outline, color: AppColors.error),
+              SizedBox(width: AppSpacing.sm),
+              Text('스트릭 카드 오류', style: AppTextStyles.heading3),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(message, style: AppTextStyles.bodySmall),
+          const SizedBox(height: AppSpacing.sm),
+          TextButton(
+            onPressed: onRetry,
+            child: const Text('다시 시도'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RecentDayEntry {
+  final String label;
+  final bool read;
+
+  const _RecentDayEntry({
+    required this.label,
+    required this.read,
+  });
 }

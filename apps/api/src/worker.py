@@ -6,6 +6,10 @@ from celery import Celery
 
 from src.core.config import settings
 
+# Ensure Celery soft/hard limits are always valid even with small SLA values.
+task_time_limit = max(60, int(settings.job_sla_seconds))
+task_soft_time_limit = max(30, task_time_limit - 30)
+
 # Create Celery app
 celery_app = Celery(
     "storybook",
@@ -21,8 +25,8 @@ celery_app.conf.update(
     timezone="Asia/Seoul",
     enable_utc=True,
     task_track_started=True,
-    task_time_limit=settings.job_sla_seconds,
-    task_soft_time_limit=settings.job_sla_seconds - 60,
+    task_time_limit=task_time_limit,
+    task_soft_time_limit=task_soft_time_limit,
     worker_prefetch_multiplier=1,
     task_acks_late=True,
     task_reject_on_worker_lost=True,

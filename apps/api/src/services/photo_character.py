@@ -37,14 +37,39 @@ class PhotoCharacterService:
         image_base64 = base64.b64encode(image_data).decode("utf-8")
 
         if self.llm_provider == "openai":
-            return await self._analyze_with_openai(image_base64)
+            return await self._analyze_with_openai(
+                image_base64,
+                self._get_analysis_prompt(),
+            )
         elif self.llm_provider == "anthropic":
-            return await self._analyze_with_anthropic(image_base64)
+            return await self._analyze_with_anthropic(
+                image_base64,
+                self._get_analysis_prompt(),
+            )
         else:
             # Mock response for testing
             return self._mock_analysis()
 
-    async def _analyze_with_openai(self, image_base64: str) -> dict:
+    async def analyze_drawing(self, image_data: bytes) -> dict:
+        """
+        아이 그림 분석하여 캐릭터 특성 추출
+        """
+        image_base64 = base64.b64encode(image_data).decode("utf-8")
+
+        if self.llm_provider == "openai":
+            return await self._analyze_with_openai(
+                image_base64,
+                self._get_drawing_analysis_prompt(),
+            )
+        elif self.llm_provider == "anthropic":
+            return await self._analyze_with_anthropic(
+                image_base64,
+                self._get_drawing_analysis_prompt(),
+            )
+        else:
+            return self._mock_analysis()
+
+    async def _analyze_with_openai(self, image_base64: str, prompt: str) -> dict:
         """OpenAI Vision API로 분석"""
         async with httpx.AsyncClient(timeout=60) as client:
             response = await client.post(
@@ -61,7 +86,7 @@ class PhotoCharacterService:
                             "content": [
                                 {
                                     "type": "text",
-                                    "text": self._get_analysis_prompt(),
+                                    "text": prompt,
                                 },
                                 {
                                     "type": "image_url",
@@ -86,7 +111,7 @@ class PhotoCharacterService:
                 logger.error("OpenAI vision returned invalid JSON", content=content[:200])
                 return self._mock_analysis()
 
-    async def _analyze_with_anthropic(self, image_base64: str) -> dict:
+    async def _analyze_with_anthropic(self, image_base64: str, prompt: str) -> dict:
         """Anthropic Claude Vision으로 분석"""
         async with httpx.AsyncClient(timeout=60) as client:
             response = await client.post(
@@ -113,7 +138,7 @@ class PhotoCharacterService:
                                 },
                                 {
                                     "type": "text",
-                                    "text": self._get_analysis_prompt(),
+                                    "text": prompt,
                                 },
                             ],
                         }
@@ -164,6 +189,44 @@ class PhotoCharacterService:
 - 동화책에 적합하게 귀엽고 친근한 느낌으로 해석
 - 사진의 실제 특징을 기반으로 하되 만화/일러스트 스타일로 변환
 - visual_description은 영어로 작성
+"""
+
+    def _get_drawing_analysis_prompt(self) -> str:
+        """아이 그림 분석 프롬프트"""
+        return """이 이미지는 아이가 그린 그림일 가능성이 높습니다.
+그림 속 캐릭터를 존중하면서 동화책용 캐릭터 시트로 확장 가능한 JSON을 만들어주세요.
+
+응답 형식:
+{
+    "name_suggestion": "제안할 캐릭터 이름",
+    "estimated_age": "어린이/청소년/성인 중 하나",
+    "gender": "남성/여성/중성 중 하나",
+    "species": "인간/고양이/강아지/토끼/공룡/로봇 등",
+    "appearance": {
+        "hair_color": "머리 색상",
+        "hair_style": "머리 스타일",
+        "eye_color": "눈 색상",
+        "skin_tone": "피부/외피 톤",
+        "distinctive_features": ["특징1", "특징2"]
+    },
+    "suggested_clothing": {
+        "top": "상의 설명",
+        "bottom": "하의 설명",
+        "accessories": ["악세서리1", "악세서리2"]
+    },
+    "personality_hints": ["성격 힌트1", "성격 힌트2", "성격 힌트3"],
+    "visual_description": "이미지 생성용 상세 외모 설명 (영문, 60단어 이내)",
+    "sheet_scene_prompts": [
+        "정면 전신 포즈 설명 (영문)",
+        "측면 걷기 포즈 설명 (영문)",
+        "감정 표현 포즈 설명 (영문)"
+    ]
+}
+
+주의사항:
+- 아이 그림의 색감/형태적 특징을 최대한 유지
+- 과도하게 사실적으로 바꾸지 말고 동화책 일러스트 톤 유지
+- visual_description, sheet_scene_prompts는 영어로 작성
 """
 
     def _mock_analysis(self) -> dict:
@@ -224,6 +287,47 @@ class PhotoCharacterService:
             "photo_analysis": analysis,  # 원본 분석 결과 보존
         }
 
+        return character_data
+
+    async def create_character_from_drawing(
+        self,
+        image_data: bytes,
+        user_name: Optional[str] = None,
+        style: str = "storybook_crayon",
+    ) -> dict:
+        """
+        아이 그림에서 캐릭터 생성 + 캐릭터 시트 프롬프트 생성
+        """
+        analysis = await self.analyze_drawing(image_data)
+
+        sheet_scene_prompts = analysis.get("sheet_scene_prompts")
+        if not isinstance(sheet_scene_prompts, list):
+            sheet_scene_prompts = [
+                "front full-body pose, neutral smile, clean background",
+                "side walking pose, gentle motion, clean background",
+                "happy jumping pose, expressive face, clean background",
+            ]
+
+        character_data = {
+            "name": user_name or analysis.get("name_suggestion", "캐릭터"),
+            "master_description": analysis.get(
+                "visual_description", "cute storybook character based on child drawing"
+            ),
+            "appearance": analysis.get("appearance", {}),
+            "clothing": analysis.get("suggested_clothing", {}),
+            "personality_traits": analysis.get(
+                "personality_hints", ["상상력이 풍부한", "용감한", "친절한"]
+            ),
+            "visual_style_notes": (
+                f"{style} style illustration preserving child drawing aesthetics"
+            ),
+            "sheet_scene_prompts": [
+                str(prompt).strip()
+                for prompt in sheet_scene_prompts
+                if str(prompt).strip()
+            ][:3],
+            "drawing_analysis": analysis,
+        }
         return character_data
 
     async def create_character_from_text(

@@ -8,7 +8,22 @@ import uuid
 import structlog
 
 from src.core.config import settings
-from src.routers import books, characters, library, credits, streak
+from src.routers import (
+    books,
+    branch,
+    characters,
+    library,
+    credits,
+    streak,
+    iap,
+    users,
+    profiles,
+    settings as user_settings,
+    rewards,
+    pod,
+    pronunciation,
+    voice_profiles,
+)
 from src.core.database import get_db  # noqa: F401
 from src.core.rate_limit import check_rate_limit, rate_limiter
 from src.core.exceptions import (
@@ -218,8 +233,14 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
-    allow_headers=["X-User-Key", "X-Idempotency-Key", "X-Admin-Key", "Content-Type"],
+    allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=[
+        "X-User-Key",
+        "X-Profile-Id",
+        "X-Idempotency-Key",
+        "X-Admin-Key",
+        "Content-Type",
+    ],
 )
 
 
@@ -381,6 +402,60 @@ app.include_router(
     streak.router,
     prefix="/v1/streak",
     tags=["Streak"],
+    dependencies=[Depends(check_rate_limit)],
+)
+app.include_router(
+    iap.router,
+    prefix="/v1/iap",
+    tags=["IAP"],
+    dependencies=[Depends(check_rate_limit)],
+)
+app.include_router(
+    users.router,
+    prefix="/v1/users",
+    tags=["Users"],
+    dependencies=[Depends(check_rate_limit)],
+)
+app.include_router(
+    profiles.router,
+    prefix="/v1/profiles",
+    tags=["Profiles"],
+    dependencies=[Depends(check_rate_limit)],
+)
+app.include_router(
+    user_settings.router,
+    prefix="/v1/settings",
+    tags=["Settings"],
+    dependencies=[Depends(check_rate_limit)],
+)
+app.include_router(
+    rewards.router,
+    prefix="/v1/rewards",
+    tags=["Rewards"],
+    dependencies=[Depends(check_rate_limit)],
+)
+app.include_router(
+    pod.router,
+    prefix="/v1/pod",
+    tags=["POD"],
+    dependencies=[Depends(check_rate_limit)],
+)
+app.include_router(
+    pronunciation.router,
+    prefix="/v1/pronunciation",
+    tags=["Pronunciation"],
+    dependencies=[Depends(check_rate_limit)],
+)
+app.include_router(
+    branch.router,
+    prefix="/v1/branch",
+    tags=["Branch"],
+    dependencies=[Depends(check_rate_limit)],
+)
+app.include_router(
+    voice_profiles.router,
+    prefix="/v1/voice-profiles",
+    tags=["VoiceProfiles"],
     dependencies=[Depends(check_rate_limit)],
 )
 

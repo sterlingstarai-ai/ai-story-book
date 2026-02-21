@@ -92,6 +92,33 @@ class JsonParsing {
     throw FormatException('Expected integer for $field');
   }
 
+  static bool? asOptionalBool(dynamic value, {required String field}) {
+    if (value == null) {
+      return null;
+    }
+    if (value is bool) {
+      return value;
+    }
+    if (value is num) {
+      if (value == 0) {
+        return false;
+      }
+      if (value == 1) {
+        return true;
+      }
+    }
+    if (value is String) {
+      final normalized = value.trim().toLowerCase();
+      if (normalized == 'true' || normalized == '1') {
+        return true;
+      }
+      if (normalized == 'false' || normalized == '0') {
+        return false;
+      }
+    }
+    throw FormatException('Expected boolean for $field');
+  }
+
   static DateTime asRequiredDateTime(dynamic value, {required String field}) {
     final raw = asRequiredString(value, field: field);
     final parsed = DateTime.tryParse(raw);

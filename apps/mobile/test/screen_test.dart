@@ -4,10 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:ai_story_book/core/api_error.dart';
 import 'package:ai_story_book/models/models.dart';
 import 'package:ai_story_book/providers/providers.dart';
 import 'package:ai_story_book/services/api_client.dart';
 import 'package:ai_story_book/screens/create_screen.dart';
+import 'package:ai_story_book/screens/home_screen.dart';
 import 'package:ai_story_book/screens/library_screen.dart';
 import 'package:ai_story_book/screens/loading_screen.dart';
 import 'package:ai_story_book/screens/credits_screen.dart';
@@ -100,6 +102,25 @@ final _sampleBooks = [
   }),
 ];
 
+const _sampleStreak = HomeStreakSnapshot(
+  currentStreak: 3,
+  longestStreak: 7,
+  totalDays: 12,
+  readToday: true,
+  todayThemeName: '우정',
+  todayTopic: '숲속 친구들과 협력하는 모험',
+  todayBookId: 'book-1',
+  readDates: {
+    '2026-02-14',
+    '2026-02-15',
+    '2026-02-16',
+    '2026-02-17',
+    '2026-02-18',
+    '2026-02-19',
+    '2026-02-20',
+  },
+);
+
 // ==================== Tests ====================
 
 void main() {
@@ -107,8 +128,8 @@ void main() {
 
   group('CreateScreen', () {
     List<Override> createOverrides([List<Character>? chars]) => [
-          charactersProvider
-              .overrideWith(() => _MockCharactersNotifier(chars ?? _sampleCharacters)),
+          charactersProvider.overrideWith(
+              () => _MockCharactersNotifier(chars ?? _sampleCharacters)),
         ];
 
     testWidgets('renders app bar with title', (tester) async {
@@ -152,9 +173,12 @@ void main() {
       ));
       await tester.pumpAndSettle();
 
-      expect(find.text('그림 스타일'), findsOneWidget);
+      await tester.drag(find.byType(ListView).first, const Offset(0, -220));
+      await tester.pumpAndSettle();
+
+      expect(find.text('그림 스타일', skipOffstage: false), findsOneWidget);
       for (final style in BookStyle.values) {
-        expect(find.text(style.label), findsOneWidget);
+        expect(find.text(style.label, skipOffstage: false), findsOneWidget);
       }
     });
 
@@ -177,7 +201,9 @@ void main() {
       ));
       await tester.pumpAndSettle();
 
-      // Character section may be below the fold
+      await tester.drag(find.byType(ListView).first, const Offset(0, -560));
+      await tester.pumpAndSettle();
+
       expect(find.text('주인공 캐릭터', skipOffstage: false), findsOneWidget);
       expect(find.text('AI가 새 캐릭터 생성', skipOffstage: false), findsOneWidget);
       expect(find.text('토리', skipOffstage: false), findsOneWidget);
@@ -191,10 +217,16 @@ void main() {
       ));
       await tester.pumpAndSettle();
 
+      await tester.drag(find.byType(ListView).first, const Offset(0, -560));
+      await tester.pumpAndSettle();
+
       expect(find.text('주인공 캐릭터', skipOffstage: false), findsOneWidget);
       expect(find.text('AI가 새 캐릭터 생성', skipOffstage: false), findsOneWidget);
       expect(
-        find.text('캐릭터를 추가하면 같은 캐릭터로 시리즈를 만들 수 있어요!', skipOffstage: false),
+        find.text(
+          '캐릭터를 추가하면 같은 캐릭터로 시리즈를 만들 수 있어요!',
+          skipOffstage: false,
+        ),
         findsOneWidget,
       );
     });
@@ -247,21 +279,129 @@ void main() {
       ));
       // Only pump once - loading state won't settle
       await tester.pump();
+      await tester.drag(find.byType(ListView).first, const Offset(0, -560));
+      await tester.pump();
 
       // CircularProgressIndicator may be below the fold
       expect(
         find.byType(CircularProgressIndicator, skipOffstage: false),
-        findsOneWidget,
+        findsAtLeastNWidgets(1),
       );
+    });
+
+    testWidgets('shows upgrade modal when create returns payment required',
+        (tester) async {
+      await tester.pumpWidget(buildTestableWidget(
+        const CreateScreen(),
+        overrides: [
+          ...createOverrides(),
+          apiClientProvider.overrideWithValue(
+            _MockApiClient(creditsBalance: 3),
+          ),
+          bookCreationProvider
+              .overrideWith(() => _MockPaymentRequiredBookCreationNotifier()),
+        ],
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextFormField), '충분히 긴 테스트 주제입니다');
+      await tester.tap(find.text('동화책 만들기'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(find.text('플랜 업그레이드가 필요해요'), findsOneWidget);
+      expect(find.textContaining('watercolor/cartoon'), findsOneWidget);
+    });
+  });
+
+  // ==================== HomeScreen Tests ====================
+
+  group('HomeScreen', () {
+    List<Override> homeOverrides({
+      HomeStreakSnapshot streak = _sampleStreak,
+      List<LibraryBook>? books,
+    }) =>
+        [
+          libraryProvider
+              .overrideWith(() => _MockLibraryNotifier(books ?? _sampleBooks)),
+          homeStreakProvider.overrideWith((ref) async => streak),
+        ];
+
+    testWidgets('renders streak card with current streak and today topic',
+        (tester) async {
+      await tester.pumpWidget(buildTestableWidget(
+        const HomeScreen(),
+        overrides: homeOverrides(books: const []),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(find.text('3일 연속 읽기'), findsOneWidget);
+      expect(find.text('숲속 친구들과 협력하는 모험'), findsOneWidget);
+      expect(find.text('이어 읽기'), findsOneWidget);
+    });
+
+    testWidgets('shows create CTA when no today book exists', (tester) async {
+      const noBookStreak = HomeStreakSnapshot(
+        currentStreak: 1,
+        longestStreak: 1,
+        totalDays: 1,
+        readToday: false,
+        todayThemeName: '모험',
+        todayTopic: '하늘을 나는 토끼',
+        todayBookId: null,
+        readDates: {'2026-02-20'},
+      );
+
+      await tester.pumpWidget(buildTestableWidget(
+        const HomeScreen(),
+        overrides: homeOverrides(streak: noBookStreak, books: const []),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(find.text('오늘 동화 만들기'), findsOneWidget);
+    });
+
+    testWidgets('shows streak error card when provider fails', (tester) async {
+      await tester.pumpWidget(buildTestableWidget(
+        const HomeScreen(),
+        overrides: [
+          libraryProvider.overrideWith(() => _MockLibraryNotifier(const [])),
+          homeStreakProvider.overrideWith((ref) async {
+            throw Exception('network');
+          }),
+        ],
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(find.text('스트릭 카드 오류'), findsOneWidget);
+      expect(find.text('다시 시도'), findsOneWidget);
     });
   });
 
   // ==================== LibraryScreen Tests ====================
 
   group('LibraryScreen', () {
-    List<Override> libraryOverrides([List<LibraryBook>? books]) => [
-          libraryProvider
-              .overrideWith(() => _MockLibraryNotifier(books ?? _sampleBooks)),
+    List<Override> libraryOverrides([LibraryBrowseState? state]) => [
+          libraryBrowseProvider.overrideWith(
+            () => _MockLibraryBrowseNotifier(
+              state ??
+                  LibraryBrowseState(
+                    books: _sampleBooks,
+                    total: _sampleBooks.length,
+                    nextCursor: null,
+                    hasMore: false,
+                    isLoadingMore: false,
+                    isOffline: false,
+                    sort: 'newest',
+                    style: null,
+                    targetAge: null,
+                  ),
+            ),
+          ),
         ];
 
     testWidgets('renders app bar with title', (tester) async {
@@ -303,7 +443,19 @@ void main() {
     testWidgets('shows empty state when no books', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const LibraryScreen(),
-        overrides: libraryOverrides([]),
+        overrides: libraryOverrides(
+          const LibraryBrowseState(
+            books: [],
+            total: 0,
+            nextCursor: null,
+            hasMore: false,
+            isLoadingMore: false,
+            isOffline: false,
+            sort: 'newest',
+            style: null,
+            targetAge: null,
+          ),
+        ),
       ));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
@@ -317,7 +469,8 @@ void main() {
       await tester.pumpWidget(buildTestableWidget(
         const LibraryScreen(),
         overrides: [
-          libraryProvider.overrideWith(() => _MockLoadingLibraryNotifier()),
+          libraryBrowseProvider
+              .overrideWith(() => _MockLoadingLibraryBrowseNotifier()),
         ],
       ));
       await tester.pump();
@@ -329,13 +482,14 @@ void main() {
       await tester.pumpWidget(buildTestableWidget(
         const LibraryScreen(),
         overrides: [
-          libraryProvider.overrideWith(() => _MockErrorLibraryNotifier()),
+          libraryBrowseProvider
+              .overrideWith(() => _MockErrorLibraryBrowseNotifier()),
         ],
       ));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
-      expect(find.text('책을 불러올 수 없어요'), findsOneWidget);
+      expect(find.text('서재를 불러올 수 없어요'), findsOneWidget);
       expect(find.text('다시 시도'), findsOneWidget);
     });
 
@@ -486,8 +640,8 @@ void main() {
 
   group('CharactersScreen', () {
     List<Override> charOverrides([List<Character>? chars]) => [
-          charactersProvider
-              .overrideWith(() => _MockCharactersNotifier(chars ?? _sampleCharacters)),
+          charactersProvider.overrideWith(
+              () => _MockCharactersNotifier(chars ?? _sampleCharacters)),
         ];
 
     testWidgets('renders app bar with title', (tester) async {
@@ -564,8 +718,7 @@ void main() {
       await tester.pumpWidget(buildTestableWidget(
         const CharactersScreen(),
         overrides: [
-          charactersProvider
-              .overrideWith(() => _MockErrorCharactersNotifier()),
+          charactersProvider.overrideWith(() => _MockErrorCharactersNotifier()),
         ],
       ));
       await tester.pump();
@@ -595,6 +748,21 @@ void main() {
 
       expect(find.byType(FloatingActionButton), findsOneWidget);
       expect(find.text('사진으로 만들기'), findsOneWidget);
+    });
+
+    testWidgets('shows drawing conversion option in creation sheet',
+        (tester) async {
+      await tester.pumpWidget(buildTestableWidget(
+        const CharactersScreen(),
+        overrides: charOverrides(),
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(FloatingActionButton));
+      await tester.pumpAndSettle();
+
+      expect(find.text('아이 그림에서 변환'), findsOneWidget);
+      expect(find.text('그림 사진을 캐릭터+시트로 변환'), findsOneWidget);
     });
 
     testWidgets('renders bottom navigation bar', (tester) async {
@@ -664,7 +832,7 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('credit purchase button shows subscription guidance dialog',
+    testWidgets('credit purchase button scrolls to plan section',
         (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CreditsScreen(),
@@ -680,12 +848,7 @@ void main() {
       await tester.tap(purchaseButton);
       await tester.pumpAndSettle();
 
-      expect(find.text('크레딧 팩 구매 준비 중'), findsOneWidget);
-      expect(find.text('구독 플랜 보기'), findsOneWidget);
-
-      await tester.tap(find.text('구독 플랜 보기'));
-      await tester.pumpAndSettle();
-
+      expect(find.text('구독 플랜', skipOffstage: false), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 
@@ -755,7 +918,11 @@ void main() {
           apiClientProvider.overrideWithValue(
             _MockApiClient(
               creditsStatus: {
-                'credits': {'credits': 2, 'total_purchased': 0, 'total_used': 1},
+                'credits': {
+                  'credits': 2,
+                  'total_purchased': 0,
+                  'total_used': 1
+                },
                 'subscription': null,
                 'available_plans': [
                   {1: 'invalid-key-map'},
@@ -770,6 +937,36 @@ void main() {
       expect(find.text('구독 플랜'), findsOneWidget);
       expect(find.text('플랜'), findsOneWidget);
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('shows scheduled-cancel badge for cancelled subscription',
+        (tester) async {
+      await tester.pumpWidget(buildTestableWidget(
+        const CreditsScreen(),
+        overrides: [
+          apiClientProvider.overrideWithValue(
+            _MockApiClient(
+              creditsStatus: {
+                'credits': {'credits': 8, 'total_purchased': 10, 'total_used': 2},
+                'subscription': {
+                  'plan': 'basic',
+                  'plan_name': '베이직',
+                  'status': 'cancelled',
+                  'credits_per_month': 10,
+                  'current_period_end': '2026-03-20T00:00:00Z',
+                  'features': ['모든 스타일'],
+                },
+                'available_plans': [],
+              },
+            ),
+          ),
+        ],
+      ));
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(find.text('해지 예정'), findsOneWidget);
+      expect(find.text('현재 결제 주기가 끝나면 무료 플랜으로 전환됩니다.'), findsOneWidget);
+      expect(find.text('구독 취소'), findsNothing);
     });
   });
 }
@@ -810,16 +1007,25 @@ class _MockLibraryNotifier extends LibraryNotifier {
   Future<List<LibraryBook>> build() async => _books;
 }
 
-class _MockLoadingLibraryNotifier extends LibraryNotifier {
+class _MockLibraryBrowseNotifier extends LibraryBrowseNotifier {
+  final LibraryBrowseState _state;
+
+  _MockLibraryBrowseNotifier(this._state);
+
   @override
-  Future<List<LibraryBook>> build() {
-    return _neverComplete<List<LibraryBook>>();
+  Future<LibraryBrowseState> build() async => _state;
+}
+
+class _MockLoadingLibraryBrowseNotifier extends LibraryBrowseNotifier {
+  @override
+  Future<LibraryBrowseState> build() {
+    return _neverComplete<LibraryBrowseState>();
   }
 }
 
-class _MockErrorLibraryNotifier extends LibraryNotifier {
+class _MockErrorLibraryBrowseNotifier extends LibraryBrowseNotifier {
   @override
-  Future<List<LibraryBook>> build() async {
+  Future<LibraryBrowseState> build() async {
     throw Exception('Network error');
   }
 }
@@ -828,6 +1034,7 @@ class _MockErrorLibraryNotifier extends LibraryNotifier {
 class _MockApiClient extends ApiClient {
   final Map<String, dynamic> creditsStatus;
   final List<dynamic> transactions;
+  final int creditsBalance;
 
   _MockApiClient({
     this.creditsStatus = const {
@@ -836,8 +1043,8 @@ class _MockApiClient extends ApiClient {
       'available_plans': [],
     },
     this.transactions = const [],
-  })
-      : super(
+    this.creditsBalance = 10,
+  }) : super(
           baseUrl: 'http://localhost',
           userKey: 'test-key',
           enableLogging: false,
@@ -850,9 +1057,29 @@ class _MockApiClient extends ApiClient {
   }
 
   @override
-  Future<List<dynamic>> getTransactions({int limit = 20, int offset = 0}) async {
+  Future<List<dynamic>> getTransactions(
+      {int limit = 20, int offset = 0}) async {
     await Future.delayed(const Duration(milliseconds: 50));
     return transactions;
+  }
+
+  @override
+  Future<int> getCreditsBalance() async {
+    return creditsBalance;
+  }
+}
+
+class _MockPaymentRequiredBookCreationNotifier extends BookCreationNotifier {
+  @override
+  Future<void> build() async {}
+
+  @override
+  Future<String> createBook(BookSpec spec) {
+    throw ApiError(
+      code: 'PAYMENT_REQUIRED',
+      message: '무료 플랜은 watercolor/cartoon 스타일만 지원합니다. 베이직 이상으로 업그레이드해주세요.',
+      statusCode: 402,
+    );
   }
 }
 

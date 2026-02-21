@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
+import '../core/api_error.dart';
 import '../models/models.dart';
 import '../providers/providers.dart';
 import '../utils/constants.dart';
+import '../widgets/credit_shortage_modal.dart';
 import '../widgets/common_widgets.dart';
 
 /// 책 생성 화면
@@ -15,6 +18,7 @@ class CreateScreen extends ConsumerStatefulWidget {
 
 class _CreateScreenState extends ConsumerState<CreateScreen> {
   final _topicController = TextEditingController();
+  final _protagonistController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
 
   TargetAge _selectedAge = TargetAge.age5to7;
@@ -22,15 +26,55 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
   BookTheme? _selectedTheme;
   List<String> _selectedCharacterIds = []; // 다중 캐릭터 선택
   bool _isLoading = false;
+  bool _didHandleRouteArgs = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_didHandleRouteArgs) {
+      return;
+    }
+    _didHandleRouteArgs = true;
+    final args = ModalRoute.of(context)?.settings.arguments;
+    if (args is Map) {
+      final characterId = args['characterId'];
+      if (characterId is String && characterId.isNotEmpty) {
+        _selectedCharacterIds = [characterId];
+      }
+    }
+  }
 
   @override
   void dispose() {
     _topicController.dispose();
+    _protagonistController.dispose();
     super.dispose();
+  }
+
+  ApiError? _extractApiError(Object error) {
+    if (error is ApiError) {
+      return error;
+    }
+    if (error is DioException && error.error is ApiError) {
+      return error.error as ApiError;
+    }
+    return null;
   }
 
   Future<void> _createBook() async {
     if (!_formKey.currentState!.validate()) return;
+
+    try {
+      final credits = await ref.read(apiClientProvider).getCreditsBalance();
+      if (credits <= 0) {
+        if (mounted) {
+          await showCreditShortageModal(context);
+        }
+        return;
+      }
+    } catch (_) {
+      // 잔액 조회 실패 시 생성은 계속 진행 (서버에서 최종 검증)
+    }
 
     setState(() => _isLoading = true);
 
@@ -40,6 +84,9 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
         targetAge: _selectedAge.value,
         style: _selectedStyle.value,
         theme: _selectedTheme?.value,
+        protagonistName: _protagonistController.text.trim().isEmpty
+            ? null
+            : _protagonistController.text.trim(),
         characterIds:
             _selectedCharacterIds.isNotEmpty ? _selectedCharacterIds : null,
       );
@@ -56,6 +103,19 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
       }
     } catch (e) {
       if (mounted) {
+        final apiError = _extractApiError(e);
+        if (apiError != null && apiError.code == 'PAYMENT_REQUIRED') {
+          final message = apiError.message.trim();
+          final title = message.contains('스타일') || message.contains('월 ')
+              ? '플랜 업그레이드가 필요해요'
+              : '크레딧이 부족해요';
+          await showCreditShortageModal(
+            context,
+            title: title,
+            message: message,
+          );
+          return;
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('책 생성에 실패했어요. 잠시 후 다시 시도해주세요.'),
@@ -131,6 +191,19 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
               },
             ),
 
+            const SizedBox(height: AppSpacing.md),
+
+            const Text('우리 아이 이름 (선택)', style: AppTextStyles.heading3),
+            const SizedBox(height: AppSpacing.sm),
+            TextField(
+              controller: _protagonistController,
+              maxLength: 40,
+              decoration: const InputDecoration(
+                hintText: '예: 민지',
+                hintStyle: AppTextStyles.bodySmall,
+              ),
+            ),
+
             const SizedBox(height: AppSpacing.lg),
 
             // 연령대 선택
@@ -143,6 +216,11 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                 return ChoiceChip(
                   label: Text(age.label),
                   selected: isSelected,
+                  materialTapTargetSize: MaterialTapTargetSize.padded,
+                  labelPadding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.sm,
+                    vertical: AppSpacing.md,
+                  ),
                   onSelected: (selected) {
                     if (selected) setState(() => _selectedAge = age);
                   },
@@ -171,6 +249,11 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                 return ChoiceChip(
                   label: Text(style.label),
                   selected: isSelected,
+                  materialTapTargetSize: MaterialTapTargetSize.padded,
+                  labelPadding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.sm,
+                    vertical: AppSpacing.md,
+                  ),
                   onSelected: (selected) {
                     if (selected) setState(() => _selectedStyle = style);
                   },
@@ -198,6 +281,11 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                 ChoiceChip(
                   label: const Text('없음'),
                   selected: _selectedTheme == null,
+                  materialTapTargetSize: MaterialTapTargetSize.padded,
+                  labelPadding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.sm,
+                    vertical: AppSpacing.md,
+                  ),
                   onSelected: (selected) {
                     if (selected) setState(() => _selectedTheme = null);
                   },
@@ -213,6 +301,11 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                   return ChoiceChip(
                     label: Text(theme.label),
                     selected: isSelected,
+                    materialTapTargetSize: MaterialTapTargetSize.padded,
+                    labelPadding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.sm,
+                      vertical: AppSpacing.md,
+                    ),
                     onSelected: (selected) {
                       if (selected) setState(() => _selectedTheme = theme);
                     },
@@ -420,8 +513,8 @@ class _CharacterOption extends StatelessWidget {
         child: Row(
           children: [
             Container(
-              width: 48,
-              height: 48,
+              width: AppSizing.minTouchTarget,
+              height: AppSizing.minTouchTarget,
               decoration: BoxDecoration(
                 color: iconColor.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(AppRadius.md),
@@ -453,7 +546,8 @@ class _CharacterOption extends StatelessWidget {
               ),
             ),
             if (isSelected)
-              const Icon(Icons.check_circle, color: AppColors.secondary, size: 24),
+              const Icon(Icons.check_circle,
+                  color: AppColors.secondary, size: 24),
           ],
         ),
       ),

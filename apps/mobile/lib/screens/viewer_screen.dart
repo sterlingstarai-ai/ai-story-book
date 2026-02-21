@@ -1,15 +1,23 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
+import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:confetti/confetti.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:printing/printing.dart';
+import '../core/api_error.dart';
 import '../models/models.dart';
 import '../providers/providers.dart';
 import '../utils/constants.dart';
 import '../widgets/common_widgets.dart';
+import '../widgets/credit_shortage_modal.dart';
 
 /// 책 뷰어 화면
 class ViewerScreen extends ConsumerStatefulWidget {
@@ -23,12 +31,27 @@ class ViewerScreen extends ConsumerStatefulWidget {
 
 class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   late PageController _pageController;
+  late final ConfettiController _completionConfettiController;
   final AudioPlayer _audioPlayer = AudioPlayer();
   StreamSubscription<PlayerState>? _playerStateSubscription;
+  StreamSubscription<Duration>? _positionSubscription;
+  Timer? _sleepModeTimer;
   int _currentPage = 0;
   bool _showControls = true;
   bool _isPlaying = false;
   bool _isLoadingAudio = false;
+  bool _completionHandled = false;
+  bool _progressRestored = false;
+  bool _dualLanguageEnabled = false;
+  bool _followReadingEnabled = false;
+  bool _allowKakaoShare = true;
+  bool _sleepModeEnabled = false;
+  DateTime? _sleepModeEndsAt;
+  bool _sleepAutoAdvancing = false;
+  double _audioProgress = 0;
+  int _audioProgressPage = 0;
+  BookResult? _activeBook;
+  DateTime _viewStartedAt = DateTime.now();
   // 다국어 지원
   String _selectedLanguage = 'ko'; // 'ko' or 'en'
 
@@ -36,13 +59,43 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   void initState() {
     super.initState();
     _pageController = PageController();
+    _completionConfettiController = ConfettiController(
+      duration: const Duration(seconds: 3),
+    );
+    _viewStartedAt = DateTime.now();
+    unawaited(_loadViewerSettings());
     // Store subscription to cancel later (memory leak fix)
     _playerStateSubscription = _audioPlayer.playerStateStream.listen((state) {
       if (mounted) {
         setState(() {
           _isPlaying = state.playing;
+          if (state.processingState == ProcessingState.completed) {
+            _audioProgress = 1;
+          }
         });
       }
+      if (state.processingState == ProcessingState.completed &&
+          _sleepModeEnabled) {
+        unawaited(_handleSleepPlaybackCompleted());
+      }
+    });
+    _positionSubscription = _audioPlayer.positionStream.listen((position) {
+      if (!mounted || !_isPlaying) {
+        return;
+      }
+      if (_audioProgressPage != _currentPage) {
+        return;
+      }
+      final duration = _audioPlayer.duration;
+      if (duration == null || duration.inMilliseconds <= 0) {
+        return;
+      }
+      final ratio =
+          (position.inMilliseconds / duration.inMilliseconds).clamp(0.0, 1.0);
+      if ((ratio - _audioProgress).abs() < 0.02 && ratio < 1) {
+        return;
+      }
+      setState(() => _audioProgress = ratio);
     });
   }
 
@@ -50,6 +103,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   void dispose() {
     // Cancel subscription to prevent memory leak
     _playerStateSubscription?.cancel();
+    _positionSubscription?.cancel();
+    _sleepModeTimer?.cancel();
+    _completionConfettiController.dispose();
     _pageController.dispose();
     _audioPlayer.dispose();
     super.dispose();
@@ -57,6 +113,21 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
 
   void _toggleControls() {
     setState(() => _showControls = !_showControls);
+  }
+
+  Future<void> _loadViewerSettings() async {
+    try {
+      final settings = await ref.read(apiClientProvider).getSettings();
+      final allowKakao = settings['allow_kakao_share'];
+      final next = allowKakao is bool ? allowKakao : true;
+      if (!mounted) {
+        _allowKakaoShare = next;
+        return;
+      }
+      setState(() => _allowKakaoShare = next);
+    } catch (_) {
+      // 설정 조회 실패 시 기본값(true)을 사용한다.
+    }
   }
 
   @override
@@ -94,8 +165,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   }
 
   Widget _buildViewer(BookResult book) {
+    _activeBook = book;
     // 표지(0) + 페이지들
     final totalPages = book.pages.length + 1;
+    _restoreReadingProgressIfNeeded(totalPages);
 
     return GestureDetector(
       onTap: _toggleControls,
@@ -105,7 +178,25 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
           PageView.builder(
             controller: _pageController,
             itemCount: totalPages,
-            onPageChanged: (index) => setState(() => _currentPage = index),
+            onPageChanged: (index) async {
+              await _audioPlayer.stop();
+              if (!mounted) {
+                return;
+              }
+              setState(() {
+                _currentPage = index;
+                _audioProgress = 0;
+                _audioProgressPage = index;
+              });
+              unawaited(_saveReadingProgress(index, totalPages));
+              if (_sleepModeEnabled && index > 0) {
+                await _playPageAudio(book, restart: true);
+              }
+              if (index == totalPages - 1 && !_completionHandled) {
+                _completionHandled = true;
+                _handleBookCompleted(book);
+              }
+            },
             itemBuilder: (context, index) {
               if (index == 0) {
                 // 표지
@@ -116,12 +207,19 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               } else {
                 // 본문 페이지
                 final page = book.pages[index - 1];
+                final secondaryText = _dualLanguageEnabled
+                    ? (_selectedLanguage == 'ko' ? page.textEn : page.textKo)
+                    : null;
                 return _ContentPage(
                   pageNumber: page.pageNumber,
                   text: page.getText(_selectedLanguage),
+                  secondaryText: secondaryText,
                   imageUrl: page.imageUrl,
                   page: page,
                   selectedLanguage: _selectedLanguage,
+                  followReadingEnabled: _followReadingEnabled,
+                  followProgress:
+                      _audioProgressPage == index ? _audioProgress : 0,
                   onShowLearning: () => _showLearningMode(book, page),
                 );
               }
@@ -129,14 +227,235 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
           ),
 
           // 컨트롤
-          AnimatedOpacity(
-            opacity: _showControls ? 1.0 : 0.0,
-            duration: const Duration(milliseconds: 200),
-            child: _buildControls(book, totalPages),
+          IgnorePointer(
+            ignoring: !_showControls,
+            child: AnimatedOpacity(
+              opacity: _showControls ? 1.0 : 0.0,
+              duration: const Duration(milliseconds: 200),
+              child: _buildControls(book, totalPages),
+            ),
           ),
+          IgnorePointer(
+            ignoring: true,
+            child: AnimatedOpacity(
+              opacity: _sleepModeEnabled ? 0.34 : 0,
+              duration: const Duration(milliseconds: 200),
+              child: const ColoredBox(color: Colors.black),
+            ),
+          ),
+          if (_sleepModeEnabled)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + AppSpacing.md,
+              right: AppSpacing.md,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.sm,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.blackOverlayStrong,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '수면 ${_sleepRemainingText()}',
+                  style: AppTextStyles.caption.copyWith(color: Colors.white),
+                ),
+              ),
+            ),
         ],
       ),
     );
+  }
+
+  Future<void> _handleBookCompleted(BookResult book) async {
+    await _clearReadingProgress();
+    final readingSeconds = DateTime.now().difference(_viewStartedAt).inSeconds;
+    final api = ref.read(apiClientProvider);
+    int streak = 0;
+
+    try {
+      await api.recordReading(
+        bookId: widget.bookId,
+        readingTime: readingSeconds < 0 ? 0 : readingSeconds,
+        completed: true,
+      );
+      final streakInfo = await api.getStreakInfo();
+      final currentStreak = streakInfo['current_streak'];
+      if (currentStreak is int) {
+        streak = currentStreak;
+      } else if (currentStreak is num) {
+        streak = currentStreak.toInt();
+      }
+    } catch (_) {
+      // 완독 기록 실패는 읽기 흐름을 막지 않는다.
+    }
+
+    try {
+      final prefs = ref.read(sharedPreferencesProvider);
+      final reviewService = ref.read(reviewServiceProvider);
+      var shouldPrompt = false;
+
+      const firstCompletionKey = 'review_first_book_completed_v1';
+      final firstCompletionDone = prefs.getBool(firstCompletionKey) ?? false;
+      if (!firstCompletionDone) {
+        await prefs.setBool(firstCompletionKey, true);
+        shouldPrompt = true;
+      }
+      if (streak >= 3) {
+        shouldPrompt = true;
+      }
+
+      if (shouldPrompt) {
+        await reviewService.requestReviewIfEligible(prefs);
+      }
+    } catch (_) {
+      // 리뷰 요청 실패는 무시한다.
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    await _showCompletionCelebration(streak);
+  }
+
+  Future<void> _showCompletionCelebration(int streak) async {
+    _completionConfettiController
+      ..stop()
+      ..play();
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+        child: Stack(
+          alignment: Alignment.topCenter,
+          children: [
+            IgnorePointer(
+              child: SizedBox(
+                width: double.infinity,
+                height: 420,
+                child: ConfettiWidget(
+                  confettiController: _completionConfettiController,
+                  blastDirectionality: BlastDirectionality.explosive,
+                  emissionFrequency: 0.05,
+                  numberOfParticles: 24,
+                  maxBlastForce: 16,
+                  minBlastForce: 8,
+                  gravity: 0.25,
+                  shouldLoop: false,
+                  colors: const [
+                    AppColors.primary,
+                    AppColors.secondary,
+                    AppColors.success,
+                    Color(0xFFFFD166),
+                    Color(0xFFEF476F),
+                  ],
+                  createParticlePath: _buildConfettiStarPath,
+                ),
+              ),
+            ),
+            Container(
+              margin: const EdgeInsets.only(top: AppSpacing.xxl),
+              padding: const EdgeInsets.all(AppSpacing.xl),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(AppRadius.xl),
+                boxShadow: const [
+                  BoxShadow(
+                    color: AppColors.blackOverlayShadow,
+                    blurRadius: 16,
+                    offset: Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 88,
+                    height: 88,
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryLight,
+                      borderRadius: BorderRadius.circular(44),
+                    ),
+                    child: const Icon(
+                      Icons.auto_awesome,
+                      size: 44,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+                  const Text(
+                    '완독 축하해요!',
+                    style: AppTextStyles.heading2,
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    streak >= 3
+                        ? '🔥 $streak일 연속 읽기 달성! 정말 대단해요.'
+                        : '마지막 페이지까지 읽었어요. 다음 동화도 시작해볼까요?',
+                    style: AppTextStyles.bodySmall,
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: AppSpacing.xl),
+                  PrimaryButton(
+                    text: '다음 동화 만들기',
+                    onPressed: () {
+                      Navigator.pop(dialogContext);
+                      Navigator.pushNamedAndRemoveUntil(
+                        context,
+                        '/create',
+                        (route) => route.isFirst,
+                      );
+                    },
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  SecondaryButton(
+                    text: '서재로 가기',
+                    onPressed: () {
+                      Navigator.pop(dialogContext);
+                      Navigator.pushNamedAndRemoveUntil(
+                        context,
+                        '/library',
+                        (route) => route.isFirst,
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Path _buildConfettiStarPath(Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final outerRadius = min(size.width, size.height) / 2;
+    final innerRadius = outerRadius / 2.4;
+    final path = Path();
+
+    for (var i = 0; i < 10; i++) {
+      final radius = i.isEven ? outerRadius : innerRadius;
+      final angle = (pi / 5 * i) - pi / 2;
+      final offset = Offset(
+        center.dx + cos(angle) * radius,
+        center.dy + sin(angle) * radius,
+      );
+      if (i == 0) {
+        path.moveTo(offset.dx, offset.dy);
+      } else {
+        path.lineTo(offset.dx, offset.dy);
+      }
+    }
+
+    path.close();
+    return path;
   }
 
   Widget _buildControls(BookResult book, int totalPages) {
@@ -179,10 +498,18 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               _LanguageToggle(
                 selectedLanguage: _selectedLanguage,
                 hasTranslation: book.titleKo != null || book.titleEn != null,
-                onToggle: () {
+                onToggle: () async {
+                  final wasPlaying = _isPlaying;
+                  await _audioPlayer.stop();
+                  if (!mounted) {
+                    return;
+                  }
                   setState(() {
                     _selectedLanguage = _selectedLanguage == 'ko' ? 'en' : 'ko';
                   });
+                  if (wasPlaying && _currentPage > 0) {
+                    await _toggleAudio(book);
+                  }
                 },
               ),
               IconButton(
@@ -215,23 +542,28 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
           ),
           child: Column(
             children: [
-              // 페이지 인디케이터
+              // 페이지 인디케이터 (텍스트형으로 오버플로우 방지)
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(
-                  totalPages,
-                  (index) => Container(
-                    width: index == _currentPage ? 24 : 8,
-                    height: 8,
-                    margin: const EdgeInsets.symmetric(horizontal: 2),
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.md,
+                      vertical: AppSpacing.xs,
+                    ),
                     decoration: BoxDecoration(
-                      color: index == _currentPage
-                          ? Colors.white
-                          : AppColors.whiteOverlayLight,
-                      borderRadius: BorderRadius.circular(4),
+                      color: AppColors.whiteOverlay,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      _currentPage == 0
+                          ? '표지'
+                          : '$_currentPage / ${totalPages - 1}',
+                      style:
+                          AppTextStyles.caption.copyWith(color: Colors.white),
                     ),
                   ),
-                ),
+                ],
               ),
 
               const SizedBox(height: AppSpacing.md),
@@ -258,13 +590,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                       onPressed: () => _toggleAudio(book),
                     )
                   else
-                    const SizedBox(width: 48),
-                  Text(
-                    _currentPage == 0
-                        ? '표지'
-                        : '$_currentPage / ${totalPages - 1}',
-                    style: AppTextStyles.body.copyWith(color: Colors.white),
-                  ),
+                    const SizedBox(width: AppSizing.minTouchTarget),
+                  const SizedBox.shrink(),
                   _NavButton(
                     icon: Icons.chevron_right,
                     enabled: _currentPage < totalPages - 1,
@@ -289,28 +616,86 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       await _audioPlayer.pause();
       return;
     }
+    if (mounted) {
+      setState(() {
+        _audioProgressPage = _currentPage;
+      });
+    } else {
+      _audioProgressPage = _currentPage;
+    }
+    await _playPageAudio(book, restart: true);
+  }
 
-    // 현재 페이지의 오디오 URL 가져오기
-    if (_currentPage == 0) return; // 표지는 오디오 없음
+  ApiError? _extractApiError(Object error) {
+    if (error is ApiError) {
+      return error;
+    }
+    if (error is DioException && error.error is ApiError) {
+      return error.error as ApiError;
+    }
+    return null;
+  }
 
-    setState(() => _isLoadingAudio = true);
+  Future<bool> _handlePaymentRequired(Object error) async {
+    final apiError = _extractApiError(error);
+    if (apiError == null || apiError.code != 'PAYMENT_REQUIRED') {
+      return false;
+    }
+    if (!mounted) {
+      return true;
+    }
+
+    final message = apiError.message.trim();
+    final title = message.contains('PDF') ||
+            message.contains('오디오') ||
+            message.contains('플랜')
+        ? '플랜 업그레이드가 필요해요'
+        : '크레딧이 부족해요';
+    await showCreditShortageModal(
+      context,
+      title: title,
+      message: message,
+    );
+    return true;
+  }
+
+  Future<void> _playPageAudio(BookResult book, {bool restart = false}) async {
+    if (_currentPage == 0) {
+      return; // 표지는 오디오 없음
+    }
+
+    setState(() {
+      _isLoadingAudio = true;
+      _audioProgress = 0;
+      _audioProgressPage = _currentPage;
+    });
 
     try {
+      if (restart) {
+        await _audioPlayer.stop();
+      }
       final apiClient = ref.read(apiClientProvider);
       final page = book.pages[_currentPage - 1];
 
       // 이미 오디오 URL이 있으면 바로 재생
-      String? audioUrl = page.audioUrl;
+      String? audioUrl = page.getAudioUrl(_selectedLanguage);
 
       // 없으면 API에서 가져오기 (자동 생성)
       if (audioUrl == null || audioUrl.isEmpty) {
-        audioUrl = await apiClient.getPageAudioUrl(book.bookId, _currentPage);
+        audioUrl = await apiClient.getPageAudioUrl(
+          book.bookId,
+          _currentPage,
+          language: _selectedLanguage,
+        );
       }
 
       // 오디오 재생
       await _audioPlayer.setUrl(audioUrl);
       await _audioPlayer.play();
     } catch (e) {
+      if (await _handlePaymentRequired(e)) {
+        return;
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -326,7 +711,159 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     }
   }
 
+  Future<void> _handleSleepPlaybackCompleted() async {
+    if (!_sleepModeEnabled || _sleepAutoAdvancing) {
+      return;
+    }
+    final book = _activeBook;
+    if (book == null) {
+      return;
+    }
+    final totalPages = book.pages.length + 1;
+    if (_currentPage >= totalPages - 1) {
+      return;
+    }
+
+    _sleepAutoAdvancing = true;
+    try {
+      await _pageController.nextPage(
+        duration: const Duration(milliseconds: 450),
+        curve: Curves.easeInOut,
+      );
+    } finally {
+      _sleepAutoAdvancing = false;
+    }
+  }
+
+  Future<void> _startSleepMode(BookResult book) async {
+    final api = ref.read(apiClientProvider);
+    var minutes = 20;
+    try {
+      final settings = await api.getSettings();
+      final value = settings['sleep_mode_default_minutes'];
+      if (value is int) {
+        minutes = value;
+      } else if (value is num) {
+        minutes = value.toInt();
+      } else if (value is String) {
+        minutes = int.tryParse(value) ?? minutes;
+      }
+    } catch (_) {
+      // 실패 시 기본값 사용
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    final normalizedMinutes = minutes.clamp(10, 60);
+    _sleepModeTimer?.cancel();
+    setState(() {
+      _sleepModeEnabled = true;
+      _sleepModeEndsAt = DateTime.now().add(
+        Duration(minutes: normalizedMinutes),
+      );
+    });
+
+    _sleepModeTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      final endsAt = _sleepModeEndsAt;
+      if (endsAt == null) {
+        return;
+      }
+      if (DateTime.now().isAfter(endsAt)) {
+        unawaited(_stopSleepMode(byTimer: true));
+        return;
+      }
+      if (mounted) {
+        setState(() {});
+      }
+    });
+
+    if (_currentPage == 0) {
+      await _pageController.animateToPage(
+        1,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeInOut,
+      );
+      return;
+    }
+    await _playPageAudio(book, restart: true);
+  }
+
+  Future<void> _stopSleepMode({bool byTimer = false}) async {
+    final wasEnabled = _sleepModeEnabled;
+    _sleepModeTimer?.cancel();
+    _sleepModeTimer = null;
+    _sleepModeEndsAt = null;
+
+    if (mounted) {
+      setState(() => _sleepModeEnabled = false);
+    } else {
+      _sleepModeEnabled = false;
+    }
+
+    await _audioPlayer.stop();
+    if (byTimer && wasEnabled && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('수면 모드 시간이 종료되었어요.')),
+      );
+    }
+  }
+
+  String _sleepRemainingText() {
+    final endsAt = _sleepModeEndsAt;
+    if (endsAt == null) {
+      return '--:--';
+    }
+    final remaining = endsAt.difference(DateTime.now());
+    if (remaining.isNegative) {
+      return '00:00';
+    }
+    final minutes = remaining.inMinutes.toString().padLeft(2, '0');
+    final seconds = (remaining.inSeconds % 60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
+  }
+
+  String get _progressKey => 'reading_progress_${widget.bookId}_v1';
+
+  void _restoreReadingProgressIfNeeded(int totalPages) {
+    if (_progressRestored) {
+      return;
+    }
+    _progressRestored = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final prefs = ref.read(sharedPreferencesProvider);
+      final savedPage = prefs.getInt(_progressKey) ?? 0;
+      if (!mounted || savedPage <= 0 || savedPage >= totalPages) {
+        return;
+      }
+      _currentPage = savedPage;
+      _audioProgressPage = savedPage;
+      _pageController.jumpToPage(savedPage);
+      setState(() {});
+    });
+  }
+
+  Future<void> _saveReadingProgress(int pageIndex, int totalPages) async {
+    final prefs = ref.read(sharedPreferencesProvider);
+    if (pageIndex >= totalPages - 1) {
+      await prefs.remove(_progressKey);
+      return;
+    }
+    await prefs.setInt(_progressKey, pageIndex);
+  }
+
+  Future<void> _clearReadingProgress() async {
+    final prefs = ref.read(sharedPreferencesProvider);
+    await prefs.remove(_progressKey);
+  }
+
   void _showOptionsMenu(BookResult book) {
+    final hasBilingualText = book.pages.any(
+      (page) =>
+          (page.textKo?.isNotEmpty ?? false) &&
+          (page.textEn?.isNotEmpty ?? false),
+    );
     showModalBottomSheet(
       context: context,
       backgroundColor: AppColors.surface,
@@ -347,8 +884,59 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               ),
             ),
             const SizedBox(height: AppSpacing.lg),
+            if (_currentPage > 0)
+              ListTile(
+                leading: Icon(
+                  _followReadingEnabled
+                      ? Icons.hearing_disabled
+                      : Icons.hearing,
+                ),
+                title: Text(
+                  _followReadingEnabled ? '따라 읽기 모드 끄기' : '따라 읽기 모드 켜기',
+                ),
+                subtitle: const Text('오디오 진행에 맞춰 문장을 강조해요'),
+                onTap: () {
+                  Navigator.pop(context);
+                  if (!mounted) {
+                    return;
+                  }
+                  setState(
+                      () => _followReadingEnabled = !_followReadingEnabled);
+                },
+              ),
+            if (hasBilingualText)
+              ListTile(
+                leading: const Icon(Icons.translate),
+                title: Text(
+                  _dualLanguageEnabled ? '이중언어 표시 끄기' : '이중언어 동시 표시',
+                ),
+                subtitle: const Text('한국어/영어를 한 화면에서 볼 수 있어요'),
+                onTap: () {
+                  Navigator.pop(context);
+                  if (!mounted) {
+                    return;
+                  }
+                  setState(() => _dualLanguageEnabled = !_dualLanguageEnabled);
+                },
+              ),
+            ListTile(
+              leading: const Icon(Icons.alt_route),
+              title: const Text('분기형 스토리 모드'),
+              subtitle: const Text('선택지에 따라 결말이 달라지는 모드'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.pushNamed(
+                  context,
+                  '/branch-story',
+                  arguments: {
+                    'bookId': book.bookId,
+                  },
+                );
+              },
+            ),
             // 학습 모드 (페이지에서만)
-            if (_currentPage > 0 && book.pages[_currentPage - 1].vocab != null)
+            if (_currentPage > 0 &&
+                book.pages[_currentPage - 1].hasLearningContent)
               ListTile(
                 leading: const Icon(Icons.school),
                 title: const Text('학습 모드'),
@@ -367,6 +955,26 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                 onTap: () {
                   Navigator.pop(context);
                   _showParentGuide(book);
+                },
+              ),
+            if (_currentPage > 0)
+              ListTile(
+                leading: const Icon(Icons.record_voice_over_outlined),
+                title: const Text('발음 연습'),
+                subtitle: const Text('현재 페이지 문장으로 발음을 평가해요'),
+                onTap: () {
+                  final page = book.pages[_currentPage - 1];
+                  final expected = page.getText(_selectedLanguage);
+                  Navigator.pop(context);
+                  Navigator.pushNamed(
+                    context,
+                    '/pronunciation-practice',
+                    arguments: {
+                      'bookId': book.bookId,
+                      'pageNumber': page.pageNumber,
+                      'expectedText': expected,
+                    },
+                  );
                 },
               ),
             if (_currentPage > 0)
@@ -397,6 +1005,49 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               onTap: () {
                 Navigator.pop(context);
                 _downloadPdf(book);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.local_shipping_outlined),
+              title: const Text('실물책 주문'),
+              subtitle: const Text('POD 주문으로 인쇄본을 받아볼 수 있어요'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.pushNamed(
+                  context,
+                  '/pod-order',
+                  arguments: {
+                    'bookId': book.bookId,
+                    'bookTitle': book.title,
+                  },
+                );
+              },
+            ),
+            ListTile(
+              leading: Icon(
+                _sleepModeEnabled ? Icons.bedtime_off : Icons.bedtime,
+              ),
+              title: Text(_sleepModeEnabled ? '수면 모드 종료' : '수면 모드 시작'),
+              subtitle: Text(
+                _sleepModeEnabled
+                    ? '남은 시간 ${_sleepRemainingText()}'
+                    : '화면 어둡게 + 오디오 자동재생 + 페이지 자동넘김',
+              ),
+              onTap: () {
+                Navigator.pop(context);
+                if (_sleepModeEnabled) {
+                  unawaited(_stopSleepMode());
+                  return;
+                }
+                unawaited(_startSleepMode(book));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.print_outlined),
+              title: const Text('인쇄하기'),
+              onTap: () {
+                Navigator.pop(context);
+                _printPdf(book);
               },
             ),
             ListTile(
@@ -550,7 +1201,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
 
       // 파일 저장
       final directory = await getApplicationDocumentsDirectory();
-      final fileName = '${book.title.replaceAll(' ', '_')}.pdf';
+      final fileName =
+          '${book.title.replaceAll(RegExp(r'[\\\\/:*?\"<>|]'), '_').replaceAll(' ', '_')}.pdf';
       final file = File('${directory.path}/$fileName');
       await file.writeAsBytes(pdfBytes);
 
@@ -560,6 +1212,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
         );
       }
     } catch (e) {
+      if (await _handlePaymentRequired(e)) {
+        return;
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -596,8 +1251,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
             const SizedBox(height: AppSpacing.lg),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              child: Wrap(
+                alignment: WrapAlignment.center,
+                spacing: AppSpacing.lg,
+                runSpacing: AppSpacing.md,
                 children: [
                   _ShareButton(
                     icon: Icons.link,
@@ -613,6 +1270,23 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                     onTap: () {
                       Navigator.pop(context);
                       _shareText(book);
+                    },
+                  ),
+                  if (_allowKakaoShare)
+                    _ShareButton(
+                      icon: Icons.sms_outlined,
+                      label: '카카오톡',
+                      onTap: () async {
+                        Navigator.pop(context);
+                        await _shareToKakao(book);
+                      },
+                    ),
+                  _ShareButton(
+                    icon: Icons.image_outlined,
+                    label: '표지 공유',
+                    onTap: () {
+                      Navigator.pop(context);
+                      _shareCoverImage(book);
                     },
                   ),
                   _ShareButton(
@@ -646,16 +1320,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   void _copyShareUrl(BookResult book) {
     // 간단한 공유 텍스트 복사
     final shareText = '${book.title}\n\nAI Story Book으로 만든 동화책이에요!';
-    // Clipboard.setData(ClipboardData(text: shareText));  // flutter/services import needed
+    Clipboard.setData(ClipboardData(text: shareText));
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('공유 텍스트가 복사되었어요')),
-    );
-    final box = context.findRenderObject() as RenderBox?;
-    Share.share(
-      shareText,
-      sharePositionOrigin: box != null
-          ? box.localToGlobal(Offset.zero) & box.size
-          : const Rect.fromLTWH(0, 0, 100, 100),
+      const SnackBar(content: Text('복사 완료')),
     );
   }
 
@@ -676,6 +1343,99 @@ AI Story Book으로 만든 동화책이에요!
     );
   }
 
+  Future<void> _shareToKakao(BookResult book) async {
+    final box = context.findRenderObject() as RenderBox?;
+    final shareOrigin = box != null
+        ? box.localToGlobal(Offset.zero) & box.size
+        : const Rect.fromLTWH(0, 0, 100, 100);
+
+    final kakaoShare = ref.read(kakaoShareServiceProvider);
+    final shared = await kakaoShare.shareBookCard(
+      bookId: book.bookId,
+      title: book.title,
+      coverImageUrl: book.coverImageUrl,
+      description: 'AI Story Book으로 만든 동화책',
+    );
+    if (shared) {
+      return;
+    }
+
+    final deepLink = 'ai-story-book://books/${book.bookId}';
+    final fallbackUrl = 'https://aistorybook.app/books/${book.bookId}';
+    final shareText = '''
+📚 ${book.title}
+
+카카오톡으로 동화책을 공유해요!
+$deepLink
+$fallbackUrl
+    '''
+        .trim();
+    await Share.share(
+      shareText,
+      subject: 'AI Story Book - ${book.title}',
+      sharePositionOrigin: shareOrigin,
+    );
+  }
+
+  Future<void> _printPdf(BookResult book) async {
+    try {
+      final apiClient = ref.read(apiClientProvider);
+      final pdfBytes = await apiClient.downloadPdf(book.bookId);
+      await Printing.layoutPdf(
+        onLayout: (_) async => Uint8List.fromList(pdfBytes),
+      );
+    } catch (e) {
+      if (await _handlePaymentRequired(e)) {
+        return;
+      }
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('인쇄에 실패했어요. 잠시 후 다시 시도해주세요.'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
+  Future<void> _shareCoverImage(BookResult book) async {
+    try {
+      final request = await HttpClient().getUrl(Uri.parse(book.coverImageUrl));
+      final response = await request.close();
+      final bytes = await consolidateHttpClientResponseBytes(response);
+
+      final directory = await getTemporaryDirectory();
+      final fileName =
+          '${book.title.replaceAll(RegExp(r'[\\\\/:*?\"<>|]'), '_').replaceAll(' ', '_')}_cover.jpg';
+      final file = File('${directory.path}/$fileName');
+      await file.writeAsBytes(bytes);
+      if (!mounted) {
+        return;
+      }
+
+      final box = context.findRenderObject() as RenderBox?;
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        text: '${book.title} - 표지 이미지',
+        sharePositionOrigin: box != null
+            ? box.localToGlobal(Offset.zero) & box.size
+            : const Rect.fromLTWH(0, 0, 100, 100),
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('표지 공유에 실패했어요. 잠시 후 다시 시도해주세요.'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
   Future<void> _sharePdf(BookResult book) async {
     try {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -686,7 +1446,8 @@ AI Story Book으로 만든 동화책이에요!
       final pdfBytes = await apiClient.downloadPdf(book.bookId);
 
       final directory = await getTemporaryDirectory();
-      final fileName = '${book.title.replaceAll(' ', '_')}.pdf';
+      final fileName =
+          '${book.title.replaceAll(RegExp(r'[\\\\/:*?\"<>|]'), '_').replaceAll(' ', '_')}.pdf';
       final file = File('${directory.path}/$fileName');
       await file.writeAsBytes(pdfBytes);
       if (!mounted) return;
@@ -700,6 +1461,9 @@ AI Story Book으로 만든 동화책이에요!
             : const Rect.fromLTWH(0, 0, 100, 100),
       );
     } catch (e) {
+      if (await _handlePaymentRequired(e)) {
+        return;
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -732,8 +1496,8 @@ class _ShareButton extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Container(
-            width: 56,
-            height: 56,
+            width: AppSizing.minTouchTarget,
+            height: AppSizing.minTouchTarget,
             decoration: BoxDecoration(
               color: AppColors.primaryLight,
               borderRadius: BorderRadius.circular(16),
@@ -817,23 +1581,29 @@ class _CoverPage extends StatelessWidget {
 class _ContentPage extends StatelessWidget {
   final int pageNumber;
   final String text;
+  final String? secondaryText;
   final String imageUrl;
   final PageResult page;
   final String selectedLanguage;
+  final bool followReadingEnabled;
+  final double followProgress;
   final VoidCallback onShowLearning;
 
   const _ContentPage({
     required this.pageNumber,
     required this.text,
+    this.secondaryText,
     required this.imageUrl,
     required this.page,
     required this.selectedLanguage,
+    required this.followReadingEnabled,
+    required this.followProgress,
     required this.onShowLearning,
   });
 
   @override
   Widget build(BuildContext context) {
-    final hasLearning = page.vocab != null && page.vocab!.isNotEmpty;
+    final hasLearning = page.hasLearningContent;
 
     return Container(
       color: AppColors.background,
@@ -868,14 +1638,44 @@ class _ContentPage extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Center(
-                      child: Text(
-                        text,
-                        style: const TextStyle(
-                          fontSize: 20,
-                          height: 1.8,
-                          color: AppColors.textPrimary,
+                      child: SingleChildScrollView(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _HighlightedStoryText(
+                              text: text,
+                              progress: followProgress,
+                              enabled: followReadingEnabled,
+                              style: const TextStyle(
+                                fontSize: 20,
+                                height: 1.8,
+                                color: AppColors.textPrimary,
+                              ),
+                              highlightColor: AppColors.primary,
+                            ),
+                            if (secondaryText != null &&
+                                secondaryText!.trim().isNotEmpty) ...[
+                              const SizedBox(height: AppSpacing.lg),
+                              Container(
+                                width: double.infinity,
+                                height: 1,
+                                color: AppColors.divider,
+                              ),
+                              const SizedBox(height: AppSpacing.lg),
+                              _HighlightedStoryText(
+                                text: secondaryText!,
+                                progress: 0,
+                                enabled: false,
+                                style: const TextStyle(
+                                  fontSize: 17,
+                                  height: 1.7,
+                                  color: AppColors.textSecondary,
+                                ),
+                                highlightColor: AppColors.primary,
+                              ),
+                            ],
+                          ],
                         ),
-                        textAlign: TextAlign.center,
                       ),
                     ),
                   ),
@@ -899,6 +1699,66 @@ class _ContentPage extends StatelessWidget {
   }
 }
 
+class _HighlightedStoryText extends StatelessWidget {
+  final String text;
+  final double progress;
+  final bool enabled;
+  final TextStyle style;
+  final Color highlightColor;
+
+  const _HighlightedStoryText({
+    required this.text,
+    required this.progress,
+    required this.enabled,
+    required this.style,
+    required this.highlightColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final normalized = text.trim();
+    if (!enabled || normalized.isEmpty) {
+      return Text(
+        text,
+        style: style,
+        textAlign: TextAlign.center,
+      );
+    }
+
+    final segments = text.split(RegExp(r'(\s+)'));
+    final words = segments.where((segment) => segment.trim().isNotEmpty).length;
+    if (words == 0) {
+      return Text(
+        text,
+        style: style,
+        textAlign: TextAlign.center,
+      );
+    }
+
+    final target = (words * progress.clamp(0.0, 1.0)).round().clamp(0, words);
+    var seenWords = 0;
+
+    final spans = segments.map((segment) {
+      if (segment.trim().isEmpty) {
+        return TextSpan(text: segment, style: style);
+      }
+      seenWords += 1;
+      return TextSpan(
+        text: segment,
+        style: style.copyWith(
+          color: seenWords <= target ? highlightColor : style.color,
+          fontWeight: seenWords <= target ? FontWeight.w700 : style.fontWeight,
+        ),
+      );
+    }).toList(growable: false);
+
+    return RichText(
+      textAlign: TextAlign.center,
+      text: TextSpan(children: spans),
+    );
+  }
+}
+
 /// 네비게이션 버튼
 class _NavButton extends StatelessWidget {
   final IconData icon;
@@ -916,11 +1776,11 @@ class _NavButton extends StatelessWidget {
     return GestureDetector(
       onTap: enabled ? onPressed : null,
       child: Container(
-        width: 48,
-        height: 48,
+        width: AppSizing.minTouchTarget,
+        height: AppSizing.minTouchTarget,
         decoration: BoxDecoration(
           color: enabled ? AppColors.whiteOverlay : Colors.transparent,
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(AppSizing.minTouchTarget / 2),
         ),
         child: Icon(
           icon,
@@ -949,11 +1809,11 @@ class _AudioButton extends StatelessWidget {
     return GestureDetector(
       onTap: isLoading ? null : onPressed,
       child: Container(
-        width: 48,
-        height: 48,
+        width: AppSizing.minTouchTarget,
+        height: AppSizing.minTouchTarget,
         decoration: BoxDecoration(
           color: isPlaying ? AppColors.primaryMuted : AppColors.whiteOverlay,
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(AppSizing.minTouchTarget / 2),
         ),
         child: isLoading
             ? const Padding(
@@ -992,7 +1852,12 @@ class _LanguageToggle extends StatelessWidget {
     return GestureDetector(
       onTap: onToggle,
       child: Container(
+        constraints: const BoxConstraints(
+          minWidth: AppSizing.minTouchTarget,
+          minHeight: AppSizing.minTouchTarget,
+        ),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        alignment: Alignment.center,
         decoration: BoxDecoration(
           color: AppColors.whiteOverlay,
           borderRadius: BorderRadius.circular(16),

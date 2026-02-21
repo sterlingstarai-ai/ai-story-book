@@ -35,6 +35,10 @@ class Style(str, Enum):
 
 class Theme(str, Enum):
     lifestyle = "생활습관"
+    lunar_new_year = "설날"
+    chuseok = "추석"
+    childrens_day = "어린이날"
+    christmas = "크리스마스"
     emotion = "감정코칭"
     social = "사회성"
     friendship = "우정"
@@ -76,6 +80,7 @@ class BookSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     topic: str = Field(min_length=1, max_length=200)
+    protagonist_name: Optional[str] = Field(default=None, min_length=1, max_length=40)
     language: Language = Language.ko
     target_age: TargetAge
     style: Style
@@ -473,3 +478,5 @@ class LibraryResponse(BaseModel):
 
     books: List[BookSummary]
     total: int
+    next_cursor: Optional[str] = None
+    has_more: bool = False

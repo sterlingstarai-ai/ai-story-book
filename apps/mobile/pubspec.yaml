@@ -32,15 +32,24 @@ dependencies:
   # File System & Sharing
   path_provider: ^2.1.2
   share_plus: ^7.2.2
+  printing: ^5.13.4
+  confetti: ^0.8.0
 
   # Audio Player
   just_audio: ^0.9.36
+  in_app_review: ^2.0.10
+  in_app_purchase: ^3.2.0
+  google_mobile_ads: ^5.3.1
 
   # Image Picker
   image_picker: ^1.0.7
+  file_picker: ^8.0.6
 
   # Icons
   cupertino_icons: ^1.0.6
+  kakao_flutter_sdk_share: ^1.10.0
+  kakao_flutter_sdk_common: ^1.10.0
+  kakao_flutter_sdk_template: ^1.10.0
 
 dev_dependencies:
   flutter_test:
@@ -49,19 +58,38 @@ dev_dependencies:
   riverpod_generator: ^2.3.9
   build_runner: ^2.4.8
   json_serializable: ^6.7.1
+  flutter_launcher_icons: ^0.14.3
+  flutter_native_splash: ^2.4.4
 
 flutter:
   uses-material-design: true
 
   assets:
     - assets/images/
+    - assets/branding/
+    - assets/icons/
 
-  # fonts:
-  #   - family: Pretendard
-  #     fonts:
-  #       - asset: assets/fonts/Pretendard-Regular.otf
-  #       - asset: assets/fonts/Pretendard-Medium.otf
-  #         weight: 500
-  #       - asset: assets/fonts/Pretendard-Bold.otf
-  #         weight: 700
-  # Note: Download Pretendard font and uncomment above to use custom font
+  fonts:
+    - family: Pretendard
+      fonts:
+        - asset: assets/fonts/Pretendard-Regular.otf
+        - asset: assets/fonts/Pretendard-Medium.otf
+          weight: 500
+        - asset: assets/fonts/Pretendard-Bold.otf
+          weight: 700
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: assets/icons/app_icon.png
+  remove_alpha_ios: true
+  adaptive_icon_background: "#F8F9FC"
+  adaptive_icon_foreground: assets/icons/app_icon.png
+
+flutter_native_splash:
+  color: "#F8F9FC"
+  image: assets/branding/splash.png
+  android: true
+  ios: true
+  web: false
+  fullscreen: true

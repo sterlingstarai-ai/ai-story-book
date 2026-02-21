@@ -1,0 +1,92 @@
+#!/bin/bash
+# =============================================================================
+# phase-gate.sh - Phase gate quality checks for AI Story Book
+# =============================================================================
+# Usage:
+#   ./scripts/phase-gate.sh
+#   ./scripts/phase-gate.sh --with-mobile-build --with-ios-build
+# =============================================================================
+
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MOBILE_DIR="$ROOT_DIR/apps/mobile"
+API_DIR="$ROOT_DIR/apps/api"
+API_PYTHON="$API_DIR/venv/bin/python"
+
+if [ ! -x "$API_PYTHON" ]; then
+  API_PYTHON="python3"
+fi
+
+WITH_MOBILE_BUILD=false
+WITH_IOS_BUILD=false
+WITH_API_SMOKE=false
+
+for arg in "$@"; do
+  case "$arg" in
+    --with-mobile-build)
+      WITH_MOBILE_BUILD=true
+      ;;
+    --with-ios-build)
+      WITH_IOS_BUILD=true
+      ;;
+    --with-api-smoke)
+      WITH_API_SMOKE=true
+      ;;
+    *)
+      echo "Unknown option: $arg"
+      echo "Usage: ./scripts/phase-gate.sh [--with-mobile-build] [--with-ios-build] [--with-api-smoke]"
+      exit 1
+      ;;
+  esac
+done
+
+echo "==> [1/5] API unit/integration tests"
+(
+  cd "$ROOT_DIR"
+  "$API_PYTHON" -m pytest apps/api/tests -q
+)
+
+echo "==> [2/5] Mobile static analysis"
+(
+  cd "$MOBILE_DIR"
+  flutter analyze
+)
+
+echo "==> [3/5] Mobile widget/unit tests"
+(
+  cd "$MOBILE_DIR"
+  flutter test
+)
+
+if [ "$WITH_MOBILE_BUILD" = true ]; then
+  echo "==> [4/5] Mobile Android build (debug)"
+  (
+    cd "$MOBILE_DIR"
+    flutter build apk --debug
+  )
+else
+  echo "==> [4/5] Mobile Android build skipped (use --with-mobile-build)"
+fi
+
+if [ "$WITH_IOS_BUILD" = true ]; then
+  echo "==> [5/5] Mobile iOS build (no codesign)"
+  (
+    cd "$MOBILE_DIR"
+    flutter build ios --no-codesign
+  )
+else
+  echo "==> [5/5] Mobile iOS build skipped (use --with-ios-build)"
+fi
+
+if [ "$WITH_API_SMOKE" = true ]; then
+  echo "==> Additional: API smoke"
+  (
+    cd "$ROOT_DIR"
+    ./scripts/smoke.sh
+  )
+else
+  echo "==> Additional: API smoke skipped (use --with-api-smoke)"
+fi
+
+echo "✅ Phase gate checks passed"

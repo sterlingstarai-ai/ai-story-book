@@ -44,7 +44,7 @@ cd ../..
 
 성공 기준:
 
-- API: `231 passed`
+- API: `278 passed` (신규 기능/테스트 추가에 따라 증가 가능)
 - Mobile: `No issues found!`, `All tests passed!`
 
 ## 4) 실제 구동 (도커 권장)

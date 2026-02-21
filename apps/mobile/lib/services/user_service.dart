@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 /// 사용자 서비스 (user_key 관리)
 class UserService {
   static const _userKeyKey = 'user_key';
+  static const _activeProfileIdKey = 'active_profile_id_v1';
   final SharedPreferences _prefs;
 
   UserService(this._prefs);
@@ -21,5 +22,22 @@ class UserService {
   /// user_key 초기화 (디버그용)
   Future<void> resetUserKey() async {
     await _prefs.remove(_userKeyKey);
+  }
+
+  String? getActiveProfileId() {
+    final value = _prefs.getString(_activeProfileIdKey);
+    if (value == null || value.trim().isEmpty) {
+      return null;
+    }
+    return value.trim();
+  }
+
+  Future<void> setActiveProfileId(String? profileId) async {
+    final normalized = profileId?.trim();
+    if (normalized == null || normalized.isEmpty) {
+      await _prefs.remove(_activeProfileIdKey);
+      return;
+    }
+    await _prefs.setString(_activeProfileIdKey, normalized);
   }
 }

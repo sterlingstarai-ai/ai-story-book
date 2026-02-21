@@ -186,6 +186,20 @@ async def subscribe(
             details={"available_plans": list(SUBSCRIPTION_PLANS.keys())},
         )
 
+    existing = await credits_service.get_active_subscription(db, user_key)
+    if existing and existing.plan == request.plan:
+        plan_info = SUBSCRIPTION_PLANS[request.plan]
+        return {
+            "status": "already_subscribed",
+            "message": f"이미 {plan_info['name']} 플랜을 이용 중입니다.",
+            "subscription": {
+                "plan": existing.plan,
+                "credits_per_month": existing.credits_per_month,
+                "current_period_end": existing.current_period_end.isoformat(),
+                "status": existing.status,
+            },
+        }
+
     try:
         subscription = await credits_service.create_subscription(
             db, user_key, request.plan

@@ -50,6 +50,37 @@ class Settings(BaseSettings):
     elevenlabs_api_key: Optional[str] = None
     elevenlabs_voice_id: str = "21m00Tcm4TlvDq8ikWAM"
 
+    # STT (Speech-to-Text)
+    stt_provider: str = "mock"  # mock, openai, google
+    stt_api_key: Optional[str] = None
+    stt_model: str = "whisper-1"
+    google_stt_api_key: Optional[str] = None
+
+    # IAP Verification
+    # - local: 로컬 검증(개발/테스트)
+    # - hybrid: 키가 있으면 스토어 실검증, 없으면 로컬 검증
+    # - strict: 스토어 실검증 필수(키 없거나 검증 실패 시 에러)
+    iap_verification_mode: str = "local"
+    apple_iap_shared_secret: Optional[str] = None
+    apple_iap_verify_url: str = "https://buy.itunes.apple.com/verifyReceipt"
+    apple_iap_sandbox_verify_url: str = "https://sandbox.itunes.apple.com/verifyReceipt"
+    google_play_package_name: Optional[str] = None
+    google_play_access_token: Optional[str] = None
+    google_play_service_account_json: Optional[str] = None
+    google_play_service_account_file: Optional[str] = None
+    google_play_verify_base_url: str = "https://androidpublisher.googleapis.com"
+
+    # POD (Print-on-Demand)
+    # - local: 로컬 주문 생성/조회만 수행
+    # - hybrid: 설정이 있으면 외부 POD API 동기화, 없거나 실패 시 로컬 폴백
+    # - strict: 외부 POD API 동기화 필수
+    pod_mode: str = "local"
+    pod_provider: str = "printful"
+    printful_api_key: Optional[str] = None
+    printful_store_id: Optional[str] = None
+    printful_sync_variant_id: Optional[int] = None
+    printful_base_url: str = "https://api.printful.com"
+
     # Rate Limiting
     rate_limit_requests: int = 10
     rate_limit_window: int = 60  # seconds
@@ -62,6 +93,11 @@ class Settings(BaseSettings):
     # Guardrails
     daily_job_limit_per_user: int = 20  # Max jobs per user per day
     max_pending_jobs: int = 100  # Max pending jobs in queue before rejecting
+
+    # Free plan enforcement
+    free_plan_enforcement_enabled: bool = True
+    free_plan_enforce_in_testing: bool = False
+    free_plan_monthly_book_limit: int = 2
 
     # Admin
     admin_api_key: str = ""  # MUST be set in production for /credits/add

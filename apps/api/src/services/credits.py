@@ -6,7 +6,7 @@ Credits Service
 from datetime import timedelta
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
+from sqlalchemy import select, update, case
 
 from ..models.db import UserCredits, Subscription, CreditTransaction
 from ..core.utils import utcnow
@@ -17,20 +17,20 @@ SUBSCRIPTION_PLANS = {
     "free": {
         "name": "무료",
         "price": 0,
-        "credits_per_month": 3,
-        "features": ["월 3권 생성", "기본 스타일"],
+        "credits_per_month": 2,
+        "features": ["월 2권 생성", "watercolor/cartoon 스타일", "오디오/PDF 미지원"],
     },
     "basic": {
         "name": "베이직",
-        "price": 9900,  # 원
-        "credits_per_month": 15,
-        "features": ["월 15권 생성", "모든 스타일", "PDF 내보내기"],
+        "price": 6900,  # 원
+        "credits_per_month": 10,
+        "features": ["월 10권 생성", "모든 스타일", "PDF", "기본 TTS"],
     },
     "premium": {
         "name": "프리미엄",
-        "price": 19900,  # 원
-        "credits_per_month": 50,
-        "features": ["월 50권 생성", "모든 기능", "우선 처리", "TTS 오디오"],
+        "price": 14900,  # 원
+        "credits_per_month": 30,
+        "features": ["월 30권 생성", "모든 기능", "프리미엄 TTS", "우선 처리"],
     },
 }
 
@@ -42,6 +42,7 @@ class CreditsService:
         self,
         db: AsyncSession,
         user_key: str,
+        commit: bool = True,
     ) -> UserCredits:
         """사용자 크레딧 정보 조회 또는 생성"""
         result = await db.execute(
@@ -53,23 +54,28 @@ class CreditsService:
             # 새 사용자에게 기본 크레딧 제공
             user_credits = UserCredits(
                 user_key=user_key,
-                credits=10,  # 무료 크레딧 (테스트용 10개)
+                credits=3,
                 total_purchased=0,
                 total_used=0,
             )
             db.add(user_credits)
-            await db.commit()
-            await db.refresh(user_credits)
 
             # 보너스 크레딧 기록
             await self._record_transaction(
                 db=db,
                 user_key=user_key,
-                amount=10,
-                balance_after=10,
+                amount=3,
+                balance_after=3,
                 transaction_type="bonus",
                 description="신규 가입 보너스 크레딧",
+                commit=False,
             )
+
+            if commit:
+                await db.commit()
+                await db.refresh(user_credits)
+            else:
+                await db.flush()
 
         return user_credits
 
@@ -106,46 +112,52 @@ class CreditsService:
         - SQLite는 SELECT ... FOR UPDATE 미지원 → 테스트에서 즉시 실패 가능
         - 조건부 UPDATE(credits >= amount)로 원자성 확보
         """
-        # ensure user exists (creates row if missing)
-        await self.get_or_create_credits(db, user_key)
+        try:
+            # ensure user exists (creates row if missing)
+            await self.get_or_create_credits(db, user_key, commit=False)
 
-        # 원자적 UPDATE: credits >= amount 조건으로 차감
-        stmt = (
-            update(UserCredits)
-            .where(
-                UserCredits.user_key == user_key,
-                UserCredits.credits >= amount,
+            # 원자적 UPDATE: credits >= amount 조건으로 차감
+            stmt = (
+                update(UserCredits)
+                .where(
+                    UserCredits.user_key == user_key,
+                    UserCredits.credits >= amount,
+                )
+                .values(
+                    credits=UserCredits.credits - amount,
+                    total_used=UserCredits.total_used + amount,
+                )
             )
-            .values(
-                credits=UserCredits.credits - amount,
-                total_used=UserCredits.total_used + amount,
+
+            result = await db.execute(stmt)
+            affected = result.rowcount if hasattr(result, "rowcount") else 0
+
+            if affected <= 0:
+                await db.rollback()
+                return False
+
+            balance_result = await db.execute(
+                select(UserCredits.credits).where(UserCredits.user_key == user_key)
             )
-        )
+            new_balance = balance_result.scalar_one()
 
-        result = await db.execute(stmt)
-        affected = result.rowcount if hasattr(result, "rowcount") else 0
+            # 거래 기록
+            await self._record_transaction(
+                db=db,
+                user_key=user_key,
+                amount=-amount,
+                balance_after=new_balance,
+                transaction_type="usage",
+                description=description,
+                reference_id=reference_id,
+                commit=False,
+            )
 
-        if affected <= 0:
+            await db.commit()
+            return True
+        except Exception:
             await db.rollback()
-            return False
-
-        await db.commit()
-
-        # 새 잔액 조회
-        new_balance = await self.get_credits(db, user_key)
-
-        # 거래 기록
-        await self._record_transaction(
-            db=db,
-            user_key=user_key,
-            amount=-amount,
-            balance_after=new_balance,
-            transaction_type="usage",
-            description=description,
-            reference_id=reference_id,
-        )
-
-        return True
+            raise
 
     async def add_credits(
         self,
@@ -155,56 +167,74 @@ class CreditsService:
         transaction_type: str = "purchase",
         description: str = "크레딧 구매",
         reference_id: Optional[str] = None,
+        commit: bool = True,
     ) -> int:
         """크레딧 충전 (원자적 UPDATE)"""
-        # ensure user exists
-        await self.get_or_create_credits(db, user_key)
+        try:
+            # ensure user exists
+            await self.get_or_create_credits(db, user_key, commit=False)
 
-        # 원자적 UPDATE
-        values = {
-            "credits": UserCredits.credits + amount,
-        }
-        if transaction_type == "purchase":
-            values["total_purchased"] = UserCredits.total_purchased + amount
+            # 원자적 UPDATE
+            values = {
+                "credits": UserCredits.credits + amount,
+            }
+            if transaction_type == "purchase":
+                values["total_purchased"] = UserCredits.total_purchased + amount
 
-        stmt = (
-            update(UserCredits)
-            .where(UserCredits.user_key == user_key)
-            .values(**values)
-        )
-        await db.execute(stmt)
-        await db.commit()
+            stmt = (
+                update(UserCredits)
+                .where(UserCredits.user_key == user_key)
+                .values(**values)
+            )
+            await db.execute(stmt)
 
-        # 새 잔액 조회
-        new_balance = await self.get_credits(db, user_key)
+            balance_result = await db.execute(
+                select(UserCredits.credits).where(UserCredits.user_key == user_key)
+            )
+            new_balance = balance_result.scalar_one()
 
-        # 거래 기록
-        await self._record_transaction(
-            db=db,
-            user_key=user_key,
-            amount=amount,
-            balance_after=new_balance,
-            transaction_type=transaction_type,
-            description=description,
-            reference_id=reference_id,
-        )
+            # 거래 기록
+            await self._record_transaction(
+                db=db,
+                user_key=user_key,
+                amount=amount,
+                balance_after=new_balance,
+                transaction_type=transaction_type,
+                description=description,
+                reference_id=reference_id,
+                commit=False,
+            )
 
-        return new_balance
+            if commit:
+                await db.commit()
+            else:
+                await db.flush()
+
+            return new_balance
+        except Exception:
+            await db.rollback()
+            raise
 
     async def get_active_subscription(
         self,
         db: AsyncSession,
         user_key: str,
     ) -> Optional[Subscription]:
-        """활성 구독 조회"""
+        """현재 사용 권한이 있는 구독 조회 (active/cancelled + 기간 내)."""
         result = await db.execute(
-            select(Subscription).where(
+            select(Subscription)
+            .where(
                 Subscription.user_key == user_key,
-                Subscription.status == "active",
+                Subscription.status.in_(["active", "cancelled"]),
                 Subscription.current_period_end > utcnow(),
             )
+            .order_by(
+                case((Subscription.status == "active", 0), else_=1),
+                Subscription.current_period_end.desc(),
+                Subscription.created_at.desc(),
+            )
         )
-        return result.scalar_one_or_none()
+        return result.scalars().first()
 
     async def create_subscription(
         self,
@@ -217,36 +247,44 @@ class CreditsService:
             raise ValueError(f"Invalid plan: {plan}")
 
         plan_info = SUBSCRIPTION_PLANS[plan]
+        now = utcnow()
 
         # 기존 활성 구독 취소
         existing = await self.get_active_subscription(db, user_key)
         if existing:
             existing.status = "cancelled"
+            existing.current_period_end = now
 
         # 새 구독 생성
-        now = utcnow()
-        subscription = Subscription(
-            user_key=user_key,
-            plan=plan,
-            status="active",
-            credits_per_month=plan_info["credits_per_month"],
-            current_period_start=now,
-            current_period_end=now + timedelta(days=30),
-        )
-        db.add(subscription)
-        await db.commit()
+        try:
+            subscription = Subscription(
+                user_key=user_key,
+                plan=plan,
+                status="active",
+                credits_per_month=plan_info["credits_per_month"],
+                current_period_start=now,
+                current_period_end=now + timedelta(days=30),
+            )
+            db.add(subscription)
+            await db.flush()
 
-        # 월간 크레딧 지급
-        await self.add_credits(
-            db=db,
-            user_key=user_key,
-            amount=plan_info["credits_per_month"],
-            transaction_type="subscription",
-            description=f"{plan_info['name']} 구독 크레딧",
-            reference_id=str(subscription.id),
-        )
+            # 월간 크레딧 지급
+            await self.add_credits(
+                db=db,
+                user_key=user_key,
+                amount=plan_info["credits_per_month"],
+                transaction_type="subscription",
+                description=f"{plan_info['name']} 구독 크레딧",
+                reference_id=str(subscription.id),
+                commit=False,
+            )
 
-        return subscription
+            await db.commit()
+            await db.refresh(subscription)
+            return subscription
+        except Exception:
+            await db.rollback()
+            raise
 
     async def cancel_subscription(
         self,
@@ -288,6 +326,7 @@ class CreditsService:
         transaction_type: str,
         description: str,
         reference_id: Optional[str] = None,
+        commit: bool = True,
     ):
         """거래 기록 생성"""
         transaction = CreditTransaction(
@@ -299,7 +338,8 @@ class CreditsService:
             reference_id=reference_id,
         )
         db.add(transaction)
-        await db.commit()
+        if commit:
+            await db.commit()
 
 
 # 싱글톤 인스턴스

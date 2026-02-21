@@ -638,7 +638,8 @@ async def package_book(
 ) -> BookResult:
     """H. 패키징 및 저장"""
     from src.core.database import AsyncSessionLocal
-    from src.models.db import Book, Page
+    from src.models.db import Book, Job, Page
+    from sqlalchemy import select
 
     book_id = f"book_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
 
@@ -656,6 +657,10 @@ async def package_book(
 
     async with AsyncSessionLocal() as session:
         try:
+            job_result = await session.execute(select(Job).where(Job.id == job_id))
+            job = job_result.scalar_one_or_none()
+            profile_id = job.profile_id if job else None
+
             # Create book
             # character_id: 단일 캐릭터 (기존 호환성), character_ids: 다중 캐릭터
             primary_char_id = (
@@ -673,6 +678,7 @@ async def package_book(
                 character_ids=spec.character_ids,
                 cover_image_url=image_urls.get(0, ""),
                 user_key=user_key,
+                profile_id=profile_id,
                 # 시리즈 관련
                 series_id=series_id,
                 series_index=series_index,

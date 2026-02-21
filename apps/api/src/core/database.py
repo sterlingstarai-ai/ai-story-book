@@ -5,6 +5,16 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 from src.core.config import settings
 
 
+def _require_database_url() -> str:
+    """Fail fast with a clear message when DB URL is missing."""
+    url = (settings.database_url or "").strip()
+    if not url:
+        raise RuntimeError(
+            "DATABASE_URL is required but not set. Configure DATABASE_URL before starting the API."
+        )
+    return url
+
+
 def make_sync_url(url: str) -> str:
     """Convert database URL to sync driver format"""
     if "postgresql+asyncpg://" in url:
@@ -24,12 +34,13 @@ def make_async_url(url: str) -> str:
 
 
 # Sync engine (for Alembic migrations)
-sync_database_url = make_sync_url(settings.database_url)
+database_url = _require_database_url()
+sync_database_url = make_sync_url(database_url)
 engine = create_engine(sync_database_url, echo=settings.debug)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Async engine (for API)
-async_database_url = make_async_url(settings.database_url)
+async_database_url = make_async_url(database_url)
 async_engine = create_async_engine(async_database_url, echo=settings.debug)
 AsyncSessionLocal = async_sessionmaker(
     bind=async_engine,

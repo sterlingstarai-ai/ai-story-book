@@ -22,7 +22,7 @@ class PrimaryButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       width: isFullWidth ? double.infinity : null,
-      height: 52,
+      height: 64,
       child: ElevatedButton(
         onPressed: isLoading ? null : onPressed,
         style: ElevatedButton.styleFrom(
@@ -63,7 +63,7 @@ class SecondaryButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       width: double.infinity,
-      height: 52,
+      height: 64,
       child: OutlinedButton(
         onPressed: onPressed,
         style: OutlinedButton.styleFrom(
