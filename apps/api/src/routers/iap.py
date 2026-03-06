@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+import structlog
 
 from src.core.database import get_db
 from src.core.dependencies import get_user_key
@@ -20,6 +21,7 @@ from src.services.credits import credits_service
 from src.services.iap_verifier import iap_verifier
 
 router = APIRouter()
+logger = structlog.get_logger()
 
 
 class IAPVerifyRequest(BaseModel):
@@ -119,6 +121,12 @@ async def verify_iap(
     )
     existing = existing_result.scalar_one_or_none()
     if existing:
+        logger.info(
+            "IAP receipt already processed",
+            platform=request.platform,
+            transaction_id=transaction_id,
+            product_id=existing.product_id,
+        )
         return IAPVerifyResponse(
             status="already_processed",
             transaction_id=existing.transaction_id,
@@ -172,6 +180,13 @@ async def verify_iap(
             )
             db.add(receipt)
             await db.commit()
+            logger.info(
+                "IAP subscription already active",
+                platform=request.platform,
+                transaction_id=transaction_id,
+                product_id=product_id,
+                plan=plan,
+            )
             return IAPVerifyResponse(
                 status="already_subscribed",
                 transaction_id=transaction_id,
@@ -209,6 +224,16 @@ async def verify_iap(
     )
     db.add(receipt)
     await db.commit()
+
+    logger.info(
+        "IAP receipt verified",
+        platform=request.platform,
+        transaction_id=transaction_id,
+        product_id=product_id,
+        credits_added=credits_to_add,
+        plan=plan,
+        verification_source=verification.source,
+    )
 
     return IAPVerifyResponse(
         status="verified",
@@ -266,6 +291,13 @@ async def _apply_webhook_status(
                 subscription.current_period_end = utcnow() - timedelta(seconds=1)
 
     await db.commit()
+
+    logger.info(
+        "IAP webhook applied",
+        platform=platform,
+        transaction_id=receipt.transaction_id,
+        receipt_status=receipt.status,
+    )
 
     return {
         "status": "ok",

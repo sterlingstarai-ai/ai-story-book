@@ -62,6 +62,67 @@ class JobStatus {
   bool get isRunning => status == JobState.running || status == JobState.queued;
 }
 
+class AssetStatusDetail {
+  final String state;
+  final String? reason;
+  final String? url;
+
+  AssetStatusDetail({
+    required this.state,
+    this.reason,
+    this.url,
+  });
+
+  factory AssetStatusDetail.fromJson(Map<String, dynamic> json) {
+    return AssetStatusDetail(
+      state: JsonParsing.asRequiredString(json['state'], field: 'state'),
+      reason: JsonParsing.asOptionalString(json['reason']),
+      url: JsonParsing.asOptionalString(json['url']),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'state': state,
+      if (reason != null) 'reason': reason,
+      if (url != null) 'url': url,
+    };
+  }
+}
+
+class GenerationWarning {
+  final String code;
+  final String message;
+  final String? asset;
+  final int? pageNumber;
+
+  GenerationWarning({
+    required this.code,
+    required this.message,
+    this.asset,
+    this.pageNumber,
+  });
+
+  factory GenerationWarning.fromJson(Map<String, dynamic> json) {
+    return GenerationWarning(
+      code: JsonParsing.asRequiredString(json['code'], field: 'code'),
+      message: JsonParsing.asRequiredString(json['message'], field: 'message'),
+      asset: JsonParsing.asOptionalString(json['asset']),
+      pageNumber:
+          JsonParsing.asOptionalInt(json['page_number'], field: 'page_number'),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'code': code,
+      'message': message,
+      if (asset != null) 'asset': asset,
+      if (pageNumber != null) 'page_number': pageNumber,
+    };
+  }
+}
+
 /// 책 결과 모델
 class BookResult {
   final String bookId;
@@ -78,6 +139,7 @@ class BookResult {
   final String? titleEn;
   // 학습 자산
   final LearningAssets? learningAssets;
+  final List<GenerationWarning> generationWarnings;
 
   BookResult({
     required this.bookId,
@@ -91,6 +153,7 @@ class BookResult {
     this.titleKo,
     this.titleEn,
     this.learningAssets,
+    this.generationWarnings = const [],
   });
 
   factory BookResult.fromJson(Map<String, dynamic> json) {
@@ -102,6 +165,14 @@ class BookResult {
     final learningAssetsJson = JsonParsing.asNullableMap(
         json['learning_assets'],
         field: 'learning_assets');
+    final generationWarnings = JsonParsing.asNullableList(
+                json['generation_warnings'],
+                field: 'generation_warnings')
+            ?.map((warning) => GenerationWarning.fromJson(
+                  JsonParsing.asMap(warning, field: 'generation_warnings[]'),
+                ))
+            .toList() ??
+        const <GenerationWarning>[];
 
     return BookResult(
       bookId: JsonParsing.asRequiredString(json['book_id'], field: 'book_id'),
@@ -121,6 +192,7 @@ class BookResult {
       learningAssets: learningAssetsJson == null
           ? null
           : LearningAssets.fromJson(learningAssetsJson),
+      generationWarnings: generationWarnings,
     );
   }
 
@@ -130,6 +202,8 @@ class BookResult {
     if (language == 'en' && titleEn != null) return titleEn!;
     return title;
   }
+
+  bool get hasGenerationWarnings => generationWarnings.isNotEmpty;
 
   Map<String, dynamic> toJson() {
     return {
@@ -144,6 +218,9 @@ class BookResult {
       if (titleKo != null) 'title_ko': titleKo,
       if (titleEn != null) 'title_en': titleEn,
       if (learningAssets != null) 'learning_assets': learningAssets!.toJson(),
+      if (generationWarnings.isNotEmpty)
+        'generation_warnings':
+            generationWarnings.map((warning) => warning.toJson()).toList(),
     };
   }
 }
@@ -163,6 +240,7 @@ class PageResult {
   final List<VocabItem>? vocab;
   final List<ComprehensionQuestion>? comprehensionQuestions;
   final List<QuizItem>? quiz;
+  final Map<String, AssetStatusDetail> assetStatus;
 
   PageResult({
     required this.pageNumber,
@@ -176,6 +254,7 @@ class PageResult {
     this.vocab,
     this.comprehensionQuestions,
     this.quiz,
+    this.assetStatus = const {},
   });
 
   factory PageResult.fromJson(Map<String, dynamic> json) {
@@ -197,6 +276,16 @@ class PageResult {
               JsonParsing.asMap(item, field: 'quiz[]'),
             ))
         .toList();
+    final assetStatusJson =
+        JsonParsing.asNullableMap(json['asset_status'], field: 'asset_status');
+    final assetStatus = <String, AssetStatusDetail>{};
+    if (assetStatusJson != null) {
+      for (final entry in assetStatusJson.entries) {
+        assetStatus[entry.key] = AssetStatusDetail.fromJson(
+          JsonParsing.asMap(entry.value, field: 'asset_status.${entry.key}'),
+        );
+      }
+    }
 
     return PageResult(
       pageNumber:
@@ -212,6 +301,7 @@ class PageResult {
       vocab: vocab,
       comprehensionQuestions: comprehensionQuestions,
       quiz: quiz,
+      assetStatus: assetStatus,
     );
   }
 
@@ -238,6 +328,8 @@ class PageResult {
     return hasVocab || hasComprehension || hasQuiz;
   }
 
+  bool get hasDegradedImage => assetStatus['image']?.state == 'degraded';
+
   Map<String, dynamic> toJson() {
     return {
       'page_number': pageNumber,
@@ -253,6 +345,10 @@ class PageResult {
         'comprehension_questions':
             comprehensionQuestions!.map((item) => item.toJson()).toList(),
       if (quiz != null) 'quiz': quiz!.map((item) => item.toJson()).toList(),
+      if (assetStatus.isNotEmpty)
+        'asset_status': assetStatus.map(
+          (key, value) => MapEntry(key, value.toJson()),
+        ),
     };
   }
 }

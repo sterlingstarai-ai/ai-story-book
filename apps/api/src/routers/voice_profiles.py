@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, File, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+import structlog
 
 from src.core.database import get_db
 from src.core.dependencies import get_user_key
@@ -22,6 +23,7 @@ from src.models.db import VoiceProfile
 from src.services.storage import storage_service
 
 router = APIRouter()
+logger = structlog.get_logger()
 _MAX_SAMPLE_AUDIO_BYTES = 15 * 1024 * 1024
 
 
@@ -187,6 +189,12 @@ async def create_voice_profile(
     db.add(profile)
     await db.commit()
     await db.refresh(profile)
+    logger.info(
+        "Voice profile created",
+        profile_id=profile.id,
+        active=profile.active,
+        consented=profile.consented,
+    )
     return _serialize(profile)
 
 
@@ -234,6 +242,12 @@ async def update_voice_profile(
 
     await db.commit()
     await db.refresh(profile)
+    logger.info(
+        "Voice profile updated",
+        profile_id=profile.id,
+        active=profile.active,
+        consented=profile.consented,
+    )
     return _serialize(profile)
 
 
@@ -259,6 +273,11 @@ async def revoke_voice_profile_consent(
     await db.commit()
     await db.refresh(profile)
 
+    logger.info(
+        "Voice profile consent revoked",
+        profile_id=profile.id,
+    )
+
     return {
         "status": "success",
         "profile": _serialize(profile),
@@ -283,6 +302,11 @@ async def delete_voice_profile(
 
     await db.delete(profile)
     await db.commit()
+
+    logger.info(
+        "Voice profile deleted",
+        profile_id=profile_id,
+    )
 
     return {
         "status": "success",

@@ -169,6 +169,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     // 표지(0) + 페이지들
     final totalPages = book.pages.length + 1;
     _restoreReadingProgressIfNeeded(totalPages);
+    final currentWarning = _currentGenerationWarning(book);
 
     return GestureDetector(
       onTap: _toggleControls,
@@ -225,6 +226,46 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               }
             },
           ),
+          if (currentWarning != null)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + AppSpacing.md,
+              left: AppSpacing.md,
+              right: AppSpacing.md,
+              child: IgnorePointer(
+                ignoring: true,
+                child: AnimatedOpacity(
+                  opacity: _showControls ? 1 : 0.92,
+                  duration: const Duration(milliseconds: 200),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.md,
+                      vertical: AppSpacing.sm,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.warning.withValues(alpha: 0.92),
+                      borderRadius: BorderRadius.circular(AppRadius.md),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.warning_amber_rounded,
+                          color: Colors.white,
+                        ),
+                        const SizedBox(width: AppSpacing.sm),
+                        Expanded(
+                          child: Text(
+                            currentWarning.message,
+                            style: AppTextStyles.bodySmall.copyWith(
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
 
           // 컨트롤
           IgnorePointer(
@@ -265,6 +306,20 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
         ],
       ),
     );
+  }
+
+  GenerationWarning? _currentGenerationWarning(BookResult book) {
+    if (!book.hasGenerationWarnings) {
+      return null;
+    }
+
+    final targetPage = _currentPage;
+    for (final warning in book.generationWarnings) {
+      if (warning.pageNumber == targetPage) {
+        return warning;
+      }
+    }
+    return book.generationWarnings.first;
   }
 
   Future<void> _handleBookCompleted(BookResult book) async {
@@ -1227,6 +1282,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   }
 
   void _showShareOptions(BookResult book) {
+    final kakaoShare = ref.read(kakaoShareServiceProvider);
+    final canUseKakaoShare = _allowKakaoShare && kakaoShare.isConfigured;
+
     showModalBottomSheet(
       context: context,
       backgroundColor: AppColors.surface,
@@ -1272,7 +1330,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                       _shareText(book);
                     },
                   ),
-                  if (_allowKakaoShare)
+                  if (canUseKakaoShare)
                     _ShareButton(
                       icon: Icons.sms_outlined,
                       label: '카카오톡',
@@ -1350,14 +1408,19 @@ AI Story Book으로 만든 동화책이에요!
         : const Rect.fromLTWH(0, 0, 100, 100);
 
     final kakaoShare = ref.read(kakaoShareServiceProvider);
-    final shared = await kakaoShare.shareBookCard(
+    final result = await kakaoShare.shareBookCard(
       bookId: book.bookId,
       title: book.title,
       coverImageUrl: book.coverImageUrl,
       description: 'AI Story Book으로 만든 동화책',
     );
-    if (shared) {
+    if (result.shared) {
       return;
+    }
+    if (mounted && result.reason != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result.reason!)),
+      );
     }
 
     final deepLink = 'ai-story-book://books/${book.bookId}';

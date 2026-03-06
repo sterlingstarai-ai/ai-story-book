@@ -1,327 +1,141 @@
-# AI Story Book - 배포 가이드
+# Deployment Guide
 
-## 목차
+This document defines the production deployment contract after the P5 hardening sweep.
 
-1. [사전 요구사항](#사전-요구사항)
-2. [빠른 시작](#빠른-시작)
-3. [환경 설정](#환경-설정)
-4. [배포 방법](#배포-방법)
-5. [모니터링](#모니터링)
-6. [문제 해결](#문제-해결)
+## Source of truth
 
----
+Production is deployed from version-tagged container images.
 
-## 사전 요구사항
+Canonical path:
+1. GitHub Actions builds `ghcr.io/<repo>/api:<sha>` and `ghcr.io/<repo>/worker:<sha>`
+2. Production server pulls those images
+3. Production compose brings services up
+4. Readiness is verified via `/health/ready`
 
-### 서버 요구사항
+Local `docker build` is not the production source of truth.
 
-- **OS**: Ubuntu 22.04 LTS 권장
-- **CPU**: 4 cores 이상
-- **RAM**: 8GB 이상
-- **Storage**: 50GB 이상 SSD
-- **Network**: 고정 IP, 도메인 (선택)
+## Required tools
 
-### 소프트웨어
+- Docker Engine
+- `docker compose` plugin or `docker-compose`
+- Git
+- curl
 
-```bash
-# Docker 설치
-curl -fsSL https://get.docker.com -o get-docker.sh
-sudo sh get-docker.sh
+## Environment files
 
-# Docker Compose 설치
-sudo apt-get install docker-compose-plugin
+- Local API runtime: `apps/api/.env`
+- Production compose runtime: `infra/.env`
 
-# Git 설치
-sudo apt-get install git
-```
-
----
-
-## 빠른 시작
+Validate before deploy:
 
 ```bash
-# 1. 프로젝트 클론
-git clone https://github.com/your-org/ai-story-book.git
-cd ai-story-book
-
-# 2. 환경 변수 설정
-cp infra/.env.example .env
-nano .env  # API 키 등 설정
-
-# 3. 배포
-./scripts/deploy.sh deploy
+./scripts/check-env.sh --mode production --env-file infra/.env
 ```
 
----
+## Production compose
 
-## 환경 설정
+File: `infra/docker-compose.prod.yml`
 
-### 필수 환경 변수
+Important properties:
+- `api` and `worker` use `image:`
+- image defaults can be overridden with `API_IMAGE` and `WORKER_IMAGE`
+- `IMAGE_TAG` is propagated through `scripts/deploy.sh --image-tag`
 
-| 변수 | 설명 | 예시 |
-|------|------|------|
-| `DB_USER` | PostgreSQL 사용자 | `aistorybook` |
-| `DB_PASSWORD` | PostgreSQL 비밀번호 | `secure_password` |
-| `DB_NAME` | 데이터베이스 이름 | `aistorybook` |
-| `LLM_PROVIDER` | LLM 제공자 | `openai`, `anthropic` |
-| `LLM_API_KEY` | LLM API 키 | `sk-...` |
-| `IMAGE_PROVIDER` | 이미지 제공자 | `replicate`, `fal` |
-| `IMAGE_API_KEY` | 이미지 API 키 | `r8_...` |
+## Deploy script
 
-### S3 스토리지 설정
-
-#### MinIO (자체 호스팅)
-
-```env
-S3_ENDPOINT=http://minio:9000
-S3_ACCESS_KEY=minioadmin
-S3_SECRET_KEY=your_secret_key
-S3_BUCKET=ai-story-book
-```
-
-#### AWS S3
-
-```env
-S3_ENDPOINT=https://s3.amazonaws.com
-S3_ACCESS_KEY=AKIAIOSFODNN7EXAMPLE
-S3_SECRET_KEY=your_secret_key
-S3_BUCKET=ai-story-book
-S3_REGION=ap-northeast-2
-```
-
-#### Cloudflare R2
-
-```env
-S3_ENDPOINT=https://<account_id>.r2.cloudflarestorage.com
-S3_ACCESS_KEY=your_access_key
-S3_SECRET_KEY=your_secret_key
-S3_BUCKET=ai-story-book
-```
-
----
-
-## 배포 방법
-
-### 수동 배포
+Usage:
 
 ```bash
-# 전체 배포
-./scripts/deploy.sh deploy
-
-# 개별 명령
-./scripts/deploy.sh build    # 이미지 빌드
-./scripts/deploy.sh start    # 서비스 시작
-./scripts/deploy.sh migrate  # DB 마이그레이션
-./scripts/deploy.sh status   # 상태 확인
-./scripts/deploy.sh logs     # 로그 확인
+./scripts/deploy.sh [--env-file PATH] [--compose-file PATH] [--image-tag TAG] <command>
 ```
 
-### GitHub Actions 자동 배포
-
-1. GitHub Secrets 설정:
-   - `DEPLOY_HOST`: 서버 IP
-   - `DEPLOY_USER`: SSH 사용자
-   - `DEPLOY_KEY`: SSH 개인키
-
-2. `main` 브랜치에 푸시하면 자동 배포
-
----
-
-## 서비스 구조
-
-```
-┌─────────────┐     ┌─────────────┐
-│   Nginx     │────▶│   API (x2)  │
-│  (Reverse   │     │  FastAPI    │
-│   Proxy)    │     └──────┬──────┘
-└─────────────┘            │
-                           ▼
-┌─────────────┐     ┌─────────────┐
-│  PostgreSQL │◀───▶│  Worker(x2) │
-└─────────────┘     │   Celery    │
-                    └──────┬──────┘
-┌─────────────┐            │
-│    Redis    │◀───────────┘
-└─────────────┘
-
-┌─────────────┐
-│  MinIO/S3   │  (이미지 저장소)
-└─────────────┘
-```
-
----
-
-## SSL 설정 (HTTPS)
-
-### Let's Encrypt 사용
+Common commands:
 
 ```bash
-# Certbot 설치
-sudo apt-get install certbot
-
-# 인증서 발급
-sudo certbot certonly --standalone -d yourdomain.com
-
-# 인증서 위치
-# /etc/letsencrypt/live/yourdomain.com/fullchain.pem
-# /etc/letsencrypt/live/yourdomain.com/privkey.pem
+./scripts/deploy.sh --env-file infra/.env --image-tag <sha> deploy
+./scripts/deploy.sh --env-file infra/.env status
+./scripts/deploy.sh --env-file infra/.env logs
+./scripts/deploy.sh --env-file infra/.env health
+./scripts/deploy.sh --env-file infra/.env backup
 ```
 
-### Nginx SSL 설정
+`deploy` performs:
+1. env validation and compose detection
+2. image selection from the provided tag
+3. `docker compose pull`
+4. service restart
+5. Alembic migration
+6. liveness/readiness checks
 
-`infra/nginx/nginx.conf`에서 SSL 관련 주석 해제 후:
+## CI/CD expectations
+
+Workflow: `.github/workflows/ci.yml`
+
+Quality jobs:
+- API lint/tests/coverage
+- Flutter analyze/tests/coverage
+- repository-root phase gate
+- security scan
+
+Protected build behavior:
+- coverage thresholds are enforced
+- analyzer warnings fail the job
+- phase gate runs from the repository root
+- deploy uses the exact commit SHA tag built by CI
+
+## Post-deploy verification
+
+Minimum checks:
 
 ```bash
-# SSL 인증서 복사
-cp /etc/letsencrypt/live/yourdomain.com/*.pem infra/nginx/ssl/
-
-# 서비스 재시작
-./scripts/deploy.sh restart
+./scripts/deploy.sh --env-file infra/.env health
+./scripts/smoke.sh http://localhost
 ```
 
----
+Health semantics:
+- `/health/live`: process alive
+- `/health/ready`: dependency readiness, returns `503` when degraded/unhealthy
+- `/health`: compatibility endpoint for simple monitoring
 
-## 모니터링
+## Rollback
 
-### 헬스 체크
+Rollback is image-tag based.
 
 ```bash
-# API 헬스 체크
-curl http://localhost/health
-
-# 전체 서비스 상태
-./scripts/deploy.sh health
+./scripts/deploy.sh --env-file infra/.env --image-tag <previous-sha> deploy
 ```
 
-### 로그 확인
+If the image tag is known-good, rollback does not require a new build.
 
-```bash
-# 전체 로그
-./scripts/deploy.sh logs
+## Production safety rules
 
-# 특정 서비스 로그
-docker-compose -f infra/docker-compose.prod.yml logs -f api
-docker-compose -f infra/docker-compose.prod.yml logs -f worker
-```
+- Do not rely on test ad units in release builds
+- Do not allow silent share/IAP/POD fallback in production
+- Missing release config must surface as either:
+  - explicit feature disablement in the UI, or
+  - deployment / verification failure
 
-### 리소스 모니터링
+## Troubleshooting
 
-```bash
-# 컨테이너 리소스 사용량
-docker stats
-```
+### Readiness fails after deploy
 
----
+Check:
+- `docker compose ps`
+- `docker compose logs api`
+- `docker compose logs worker`
+- DB credentials in `infra/.env`
+- migrations via `./scripts/deploy.sh --env-file infra/.env migrate`
 
-## 백업 및 복구
+### Wrong image version is running
 
-### 데이터베이스 백업
+Check:
+- `API_IMAGE` / `WORKER_IMAGE` overrides in `infra/.env`
+- `--image-tag` value passed by CI
+- pulled image digests on the host
 
-```bash
-# 백업
-./scripts/deploy.sh backup
+### Smoke fails but containers are running
 
-# 수동 백업
-docker-compose -f infra/docker-compose.prod.yml exec postgres \
-    pg_dump -U $DB_USER $DB_NAME > backup_$(date +%Y%m%d).sql
-```
-
-### 데이터베이스 복구
-
-```bash
-# 복구
-docker-compose -f infra/docker-compose.prod.yml exec -T postgres \
-    psql -U $DB_USER $DB_NAME < backup_20240101.sql
-```
-
----
-
-## 스케일링
-
-### API/Worker 스케일링
-
-```bash
-# API 서버 3대로 스케일
-docker-compose -f infra/docker-compose.prod.yml up -d --scale api=3
-
-# Worker 4대로 스케일
-docker-compose -f infra/docker-compose.prod.yml up -d --scale worker=4
-```
-
----
-
-## 문제 해결
-
-### 서비스가 시작되지 않음
-
-```bash
-# 로그 확인
-docker-compose -f infra/docker-compose.prod.yml logs
-
-# 컨테이너 상태 확인
-docker ps -a
-```
-
-### 데이터베이스 연결 실패
-
-```bash
-# PostgreSQL 상태 확인
-docker-compose -f infra/docker-compose.prod.yml exec postgres pg_isready
-
-# 연결 테스트
-docker-compose -f infra/docker-compose.prod.yml exec postgres \
-    psql -U $DB_USER -d $DB_NAME -c "SELECT 1"
-```
-
-### 이미지 생성 실패
-
-1. API 키 확인
-2. Rate limit 확인
-3. Worker 로그 확인: `docker-compose logs worker`
-
-### 메모리 부족
-
-```bash
-# 사용되지 않는 리소스 정리
-./scripts/deploy.sh cleanup
-
-# Docker 시스템 정리
-docker system prune -a
-```
-
----
-
-## 보안 체크리스트
-
-- [ ] 환경 변수에 민감한 정보 설정
-- [ ] `.env` 파일 권한 제한 (`chmod 600 .env`)
-- [ ] SSL/TLS 인증서 설정
-- [ ] 방화벽 설정 (80, 443 포트만 개방)
-- [ ] 정기 백업 설정
-- [ ] 로그 모니터링 설정
-
----
-
-## 비용 추정
-
-### 서버 (월간)
-
-| 항목 | 사양 | 예상 비용 |
-|------|------|----------|
-| VPS | 4 vCPU, 8GB RAM | $40-80 |
-| 스토리지 | 100GB SSD | $10-20 |
-| 도메인 | .com | $12/년 |
-
-### API 사용량 (1,000권 기준)
-
-| 항목 | 단가 | 월 비용 |
-|------|------|---------|
-| LLM | ~$0.05/권 | $50 |
-| 이미지 | ~$0.27/권 | $270 |
-| **합계** | | **~$320** |
-
----
-
-## 지원
-
-문제가 발생하면 GitHub Issues에 등록해주세요.
+Check:
+- nginx route to `/health/live` and `/health/ready`
+- API dependency readiness (DB/Redis)
+- external provider configuration unexpectedly required in strict mode

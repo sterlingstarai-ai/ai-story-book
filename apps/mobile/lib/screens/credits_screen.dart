@@ -7,6 +7,7 @@ import 'package:in_app_purchase/in_app_purchase.dart';
 
 import '../core/api_error.dart';
 import '../providers/providers.dart';
+import '../services/rewarded_ad_service.dart';
 import '../utils/constants.dart';
 import '../widgets/age_gate_dialog.dart';
 import '../widgets/common_widgets.dart';
@@ -780,8 +781,17 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
   }) async {
     try {
       final iapService = ref.read(iapServiceProvider);
-      final available = await iapService.isAvailable();
-      if (!available) {
+      final availability = await iapService.checkAvailability();
+      if (!availability.isAvailable) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                availability.unavailableReason ?? '스토어 결제를 사용할 수 없어요.',
+              ),
+            ),
+          );
+        }
         return false;
       }
 
@@ -853,11 +863,21 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
     setState(() => _isClaimingReward = true);
     try {
       final rewardedAdService = ref.read(rewardedAdServiceProvider);
-      final rewarded = await rewardedAdService.showRewardedAd();
-      if (!rewarded) {
+      final rewardResult = await rewardedAdService.showRewardedAd();
+      if (!rewardResult.rewarded) {
         if (mounted) {
+          final message = switch (rewardResult.status) {
+            RewardedAdStatus.dismissed => '광고를 끝까지 시청해야 보상이 지급돼요.',
+            RewardedAdStatus.misconfigured =>
+              rewardResult.reason ?? '광고 기능이 아직 설정되지 않았어요.',
+            RewardedAdStatus.unavailable =>
+              rewardResult.reason ?? '현재 기기에서 광고를 사용할 수 없어요.',
+            RewardedAdStatus.loadFailed =>
+              rewardResult.reason ?? '광고를 불러오지 못했어요. 잠시 후 다시 시도해주세요.',
+            RewardedAdStatus.rewarded => '광고를 끝까지 시청해야 보상이 지급돼요.',
+          };
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('광고를 끝까지 시청해야 보상이 지급돼요.')),
+            SnackBar(content: Text(message)),
           );
         }
         return;
@@ -866,7 +886,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
       final apiClient = ref.read(apiClientProvider);
       final result = await apiClient.completeRewardAd(
         adNetwork: 'admob',
-        adUnitId: 'rewarded_video',
+        adUnitId: rewardResult.adUnitId,
       );
       await _loadCreditsStatus();
 

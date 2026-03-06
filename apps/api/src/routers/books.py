@@ -9,6 +9,7 @@ import uuid
 import structlog
 
 from src.core.database import get_db
+from src.core.book_assets import build_generation_warnings, build_page_asset_status
 from src.core.config import settings
 from src.core.dependencies import get_profile_id, get_user_key
 from src.models.dto import (
@@ -141,6 +142,14 @@ async def _enforce_free_plan_feature_access(
 
 def _build_page_dict(p) -> dict:
     """Build standardized page response dict from a Page model."""
+    asset_status = build_page_asset_status(
+        p.image_url,
+        audio_urls=[
+            getattr(p, "audio_url", None),
+            getattr(p, "audio_url_ko", None),
+            getattr(p, "audio_url_en", None),
+        ],
+    )
     return {
         "page_number": p.page_number,
         "text": p.text,
@@ -154,11 +163,16 @@ def _build_page_dict(p) -> dict:
         "vocab": p.vocab,
         "comprehension_questions": p.comprehension,
         "quiz": p.quiz,
+        "asset_status": asset_status,
     }
 
 
 def _build_book_dict(book, pages, include_job_id: bool = False) -> dict:
     """Build standardized book response dict from Book + Pages models."""
+    generation_warnings = build_generation_warnings(
+        cover_image_url=book.cover_image_url,
+        page_images=[(p.page_number, p.image_url) for p in pages],
+    )
     result = {
         "book_id": book.id,
         "title": book.title,
@@ -172,6 +186,7 @@ def _build_book_dict(book, pages, include_job_id: bool = False) -> dict:
         "title_en": book.title_en,
         "pages": [_build_page_dict(p) for p in pages],
         "learning_assets": book.learning_assets,
+        "generation_warnings": generation_warnings,
         "created_at": book.created_at.isoformat(),
     }
     if include_job_id:
@@ -879,10 +894,22 @@ async def export_book_pdf(
                 image_url=p.image_url or "",
                 image_prompt=p.image_prompt or "",
                 audio_url=p.audio_url,
+                asset_status=build_page_asset_status(
+                    p.image_url,
+                    audio_urls=[
+                        getattr(p, "audio_url", None),
+                        getattr(p, "audio_url_ko", None),
+                        getattr(p, "audio_url_en", None),
+                    ],
+                ),
             )
             for p in pages
         ],
         created_at=book.created_at,
+        generation_warnings=build_generation_warnings(
+            cover_image_url=book.cover_image_url,
+            page_images=[(p.page_number, p.image_url) for p in pages],
+        ),
     )
 
     # Generate PDF

@@ -44,6 +44,12 @@ apps/mobile/coverage/
 *.local
 .env.local
 infra/.env
+logs/
+
+# Generated acceptance artifacts
+docs/acceptance/*
+!docs/acceptance/README.md
+!docs/acceptance/.gitkeep
 
 # Load test results
 results/

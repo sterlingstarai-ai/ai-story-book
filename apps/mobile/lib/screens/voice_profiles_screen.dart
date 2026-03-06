@@ -165,7 +165,8 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
                                     return;
                                   }
 
-                                  setDialogState(() => isUploadingSample = true);
+                                  setDialogState(
+                                      () => isUploadingSample = true);
                                   try {
                                     final file = File(picked.files.first.path!);
                                     final uploaded = await ref
@@ -174,8 +175,8 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
                                           file,
                                           fileName: picked.files.first.name,
                                         );
-                                    final url =
-                                        uploaded['sample_audio_url']?.toString();
+                                    final url = uploaded['sample_audio_url']
+                                        ?.toString();
                                     if (url != null && url.isNotEmpty) {
                                       sampleUrlController.text = url;
                                     }
@@ -183,8 +184,7 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
                                       ScaffoldMessenger.of(this.context)
                                           .showSnackBar(
                                         const SnackBar(
-                                          content:
-                                              Text('음성 샘플 업로드가 완료되었어요.'),
+                                          content: Text('음성 샘플 업로드가 완료되었어요.'),
                                         ),
                                       );
                                     }
@@ -193,8 +193,8 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
                                       ScaffoldMessenger.of(this.context)
                                           .showSnackBar(
                                         const SnackBar(
-                                          content: Text(
-                                              '샘플 업로드에 실패했어요. 다시 시도해주세요.'),
+                                          content:
+                                              Text('샘플 업로드에 실패했어요. 다시 시도해주세요.'),
                                         ),
                                       );
                                     }
@@ -271,9 +271,11 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
       },
     );
 
-    labelController.dispose();
-    relationshipController.dispose();
-    sampleUrlController.dispose();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      labelController.dispose();
+      relationshipController.dispose();
+      sampleUrlController.dispose();
+    });
     return result;
   }
 

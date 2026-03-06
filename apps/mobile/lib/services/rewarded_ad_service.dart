@@ -4,16 +4,42 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
+import '../core/app_telemetry.dart';
+
+enum RewardedAdStatus {
+  rewarded,
+  dismissed,
+  unavailable,
+  misconfigured,
+  loadFailed,
+}
+
+class RewardedAdResult {
+  const RewardedAdResult({
+    required this.status,
+    this.reason,
+    this.adUnitId,
+  });
+
+  final RewardedAdStatus status;
+  final String? reason;
+  final String? adUnitId;
+
+  bool get rewarded => status == RewardedAdStatus.rewarded;
+}
+
 class RewardedAdService {
   const RewardedAdService();
 
-  String get _adUnitId {
+  String? get configuredAdUnitId {
     if (kDebugMode) {
-      // Google 공식 테스트 광고 유닛
       if (Platform.isIOS) {
         return 'ca-app-pub-3940256099942544/1712485313';
       }
-      return 'ca-app-pub-3940256099942544/5224354917';
+      if (Platform.isAndroid) {
+        return 'ca-app-pub-3940256099942544/5224354917';
+      }
+      return null;
     }
 
     if (Platform.isIOS) {
@@ -31,22 +57,41 @@ class RewardedAdService {
         return configured;
       }
     }
-
-    // 릴리스에서 미설정 시 테스트 유닛으로 폴백해 크래시를 방지한다.
-    if (Platform.isIOS) {
-      return 'ca-app-pub-3940256099942544/1712485313';
-    }
-    return 'ca-app-pub-3940256099942544/5224354917';
+    return null;
   }
 
-  Future<bool> showRewardedAd() async {
+  bool get isConfigured => configuredAdUnitId != null;
+
+  String? get unavailableReason {
     if (!Platform.isAndroid && !Platform.isIOS) {
-      return false;
+      return '리워드 광고는 iOS/Android에서만 지원됩니다.';
+    }
+    if (!isConfigured) {
+      return '리워드 광고 유닛이 설정되지 않았습니다.';
+    }
+    return null;
+  }
+
+  Future<RewardedAdResult> showRewardedAd() async {
+    final reason = unavailableReason;
+    if (reason != null) {
+      final status = (!Platform.isAndroid && !Platform.isIOS)
+          ? RewardedAdStatus.unavailable
+          : RewardedAdStatus.misconfigured;
+      AppTelemetry.logInfo(
+        'rewarded_ad_unavailable',
+        data: {
+          'status': status.name,
+          'reason': reason,
+        },
+      );
+      return RewardedAdResult(status: status, reason: reason);
     }
 
-    final completer = Completer<bool>();
+    final adUnitId = configuredAdUnitId!;
+    final completer = Completer<RewardedAdResult>();
     RewardedAd.load(
-      adUnitId: _adUnitId,
+      adUnitId: adUnitId,
       request: const AdRequest(),
       rewardedAdLoadCallback: RewardedAdLoadCallback(
         onAdLoaded: (ad) {
@@ -56,13 +101,26 @@ class RewardedAdService {
             onAdDismissedFullScreenContent: (ad) {
               ad.dispose();
               if (!completer.isCompleted) {
-                completer.complete(rewarded);
+                completer.complete(
+                  RewardedAdResult(
+                    status: rewarded
+                        ? RewardedAdStatus.rewarded
+                        : RewardedAdStatus.dismissed,
+                    adUnitId: adUnitId,
+                  ),
+                );
               }
             },
             onAdFailedToShowFullScreenContent: (ad, _) {
               ad.dispose();
               if (!completer.isCompleted) {
-                completer.complete(false);
+                completer.complete(
+                  RewardedAdResult(
+                    status: RewardedAdStatus.loadFailed,
+                    reason: '광고를 표시하지 못했습니다.',
+                    adUnitId: adUnitId,
+                  ),
+                );
               }
             },
           );
@@ -73,9 +131,23 @@ class RewardedAdService {
             },
           );
         },
-        onAdFailedToLoad: (_) {
+        onAdFailedToLoad: (error) {
+          AppTelemetry.logInfo(
+            'rewarded_ad_load_failed',
+            data: {
+              'adUnitId': adUnitId,
+              'code': error.code,
+              'message': error.message,
+            },
+          );
           if (!completer.isCompleted) {
-            completer.complete(false);
+            completer.complete(
+              RewardedAdResult(
+                status: RewardedAdStatus.loadFailed,
+                reason: '광고를 불러오지 못했습니다.',
+                adUnitId: adUnitId,
+              ),
+            );
           }
         },
       ),

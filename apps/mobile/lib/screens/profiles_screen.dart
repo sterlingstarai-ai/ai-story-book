@@ -104,58 +104,61 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
           builder: (context, setDialogState) {
             return AlertDialog(
               title: Text(initial == null ? '프로필 추가' : '프로필 수정'),
-              content: Form(
-                key: formKey,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    TextFormField(
-                      controller: nameController,
-                      maxLength: 40,
-                      decoration: const InputDecoration(
-                        labelText: '이름',
-                        hintText: '예: 민지',
+              content: SingleChildScrollView(
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      TextFormField(
+                        controller: nameController,
+                        maxLength: 40,
+                        decoration: const InputDecoration(
+                          labelText: '이름',
+                          hintText: '예: 민지',
+                        ),
+                        validator: (value) {
+                          final text = value?.trim() ?? '';
+                          if (text.isEmpty) {
+                            return '이름을 입력해주세요.';
+                          }
+                          return null;
+                        },
                       ),
-                      validator: (value) {
-                        final text = value?.trim() ?? '';
-                        if (text.isEmpty) {
-                          return '이름을 입력해주세요.';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: AppSpacing.sm),
-                    DropdownButtonFormField<String>(
-                      initialValue: selectedAgeBand,
-                      decoration: const InputDecoration(
-                        labelText: '연령대',
+                      const SizedBox(height: AppSpacing.sm),
+                      DropdownButtonFormField<String>(
+                        initialValue: selectedAgeBand,
+                        decoration: const InputDecoration(
+                          labelText: '연령대',
+                        ),
+                        items: _ageBandOptions
+                            .map(
+                              (option) => DropdownMenuItem<String>(
+                                value: option['value'],
+                                child:
+                                    Text(option['label'] ?? option['value']!),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (value) {
+                          if (value == null) {
+                            return;
+                          }
+                          setDialogState(() => selectedAgeBand = value);
+                        },
                       ),
-                      items: _ageBandOptions
-                          .map(
-                            (option) => DropdownMenuItem<String>(
-                              value: option['value'],
-                              child: Text(option['label'] ?? option['value']!),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (value) {
-                        if (value == null) {
-                          return;
-                        }
-                        setDialogState(() => selectedAgeBand = value);
-                      },
-                    ),
-                    const SizedBox(height: AppSpacing.sm),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('기본 프로필로 설정'),
-                      value: isDefault,
-                      onChanged: (value) {
-                        setDialogState(() => isDefault = value);
-                      },
-                    ),
-                  ],
+                      const SizedBox(height: AppSpacing.sm),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('기본 프로필로 설정'),
+                        value: isDefault,
+                        onChanged: (value) {
+                          setDialogState(() => isDefault = value);
+                        },
+                      ),
+                    ],
+                  ),
                 ),
               ),
               actions: [
@@ -185,7 +188,9 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
         );
       },
     );
-    nameController.dispose();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      nameController.dispose();
+    });
     return result;
   }
 

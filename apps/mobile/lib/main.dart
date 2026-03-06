@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -6,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'core/app_telemetry.dart';
 import 'providers/providers.dart';
 import 'screens/screens.dart';
 import 'services/screen_time_service.dart';
@@ -14,6 +16,23 @@ import 'widgets/age_gate_dialog.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  FlutterError.onError = (details) {
+    AppTelemetry.recordError(
+      details.exception,
+      details.stack ?? StackTrace.current,
+      context: 'flutter_error',
+    );
+    FlutterError.presentError(details);
+  };
+  PlatformDispatcher.instance.onError = (error, stack) {
+    AppTelemetry.recordError(
+      error,
+      stack,
+      context: 'platform_dispatcher_error',
+    );
+    return true;
+  };
 
   // 상태바 스타일
   SystemChrome.setSystemUIOverlayStyle(
@@ -32,7 +51,13 @@ void main() async {
         defaultTargetPlatform == TargetPlatform.iOS) {
       await MobileAds.instance.initialize();
     }
-  } catch (_) {}
+  } catch (error, stackTrace) {
+    AppTelemetry.recordError(
+      error,
+      stackTrace,
+      context: 'mobile_ads_init_failed',
+    );
+  }
 
   runApp(
     ProviderScope(

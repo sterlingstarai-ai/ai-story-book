@@ -260,6 +260,16 @@ class PageResult(BaseModel):
     vocab: Optional[List[Dict[str, Any]]] = None
     comprehension_questions: Optional[List[Dict[str, Any]]] = None
     quiz: Optional[List[Dict[str, Any]]] = None
+    asset_status: Dict[str, Any] = Field(default_factory=dict)
+
+
+class GenerationWarningInfo(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = Field(min_length=1, max_length=60)
+    message: str = Field(min_length=1, max_length=300)
+    asset: Optional[str] = Field(default=None, max_length=30)
+    page_number: Optional[int] = Field(default=None, ge=0, le=12)
 
 
 class BookResult(BaseModel):
@@ -289,6 +299,7 @@ class BookResult(BaseModel):
 
     # 학습 자산 (v0.3)
     learning_assets: Optional[Dict[str, Any]] = None
+    generation_warnings: List[GenerationWarningInfo] = Field(default_factory=list)
 
 
 # ==================== Job/API Response Models ====================

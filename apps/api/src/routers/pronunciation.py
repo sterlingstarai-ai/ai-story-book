@@ -12,6 +12,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
+import structlog
 
 from src.core.database import get_db
 from src.core.dependencies import get_user_key
@@ -20,6 +21,7 @@ from src.models.db import PronunciationLog
 from src.services.stt import stt_service
 
 router = APIRouter()
+logger = structlog.get_logger()
 _MAX_PRONUNCIATION_AUDIO_BYTES = 15 * 1024 * 1024
 
 
@@ -104,6 +106,13 @@ async def evaluate_pronunciation(
     db.add(log)
     await db.commit()
 
+    logger.info(
+        "Pronunciation evaluated",
+        book_id=request.book_id,
+        page_number=request.page_number,
+        score=score,
+    )
+
     return {
         "score": score,
         "feedback": feedback,
@@ -152,6 +161,14 @@ async def evaluate_pronunciation_audio(
     )
     db.add(log)
     await db.commit()
+
+    logger.info(
+        "Pronunciation evaluated from audio",
+        book_id=book_id,
+        page_number=page_number,
+        language=language,
+        score=score,
+    )
 
     return {
         "score": score,

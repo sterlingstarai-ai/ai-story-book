@@ -1,5 +1,38 @@
 # Autonomous Progress Snapshot (2026-02-21)
 
+## P5 하드닝 및 엑설런스 스윕 추가 완료
+
+1. 배포 경로를 이미지 기반으로 정렬
+- `infra/docker-compose.prod.yml`에서 `api`/`worker`를 `image:` 기반으로 전환.
+- `scripts/deploy.sh`에 `--env-file`, `--compose-file`, `--image-tag` 지원 추가.
+- 헬스체크 기준을 `/health/live`, `/health/ready`로 통일.
+
+2. 루트 기준 게이트 결정성 복구
+- API 설정 로딩을 `apps/api/.env` 기준으로 고정.
+- 무관한 env 키는 `extra=\"ignore\"`로 무시.
+- `scripts/phase-gate.sh`가 어떤 현재 디렉터리에서도 동일하게 동작하도록 정리.
+- `scripts/check-env.sh`를 `local`/`production`/`ci` 모드로 재구성.
+
+3. 프로덕션 조용한 폴백 제거
+- 모바일 릴리스에서 AdMob 미설정 시 테스트 광고로 폴백하지 않고 명시적 비활성화 처리.
+- IAP/Kakao/POD 가용성 인터페이스를 노출해 UI가 설정 누락을 추측하지 않도록 변경.
+- 이미지 placeholder를 성공으로 숨기지 않고 `generation_warnings`, `asset_status`로 노출.
+
+4. 관측성/감사 로그 강화
+- 모바일 API 요청에 `X-Request-ID`를 부여하고 응답/오류를 공통 텔레메트리로 기록.
+- API 결제/광고/POD/발음/음성 프로필 경로에 audit 성격 로그 추가.
+- `/health/ready`는 준비 안 됐을 때 `503`을 반환하도록 조정.
+
+5. 테스트 깊이 확장
+- API: 설정/헬스/열화 자산/로컬·하이브리드 IAP 검증 테스트 추가.
+- Mobile: consent/onboarding/startup/settings/profiles/voice/branch/pronunciation/POD 위젯 테스트 추가.
+- `api_client_test.dart`에 `request_id`, `generation_warnings`, `asset_status` 파싱 케이스 추가.
+
+6. 문서/아티팩트 운영 정리
+- `README.md`, `docs/DEPLOYMENT.md`, `docs/OPERATIONS_TEST_RUNBOOK.md`, `docs/appstore/README.md` 전면 갱신.
+- `docs/qa/golden-prompts.json` 추가.
+- `docs/acceptance`는 설명 파일만 남기고 타임스탬프 산출물은 기본 커밋 제외로 전환.
+
 ## 이번 사이클 구현 완료
 
 1. 무료 플랜 서버 강제 정책 추가
@@ -78,10 +111,11 @@
 
 ## 검증 결과
 
-1. API 테스트: `278 passed`
+1. API 테스트: `283 passed`
 2. Mobile 정적 분석: `No issues found`
 3. Mobile 테스트: `All tests passed`
 4. 통합 게이트: `./scripts/phase-gate.sh` 통과
+5. Android 디버그 빌드: `./scripts/phase-gate.sh --with-mobile-build` 통과
 
 ## 현재 남은 사용자 개입 항목
 

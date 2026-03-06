@@ -1,111 +1,130 @@
 # AI Story Book
 
-AI로 맞춤형 동화책을 생성하는 모바일 앱
+AI Story Book is a production-oriented storybook platform with a Flutter mobile app and a FastAPI backend. The current repository includes P0-P4 product scope plus a P5 hardening sweep focused on deterministic gates, image-based deployment, explicit feature availability, and stronger operational visibility.
 
-## 핵심 기능
+## Current state
 
-- **한국어 연령 최적화**: 3-5/5-7/7-9세 문체/어휘 자동 조정
-- **캐릭터 일관성**: 캐릭터 시트 기반 일관된 이미지 생성
-- **시리즈 지원**: 같은 캐릭터로 매일 새로운 이야기
-- **페이지 편집**: 텍스트/이미지 개별 재생성
+- Mobile app: implemented for iOS and Android in `apps/mobile`
+- Backend API: implemented in `apps/api`
+- Deployment model: GHCR image tag -> production compose pull -> up
+- Quality gate: repository-root `./scripts/phase-gate.sh`
+- Health contract:
+  - `/health/live`
+  - `/health/ready`
+  - `/health` (compatibility endpoint)
+- Degraded generation contract:
+  - `generation_warnings`
+  - page-level `asset_status`
 
-## 기술 스택
+## Repository layout
 
-- **Frontend**: Flutter (iOS/Android)
-- **Backend**: FastAPI + Celery + Redis
-- **Database**: PostgreSQL
-- **Storage**: S3/Minio
-- **AI**: OpenAI/Anthropic (텍스트) + Replicate/FAL (이미지)
-
-## 프로젝트 구조
-
-```
+```text
 ai-story-book/
 ├── apps/
-│   ├── api/           # FastAPI 백엔드
-│   └── mobile/        # Flutter 앱 (예정)
-├── packages/
-│   └── shared/        # 공유 스키마
-├── infra/             # Docker Compose
-└── docs/              # 문서
+│   ├── api/              # FastAPI + Celery backend
+│   └── mobile/           # Flutter mobile app
+├── docs/                 # product, deploy, QA, store, legal docs
+├── infra/                # docker compose and nginx assets
+├── scripts/              # quality gate, smoke, deploy, env checks
+└── packages/             # shared assets / future shared packages
 ```
 
-## 시작하기
+## Local development
 
-### 1. 환경 설정
+### Backend
 
 ```bash
 cd apps/api
-cp .env.example .env
-# .env 파일에서 API 키 설정
-```
-
-### 2. Docker 실행
-
-```bash
-cd infra
-docker-compose up -d postgres redis minio
-```
-
-### 3. 데이터베이스 마이그레이션
-
-```bash
-cd apps/api
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
+cp .env.example .env
 alembic upgrade head
-```
-
-### 4. API 서버 실행
-
-```bash
 uvicorn src.main:app --reload
 ```
 
-### 5. API 문서 확인
-
-http://localhost:8000/docs
-
-## API 엔드포인트
-
-| Method | Path | 설명 |
-|--------|------|------|
-| POST | `/v1/books` | 책 생성 |
-| GET | `/v1/books/{job_id}` | 상태 조회 |
-| POST | `/v1/books/{job_id}/pages/{n}/regenerate` | 페이지 재생성 |
-| POST | `/v1/characters` | 캐릭터 저장 |
-| GET | `/v1/characters` | 캐릭터 목록 |
-| GET | `/v1/library` | 내 서재 |
-
-## 환경 변수
-
-| 변수 | 설명 | 기본값 |
-|------|------|--------|
-| `DATABASE_URL` | PostgreSQL 연결 | `postgresql://...` |
-| `REDIS_URL` | Redis 연결 | `redis://localhost:6379/0` |
-| `LLM_PROVIDER` | LLM 제공자 | `openai` |
-| `LLM_API_KEY` | LLM API 키 | - |
-| `IMAGE_PROVIDER` | 이미지 제공자 | `replicate` |
-| `IMAGE_API_KEY` | 이미지 API 키 | - |
-
-## 테스트
+### Mobile
 
 ```bash
-cd apps/api
-pytest tests/ -v
+cd apps/mobile
+flutter pub get
+flutter run
 ```
 
-## 개발 현황
+Useful runtime overrides:
 
-- [x] API 스키마 설계
-- [x] FastAPI 백엔드 구현
-- [x] 오케스트레이터 파이프라인
-- [x] LLM 서비스 연동
-- [x] 이미지 생성 서비스
-- [x] S3 스토리지 서비스
-- [ ] Flutter 앱 개발
-- [ ] 통합 테스트
-- [ ] 배포
+```bash
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000
+flutter run --dart-define=API_BASE_URL=http://localhost:8000
+```
 
-## 라이선스
+## Quality gates
 
-MIT
+Canonical gate from repository root:
+
+```bash
+./scripts/check-env.sh --mode ci
+./scripts/phase-gate.sh
+```
+
+Extended gate including Android build and API smoke:
+
+```bash
+./scripts/phase-gate.sh --with-mobile-build --with-api-smoke
+```
+
+What it verifies:
+- API tests from `apps/api`
+- Flutter analyze
+- Flutter tests
+- optional Android debug build
+- optional API smoke against a running server
+
+## Smoke and health checks
+
+```bash
+./scripts/smoke.sh http://127.0.0.1:8000
+curl -fsS http://127.0.0.1:8000/health/live
+curl -fsS http://127.0.0.1:8000/health/ready
+```
+
+`/health/ready` is the deployment readiness source of truth. Non-healthy readiness returns `503`.
+
+## Production deployment
+
+Production deploy is image-based. The repository is not the build artifact; tagged container images are.
+
+```bash
+./scripts/deploy.sh --env-file infra/.env --image-tag <git-sha> deploy
+```
+
+Key properties:
+- `infra/docker-compose.prod.yml` uses `image:` for `api` and `worker`
+- `scripts/deploy.sh` supports `--env-file`, `--compose-file`, `--image-tag`
+- health validation runs against `http://localhost/health/live` and `/health/ready`
+
+More detail: `docs/DEPLOYMENT.md`
+
+## Configuration rules
+
+- API settings load from `apps/api/.env`, not the repository root `.env`
+- unrelated root env keys should not break API test execution
+- production env validation uses `./scripts/check-env.sh --mode production --env-file infra/.env`
+- release-time missing external config must disable the feature explicitly or block deploy; no silent production fallback
+
+## QA assets
+
+- Golden prompt set: `docs/qa/golden-prompts.json`
+- Acceptance artifact policy: `docs/acceptance/README.md`
+- Store submission assets: `docs/appstore/README.md`
+- Operations runbook: `docs/OPERATIONS_TEST_RUNBOOK.md`
+
+## External integrations requiring real keys
+
+Code paths are implemented, but end-to-end real verification still requires live credentials for:
+- Apple / Google IAP
+- Printful POD
+- Kakao share
+- AdMob rewarded ads
+
+Until then, local, mock, or hybrid paths are used for non-production verification.

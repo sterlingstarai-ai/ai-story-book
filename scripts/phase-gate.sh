@@ -4,7 +4,7 @@
 # =============================================================================
 # Usage:
 #   ./scripts/phase-gate.sh
-#   ./scripts/phase-gate.sh --with-mobile-build --with-ios-build
+#   ./scripts/phase-gate.sh --with-mobile-build --with-ios-build --with-api-smoke
 # =============================================================================
 
 set -euo pipefail
@@ -13,6 +13,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MOBILE_DIR="$ROOT_DIR/apps/mobile"
 API_DIR="$ROOT_DIR/apps/api"
 API_PYTHON="$API_DIR/venv/bin/python"
+API_SMOKE_BASE_URL="${API_SMOKE_BASE_URL:-http://localhost:8000}"
 
 if [ ! -x "$API_PYTHON" ]; then
   API_PYTHON="python3"
@@ -43,8 +44,8 @@ done
 
 echo "==> [1/5] API unit/integration tests"
 (
-  cd "$ROOT_DIR"
-  "$API_PYTHON" -m pytest apps/api/tests -q
+  cd "$API_DIR"
+  "$API_PYTHON" -m pytest tests -q
 )
 
 echo "==> [2/5] Mobile static analysis"
@@ -80,10 +81,10 @@ else
 fi
 
 if [ "$WITH_API_SMOKE" = true ]; then
-  echo "==> Additional: API smoke"
+  echo "==> Additional: API smoke ($API_SMOKE_BASE_URL)"
   (
     cd "$ROOT_DIR"
-    ./scripts/smoke.sh
+    ./scripts/smoke.sh "$API_SMOKE_BASE_URL"
   )
 else
   echo "==> Additional: API smoke skipped (use --with-api-smoke)"

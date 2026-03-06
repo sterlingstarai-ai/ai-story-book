@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 
+import '../core/api_error.dart';
 import '../providers/providers.dart';
 import '../utils/constants.dart';
 
@@ -88,11 +89,13 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('주문이 접수되었습니다.')),
       );
-    } catch (_) {
+    } catch (error) {
       if (!mounted) {
         return;
       }
-      setState(() => _errorMessage = '주문 접수에 실패했어요. 정보를 확인해주세요.');
+      final message =
+          error is ApiError ? error.userMessage : '주문 접수에 실패했어요. 정보를 확인해주세요.';
+      setState(() => _errorMessage = message);
     } finally {
       if (mounted) {
         setState(() => _isSubmitting = false);
@@ -114,12 +117,14 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
         return;
       }
       setState(() => _orderDetail = detail);
-    } catch (_) {
+    } catch (error) {
       if (!mounted) {
         return;
       }
+      final message =
+          error is ApiError ? error.userMessage : '주문 상태 조회에 실패했어요.';
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('주문 상태 조회에 실패했어요.')),
+        SnackBar(content: Text(message)),
       );
     } finally {
       if (mounted) {

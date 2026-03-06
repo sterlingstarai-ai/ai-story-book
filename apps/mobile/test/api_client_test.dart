@@ -2,8 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:ai_story_book/core/api_error.dart';
+import 'package:ai_story_book/models/models.dart';
 import 'package:ai_story_book/services/api_client.dart';
 
 void main() {
@@ -241,8 +244,7 @@ void main() {
         final payload = jsonDecode(body) as Map<String, dynamic>;
         expect(payload['book_id'], 'book-1');
         expect(payload['quantity'], 2);
-        final shipping =
-            payload['shipping_address'] as Map<String, dynamic>;
+        final shipping = payload['shipping_address'] as Map<String, dynamic>;
         expect(shipping['name'], '홍길동');
         expect(shipping['country'], 'KR');
 
@@ -279,6 +281,144 @@ void main() {
 
       expect(order['order_id'], 'pod_1');
       expect(order['provider'], 'printful');
+      await requestHandled.future.timeout(const Duration(seconds: 1));
+    });
+
+    test('getBookStatus parses generation warnings and page asset status',
+        () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+
+      final requestHandled = Completer<void>();
+      server.listen((request) async {
+        if (request.method != 'GET' || request.uri.path != '/v1/books/job-1') {
+          request.response.statusCode = HttpStatus.notFound;
+          await request.response.close();
+          return;
+        }
+
+        expect(request.headers.value('x-user-key'), 'test-user');
+        expect(request.headers.value('x-request-id'), isNotNull);
+
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(
+          jsonEncode({
+            'job_id': 'job-1',
+            'status': 'done',
+            'progress': 100,
+            'current_step': '완료',
+            'result': {
+              'book_id': 'book-1',
+              'title': '테스트 동화',
+              'language': 'ko',
+              'target_age': '5-7',
+              'style': 'watercolor',
+              'cover_image_url': 'https://placeholder.invalid/cover.png',
+              'created_at': '2026-03-07T00:00:00Z',
+              'generation_warnings': [
+                {
+                  'code': 'page_placeholder_image',
+                  'message': '일부 페이지 이미지 생성이 실패해 임시 이미지를 표시하고 있습니다.',
+                  'asset': 'image',
+                  'page_number': 1,
+                },
+              ],
+              'pages': [
+                {
+                  'page_number': 1,
+                  'text': '첫 페이지',
+                  'image_url': 'https://placeholder.invalid/page-1.png',
+                  'audio_url': null,
+                  'asset_status': {
+                    'image': {
+                      'state': 'degraded',
+                      'reason': 'placeholder_image',
+                      'url': 'https://placeholder.invalid/page-1.png',
+                    },
+                    'audio': {
+                      'state': 'missing',
+                      'reason': 'audio_not_generated',
+                    },
+                  },
+                },
+              ],
+            },
+          }),
+        );
+        await request.response.close();
+        requestHandled.complete();
+      });
+
+      final client = ApiClient(
+        baseUrl: 'http://${server.address.host}:${server.port}',
+        userKey: 'test-user',
+        enableLogging: false,
+      );
+
+      final status = await client.getBookStatus('job-1');
+
+      expect(status.status, JobState.done);
+      expect(status.result, isNotNull);
+      expect(status.result!.hasGenerationWarnings, isTrue);
+      expect(
+        status.result!.generationWarnings.single.code,
+        'page_placeholder_image',
+      );
+      expect(status.result!.pages.single.hasDegradedImage, isTrue);
+      expect(
+        status.result!.pages.single.assetStatus['image']?.state,
+        'degraded',
+      );
+      expect(
+        status.result!.pages.single.assetStatus['audio']?.state,
+        'missing',
+      );
+      await requestHandled.future.timeout(const Duration(seconds: 1));
+    });
+
+    test('ApiError keeps requestId from standard error envelope', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+
+      final requestHandled = Completer<void>();
+      server.listen((request) async {
+        if (request.method != 'GET' || request.uri.path != '/v1/settings') {
+          request.response.statusCode = HttpStatus.notFound;
+          await request.response.close();
+          return;
+        }
+
+        request.response.statusCode = HttpStatus.serviceUnavailable;
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(
+          jsonEncode({
+            'request_id': 'req-p5-123',
+            'error': {
+              'code': 'SERVICE_UNAVAILABLE',
+              'message': '일시 장애',
+            },
+            'detail': '일시 장애',
+          }),
+        );
+        await request.response.close();
+        requestHandled.complete();
+      });
+
+      final client = ApiClient(
+        baseUrl: 'http://${server.address.host}:${server.port}',
+        userKey: 'test-user',
+        enableLogging: false,
+      );
+
+      try {
+        await client.getSettings();
+        fail('Expected getSettings to throw');
+      } on DioException catch (error) {
+        expect(error.error, isA<ApiError>());
+        final apiError = error.error as ApiError;
+        expect(apiError.requestId, 'req-p5-123');
+        expect(apiError.code, 'SERVICE_UNAVAILABLE');
+      }
       await requestHandled.future.timeout(const Duration(seconds: 1));
     });
 

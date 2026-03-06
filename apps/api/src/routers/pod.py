@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+import structlog
 
 from src.core.database import get_db
 from src.core.dependencies import get_user_key
@@ -20,6 +21,7 @@ from src.models.db import Book, PodOrder
 from src.services.pod_provider import pod_provider_service
 
 router = APIRouter()
+logger = structlog.get_logger()
 
 
 class ShippingAddressInput(BaseModel):
@@ -116,6 +118,14 @@ async def create_pod_order(
     await db.commit()
     await db.refresh(order)
 
+    logger.info(
+        "POD order created",
+        order_id=order.id,
+        provider=order.provider,
+        status=order.status,
+        sync_source=provider_result.sync_source,
+    )
+
     return {
         "order_id": order.id,
         "status": order.status,
@@ -154,6 +164,14 @@ async def get_pod_order(
         order.tracking_number = status_result.tracking_number
     await db.commit()
     await db.refresh(order)
+
+    logger.info(
+        "POD order status synced",
+        order_id=order.id,
+        provider=order.provider,
+        status=order.status,
+        sync_source=status_result.sync_source,
+    )
 
     return {
         "order_id": order.id,

@@ -18,6 +18,7 @@ import uuid
 import structlog
 
 from src.core.config import settings
+from src.core.book_assets import build_generation_warnings, build_page_asset_status
 from src.core.errors import StoryBookError, ErrorCode, TransientError, get_backoff
 from src.core.utils import utcnow
 from src.models.dto import (
@@ -779,6 +780,10 @@ async def package_book(
                 "",
             ),
             "audio_url": None,
+            "asset_status": build_page_asset_status(
+                image_urls.get(p.page, ""),
+                audio_urls=[None],
+            ),
         }
         # 다국어 텍스트 추가
         if story.language == Language.ko:
@@ -814,6 +819,17 @@ async def package_book(
 
         page_results.append(page_result)
 
+    generation_warnings = build_generation_warnings(
+        cover_image_url=image_urls.get(0, ""),
+        page_images=[(p.page, image_urls.get(p.page, "")) for p in story.pages],
+    )
+    if generation_warnings:
+        logger.warning(
+            "Book packaged with degraded assets",
+            job_id=job_id,
+            warning_count=len(generation_warnings),
+        )
+
     return BookResult(
         book_id=book_id,
         title=story.title,
@@ -832,6 +848,7 @@ async def package_book(
         title_en=title_en,
         # 학습 자산
         learning_assets=learning_assets.model_dump() if learning_assets else None,
+        generation_warnings=generation_warnings,
     )
 
 

@@ -21,9 +21,7 @@ services:
   # API Server
   # ===================
   api:
-    build:
-      context: ../apps/api
-      dockerfile: Dockerfile
+    image: ${API_IMAGE:-ghcr.io/sterlingstarai-ai/ai-story-book/api:latest}
     environment:
       # Database
       - DATABASE_URL=postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}
@@ -54,7 +52,7 @@ services:
       - S3_ACCESS_KEY=${S3_ACCESS_KEY}
       - S3_SECRET_KEY=${S3_SECRET_KEY}
       - S3_BUCKET=${S3_BUCKET:-ai-story-book}
-      - S3_PUBLIC_URL=${S3_PUBLIC_URL}
+      - S3_PUBLIC_URL=${S3_PUBLIC_URL:-}
       - S3_REGION=${S3_REGION:-us-east-1}
       # CORS
       - CORS_ORIGINS=${CORS_ORIGINS}
@@ -80,9 +78,7 @@ services:
   # Celery Worker
   # ===================
   worker:
-    build:
-      context: ../apps/api
-      dockerfile: Dockerfile.worker
+    image: ${WORKER_IMAGE:-ghcr.io/sterlingstarai-ai/ai-story-book/worker:latest}
     environment:
       # Database
       - DATABASE_URL=postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}
@@ -112,7 +108,7 @@ services:
       - S3_ACCESS_KEY=${S3_ACCESS_KEY}
       - S3_SECRET_KEY=${S3_SECRET_KEY}
       - S3_BUCKET=${S3_BUCKET:-ai-story-book}
-      - S3_PUBLIC_URL=${S3_PUBLIC_URL}
+      - S3_PUBLIC_URL=${S3_PUBLIC_URL:-}
       - S3_REGION=${S3_REGION:-us-east-1}
     depends_on:
       postgres:

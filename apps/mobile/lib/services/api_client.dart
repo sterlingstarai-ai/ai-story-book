@@ -1,11 +1,14 @@
 import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+import 'package:uuid/uuid.dart';
 import '../core/api_error.dart';
+import '../core/app_telemetry.dart';
 import '../models/models.dart';
 
 /// API 클라이언트
 class ApiClient {
+  static const Uuid _uuid = Uuid();
   final Dio _dio;
   final String _userKey;
   final String? _profileId;
@@ -32,11 +35,48 @@ class ApiClient {
       ));
     }
 
-    // Error handling interceptor
+    // Request correlation + error handling interceptor
     _dio.interceptors.add(InterceptorsWrapper(
+      onRequest: (options, handler) {
+        final requestId = _uuid.v4();
+        options.headers['X-Request-ID'] = requestId;
+        options.extra['requestId'] = requestId;
+        AppTelemetry.logInfo(
+          'api_request',
+          data: {
+            'requestId': requestId,
+            'method': options.method,
+            'path': options.path,
+          },
+        );
+        handler.next(options);
+      },
+      onResponse: (response, handler) {
+        AppTelemetry.logInfo(
+          'api_response',
+          data: {
+            'requestId': response.requestOptions.extra['requestId'],
+            'serverRequestId': response.headers.value('x-request-id'),
+            'statusCode': response.statusCode,
+            'path': response.requestOptions.path,
+          },
+        );
+        handler.next(response);
+      },
       onError: (error, handler) {
-        // Convert to standardized ApiError
         final apiError = ApiError.fromDioException(error);
+        AppTelemetry.recordError(
+          apiError,
+          error.stackTrace,
+          context: 'api_error',
+          data: {
+            'requestId': error.requestOptions.extra['requestId'],
+            'serverRequestId': apiError.requestId,
+            'path': error.requestOptions.path,
+            'statusCode': apiError.statusCode,
+            'code': apiError.code,
+          },
+        );
         handler.reject(
           error.copyWith(
             error: apiError,

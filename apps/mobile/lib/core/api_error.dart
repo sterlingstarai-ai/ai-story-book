@@ -6,12 +6,14 @@ class ApiError implements Exception {
   final String message;
   final int statusCode;
   final dynamic details;
+  final String? requestId;
 
   ApiError({
     required this.code,
     required this.message,
     required this.statusCode,
     this.details,
+    this.requestId,
   });
 
   /// Create ApiError from DioException
@@ -34,6 +36,7 @@ class ApiError implements Exception {
                 '알 수 없는 오류가 발생했습니다.',
             statusCode: statusCode,
             details: error['details'] ?? _detailsFromDetail(data['detail']),
+            requestId: _nonEmptyString(data['request_id']),
           );
         }
       }
@@ -44,6 +47,7 @@ class ApiError implements Exception {
           message: _messageFromDetail(data['detail']) ?? '요청 처리 중 오류가 발생했습니다.',
           statusCode: statusCode,
           details: _detailsFromDetail(data['detail']),
+          requestId: _nonEmptyString(data['request_id']),
         );
       }
 
@@ -53,6 +57,9 @@ class ApiError implements Exception {
         message: data?.toString() ?? '서버 오류가 발생했습니다.',
         statusCode: statusCode,
         details: data is Map<String, dynamic> ? data : null,
+        requestId: data is Map<String, dynamic>
+            ? _nonEmptyString(data['request_id'])
+            : null,
       );
     }
 

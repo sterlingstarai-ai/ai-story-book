@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+import structlog
 
 from src.core.database import get_db
 from src.core.dependencies import get_user_key
@@ -21,6 +22,7 @@ from src.models.db import AdRewardLog
 from src.services.credits import credits_service
 
 router = APIRouter()
+logger = structlog.get_logger()
 
 
 class AdCompleteRequest(BaseModel):
@@ -73,6 +75,15 @@ async def complete_ad_reward(
     )
     db.add(log)
     await db.commit()
+
+    logger.info(
+        "Reward ad credited",
+        ad_network=request.ad_network,
+        ad_unit_id=request.ad_unit_id,
+        today_used=today_count + 1,
+        today_limit=3,
+        new_balance=new_balance,
+    )
 
     return {
         "status": "success",

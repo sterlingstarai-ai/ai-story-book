@@ -1,4 +1,18 @@
+import 'dart:io';
+
 import 'package:kakao_flutter_sdk_share/kakao_flutter_sdk_share.dart';
+
+import 'service_availability.dart';
+
+class KakaoShareResult {
+  const KakaoShareResult({
+    required this.shared,
+    this.reason,
+  });
+
+  final bool shared;
+  final String? reason;
+}
 
 class KakaoShareService {
   KakaoShareService();
@@ -11,7 +25,39 @@ class KakaoShareService {
     defaultValue: 'https://aistorybook.app/books',
   );
 
-  bool get isConfigured => _nativeAppKey.isNotEmpty;
+  Uri? get _shareBaseUri => Uri.tryParse(_webBaseUrl);
+
+  bool get isConfigured =>
+      _nativeAppKey.isNotEmpty &&
+      _shareBaseUri != null &&
+      _shareBaseUri!.hasScheme &&
+      _shareBaseUri!.hasAuthority;
+
+  String? get unavailableReason {
+    if (!Platform.isAndroid && !Platform.isIOS) {
+      return '카카오 공유는 iOS/Android에서만 지원됩니다.';
+    }
+    if (_nativeAppKey.isEmpty) {
+      return '카카오 네이티브 앱 키가 설정되지 않았습니다.';
+    }
+    if (_shareBaseUri == null ||
+        !_shareBaseUri!.hasScheme ||
+        !_shareBaseUri!.hasAuthority) {
+      return '카카오 공유용 웹 URL이 올바르지 않습니다.';
+    }
+    return null;
+  }
+
+  ServiceAvailability get availability {
+    final reason = unavailableReason;
+    if (reason == null) {
+      return const ServiceAvailability.available();
+    }
+    if (!Platform.isAndroid && !Platform.isIOS) {
+      return ServiceAvailability.unsupported(reason);
+    }
+    return ServiceAvailability.misconfigured(reason);
+  }
 
   void ensureInitialized() {
     if (_initialized || !isConfigured) {
@@ -21,18 +67,19 @@ class KakaoShareService {
     _initialized = true;
   }
 
-  Future<bool> shareBookCard({
+  Future<KakaoShareResult> shareBookCard({
     required String bookId,
     required String title,
     required String coverImageUrl,
     String? description,
   }) async {
-    if (!isConfigured) {
-      return false;
+    final reason = unavailableReason;
+    if (reason != null) {
+      return KakaoShareResult(shared: false, reason: reason);
     }
 
     ensureInitialized();
-    final webUrl = Uri.parse('$_webBaseUrl/$bookId');
+    final webUrl = Uri.parse('${_shareBaseUri.toString()}/$bookId');
     final appParams = {'book_id': bookId};
 
     final template = FeedTemplate(
@@ -61,15 +108,22 @@ class KakaoShareService {
     );
 
     try {
-      final available = await ShareClient.instance.isKakaoTalkSharingAvailable();
+      final available =
+          await ShareClient.instance.isKakaoTalkSharingAvailable();
       if (!available) {
-        return false;
+        return const KakaoShareResult(
+          shared: false,
+          reason: '카카오톡 공유를 사용할 수 없는 기기입니다.',
+        );
       }
       final uri = await ShareClient.instance.shareDefault(template: template);
       await ShareClient.instance.launchKakaoTalk(uri);
-      return true;
+      return const KakaoShareResult(shared: true);
     } catch (_) {
-      return false;
+      return const KakaoShareResult(
+        shared: false,
+        reason: '카카오 공유에 실패했습니다.',
+      );
     }
   }
 }
