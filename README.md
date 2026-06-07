@@ -26,7 +26,7 @@ ai-story-book/
 ├── docs/                 # product, deploy, QA, store, legal docs
 ├── infra/                # docker compose and nginx assets
 ├── scripts/              # quality gate, smoke, deploy, env checks
-└── packages/             # shared assets / future shared packages
+└── packages/             # shared assets and API contract artifacts
 ```
 
 ## Local development
@@ -79,6 +79,7 @@ What it verifies:
 - Flutter tests
 - optional Android debug build
 - optional API smoke against a running server
+- shared OpenAPI contract stays in sync with the API app
 
 ## Smoke and health checks
 
@@ -118,6 +119,8 @@ More detail: `docs/DEPLOYMENT.md`
 - Acceptance artifact policy: `docs/acceptance/README.md`
 - Store submission assets: `docs/appstore/README.md`
 - Operations runbook: `docs/OPERATIONS_TEST_RUNBOOK.md`
+- Shared API contract: `packages/shared/schema/openapi.json`
+- Refresh command: `python3 scripts/export_openapi_contract.py`
 
 ## External integrations requiring real keys
 

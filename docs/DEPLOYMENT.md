@@ -30,7 +30,11 @@ Validate before deploy:
 
 ```bash
 ./scripts/check-env.sh --mode production --env-file infra/.env
+./scripts/phase-gate.sh
+./scripts/flutter-ui-preflight.sh
 ```
+
+`phase-gate.sh` now includes a dedicated mobile UI preflight step for overlay layering, modal scroll safety, and release checklist surfacing.
 
 ## Production compose
 
@@ -75,6 +79,7 @@ Quality jobs:
 - API lint/tests/coverage
 - Flutter analyze/tests/coverage
 - repository-root phase gate
+- focused Flutter UI preflight inside the phase gate
 - security scan
 
 Protected build behavior:

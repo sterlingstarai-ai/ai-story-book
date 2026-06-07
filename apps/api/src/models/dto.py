@@ -198,10 +198,10 @@ class CharacterAppearance(BaseModel):
 class CharacterClothing(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    top: str = Field(default="알 수 없음", max_length=80)
-    bottom: str = Field(default="알 수 없음", max_length=80)
-    shoes: str = Field(default="알 수 없음", max_length=80)
-    accessories: str = Field(default="없음", max_length=80)
+    top: str = Field(min_length=1, max_length=80)
+    bottom: str = Field(min_length=1, max_length=80)
+    shoes: str = Field(min_length=1, max_length=80)
+    accessories: str = Field(min_length=1, max_length=80)
 
 
 class CharacterSheet(BaseModel):
@@ -247,7 +247,7 @@ class PageResult(BaseModel):
     page_number: int = Field(ge=1, le=12)
     text: str = Field(min_length=1, max_length=800)
     image_url: str = Field(min_length=8, max_length=500)
-    image_prompt: str = Field(min_length=10, max_length=1400)
+    image_prompt: Optional[str] = Field(default=None, max_length=1400)
     audio_url: Optional[str] = Field(default=None, max_length=500)
 
     # 다국어 지원 (v0.3)
@@ -257,10 +257,18 @@ class PageResult(BaseModel):
     audio_url_en: Optional[str] = Field(default=None, max_length=500)
 
     # 학습 자산 (v0.3)
-    vocab: Optional[List[Dict[str, Any]]] = None
-    comprehension_questions: Optional[List[Dict[str, Any]]] = None
-    quiz: Optional[List[Dict[str, Any]]] = None
-    asset_status: Dict[str, Any] = Field(default_factory=dict)
+    vocab: Optional[List[VocabItem]] = None
+    comprehension_questions: Optional[List[ComprehensionQuestion]] = None
+    quiz: Optional[List[QuizItem]] = None
+    asset_status: Dict[str, AssetStatusDetail] = Field(default_factory=dict)
+
+
+class AssetStatusDetail(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    state: str = Field(min_length=1, max_length=30)
+    reason: Optional[str] = Field(default=None, max_length=120)
+    url: Optional[str] = Field(default=None, max_length=500)
 
 
 class GenerationWarningInfo(BaseModel):
@@ -281,7 +289,7 @@ class BookResult(BaseModel):
     target_age: TargetAge
     style: str
     cover_image_url: str = Field(min_length=8, max_length=500)
-    pages: List[PageResult] = Field(min_length=4, max_length=12)
+    pages: List[PageResult] = Field(max_length=12)
     character_sheet: Optional[CharacterSheet] = (
         None  # Made optional for API responses without full sheet
     )
@@ -298,7 +306,7 @@ class BookResult(BaseModel):
     title_en: Optional[str] = Field(default=None, max_length=100)
 
     # 학습 자산 (v0.3)
-    learning_assets: Optional[Dict[str, Any]] = None
+    learning_assets: Optional[LearningAssets] = None
     generation_warnings: List[GenerationWarningInfo] = Field(default_factory=list)
 
 
@@ -320,7 +328,7 @@ class JobStatus(BaseModel):
     progress: int = Field(ge=0, le=100)
     current_step: str = Field(min_length=1, max_length=120)
     error: Optional[ErrorInfo] = None
-    result: Optional[Dict[str, Any]] = None
+    result: Optional[BookResult] = None
 
 
 class CreateBookResponse(BaseModel):
@@ -400,8 +408,8 @@ class ParentGuide(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     summary: str = Field(min_length=1, max_length=500)
-    discussion_prompts: List[str] = Field(default_factory=list, max_length=5)
-    activities: List[str] = Field(default_factory=list, max_length=5)
+    discussion_prompts: List[str] = Field(max_length=5)
+    activities: List[str] = Field(max_length=5)
 
 
 class LearningAssets(BaseModel):

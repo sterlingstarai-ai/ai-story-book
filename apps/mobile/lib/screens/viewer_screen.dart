@@ -925,19 +925,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
       ),
-      builder: (context) => SafeArea(
+      builder: (context) => AdaptiveModalSheet(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const SizedBox(height: AppSpacing.md),
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppColors.divider,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
             const SizedBox(height: AppSpacing.lg),
             if (_currentPage > 0)
               ListTile(
@@ -1291,82 +1282,70 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
       ),
-      builder: (context) => SafeArea(
+      builder: (context) => AdaptiveModalSheet(
+        title: '공유하기',
+        contentPadding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const SizedBox(height: AppSpacing.md),
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppColors.divider,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
             const SizedBox(height: AppSpacing.lg),
-            const Text('공유하기', style: AppTextStyles.heading3),
-            const SizedBox(height: AppSpacing.lg),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-              child: Wrap(
-                alignment: WrapAlignment.center,
-                spacing: AppSpacing.lg,
-                runSpacing: AppSpacing.md,
-                children: [
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: AppSpacing.lg,
+              runSpacing: AppSpacing.md,
+              children: [
+                _ShareButton(
+                  icon: Icons.link,
+                  label: 'URL 복사',
+                  onTap: () {
+                    Navigator.pop(context);
+                    _copyShareUrl(book);
+                  },
+                ),
+                _ShareButton(
+                  icon: Icons.chat_bubble,
+                  label: '메시지',
+                  onTap: () {
+                    Navigator.pop(context);
+                    _shareText(book);
+                  },
+                ),
+                if (canUseKakaoShare)
                   _ShareButton(
-                    icon: Icons.link,
-                    label: 'URL 복사',
-                    onTap: () {
-                      Navigator.pop(context);
-                      _copyShareUrl(book);
-                    },
-                  ),
-                  _ShareButton(
-                    icon: Icons.chat_bubble,
-                    label: '메시지',
-                    onTap: () {
-                      Navigator.pop(context);
-                      _shareText(book);
-                    },
-                  ),
-                  if (canUseKakaoShare)
-                    _ShareButton(
-                      icon: Icons.sms_outlined,
-                      label: '카카오톡',
-                      onTap: () async {
-                        Navigator.pop(context);
-                        await _shareToKakao(book);
-                      },
-                    ),
-                  _ShareButton(
-                    icon: Icons.image_outlined,
-                    label: '표지 공유',
-                    onTap: () {
-                      Navigator.pop(context);
-                      _shareCoverImage(book);
-                    },
-                  ),
-                  _ShareButton(
-                    icon: Icons.picture_as_pdf,
-                    label: 'PDF 공유',
-                    onTap: () {
-                      Navigator.pop(context);
-                      _sharePdf(book);
-                    },
-                  ),
-                  _ShareButton(
-                    icon: Icons.more_horiz,
-                    label: '더보기',
+                    icon: Icons.sms_outlined,
+                    label: '카카오톡',
                     onTap: () async {
                       Navigator.pop(context);
-                      // 약간의 딜레이 후 시스템 공유 다이얼로그 표시
-                      await Future.delayed(const Duration(milliseconds: 300));
-                      _shareText(book);
+                      await _shareToKakao(book);
                     },
                   ),
-                ],
-              ),
+                _ShareButton(
+                  icon: Icons.image_outlined,
+                  label: '표지 공유',
+                  onTap: () {
+                    Navigator.pop(context);
+                    _shareCoverImage(book);
+                  },
+                ),
+                _ShareButton(
+                  icon: Icons.picture_as_pdf,
+                  label: 'PDF 공유',
+                  onTap: () {
+                    Navigator.pop(context);
+                    _sharePdf(book);
+                  },
+                ),
+                _ShareButton(
+                  icon: Icons.more_horiz,
+                  label: '더보기',
+                  onTap: () async {
+                    Navigator.pop(context);
+                    // 약간의 딜레이 후 시스템 공유 다이얼로그 표시
+                    await Future.delayed(const Duration(milliseconds: 300));
+                    _shareText(book);
+                  },
+                ),
+              ],
             ),
             const SizedBox(height: AppSpacing.xl),
           ],

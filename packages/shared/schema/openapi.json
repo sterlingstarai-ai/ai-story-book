@@ -1,0 +1,6453 @@
+{
+  "components": {
+    "schemas": {
+      "AdCompleteRequest": {
+        "properties": {
+          "ad_network": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ad Network"
+          },
+          "ad_unit_id": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ad Unit Id"
+          }
+        },
+        "title": "AdCompleteRequest",
+        "type": "object"
+      },
+      "AddCreditsRequest": {
+        "properties": {
+          "amount": {
+            "title": "Amount",
+            "type": "integer"
+          },
+          "transaction_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transaction Id"
+          }
+        },
+        "required": [
+          "amount"
+        ],
+        "title": "AddCreditsRequest",
+        "type": "object"
+      },
+      "AssetStatusDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "state": {
+            "maxLength": 30,
+            "minLength": 1,
+            "title": "State",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "AssetStatusDetail",
+        "type": "object"
+      },
+      "Body_create_character_from_drawing_v1_characters_from_drawing_post": {
+        "properties": {
+          "drawing": {
+            "description": "아이 그림 이미지",
+            "format": "binary",
+            "title": "Drawing",
+            "type": "string"
+          },
+          "generate_sheet": {
+            "default": true,
+            "description": "캐릭터 시트 생성 여부",
+            "title": "Generate Sheet",
+            "type": "boolean"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "캐릭터 이름 (없으면 AI 제안)",
+            "title": "Name"
+          },
+          "style": {
+            "default": "storybook_crayon",
+            "description": "스타일",
+            "title": "Style",
+            "type": "string"
+          }
+        },
+        "required": [
+          "drawing"
+        ],
+        "title": "Body_create_character_from_drawing_v1_characters_from_drawing_post",
+        "type": "object"
+      },
+      "Body_create_character_from_photo_v1_characters_from_photo_post": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "캐릭터 이름 (없으면 AI 제안)",
+            "title": "Name"
+          },
+          "photo": {
+            "description": "캐릭터 생성용 사진",
+            "format": "binary",
+            "title": "Photo",
+            "type": "string"
+          },
+          "style": {
+            "default": "cartoon",
+            "description": "스타일",
+            "title": "Style",
+            "type": "string"
+          }
+        },
+        "required": [
+          "photo"
+        ],
+        "title": "Body_create_character_from_photo_v1_characters_from_photo_post",
+        "type": "object"
+      },
+      "Body_create_character_from_text_v1_characters_from_text_post": {
+        "properties": {
+          "age": {
+            "description": "나이 (예: 5살, 30대)",
+            "title": "Age",
+            "type": "string"
+          },
+          "name": {
+            "description": "캐릭터 이름",
+            "title": "Name",
+            "type": "string"
+          },
+          "style": {
+            "default": "cartoon",
+            "description": "스타일",
+            "title": "Style",
+            "type": "string"
+          },
+          "traits": {
+            "description": "특징/성격 (쉼표로 구분)",
+            "title": "Traits",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "age",
+          "traits"
+        ],
+        "title": "Body_create_character_from_text_v1_characters_from_text_post",
+        "type": "object"
+      },
+      "Body_evaluate_pronunciation_audio_v1_pronunciation_evaluate_audio_post": {
+        "properties": {
+          "audio_file": {
+            "description": "아이 발화 오디오",
+            "format": "binary",
+            "title": "Audio File",
+            "type": "string"
+          },
+          "book_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Book Id"
+          },
+          "expected_text": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Expected Text",
+            "type": "string"
+          },
+          "language": {
+            "default": "ko",
+            "title": "Language",
+            "type": "string"
+          },
+          "page_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Number"
+          }
+        },
+        "required": [
+          "expected_text",
+          "audio_file"
+        ],
+        "title": "Body_evaluate_pronunciation_audio_v1_pronunciation_evaluate_audio_post",
+        "type": "object"
+      },
+      "Body_upload_voice_sample_v1_voice_profiles_upload_sample_post": {
+        "properties": {
+          "sample": {
+            "description": "음성 샘플 파일",
+            "format": "binary",
+            "title": "Sample",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sample"
+        ],
+        "title": "Body_upload_voice_sample_v1_voice_profiles_upload_sample_post",
+        "type": "object"
+      },
+      "BookResult": {
+        "additionalProperties": false,
+        "properties": {
+          "audio_url": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audio Url"
+          },
+          "book_id": {
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Book Id",
+            "type": "string"
+          },
+          "character_sheet": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CharacterSheet"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cover_image_url": {
+            "maxLength": 500,
+            "minLength": 8,
+            "title": "Cover Image Url",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "generation_warnings": {
+            "items": {
+              "$ref": "#/components/schemas/GenerationWarningInfo"
+            },
+            "title": "Generation Warnings",
+            "type": "array"
+          },
+          "language": {
+            "$ref": "#/components/schemas/Language"
+          },
+          "learning_assets": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LearningAssets"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pages": {
+            "items": {
+              "$ref": "#/components/schemas/PageResult"
+            },
+            "maxItems": 12,
+            "title": "Pages",
+            "type": "array"
+          },
+          "pdf_url": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pdf Url"
+          },
+          "series_id": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Series Id"
+          },
+          "series_index": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Series Index"
+          },
+          "style": {
+            "title": "Style",
+            "type": "string"
+          },
+          "target_age": {
+            "$ref": "#/components/schemas/TargetAge"
+          },
+          "title": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "title_en": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title En"
+          },
+          "title_ko": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title Ko"
+          }
+        },
+        "required": [
+          "book_id",
+          "title",
+          "language",
+          "target_age",
+          "style",
+          "cover_image_url",
+          "pages",
+          "created_at"
+        ],
+        "title": "BookResult",
+        "type": "object"
+      },
+      "BookSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "character": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CharacterSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "character_id": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "기존 캐릭터 ID (단일)",
+            "title": "Character Id"
+          },
+          "character_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 10,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "기존 캐릭터 ID 목록 (다중 선택)",
+            "title": "Character Ids"
+          },
+          "forbidden_elements": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Forbidden Elements"
+          },
+          "language": {
+            "$ref": "#/components/schemas/Language",
+            "default": "ko"
+          },
+          "page_count": {
+            "default": 8,
+            "maximum": 12.0,
+            "minimum": 4.0,
+            "title": "Page Count",
+            "type": "integer"
+          },
+          "protagonist_name": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Protagonist Name"
+          },
+          "reference_image_base64": {
+            "anyOf": [
+              {
+                "maxLength": 5000000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Image Base64"
+          },
+          "series_context": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "시리즈 컨텍스트",
+            "title": "Series Context"
+          },
+          "style": {
+            "$ref": "#/components/schemas/Style"
+          },
+          "target_age": {
+            "$ref": "#/components/schemas/TargetAge"
+          },
+          "theme": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Theme"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "topic": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Topic",
+            "type": "string"
+          }
+        },
+        "required": [
+          "topic",
+          "target_age",
+          "style"
+        ],
+        "title": "BookSpec",
+        "type": "object"
+      },
+      "BookSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "book_id": {
+            "title": "Book Id",
+            "type": "string"
+          },
+          "cover_image_url": {
+            "title": "Cover Image Url",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "style": {
+            "title": "Style",
+            "type": "string"
+          },
+          "target_age": {
+            "$ref": "#/components/schemas/TargetAge"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "book_id",
+          "title",
+          "cover_image_url",
+          "target_age",
+          "style",
+          "created_at"
+        ],
+        "title": "BookSummary",
+        "type": "object"
+      },
+      "BranchChoiceRequest": {
+        "properties": {
+          "current_node_key": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Current Node Key",
+            "type": "string"
+          },
+          "option_text": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Option Text"
+          },
+          "to_node_key": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To Node Key"
+          }
+        },
+        "required": [
+          "current_node_key"
+        ],
+        "title": "BranchChoiceRequest",
+        "type": "object"
+      },
+      "BranchInitializeRequest": {
+        "properties": {
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/BranchNodeInput"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Nodes",
+            "type": "array"
+          },
+          "overwrite": {
+            "default": false,
+            "title": "Overwrite",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "nodes"
+        ],
+        "title": "BranchInitializeRequest",
+        "type": "object"
+      },
+      "BranchNodeInput": {
+        "properties": {
+          "image_url": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url"
+          },
+          "node_key": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Node Key",
+            "type": "string"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/BranchOptionInput"
+            },
+            "maxItems": 8,
+            "title": "Options",
+            "type": "array"
+          },
+          "page_number": {
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Page Number",
+            "type": "integer"
+          },
+          "text": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "node_key",
+          "page_number",
+          "text"
+        ],
+        "title": "BranchNodeInput",
+        "type": "object"
+      },
+      "BranchOptionInput": {
+        "properties": {
+          "option_text": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Option Text",
+            "type": "string"
+          },
+          "to_node_key": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "To Node Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "option_text",
+          "to_node_key"
+        ],
+        "title": "BranchOptionInput",
+        "type": "object"
+      },
+      "CharacterAppearance": {
+        "additionalProperties": false,
+        "properties": {
+          "age_visual": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Age Visual",
+            "type": "string"
+          },
+          "body": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Body",
+            "type": "string"
+          },
+          "face": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Face",
+            "type": "string"
+          },
+          "hair": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Hair",
+            "type": "string"
+          },
+          "skin": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Skin",
+            "type": "string"
+          }
+        },
+        "required": [
+          "age_visual",
+          "face",
+          "hair",
+          "skin",
+          "body"
+        ],
+        "title": "CharacterAppearance",
+        "type": "object"
+      },
+      "CharacterClothing": {
+        "additionalProperties": false,
+        "properties": {
+          "accessories": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Accessories",
+            "type": "string"
+          },
+          "bottom": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Bottom",
+            "type": "string"
+          },
+          "shoes": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Shoes",
+            "type": "string"
+          },
+          "top": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Top",
+            "type": "string"
+          }
+        },
+        "required": [
+          "top",
+          "bottom",
+          "shoes",
+          "accessories"
+        ],
+        "title": "CharacterClothing",
+        "type": "object"
+      },
+      "CharacterListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "characters": {
+            "items": {
+              "$ref": "#/components/schemas/CharacterResponse"
+            },
+            "title": "Characters",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "characters",
+          "total"
+        ],
+        "title": "CharacterListResponse",
+        "type": "object"
+      },
+      "CharacterResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "appearance": {
+            "$ref": "#/components/schemas/CharacterAppearance"
+          },
+          "character_id": {
+            "title": "Character Id",
+            "type": "string"
+          },
+          "clothing": {
+            "$ref": "#/components/schemas/CharacterClothing"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "master_description": {
+            "title": "Master Description",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "personality_traits": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Personality Traits",
+            "type": "array"
+          },
+          "visual_style_notes": {
+            "title": "Visual Style Notes",
+            "type": "string"
+          }
+        },
+        "required": [
+          "character_id",
+          "name",
+          "master_description",
+          "appearance",
+          "clothing",
+          "personality_traits",
+          "visual_style_notes",
+          "created_at"
+        ],
+        "title": "CharacterResponse",
+        "type": "object"
+      },
+      "CharacterSheet": {
+        "additionalProperties": false,
+        "properties": {
+          "appearance": {
+            "$ref": "#/components/schemas/CharacterAppearance"
+          },
+          "character_id": {
+            "maxLength": 30,
+            "minLength": 1,
+            "title": "Character Id",
+            "type": "string"
+          },
+          "clothing": {
+            "$ref": "#/components/schemas/CharacterClothing"
+          },
+          "master_description": {
+            "maxLength": 400,
+            "minLength": 10,
+            "title": "Master Description",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "personality_traits": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10,
+            "minItems": 1,
+            "title": "Personality Traits",
+            "type": "array"
+          },
+          "visual_style_notes": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Visual Style Notes",
+            "type": "string"
+          }
+        },
+        "required": [
+          "character_id",
+          "name",
+          "master_description",
+          "appearance",
+          "clothing",
+          "personality_traits",
+          "visual_style_notes"
+        ],
+        "title": "CharacterSheet",
+        "type": "object"
+      },
+      "CharacterSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "appearance": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Appearance"
+          },
+          "gender": {
+            "anyOf": [
+              {
+                "enum": [
+                  "male",
+                  "female",
+                  "neutral"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gender"
+          },
+          "name": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "personality": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 8,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Personality"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "CharacterSpec",
+        "type": "object"
+      },
+      "ComprehensionQuestion": {
+        "additionalProperties": false,
+        "description": "이해 질문",
+        "properties": {
+          "answer": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer"
+          },
+          "question": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question"
+        ],
+        "title": "ComprehensionQuestion",
+        "type": "object"
+      },
+      "CreateBookResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "estimated_time_seconds": {
+            "anyOf": [
+              {
+                "maximum": 3600.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Time Seconds"
+          },
+          "job_id": {
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Job Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/JobState"
+          }
+        },
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "CreateBookResponse",
+        "type": "object"
+      },
+      "CreateCharacterRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "appearance": {
+            "$ref": "#/components/schemas/CharacterAppearance"
+          },
+          "clothing": {
+            "$ref": "#/components/schemas/CharacterClothing"
+          },
+          "master_description": {
+            "maxLength": 400,
+            "minLength": 10,
+            "title": "Master Description",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "personality_traits": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10,
+            "minItems": 1,
+            "title": "Personality Traits",
+            "type": "array"
+          },
+          "visual_style_notes": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Visual Style Notes",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "master_description",
+          "appearance",
+          "clothing",
+          "personality_traits",
+          "visual_style_notes"
+        ],
+        "title": "CreateCharacterRequest",
+        "type": "object"
+      },
+      "CreditsResponse": {
+        "properties": {
+          "credits": {
+            "title": "Credits",
+            "type": "integer"
+          },
+          "total_purchased": {
+            "title": "Total Purchased",
+            "type": "integer"
+          },
+          "total_used": {
+            "title": "Total Used",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "credits",
+          "total_purchased",
+          "total_used"
+        ],
+        "title": "CreditsResponse",
+        "type": "object"
+      },
+      "CreditsStatusResponse": {
+        "properties": {
+          "available_plans": {
+            "items": {
+              "$ref": "#/components/schemas/SubscriptionPlan"
+            },
+            "title": "Available Plans",
+            "type": "array"
+          },
+          "credits": {
+            "$ref": "#/components/schemas/CreditsResponse"
+          },
+          "subscription": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SubscriptionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "credits",
+          "subscription",
+          "available_plans"
+        ],
+        "title": "CreditsStatusResponse",
+        "type": "object"
+      },
+      "ErrorCode": {
+        "description": "에러 코드 정의",
+        "enum": [
+          "SAFETY_INPUT",
+          "SAFETY_OUTPUT",
+          "LLM_TIMEOUT",
+          "LLM_JSON_INVALID",
+          "IMAGE_TIMEOUT",
+          "IMAGE_RATE_LIMIT",
+          "IMAGE_FAILED",
+          "STORAGE_UPLOAD_FAILED",
+          "DB_WRITE_FAILED",
+          "QUEUE_FAILED",
+          "UNKNOWN"
+        ],
+        "title": "ErrorCode",
+        "type": "string"
+      },
+      "ErrorInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ErrorCode"
+          },
+          "message": {
+            "maxLength": 300,
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ErrorInfo",
+        "type": "object"
+      },
+      "GenerationWarningInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "asset": {
+            "anyOf": [
+              {
+                "maxLength": 30,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset"
+          },
+          "code": {
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          },
+          "page_number": {
+            "anyOf": [
+              {
+                "maximum": 12.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Number"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "GenerationWarningInfo",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "IAPVerifyRequest": {
+        "properties": {
+          "is_subscription": {
+            "default": false,
+            "title": "Is Subscription",
+            "type": "boolean"
+          },
+          "platform": {
+            "enum": [
+              "apple",
+              "google"
+            ],
+            "title": "Platform",
+            "type": "string"
+          },
+          "product_id": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Product Id",
+            "type": "string"
+          },
+          "purchase_token": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purchase Token"
+          },
+          "receipt_data": {
+            "anyOf": [
+              {
+                "maxLength": 10000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Receipt Data"
+          },
+          "transaction_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Transaction Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "platform",
+          "product_id",
+          "transaction_id"
+        ],
+        "title": "IAPVerifyRequest",
+        "type": "object"
+      },
+      "IAPVerifyResponse": {
+        "properties": {
+          "credits_added": {
+            "default": 0,
+            "title": "Credits Added",
+            "type": "integer"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan"
+          },
+          "product_id": {
+            "title": "Product Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "transaction_id": {
+            "title": "Transaction Id",
+            "type": "string"
+          },
+          "verification_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verification Source"
+          }
+        },
+        "required": [
+          "status",
+          "transaction_id",
+          "product_id"
+        ],
+        "title": "IAPVerifyResponse",
+        "type": "object"
+      },
+      "IAPWebhookRequest": {
+        "properties": {
+          "payload": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payload"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "cancelled",
+              "expired",
+              "refunded"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "transaction_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Transaction Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "transaction_id",
+          "status"
+        ],
+        "title": "IAPWebhookRequest",
+        "type": "object"
+      },
+      "JobState": {
+        "enum": [
+          "queued",
+          "running",
+          "failed",
+          "done"
+        ],
+        "title": "JobState",
+        "type": "string"
+      },
+      "JobStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "current_step": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Current Step",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ErrorInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "job_id": {
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Job Id",
+            "type": "string"
+          },
+          "progress": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Progress",
+            "type": "integer"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/JobState"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "progress",
+          "current_step"
+        ],
+        "title": "JobStatus",
+        "type": "object"
+      },
+      "Language": {
+        "enum": [
+          "ko",
+          "en",
+          "ja"
+        ],
+        "title": "Language",
+        "type": "string"
+      },
+      "LearningAssets": {
+        "additionalProperties": false,
+        "description": "전체 학습 자산",
+        "properties": {
+          "pages": {
+            "items": {
+              "$ref": "#/components/schemas/LearningPageAssets"
+            },
+            "maxItems": 12,
+            "minItems": 4,
+            "title": "Pages",
+            "type": "array"
+          },
+          "parent_guide": {
+            "$ref": "#/components/schemas/ParentGuide"
+          },
+          "source_language": {
+            "$ref": "#/components/schemas/Language"
+          },
+          "target_language": {
+            "$ref": "#/components/schemas/Language"
+          },
+          "title_translation": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Title Translation",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_language",
+          "target_language",
+          "title_translation",
+          "pages",
+          "parent_guide"
+        ],
+        "title": "LearningAssets",
+        "type": "object"
+      },
+      "LearningPageAssets": {
+        "additionalProperties": false,
+        "description": "페이지별 학습 자산",
+        "properties": {
+          "comprehension_questions": {
+            "items": {
+              "$ref": "#/components/schemas/ComprehensionQuestion"
+            },
+            "maxItems": 3,
+            "title": "Comprehension Questions",
+            "type": "array"
+          },
+          "page": {
+            "maximum": 12.0,
+            "minimum": 1.0,
+            "title": "Page",
+            "type": "integer"
+          },
+          "quiz": {
+            "items": {
+              "$ref": "#/components/schemas/QuizItem"
+            },
+            "maxItems": 2,
+            "title": "Quiz",
+            "type": "array"
+          },
+          "translated_text": {
+            "maxLength": 800,
+            "minLength": 1,
+            "title": "Translated Text",
+            "type": "string"
+          },
+          "vocab": {
+            "items": {
+              "$ref": "#/components/schemas/VocabItem"
+            },
+            "maxItems": 10,
+            "title": "Vocab",
+            "type": "array"
+          }
+        },
+        "required": [
+          "page",
+          "translated_text"
+        ],
+        "title": "LearningPageAssets",
+        "type": "object"
+      },
+      "LibraryResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "books": {
+            "items": {
+              "$ref": "#/components/schemas/BookSummary"
+            },
+            "title": "Books",
+            "type": "array"
+          },
+          "has_more": {
+            "default": false,
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "books",
+          "total"
+        ],
+        "title": "LibraryResponse",
+        "type": "object"
+      },
+      "PageResult": {
+        "additionalProperties": false,
+        "properties": {
+          "asset_status": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/AssetStatusDetail"
+            },
+            "title": "Asset Status",
+            "type": "object"
+          },
+          "audio_url": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audio Url"
+          },
+          "audio_url_en": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audio Url En"
+          },
+          "audio_url_ko": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audio Url Ko"
+          },
+          "comprehension_questions": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ComprehensionQuestion"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comprehension Questions"
+          },
+          "image_prompt": {
+            "anyOf": [
+              {
+                "maxLength": 1400,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Prompt"
+          },
+          "image_url": {
+            "maxLength": 500,
+            "minLength": 8,
+            "title": "Image Url",
+            "type": "string"
+          },
+          "page_number": {
+            "maximum": 12.0,
+            "minimum": 1.0,
+            "title": "Page Number",
+            "type": "integer"
+          },
+          "quiz": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/QuizItem"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quiz"
+          },
+          "text": {
+            "maxLength": 800,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          },
+          "text_en": {
+            "anyOf": [
+              {
+                "maxLength": 800,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text En"
+          },
+          "text_ko": {
+            "anyOf": [
+              {
+                "maxLength": 800,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text Ko"
+          },
+          "vocab": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/VocabItem"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vocab"
+          }
+        },
+        "required": [
+          "page_number",
+          "text",
+          "image_url"
+        ],
+        "title": "PageResult",
+        "type": "object"
+      },
+      "ParentGuide": {
+        "additionalProperties": false,
+        "description": "부모 가이드",
+        "properties": {
+          "activities": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 5,
+            "title": "Activities",
+            "type": "array"
+          },
+          "discussion_prompts": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 5,
+            "title": "Discussion Prompts",
+            "type": "array"
+          },
+          "summary": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary",
+          "discussion_prompts",
+          "activities"
+        ],
+        "title": "ParentGuide",
+        "type": "object"
+      },
+      "PodOrderCreateRequest": {
+        "properties": {
+          "book_id": {
+            "title": "Book Id",
+            "type": "string"
+          },
+          "quantity": {
+            "default": 1,
+            "maximum": 10.0,
+            "minimum": 1.0,
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "shipping_address": {
+            "$ref": "#/components/schemas/ShippingAddressInput"
+          }
+        },
+        "required": [
+          "book_id",
+          "shipping_address"
+        ],
+        "title": "PodOrderCreateRequest",
+        "type": "object"
+      },
+      "ProfileCreateRequest": {
+        "properties": {
+          "age_band": {
+            "default": "5-7",
+            "pattern": "^(3-5|5-7|7-9|adult)$",
+            "title": "Age Band",
+            "type": "string"
+          },
+          "avatar_url": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avatar Url"
+          },
+          "is_default": {
+            "default": false,
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "name": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "preferred_theme": {
+            "anyOf": [
+              {
+                "maxLength": 30,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preferred Theme"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "ProfileCreateRequest",
+        "type": "object"
+      },
+      "ProfileUpdateRequest": {
+        "properties": {
+          "age_band": {
+            "anyOf": [
+              {
+                "pattern": "^(3-5|5-7|7-9|adult)$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age Band"
+          },
+          "avatar_url": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avatar Url"
+          },
+          "is_default": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Default"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "preferred_theme": {
+            "anyOf": [
+              {
+                "maxLength": 30,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preferred Theme"
+          }
+        },
+        "title": "ProfileUpdateRequest",
+        "type": "object"
+      },
+      "PronunciationEvaluateRequest": {
+        "properties": {
+          "audio_url": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audio Url"
+          },
+          "book_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Book Id"
+          },
+          "expected_text": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Expected Text",
+            "type": "string"
+          },
+          "page_number": {
+            "anyOf": [
+              {
+                "maximum": 12.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Number"
+          },
+          "transcript": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Transcript",
+            "type": "string"
+          }
+        },
+        "required": [
+          "transcript",
+          "expected_text"
+        ],
+        "title": "PronunciationEvaluateRequest",
+        "type": "object"
+      },
+      "QuizItem": {
+        "additionalProperties": false,
+        "description": "퀴즈 아이템 (객관식)",
+        "properties": {
+          "answer_index": {
+            "maximum": 3.0,
+            "minimum": 0.0,
+            "title": "Answer Index",
+            "type": "integer"
+          },
+          "explanation": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Explanation"
+          },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 4,
+            "minItems": 2,
+            "title": "Options",
+            "type": "array"
+          },
+          "question": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question",
+          "options",
+          "answer_index"
+        ],
+        "title": "QuizItem",
+        "type": "object"
+      },
+      "ReadingLogRequest": {
+        "properties": {
+          "book_id": {
+            "title": "Book Id",
+            "type": "string"
+          },
+          "completed": {
+            "default": false,
+            "title": "Completed",
+            "type": "boolean"
+          },
+          "reading_time": {
+            "default": 0,
+            "title": "Reading Time",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "book_id"
+        ],
+        "title": "ReadingLogRequest",
+        "type": "object"
+      },
+      "ReadingReportResponse": {
+        "properties": {
+          "average_reading_minutes": {
+            "title": "Average Reading Minutes",
+            "type": "number"
+          },
+          "daily_breakdown": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Daily Breakdown",
+            "type": "array"
+          },
+          "from_date": {
+            "title": "From Date",
+            "type": "string"
+          },
+          "learning_progress": {
+            "title": "Learning Progress",
+            "type": "object"
+          },
+          "period": {
+            "enum": [
+              "weekly",
+              "monthly"
+            ],
+            "title": "Period",
+            "type": "string"
+          },
+          "period_days": {
+            "title": "Period Days",
+            "type": "integer"
+          },
+          "preferred_theme": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preferred Theme"
+          },
+          "streak": {
+            "title": "Streak",
+            "type": "object"
+          },
+          "to_date": {
+            "title": "To Date",
+            "type": "string"
+          },
+          "total_books_read": {
+            "title": "Total Books Read",
+            "type": "integer"
+          },
+          "total_reading_minutes": {
+            "title": "Total Reading Minutes",
+            "type": "integer"
+          },
+          "total_sessions": {
+            "title": "Total Sessions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "period",
+          "period_days",
+          "from_date",
+          "to_date",
+          "total_books_read",
+          "total_sessions",
+          "total_reading_minutes",
+          "average_reading_minutes",
+          "preferred_theme",
+          "streak",
+          "learning_progress",
+          "daily_breakdown"
+        ],
+        "title": "ReadingReportResponse",
+        "type": "object"
+      },
+      "ReadingResultResponse": {
+        "properties": {
+          "current_streak": {
+            "title": "Current Streak",
+            "type": "integer"
+          },
+          "longest_streak": {
+            "title": "Longest Streak",
+            "type": "integer"
+          },
+          "milestones": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Milestones",
+            "type": "array"
+          },
+          "new_streak_day": {
+            "title": "New Streak Day",
+            "type": "boolean"
+          },
+          "total_days": {
+            "title": "Total Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "current_streak",
+          "longest_streak",
+          "total_days",
+          "new_streak_day",
+          "milestones"
+        ],
+        "title": "ReadingResultResponse",
+        "type": "object"
+      },
+      "RegeneratePageRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "feedback": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feedback"
+          },
+          "mode": {
+            "enum": [
+              "text",
+              "image",
+              "both"
+            ],
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "title": "RegeneratePageRequest",
+        "type": "object"
+      },
+      "RegeneratePageResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "job_id": {
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Job Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/JobState"
+          }
+        },
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "RegeneratePageResponse",
+        "type": "object"
+      },
+      "SeriesNextRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "character_id": {
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Character Id",
+            "type": "string"
+          },
+          "forbidden_elements": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Forbidden Elements"
+          },
+          "language": {
+            "$ref": "#/components/schemas/Language",
+            "default": "ko"
+          },
+          "new_topic_hint": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Topic Hint"
+          },
+          "page_count": {
+            "default": 8,
+            "maximum": 12.0,
+            "minimum": 4.0,
+            "title": "Page Count",
+            "type": "integer"
+          },
+          "previous_book_id": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Book Id"
+          },
+          "series_id": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Series Id"
+          },
+          "series_title": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Series Title"
+          },
+          "style": {
+            "$ref": "#/components/schemas/Style",
+            "default": "watercolor"
+          },
+          "target_age": {
+            "$ref": "#/components/schemas/TargetAge",
+            "default": "5-7"
+          },
+          "theme": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Theme"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "topic": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Topic",
+            "type": "string"
+          }
+        },
+        "required": [
+          "character_id",
+          "topic"
+        ],
+        "title": "SeriesNextRequest",
+        "type": "object"
+      },
+      "SettingsPatchRequest": {
+        "properties": {
+          "allow_kakao_share": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allow Kakao Share"
+          },
+          "bedtime_notification_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bedtime Notification Enabled"
+          },
+          "bedtime_notification_hour": {
+            "anyOf": [
+              {
+                "maximum": 23.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bedtime Notification Hour"
+          },
+          "bedtime_notification_minute": {
+            "anyOf": [
+              {
+                "maximum": 59.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bedtime Notification Minute"
+          },
+          "daily_limit_minutes": {
+            "anyOf": [
+              {
+                "maximum": 120.0,
+                "minimum": 30.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Daily Limit Minutes"
+          },
+          "dark_mode": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dark Mode"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "pattern": "^(ko|en)$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "screen_time_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Screen Time Enabled"
+          },
+          "sleep_mode_default_minutes": {
+            "anyOf": [
+              {
+                "maximum": 60.0,
+                "minimum": 10.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sleep Mode Default Minutes"
+          }
+        },
+        "title": "SettingsPatchRequest",
+        "type": "object"
+      },
+      "ShippingAddressInput": {
+        "properties": {
+          "city": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "City"
+          },
+          "country": {
+            "maxLength": 2,
+            "minLength": 2,
+            "title": "Country",
+            "type": "string"
+          },
+          "line1": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Line1",
+            "type": "string"
+          },
+          "line2": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line2"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          },
+          "postal_code": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Postal Code",
+            "type": "string"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State"
+          }
+        },
+        "required": [
+          "name",
+          "line1",
+          "postal_code",
+          "country"
+        ],
+        "title": "ShippingAddressInput",
+        "type": "object"
+      },
+      "StreakInfoResponse": {
+        "properties": {
+          "current_streak": {
+            "title": "Current Streak",
+            "type": "integer"
+          },
+          "last_read_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Read Date"
+          },
+          "longest_streak": {
+            "title": "Longest Streak",
+            "type": "integer"
+          },
+          "read_today": {
+            "title": "Read Today",
+            "type": "boolean"
+          },
+          "streak_broken": {
+            "title": "Streak Broken",
+            "type": "boolean"
+          },
+          "total_days": {
+            "title": "Total Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "current_streak",
+          "longest_streak",
+          "total_days",
+          "last_read_date",
+          "read_today",
+          "streak_broken"
+        ],
+        "title": "StreakInfoResponse",
+        "type": "object"
+      },
+      "Style": {
+        "enum": [
+          "watercolor",
+          "cartoon",
+          "3d",
+          "pixel",
+          "oil_painting",
+          "claymation",
+          "realistic"
+        ],
+        "title": "Style",
+        "type": "string"
+      },
+      "SubscribeRequest": {
+        "properties": {
+          "plan": {
+            "title": "Plan",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plan"
+        ],
+        "title": "SubscribeRequest",
+        "type": "object"
+      },
+      "SubscriptionPlan": {
+        "properties": {
+          "credits_per_month": {
+            "title": "Credits Per Month",
+            "type": "integer"
+          },
+          "features": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "price": {
+            "title": "Price",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "price",
+          "credits_per_month",
+          "features"
+        ],
+        "title": "SubscriptionPlan",
+        "type": "object"
+      },
+      "SubscriptionResponse": {
+        "properties": {
+          "credits_per_month": {
+            "title": "Credits Per Month",
+            "type": "integer"
+          },
+          "current_period_end": {
+            "format": "date-time",
+            "title": "Current Period End",
+            "type": "string"
+          },
+          "features": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "plan": {
+            "title": "Plan",
+            "type": "string"
+          },
+          "plan_name": {
+            "title": "Plan Name",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plan",
+          "plan_name",
+          "status",
+          "credits_per_month",
+          "current_period_end",
+          "features"
+        ],
+        "title": "SubscriptionResponse",
+        "type": "object"
+      },
+      "TargetAge": {
+        "enum": [
+          "3-5",
+          "5-7",
+          "7-9",
+          "adult"
+        ],
+        "title": "TargetAge",
+        "type": "string"
+      },
+      "Theme": {
+        "enum": [
+          "생활습관",
+          "설날",
+          "추석",
+          "어린이날",
+          "크리스마스",
+          "감정코칭",
+          "사회성",
+          "우정",
+          "가족",
+          "모험",
+          "자연",
+          "과학",
+          "시간여행",
+          "동물",
+          "공룡",
+          "직업",
+          "작품속으로"
+        ],
+        "title": "Theme",
+        "type": "string"
+      },
+      "TodayStoryResponse": {
+        "properties": {
+          "book_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Book Id"
+          },
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "theme": {
+            "title": "Theme",
+            "type": "string"
+          },
+          "theme_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Theme Name"
+          },
+          "topic": {
+            "title": "Topic",
+            "type": "string"
+          }
+        },
+        "required": [
+          "date",
+          "theme",
+          "theme_name",
+          "topic",
+          "book_id"
+        ],
+        "title": "TodayStoryResponse",
+        "type": "object"
+      },
+      "TransactionResponse": {
+        "properties": {
+          "amount": {
+            "title": "Amount",
+            "type": "integer"
+          },
+          "balance_after": {
+            "title": "Balance After",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "transaction_type": {
+            "title": "Transaction Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "amount",
+          "balance_after",
+          "transaction_type",
+          "description",
+          "created_at"
+        ],
+        "title": "TransactionResponse",
+        "type": "object"
+      },
+      "UpdateBookRequest": {
+        "properties": {
+          "title": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "title": "UpdateBookRequest",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "VocabItem": {
+        "additionalProperties": false,
+        "description": "단어 학습 아이템",
+        "properties": {
+          "example": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Example"
+          },
+          "meaning": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Meaning",
+            "type": "string"
+          },
+          "word": {
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Word",
+            "type": "string"
+          }
+        },
+        "required": [
+          "word",
+          "meaning"
+        ],
+        "title": "VocabItem",
+        "type": "object"
+      },
+      "VoiceProfileCreateRequest": {
+        "properties": {
+          "consented": {
+            "default": false,
+            "title": "Consented",
+            "type": "boolean"
+          },
+          "label": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "provider_voice_id": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Voice Id"
+          },
+          "relationship": {
+            "anyOf": [
+              {
+                "maxLength": 30,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relationship"
+          },
+          "sample_audio_url": {
+            "maxLength": 500,
+            "minLength": 8,
+            "title": "Sample Audio Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "sample_audio_url"
+        ],
+        "title": "VoiceProfileCreateRequest",
+        "type": "object"
+      },
+      "VoiceProfileUpdateRequest": {
+        "properties": {
+          "active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active"
+          },
+          "consented": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consented"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "provider_voice_id": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Voice Id"
+          },
+          "relationship": {
+            "anyOf": [
+              {
+                "maxLength": 30,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relationship"
+          },
+          "sample_audio_url": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 8,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sample Audio Url"
+          }
+        },
+        "title": "VoiceProfileUpdateRequest",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "contact": {
+      "email": "support@aistorybook.com",
+      "name": "AI Story Book Team"
+    },
+    "description": "\n# AI Story Book API\n\nAI 기반 맞춤형 동화책 생성 API입니다.\n\n## 주요 기능\n\n* **책 생성**: 주제, 연령대, 스타일을 입력하면 AI가 동화책을 생성합니다\n* **캐릭터 관리**: 사진에서 캐릭터를 추출하거나 직접 생성할 수 있습니다\n* **시리즈 생성**: 같은 캐릭터로 연속된 이야기를 만들 수 있습니다\n* **PDF/오디오 내보내기**: 완성된 책을 PDF나 오디오로 내보낼 수 있습니다\n\n## 인증\n\n모든 API는 `X-User-Key` 헤더가 필요합니다.\n중복 요청 방지를 위해 `X-Idempotency-Key` 헤더 사용을 권장합니다.\n\n## Rate Limiting\n\n- 기본: 분당 10회 요청 제한\n- 초과 시 429 Too Many Requests 응답\n\n## 크레딧 시스템\n\n책 1권 생성에 크레딧 1개가 소모됩니다.\n    ",
+    "license": {
+      "name": "MIT"
+    },
+    "title": "AI Story Book API",
+    "version": "0.2.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "health_check_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health Check"
+      }
+    },
+    "/health/detailed": {
+      "get": {
+        "description": "Detailed health check with job metrics and external API status",
+        "operationId": "detailed_health_check_health_detailed_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Detailed Health Check"
+      }
+    },
+    "/health/live": {
+      "get": {
+        "operationId": "live_health_check_health_live_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Live Health Check"
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "operationId": "ready_health_check_health_ready_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Ready Health Check"
+      }
+    },
+    "/v1/books": {
+      "post": {
+        "description": "새 동화책 생성 요청\n\n- 비동기로 처리되며 job_id 반환\n- GET /v1/books/{job_id}로 상태 조회\n- 크레딧 1개 필요",
+        "operationId": "create_book_v1_books_post",
+        "parameters": [
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional active child profile id",
+            "in": "header",
+            "name": "x-profile-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional active child profile id",
+              "title": "X-Profile-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BookSpec"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateBookResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Book",
+        "tags": [
+          "Books"
+        ]
+      }
+    },
+    "/v1/books/series": {
+      "post": {
+        "description": "시리즈 다음 권 생성\n\n- 같은 캐릭터로 새로운 이야기 생성\n- previous_book_id가 있으면 연속성 유지, 없으면 topic 기반 생성",
+        "operationId": "create_series_next_v1_books_series_post",
+        "parameters": [
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional active child profile id",
+            "in": "header",
+            "name": "x-profile-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional active child profile id",
+              "title": "X-Profile-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeriesNextRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateBookResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Series Next",
+        "tags": [
+          "Books"
+        ]
+      }
+    },
+    "/v1/books/{book_id}/audio": {
+      "post": {
+        "description": "책 오디오 생성 (TTS)\n\n- 모든 페이지에 대해 TTS 오디오 생성\n- 비동기로 처리되며 완료 후 각 페이지의 audio_url 업데이트",
+        "operationId": "generate_book_audio_v1_books__book_id__audio_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional active child profile id",
+            "in": "header",
+            "name": "x-profile-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional active child profile id",
+              "title": "X-Profile-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Generate Book Audio",
+        "tags": [
+          "Books"
+        ]
+      }
+    },
+    "/v1/books/{book_id}/detail": {
+      "get": {
+        "description": "책 상세 정보 조회 (완료된 책)\n\n- 서재에서 책 상세 조회 시 사용\n- book_id 기반으로 조회",
+        "operationId": "get_book_detail_v1_books__book_id__detail_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional active child profile id",
+            "in": "header",
+            "name": "x-profile-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional active child profile id",
+              "title": "X-Profile-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Book Detail",
+        "tags": [
+          "Books"
+        ]
+      }
+    },
+    "/v1/books/{book_id}/pages/{page_number}/audio": {
+      "get": {
+        "description": "특정 페이지 오디오 URL 조회\n\n- 이미 생성된 오디오 URL 반환\n- 없으면 즉시 생성 후 반환",
+        "operationId": "get_page_audio_v1_books__book_id__pages__page_number__audio_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "page_number",
+            "required": true,
+            "schema": {
+              "title": "Page Number",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "language",
+            "required": false,
+            "schema": {
+              "default": "ko",
+              "pattern": "^(ko|en)$",
+              "title": "Language",
+              "type": "string"
+            }
+          },
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional active child profile id",
+            "in": "header",
+            "name": "x-profile-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional active child profile id",
+              "title": "X-Profile-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Page Audio",
+        "tags": [
+          "Books"
+        ]
+      }
+    },
+    "/v1/books/{book_id}/pdf": {
+      "get": {
+        "description": "책을 PDF로 내보내기\n\n- 완료된 책만 PDF로 내보낼 수 있음\n- 표지 + 본문 페이지 + 끝 페이지로 구성",
+        "operationId": "export_book_pdf_v1_books__book_id__pdf_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional active child profile id",
+            "in": "header",
+            "name": "x-profile-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional active child profile id",
+              "title": "X-Profile-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Book Pdf",
+        "tags": [
+          "Books"
+        ]
+      }
+    },
+    "/v1/books/{job_id}": {
+      "get": {
+        "description": "책 생성 상태 조회\n\n- status: queued, running, failed, done\n- progress: 0-100\n- done일 경우 result에 BookResult 포함",
+        "operationId": "get_book_status_v1_books__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional active child profile id",
+            "in": "header",
+            "name": "x-profile-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional active child profile id",
+              "title": "X-Profile-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Book Status",
+        "tags": [
+          "Books"
+        ]
+      }
+    },
+    "/v1/books/{job_id}/pages/{page_number}/regenerate": {
+      "post": {
+        "description": "특정 페이지 재생성\n\n- mode: text (텍스트만), image (이미지만), both (둘 다)\n- feedback: 재생성 시 반영할 피드백",
+        "operationId": "regenerate_book_page_v1_books__job_id__pages__page_number__regenerate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "page_number",
+            "required": true,
+            "schema": {
+              "title": "Page Number",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional active child profile id",
+            "in": "header",
+            "name": "x-profile-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional active child profile id",
+              "title": "X-Profile-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegeneratePageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegeneratePageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Regenerate Book Page",
+        "tags": [
+          "Books"
+        ]
+      }
+    },
+    "/v1/branch/books/{book_id}/choose": {
+      "post": {
+        "operationId": "choose_branch_option_v1_branch_books__book_id__choose_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BranchChoiceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Choose Branch Option",
+        "tags": [
+          "Branch"
+        ]
+      }
+    },
+    "/v1/branch/books/{book_id}/graph": {
+      "get": {
+        "operationId": "get_branch_story_graph_v1_branch_books__book_id__graph_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Branch Story Graph",
+        "tags": [
+          "Branch"
+        ]
+      }
+    },
+    "/v1/branch/books/{book_id}/initialize": {
+      "post": {
+        "description": "책의 분기 그래프를 초기화(업서트)한다.\n\n- overwrite=false: 기존 그래프가 있으면 에러\n- overwrite=true: 기존 노드/엣지를 모두 지우고 재생성",
+        "operationId": "initialize_branch_story_v1_branch_books__book_id__initialize_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BranchInitializeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Initialize Branch Story",
+        "tags": [
+          "Branch"
+        ]
+      }
+    },
+    "/v1/characters": {
+      "get": {
+        "description": "내 캐릭터 목록 조회",
+        "operationId": "list_characters_v1_characters_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CharacterListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Characters",
+        "tags": [
+          "Characters"
+        ]
+      },
+      "post": {
+        "description": "새 캐릭터 저장\n\n- 책 생성 후 캐릭터 시트를 저장하여 재사용\n- 시리즈 생성 시 character_id로 참조",
+        "operationId": "create_character_v1_characters_post",
+        "parameters": [
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCharacterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CharacterResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Character",
+        "tags": [
+          "Characters"
+        ]
+      }
+    },
+    "/v1/characters/from-drawing": {
+      "post": {
+        "description": "아이 그림을 캐릭터로 변환한다.\n\n- 그림 분석으로 캐릭터 외형/성격 추론\n- 캐릭터 레코드 저장\n- 선택적으로 캐릭터 시트 이미지(포즈 3종) 생성",
+        "operationId": "create_character_from_drawing_v1_characters_from_drawing_post",
+        "parameters": [
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_create_character_from_drawing_v1_characters_from_drawing_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Character From Drawing",
+        "tags": [
+          "Characters"
+        ]
+      }
+    },
+    "/v1/characters/from-photo": {
+      "post": {
+        "description": "사진에서 캐릭터 생성\n\n- 사진을 분석하여 캐릭터 특성 추출\n- AI가 동화 스타일로 변환\n- 자동으로 캐릭터 시트 생성",
+        "operationId": "create_character_from_photo_v1_characters_from_photo_post",
+        "parameters": [
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_create_character_from_photo_v1_characters_from_photo_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CharacterResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Character From Photo",
+        "tags": [
+          "Characters"
+        ]
+      }
+    },
+    "/v1/characters/from-text": {
+      "post": {
+        "description": "텍스트 설명으로 캐릭터 생성\n\n- 이름, 나이, 특징만 입력\n- AI가 나머지 세부사항을 자동 생성",
+        "operationId": "create_character_from_text_v1_characters_from_text_post",
+        "parameters": [
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_create_character_from_text_v1_characters_from_text_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CharacterResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Character From Text",
+        "tags": [
+          "Characters"
+        ]
+      }
+    },
+    "/v1/characters/{character_id}": {
+      "delete": {
+        "description": "캐릭터 삭제",
+        "operationId": "delete_character_v1_characters__character_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "character_id",
+            "required": true,
+            "schema": {
+              "title": "Character Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Character",
+        "tags": [
+          "Characters"
+        ]
+      },
+      "get": {
+        "description": "캐릭터 상세 조회",
+        "operationId": "get_character_v1_characters__character_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "character_id",
+            "required": true,
+            "schema": {
+              "title": "Character Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CharacterResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Character",
+        "tags": [
+          "Characters"
+        ]
+      }
+    },
+    "/v1/credits/add": {
+      "post": {
+        "description": "크레딧 추가 (구매) - 관리자 인증 필요\n\n- X-Admin-Key 헤더 필수\n- transaction_id: 외부 결제 시스템의 거래 ID (필수)",
+        "operationId": "add_credits_v1_credits_add_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Admin-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-Key"
+            }
+          },
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddCreditsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Credits",
+        "tags": [
+          "Credits"
+        ]
+      }
+    },
+    "/v1/credits/balance": {
+      "get": {
+        "description": "현재 크레딧 잔액 조회",
+        "operationId": "get_credits_balance_v1_credits_balance_get",
+        "parameters": [
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Credits Balance",
+        "tags": [
+          "Credits"
+        ]
+      }
+    },
+    "/v1/credits/cancel-subscription": {
+      "post": {
+        "description": "구독 취소",
+        "operationId": "cancel_subscription_v1_credits_cancel_subscription_post",
+        "parameters": [
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Subscription",
+        "tags": [
+          "Credits"
+        ]
+      }
+    },
+    "/v1/credits/check": {
+      "get": {
+        "description": "크레딧 충분 여부 확인",
+        "operationId": "check_credits_v1_credits_check_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "required",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "title": "Required",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check Credits",
+        "tags": [
+          "Credits"
+        ]
+      }
+    },
+    "/v1/credits/status": {
+      "get": {
+        "description": "크레딧 및 구독 상태 조회\n\n- 현재 크레딧 잔액\n- 구독 정보\n- 사용 가능한 플랜",
+        "operationId": "get_credits_status_v1_credits_status_get",
+        "parameters": [
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreditsStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Credits Status",
+        "tags": [
+          "Credits"
+        ]
+      }
+    },
+    "/v1/credits/subscribe": {
+      "post": {
+        "description": "구독 시작\n\n- plan: free, basic, premium\n- 실제 결제 로직은 클라이언트에서 처리 후 호출",
+        "operationId": "subscribe_v1_credits_subscribe_post",
+        "parameters": [
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubscribeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Subscribe",
+        "tags": [
+          "Credits"
+        ]
+      }
+    },
+    "/v1/credits/transactions": {
+      "get": {
+        "description": "거래 내역 조회",
+        "operationId": "get_transactions_v1_credits_transactions_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TransactionResponse"
+                  },
+                  "title": "Response Get Transactions V1 Credits Transactions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Transactions",
+        "tags": [
+          "Credits"
+        ]
+      }
+    },
+    "/v1/iap/verify": {
+      "post": {
+        "description": "결제 영수증 검증 및 보상 지급.",
+        "operationId": "verify_iap_v1_iap_verify_post",
+        "parameters": [
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IAPVerifyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IAPVerifyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Verify Iap",
+        "tags": [
+          "IAP"
+        ]
+      }
+    },
+    "/v1/iap/webhook/apple": {
+      "post": {
+        "operationId": "apple_webhook_v1_iap_webhook_apple_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IAPWebhookRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Apple Webhook",
+        "tags": [
+          "IAP"
+        ]
+      }
+    },
+    "/v1/iap/webhook/google": {
+      "post": {
+        "operationId": "google_webhook_v1_iap_webhook_google_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IAPWebhookRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Google Webhook",
+        "tags": [
+          "IAP"
+        ]
+      }
+    },
+    "/v1/library": {
+      "get": {
+        "description": "내 서재 (생성한 책 목록)\n\n- 정렬: newest(기본), oldest, title\n- 스타일/연령대 필터\n- 페이지네이션 지원",
+        "operationId": "get_library_v1_library_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Cursor book_id for pagination",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Cursor book_id for pagination",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "스타일 필터 (watercolor, cartoon 등)",
+            "in": "query",
+            "name": "style",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/Style"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "스타일 필터 (watercolor, cartoon 등)",
+              "title": "Style"
+            }
+          },
+          {
+            "description": "연령대 필터 (3-5, 5-7, 7-9, adult)",
+            "in": "query",
+            "name": "target_age",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/TargetAge"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "연령대 필터 (3-5, 5-7, 7-9, adult)",
+              "title": "Target Age"
+            }
+          },
+          {
+            "description": "정렬: newest, oldest, title",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "newest",
+              "description": "정렬: newest, oldest, title",
+              "enum": [
+                "newest",
+                "oldest",
+                "title"
+              ],
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional active child profile id",
+            "in": "header",
+            "name": "x-profile-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional active child profile id",
+              "title": "X-Profile-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Library",
+        "tags": [
+          "Library"
+        ]
+      }
+    },
+    "/v1/library/{book_id}": {
+      "delete": {
+        "description": "책 삭제",
+        "operationId": "delete_book_v1_library__book_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional active child profile id",
+            "in": "header",
+            "name": "x-profile-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional active child profile id",
+              "title": "X-Profile-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Book",
+        "tags": [
+          "Library"
+        ]
+      },
+      "patch": {
+        "description": "책 제목 수정",
+        "operationId": "update_book_v1_library__book_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional active child profile id",
+            "in": "header",
+            "name": "x-profile-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional active child profile id",
+              "title": "X-Profile-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateBookRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Book",
+        "tags": [
+          "Library"
+        ]
+      }
+    },
+    "/v1/pod/orders": {
+      "post": {
+        "operationId": "create_pod_order_v1_pod_orders_post",
+        "parameters": [
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PodOrderCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Pod Order",
+        "tags": [
+          "POD"
+        ]
+      }
+    },
+    "/v1/pod/orders/{order_id}": {
+      "get": {
+        "operationId": "get_pod_order_v1_pod_orders__order_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "order_id",
+            "required": true,
+            "schema": {
+              "title": "Order Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Pod Order",
+        "tags": [
+          "POD"
+        ]
+      }
+    },
+    "/v1/profiles": {
+      "get": {
+        "operationId": "list_profiles_v1_profiles_get",
+        "parameters": [
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Profiles",
+        "tags": [
+          "Profiles"
+        ]
+      },
+      "post": {
+        "operationId": "create_profile_v1_profiles_post",
+        "parameters": [
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Profile",
+        "tags": [
+          "Profiles"
+        ]
+      }
+    },
+    "/v1/profiles/{profile_id}": {
+      "delete": {
+        "operationId": "delete_profile_v1_profiles__profile_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_id",
+            "required": true,
+            "schema": {
+              "title": "Profile Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Profile",
+        "tags": [
+          "Profiles"
+        ]
+      },
+      "patch": {
+        "operationId": "update_profile_v1_profiles__profile_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_id",
+            "required": true,
+            "schema": {
+              "title": "Profile Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Profile",
+        "tags": [
+          "Profiles"
+        ]
+      }
+    },
+    "/v1/pronunciation/evaluate": {
+      "post": {
+        "operationId": "evaluate_pronunciation_v1_pronunciation_evaluate_post",
+        "parameters": [
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PronunciationEvaluateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Evaluate Pronunciation",
+        "tags": [
+          "Pronunciation"
+        ]
+      }
+    },
+    "/v1/pronunciation/evaluate-audio": {
+      "post": {
+        "operationId": "evaluate_pronunciation_audio_v1_pronunciation_evaluate_audio_post",
+        "parameters": [
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_evaluate_pronunciation_audio_v1_pronunciation_evaluate_audio_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Evaluate Pronunciation Audio",
+        "tags": [
+          "Pronunciation"
+        ]
+      }
+    },
+    "/v1/rewards/ad-complete": {
+      "post": {
+        "description": "광고 시청 완료 보상.\n정책: 일일 최대 3회, 회당 1 크레딧.",
+        "operationId": "complete_ad_reward_v1_rewards_ad_complete_post",
+        "parameters": [
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdCompleteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Complete Ad Reward",
+        "tags": [
+          "Rewards"
+        ]
+      }
+    },
+    "/v1/settings": {
+      "get": {
+        "operationId": "get_settings_v1_settings_get",
+        "parameters": [
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Settings",
+        "tags": [
+          "Settings"
+        ]
+      },
+      "patch": {
+        "operationId": "patch_settings_v1_settings_patch",
+        "parameters": [
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsPatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Patch Settings",
+        "tags": [
+          "Settings"
+        ]
+      }
+    },
+    "/v1/streak/calendar": {
+      "get": {
+        "description": "스트릭 캘린더 조회\n\n- 특정 월의 읽기 기록\n- 캘린더 UI용 데이터",
+        "operationId": "get_streak_calendar_v1_streak_calendar_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "year",
+            "required": true,
+            "schema": {
+              "maximum": 2100,
+              "minimum": 2020,
+              "title": "Year",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "month",
+            "required": true,
+            "schema": {
+              "maximum": 12,
+              "minimum": 1,
+              "title": "Month",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional active child profile id",
+            "in": "header",
+            "name": "x-profile-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional active child profile id",
+              "title": "X-Profile-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Streak Calendar",
+        "tags": [
+          "Streak"
+        ]
+      }
+    },
+    "/v1/streak/history": {
+      "get": {
+        "description": "읽기 기록 조회\n\n- 최근 N일간의 읽기 기록\n- 날짜별 그룹화",
+        "operationId": "get_reading_history_v1_streak_history_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "maximum": 365,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional active child profile id",
+            "in": "header",
+            "name": "x-profile-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional active child profile id",
+              "title": "X-Profile-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Reading History",
+        "tags": [
+          "Streak"
+        ]
+      }
+    },
+    "/v1/streak/info": {
+      "get": {
+        "description": "스트릭 정보 조회\n\n- current_streak: 현재 연속 읽기 일수\n- longest_streak: 최장 연속 일수\n- total_days: 총 읽은 일수\n- read_today: 오늘 읽었는지 여부",
+        "operationId": "get_streak_info_v1_streak_info_get",
+        "parameters": [
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional active child profile id",
+            "in": "header",
+            "name": "x-profile-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional active child profile id",
+              "title": "X-Profile-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StreakInfoResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Streak Info",
+        "tags": [
+          "Streak"
+        ]
+      }
+    },
+    "/v1/streak/read": {
+      "post": {
+        "description": "읽기 기록\n\n- 책을 읽었을 때 호출\n- 오늘 처음 읽는 경우 스트릭 증가\n- 마일스톤 달성 시 알림",
+        "operationId": "record_reading_v1_streak_read_post",
+        "parameters": [
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional active child profile id",
+            "in": "header",
+            "name": "x-profile-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional active child profile id",
+              "title": "X-Profile-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadingLogRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadingResultResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Record Reading",
+        "tags": [
+          "Streak"
+        ]
+      }
+    },
+    "/v1/streak/report": {
+      "get": {
+        "description": "읽기 통계 리포트 (부모 대시보드용)",
+        "operationId": "get_reading_report_v1_streak_report_get",
+        "parameters": [
+          {
+            "description": "리포트 기간 (weekly|monthly)",
+            "in": "query",
+            "name": "period",
+            "required": false,
+            "schema": {
+              "default": "weekly",
+              "description": "리포트 기간 (weekly|monthly)",
+              "enum": [
+                "weekly",
+                "monthly"
+              ],
+              "title": "Period",
+              "type": "string"
+            }
+          },
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional active child profile id",
+            "in": "header",
+            "name": "x-profile-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional active child profile id",
+              "title": "X-Profile-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadingReportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Reading Report",
+        "tags": [
+          "Streak"
+        ]
+      }
+    },
+    "/v1/streak/themes": {
+      "get": {
+        "description": "테마 목록 조회\n\n- 사용 가능한 모든 테마와 주제 목록",
+        "operationId": "get_themes_v1_streak_themes_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Themes",
+        "tags": [
+          "Streak"
+        ]
+      }
+    },
+    "/v1/streak/today": {
+      "get": {
+        "description": "오늘의 동화 조회\n\n- 매일 새로운 테마와 주제 제공\n- 날짜별로 고정된 테마/주제 (모든 사용자 동일)",
+        "operationId": "get_today_story_v1_streak_today_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TodayStoryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Today Story",
+        "tags": [
+          "Streak"
+        ]
+      }
+    },
+    "/v1/users/me": {
+      "delete": {
+        "description": "내 데이터 전체 삭제.\n\n삭제 대상:\n- 책/페이지/잡/캐릭터/크레딧/구독/스트릭/설정/프로필/로그\n- 저장소의 책 파일",
+        "operationId": "delete_my_data_v1_users_me_delete",
+        "parameters": [
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete My Data",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/v1/voice-profiles": {
+      "get": {
+        "operationId": "list_voice_profiles_v1_voice_profiles_get",
+        "parameters": [
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Voice Profiles",
+        "tags": [
+          "VoiceProfiles"
+        ]
+      },
+      "post": {
+        "operationId": "create_voice_profile_v1_voice_profiles_post",
+        "parameters": [
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VoiceProfileCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Voice Profile",
+        "tags": [
+          "VoiceProfiles"
+        ]
+      }
+    },
+    "/v1/voice-profiles/upload-sample": {
+      "post": {
+        "operationId": "upload_voice_sample_v1_voice_profiles_upload_sample_post",
+        "parameters": [
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_voice_sample_v1_voice_profiles_upload_sample_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upload Voice Sample",
+        "tags": [
+          "VoiceProfiles"
+        ]
+      }
+    },
+    "/v1/voice-profiles/{profile_id}": {
+      "delete": {
+        "operationId": "delete_voice_profile_v1_voice_profiles__profile_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_id",
+            "required": true,
+            "schema": {
+              "title": "Profile Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Voice Profile",
+        "tags": [
+          "VoiceProfiles"
+        ]
+      },
+      "patch": {
+        "operationId": "update_voice_profile_v1_voice_profiles__profile_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_id",
+            "required": true,
+            "schema": {
+              "title": "Profile Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VoiceProfileUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Voice Profile",
+        "tags": [
+          "VoiceProfiles"
+        ]
+      }
+    },
+    "/v1/voice-profiles/{profile_id}/revoke-consent": {
+      "post": {
+        "operationId": "revoke_voice_profile_consent_v1_voice_profiles__profile_id__revoke_consent_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_id",
+            "required": true,
+            "schema": {
+              "title": "Profile Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revoke Voice Profile Consent",
+        "tags": [
+          "VoiceProfiles"
+        ]
+      }
+    }
+  },
+  "tags": [
+    {
+      "description": "동화책 생성 및 조회 API",
+      "name": "Books"
+    },
+    {
+      "description": "캐릭터 관리 API",
+      "name": "Characters"
+    },
+    {
+      "description": "사용자 서재 API",
+      "name": "Library"
+    },
+    {
+      "description": "크레딧 및 구독 관리 API",
+      "name": "Credits"
+    },
+    {
+      "description": "오늘의 동화 및 스트릭 API",
+      "name": "Streak"
+    }
+  ]
+}

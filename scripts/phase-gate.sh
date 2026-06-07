@@ -42,42 +42,48 @@ for arg in "$@"; do
   esac
 done
 
-echo "==> [1/5] API unit/integration tests"
+echo "==> [1/6] API unit/integration tests"
 (
   cd "$API_DIR"
   "$API_PYTHON" -m pytest tests -q
 )
 
-echo "==> [2/5] Mobile static analysis"
+echo "==> [2/6] Mobile static analysis"
 (
   cd "$MOBILE_DIR"
   flutter analyze
 )
 
-echo "==> [3/5] Mobile widget/unit tests"
+echo "==> [3/6] Mobile widget/unit tests"
 (
   cd "$MOBILE_DIR"
   flutter test
 )
 
+echo "==> [4/6] Mobile UI preflight"
+(
+  cd "$ROOT_DIR"
+  bash ./scripts/flutter-ui-preflight.sh
+)
+
 if [ "$WITH_MOBILE_BUILD" = true ]; then
-  echo "==> [4/5] Mobile Android build (debug)"
+  echo "==> [5/6] Mobile Android build (debug)"
   (
     cd "$MOBILE_DIR"
     flutter build apk --debug
   )
 else
-  echo "==> [4/5] Mobile Android build skipped (use --with-mobile-build)"
+  echo "==> [5/6] Mobile Android build skipped (use --with-mobile-build)"
 fi
 
 if [ "$WITH_IOS_BUILD" = true ]; then
-  echo "==> [5/5] Mobile iOS build (no codesign)"
+  echo "==> [6/6] Mobile iOS build (no codesign)"
   (
     cd "$MOBILE_DIR"
     flutter build ios --no-codesign
   )
 else
-  echo "==> [5/5] Mobile iOS build skipped (use --with-ios-build)"
+  echo "==> [6/6] Mobile iOS build skipped (use --with-ios-build)"
 fi
 
 if [ "$WITH_API_SMOKE" = true ]; then

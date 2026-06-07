@@ -134,76 +134,56 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
       ),
-      builder: (context) => SafeArea(
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(height: AppSpacing.md),
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AppColors.divider,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(height: AppSpacing.lg),
-              const Text(
-                '새 캐릭터 만들기',
-                style: AppTextStyles.heading3,
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              const Text(
-                '캐릭터 생성 방식을 선택하세요',
-                style: TextStyle(color: AppColors.textSecondary),
-              ),
-              const SizedBox(height: AppSpacing.lg),
-              ListTile(
-                leading: const Icon(Icons.edit_note, color: AppColors.primary),
-                title: const Text('직접 입력하기'),
-                subtitle: const Text('이름, 나이, 특징만 입력'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _showTextInputForm();
-                },
-              ),
-              const Divider(height: 1),
-              ListTile(
-                leading: const Icon(Icons.camera_alt, color: AppColors.primary),
-                title: const Text('카메라로 촬영'),
-                subtitle: const Text('사진을 분석해서 캐릭터 생성'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _pickImage(ImageSource.camera);
-                },
-              ),
-              ListTile(
-                leading:
-                    const Icon(Icons.photo_library, color: AppColors.primary),
-                title: const Text('갤러리에서 선택'),
-                subtitle: const Text('기존 사진에서 캐릭터 생성'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _pickImage(ImageSource.gallery);
-                },
-              ),
-              const Divider(height: 1),
-              ListTile(
-                leading: const Icon(Icons.brush_outlined, color: AppColors.primary),
-                title: const Text('아이 그림에서 변환'),
-                subtitle: const Text('그림 사진을 캐릭터+시트로 변환'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _pickImage(
-                    ImageSource.gallery,
-                    creationMode: _CharacterCreationMode.drawing,
-                  );
-                },
-              ),
-              const SizedBox(height: AppSpacing.md),
-            ],
-          ),
+      builder: (context) => AdaptiveModalSheet(
+        title: '새 캐릭터 만들기',
+        subtitle: '캐릭터 생성 방식을 선택하세요',
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: AppSpacing.lg),
+            ListTile(
+              leading: const Icon(Icons.edit_note, color: AppColors.primary),
+              title: const Text('직접 입력하기'),
+              subtitle: const Text('이름, 나이, 특징만 입력'),
+              onTap: () {
+                Navigator.pop(context);
+                _showTextInputForm();
+              },
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.camera_alt, color: AppColors.primary),
+              title: const Text('카메라로 촬영'),
+              subtitle: const Text('사진을 분석해서 캐릭터 생성'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickImage(ImageSource.camera);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library, color: AppColors.primary),
+              title: const Text('갤러리에서 선택'),
+              subtitle: const Text('기존 사진에서 캐릭터 생성'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickImage(ImageSource.gallery);
+              },
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.brush_outlined, color: AppColors.primary),
+              title: const Text('아이 그림에서 변환'),
+              subtitle: const Text('그림 사진을 캐릭터+시트로 변환'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickImage(
+                  ImageSource.gallery,
+                  creationMode: _CharacterCreationMode.drawing,
+                );
+              },
+            ),
+            const SizedBox(height: AppSpacing.md),
+          ],
         ),
       ),
     );

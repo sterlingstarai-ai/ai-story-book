@@ -198,6 +198,13 @@ def _build_book_dict(book, pages, include_job_id: bool = False) -> dict:
     return result
 
 
+def _build_book_result(book, pages, include_job_id: bool = False) -> BookResult:
+    """Build a strongly typed BookResult to keep response serialization aligned."""
+    return BookResult.model_validate(
+        _build_book_dict(book, pages, include_job_id=include_job_id)
+    )
+
+
 def get_idempotency_key(
     x_idempotency_key: Optional[str] = Header(None),
 ) -> Optional[str]:
@@ -564,7 +571,7 @@ async def create_book(
     )
 
 
-@router.get("/{job_id}", response_model=JobStatus)
+@router.get("/{job_id}", response_model=JobStatus, response_model_exclude_none=True)
 async def get_book_status(
     job_id: str,
     db: AsyncSession = Depends(get_db),
@@ -622,7 +629,7 @@ async def get_book_status(
                 select(Page).where(Page.book_id == book.id).order_by(Page.page_number)
             )
             pages = pages_result.scalars().all()
-            response.result = _build_book_dict(book, pages)
+            response.result = _build_book_result(book, pages)
 
     return response
 
