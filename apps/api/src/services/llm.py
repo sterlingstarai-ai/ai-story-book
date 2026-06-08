@@ -10,6 +10,7 @@ import structlog
 
 from src.core.config import settings
 from src.core.errors import LLMError, ErrorCode
+from src.core.i18n import language_display_name
 from src.models.dto import (
     BookSpec,
     StoryDraft,
@@ -459,7 +460,10 @@ async def call_story_generation(spec: BookSpec) -> StoryDraft:
     all_character_specs.extend(loaded_characters)
 
     system_prompt = render_prompt(
-        "generate_story.system.jinja2", page_count=spec.page_count
+        "generate_story.system.jinja2",
+        page_count=spec.page_count,
+        language=spec.language.value,
+        language_name=language_display_name(spec.language.value),
     )
     user_prompt = render_prompt(
         "generate_story.user.jinja2",
