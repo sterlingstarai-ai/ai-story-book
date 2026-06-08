@@ -612,6 +612,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
           ),
           child: Column(
             children: [
+              // 학습 모드 상시 진입(C1: 옵션 메뉴 깊숙이 → 하단 상시 노출로 접근성↑)
+              _buildLearningBar(book),
               // 페이지 인디케이터 (텍스트형으로 오버플로우 방지)
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -678,6 +680,59 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  /// 학습 모드 상시 진입 바 — 현재 페이지에 학습 콘텐츠가 있을 때만 노출.
+  /// (커버/콘텐츠 없으면 빈 위젯, 옵션 메뉴를 거치지 않고 한 번에 학습 모드로.)
+  Widget _buildLearningBar(BookResult book) {
+    if (_currentPage <= 0 || _currentPage > book.pages.length) {
+      return const SizedBox.shrink();
+    }
+    final page = book.pages[_currentPage - 1];
+    final vocab = page.vocab?.length ?? 0;
+    final quiz = page.quiz?.length ?? 0;
+    final compr = page.comprehensionQuestions?.length ?? 0;
+    if (vocab == 0 && quiz == 0 && compr == 0) {
+      return const SizedBox.shrink();
+    }
+    final parts = <String>[
+      if (vocab > 0) '단어 $vocab',
+      if (quiz > 0) '퀴즈 $quiz',
+      if (compr > 0) '질문 $compr',
+    ];
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.md),
+      child: GestureDetector(
+        key: const Key('viewer_learning_bar'),
+        onTap: () => _showLearningMode(book, page),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: 13,
+          ),
+          decoration: BoxDecoration(
+            color: AppColors.primary,
+            borderRadius: BorderRadius.circular(AppRadius.md),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.menu_book_rounded, color: Colors.white, size: 18),
+              const SizedBox(width: AppSpacing.sm),
+              Text(
+                '학습 모드 · ${parts.join(' · ')}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
