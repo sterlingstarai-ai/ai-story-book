@@ -555,6 +555,7 @@ async def create_character_from_photo(
             personality_traits=character_data.get("personality_traits", []),
             visual_style_notes=character_data.get("visual_style_notes", ""),
             user_key=user_key,
+            from_photo=True,
         )
 
         db.add(character)
@@ -636,6 +637,7 @@ async def create_character_from_drawing(
             personality_traits=character_data.get("personality_traits", []),
             visual_style_notes=character_data.get("visual_style_notes", ""),
             user_key=user_key,
+            from_photo=True,
         )
         db.add(character)
         await db.commit()

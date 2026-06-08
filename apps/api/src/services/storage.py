@@ -291,6 +291,28 @@ class StorageService:
         """Wrapper for upload_file function"""
         return await upload_file(data, book_id, filename, content_type)
 
+    async def delete_prefix(self, prefix: str) -> int:
+        """주어진 prefix 의 모든 객체 삭제(동의 철회 시 아동 사진 파기 등). 실패해도 raise 안 함."""
+        try:
+            s3_client = get_s3_client()
+            response = await _call_s3(
+                s3_client.list_objects_v2,
+                Bucket=settings.s3_bucket,
+                Prefix=prefix,
+            )
+            objects = response.get("Contents", [])
+            if objects:
+                await _call_s3(
+                    s3_client.delete_objects,
+                    Bucket=settings.s3_bucket,
+                    Delete={"Objects": [{"Key": obj["Key"]} for obj in objects]},
+                )
+                logger.info(f"Deleted {len(objects)} files under {prefix}")
+            return len(objects)
+        except ClientError as e:
+            logger.error(f"Failed to delete prefix {prefix}: {e}")
+            return 0
+
 
 # 싱글톤 인스턴스
 storage_service = StorageService()

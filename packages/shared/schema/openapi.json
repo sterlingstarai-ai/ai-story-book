@@ -4682,7 +4682,7 @@
     },
     "/v1/consent/revoke": {
       "post": {
-        "description": "보호자 동의 철회. 이후 사진 기반 기능은 다시 차단된다(기존 수집 데이터 삭제는 별도).",
+        "description": "보호자 동의 철회 + 수집된 아동 사진/그림 파생 캐릭터 파기(PIPA/COPPA 철회 의무).\n\n이후 사진 기반 기능은 다시 차단되고, from_photo 캐릭터 레코드·원본 사진(스토리지)은 삭제된다.",
         "operationId": "revoke_consent_v1_consent_revoke_post",
         "parameters": [
           {

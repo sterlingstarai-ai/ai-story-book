@@ -191,6 +191,8 @@ class Character(Base):
     clothing = Column(JSON, nullable=False)
     personality_traits = Column(JSON, nullable=False)
     visual_style_notes = Column(String(200), nullable=True)
+    # 아동 사진/그림에서 파생된 캐릭터 여부 — 보호자 동의 게이트·철회 시 파기 대상 식별
+    from_photo = Column(Boolean, nullable=False, default=False)
     user_key = Column(String(80), nullable=False, index=True)
     created_at = Column(DateTime, default=utcnow)
 

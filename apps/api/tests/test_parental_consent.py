@@ -99,3 +99,106 @@ async def test_from_photo_blocked_without_consent(client, consent_enforced):
         headers={"X-User-Key": "66666666-6666-4666-8666-666666666666"},
     )
     assert res.status_code == 403, res.text
+
+
+def _character(cid, uk, from_photo):
+    from src.models.db import Character
+
+    return Character(
+        id=cid,
+        name="아이",
+        master_description="동화 주인공 설명입니다",
+        appearance={"age_visual": "6", "face": "f", "hair": "h", "skin": "s", "body": "b"},
+        clothing={"top": "t", "bottom": "b", "shoes": "s", "accessories": "a"},
+        personality_traits=["밝음"],
+        user_key=uk,
+        from_photo=from_photo,
+    )
+
+
+@pytest.mark.asyncio
+async def test_photo_character_reuse_gated_text_not(db_session, consent_enforced):
+    from src.core.consent import require_consent_for_characters
+
+    db_session.add(_character("char-photo-1", "uk-reuse", True))
+    db_session.add(_character("char-text-1", "uk-reuse", False))
+    await db_session.commit()
+
+    # 텍스트 캐릭터만 → 동의 없이도 통과(오버블로킹 방지)
+    await require_consent_for_characters(db_session, "uk-reuse", ["char-text-1"])
+    # 사진 파생 캐릭터 재사용 → 동의 없으면 403
+    with pytest.raises(AuthorizationError):
+        await require_consent_for_characters(db_session, "uk-reuse", ["char-photo-1"])
+
+
+@pytest.mark.asyncio
+async def test_photos_consent_evaluated_independently_of_granted(
+    db_session, consent_enforced
+):
+    # 최근 비철회 행의 photos=True 이면 granted(필수동의) 값과 무관하게 사진 게이트 통과
+    db_session.add(
+        UserConsent(
+            user_key="uk-decouple",
+            privacy=False,
+            photos=True,
+            data_processing=False,
+            granted=False,
+        )
+    )
+    await db_session.commit()
+    await require_photo_consent(db_session, "uk-decouple")  # raise 없음
+
+
+@pytest.mark.asyncio
+async def test_create_book_blocked_with_photo_character(
+    client, db_session, consent_enforced
+):
+    h = {"X-User-Key": "99999999-9999-4999-8999-999999999999"}
+    db_session.add(_character("char-book-photo", h["X-User-Key"], True))
+    await db_session.commit()
+
+    res = await client.post(
+        "/v1/books",
+        json={
+            "topic": "우주 여행",
+            "target_age": "5-7",
+            "style": "watercolor",
+            "character_ids": ["char-book-photo"],
+        },
+        headers=h,
+    )
+    assert res.status_code == 403, res.text
+
+
+@pytest.mark.asyncio
+async def test_revoke_deletes_photo_characters(client, db_session, monkeypatch):
+    from sqlalchemy import select
+
+    from src.models.db import Character
+    from src.services.storage import storage_service
+
+    async def _noop(prefix):
+        return 0
+
+    monkeypatch.setattr(storage_service, "delete_prefix", _noop)
+
+    h = {"X-User-Key": "a8888888-8888-4888-8888-888888888888"}
+    uk = h["X-User-Key"]
+    db_session.add(_character("char-rev-photo", uk, True))
+    db_session.add(_character("char-rev-text", uk, False))
+    await db_session.commit()
+
+    await client.post(
+        "/v1/consent",
+        json={"privacy": True, "photos": True, "data_processing": True},
+        headers=h,
+    )
+    rev = await client.post("/v1/consent/revoke", headers=h)
+    assert rev.status_code == 200
+
+    remaining = (
+        await db_session.execute(select(Character).where(Character.user_key == uk))
+    ).scalars().all()
+    ids = {c.id for c in remaining}
+    assert "char-rev-photo" not in ids  # 사진 파생 → 파기
+    assert "char-rev-text" in ids  # 텍스트 → 유지

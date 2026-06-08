@@ -11,7 +11,7 @@ import structlog
 from src.core.database import get_db
 from src.core.book_assets import build_generation_warnings, build_page_asset_status
 from src.core.config import settings
-from src.core.consent import require_photo_consent
+from src.core.consent import require_consent_for_characters, require_photo_consent
 from src.core.dependencies import get_profile_id, get_user_key
 from src.models.dto import (
     BookSpec,
@@ -562,8 +562,13 @@ async def create_book(
             )
 
     await _enforce_free_plan_create_limits(db, user_key, spec.style)
+    char_ids = list(spec.character_ids or [])
+    if spec.character_id:
+        char_ids.append(spec.character_id)
     if spec.reference_image_base64:
         await require_photo_consent(db, user_key)
+    # 사진/그림 파생 캐릭터(아동 얼굴 데이터)를 재사용하면 동의를 강제(철회 후 차단)
+    await require_consent_for_characters(db, user_key, char_ids)
 
     # Create new job
     job_id = f"job_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
@@ -798,6 +803,10 @@ async def create_series_next(
 
     if character.user_key != user_key:
         raise AuthorizationError()
+
+    # 사진/그림 파생 캐릭터(아동 얼굴 데이터)로 시리즈 속편 생성 시 보호자 동의 강제(철회 후 차단)
+    if getattr(character, "from_photo", False):
+        await require_photo_consent(db, user_key)
 
     prev_book = None
     if request.previous_book_id:

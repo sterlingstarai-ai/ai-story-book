@@ -6,8 +6,10 @@
 
 from typing import Optional
 
+import structlog
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
@@ -15,7 +17,10 @@ from src.core.consent import latest_active_consent
 from src.core.database import get_db
 from src.core.dependencies import get_user_key
 from src.core.utils import utcnow
-from src.models.db import UserConsent
+from src.models.db import Character, UserConsent
+from src.services.storage import storage_service
+
+logger = structlog.get_logger()
 
 router = APIRouter()
 
@@ -91,11 +96,31 @@ async def revoke_consent(
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
 ):
-    """보호자 동의 철회. 이후 사진 기반 기능은 다시 차단된다(기존 수집 데이터 삭제는 별도)."""
+    """보호자 동의 철회 + 수집된 아동 사진/그림 파생 캐릭터 파기(PIPA/COPPA 철회 의무).
+
+    이후 사진 기반 기능은 다시 차단되고, from_photo 캐릭터 레코드·원본 사진(스토리지)은 삭제된다.
+    """
     consent = await latest_active_consent(db, user_key)
     if consent is not None:
         consent.revoked_at = utcnow()
         consent.granted = False
-        await db.commit()
-        await db.refresh(consent)
+
+    result = await db.execute(
+        select(Character).where(
+            Character.user_key == user_key,
+            Character.from_photo.is_(True),
+        )
+    )
+    for character in result.scalars().all():
+        try:
+            await storage_service.delete_prefix(f"characters/{character.id}/")
+        except Exception as e:  # pragma: no cover - 방어적
+            logger.warning(
+                "character file delete failed",
+                character_id=character.id,
+                error=str(e),
+            )
+        await db.delete(character)
+
+    await db.commit()
     return _to_response(None)
