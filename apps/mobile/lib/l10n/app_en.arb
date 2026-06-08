@@ -1,0 +1,39 @@
+{
+  "@@locale": "en",
+  "appTitle": "AI Story Book",
+  "@appTitle": {
+    "description": "Application title"
+  },
+  "readingGrowthTitle": "Reading Growth",
+  "@readingGrowthTitle": {
+    "description": "Title of the reading growth report screen"
+  },
+  "readingGrowthEntryTitle": "View reading growth",
+  "@readingGrowthEntryTitle": {
+    "description": "Home entry card title to open the growth report"
+  },
+  "readingGrowthEntrySubtitle": "Watch your child's reading skills grow",
+  "@readingGrowthEntrySubtitle": {
+    "description": "Home entry card subtitle"
+  },
+  "estimatedReadingLevel": "Your child's estimated reading level",
+  "@estimatedReadingLevel": {
+    "description": "Label above the estimated reading level"
+  },
+  "booksReadLabel": "Books read",
+  "@booksReadLabel": {
+    "description": "Stat label: number of books read"
+  },
+  "vocabLearnedLabel": "Words learned",
+  "@vocabLearnedLabel": {
+    "description": "Stat label: vocabulary words learned"
+  },
+  "quizAccuracyLabel": "Quiz accuracy",
+  "@quizAccuracyLabel": {
+    "description": "Stat label: quiz accuracy"
+  },
+  "retry": "Retry",
+  "@retry": {
+    "description": "Generic retry button label"
+  }
+}

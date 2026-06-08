@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'core/app_telemetry.dart';
+import 'l10n/app_localizations.dart';
 import 'providers/providers.dart';
 import 'screens/screens.dart';
 import 'services/analytics.dart';
@@ -137,6 +138,8 @@ class _AIStoryBookAppState extends ConsumerState<AIStoryBookApp>
       themeMode: themeMode,
       initialRoute: '/startup',
       onGenerateRoute: buildAppRoute,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
       builder: (context, child) {
         final base = child ?? const SizedBox.shrink();
         if (!screenTime.enabled || !screenTime.isLocked) {
