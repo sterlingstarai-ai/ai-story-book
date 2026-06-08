@@ -25,6 +25,7 @@ from src.routers import (
     pod,
     pronunciation,
     voice_profiles,
+    consent,
 )
 from src.core.database import get_db  # noqa: F401
 from src.core.rate_limit import check_rate_limit, rate_limiter
@@ -523,6 +524,12 @@ app.include_router(
     voice_profiles.router,
     prefix="/v1/voice-profiles",
     tags=["VoiceProfiles"],
+    dependencies=[Depends(check_rate_limit)],
+)
+app.include_router(
+    consent.router,
+    prefix="/v1/consent",
+    tags=["Consent"],
     dependencies=[Depends(check_rate_limit)],
 )
 

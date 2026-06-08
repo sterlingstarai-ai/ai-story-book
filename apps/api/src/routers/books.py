@@ -11,6 +11,7 @@ import structlog
 from src.core.database import get_db
 from src.core.book_assets import build_generation_warnings, build_page_asset_status
 from src.core.config import settings
+from src.core.consent import require_photo_consent
 from src.core.dependencies import get_profile_id, get_user_key
 from src.models.dto import (
     BookSpec,
@@ -561,6 +562,8 @@ async def create_book(
             )
 
     await _enforce_free_plan_create_limits(db, user_key, spec.style)
+    if spec.reference_image_base64:
+        await require_photo_consent(db, user_key)
 
     # Create new job
     job_id = f"job_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"

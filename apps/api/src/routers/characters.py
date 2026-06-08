@@ -6,6 +6,7 @@ import random
 import uuid
 import structlog
 
+from src.core.consent import require_photo_consent
 from src.core.database import get_db
 from src.core.dependencies import get_user_key
 from src.models.dto import (
@@ -459,6 +460,7 @@ async def create_character_from_photo(
     - AI가 동화 스타일로 변환
     - 자동으로 캐릭터 시트 생성
     """
+    await require_photo_consent(db, user_key)
     contents = await _validate_and_read_image(photo)
 
     try:
@@ -532,6 +534,7 @@ async def create_character_from_drawing(
     - 캐릭터 레코드 저장
     - 선택적으로 캐릭터 시트 이미지(포즈 3종) 생성
     """
+    await require_photo_consent(db, user_key)
     contents = await _validate_and_read_image(drawing)
     source_image_url: Optional[str] = None
 

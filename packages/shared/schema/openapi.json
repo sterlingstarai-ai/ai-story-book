@@ -1103,6 +1103,76 @@
         "title": "ComprehensionQuestion",
         "type": "object"
       },
+      "ConsentGrantRequest": {
+        "properties": {
+          "consent_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consent Version"
+          },
+          "data_processing": {
+            "default": false,
+            "title": "Data Processing",
+            "type": "boolean"
+          },
+          "photos": {
+            "default": false,
+            "title": "Photos",
+            "type": "boolean"
+          },
+          "privacy": {
+            "default": false,
+            "title": "Privacy",
+            "type": "boolean"
+          }
+        },
+        "title": "ConsentGrantRequest",
+        "type": "object"
+      },
+      "ConsentResponse": {
+        "properties": {
+          "consent_version": {
+            "title": "Consent Version",
+            "type": "string"
+          },
+          "data_processing": {
+            "title": "Data Processing",
+            "type": "boolean"
+          },
+          "granted": {
+            "title": "Granted",
+            "type": "boolean"
+          },
+          "photos": {
+            "title": "Photos",
+            "type": "boolean"
+          },
+          "privacy": {
+            "title": "Privacy",
+            "type": "boolean"
+          },
+          "revoked": {
+            "title": "Revoked",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "granted",
+          "privacy",
+          "photos",
+          "data_processing",
+          "consent_version",
+          "revoked"
+        ],
+        "title": "ConsentResponse",
+        "type": "object"
+      },
       "CreateBookResponse": {
         "additionalProperties": false,
         "properties": {
@@ -4410,6 +4480,149 @@
         "summary": "Get Character",
         "tags": [
           "Characters"
+        ]
+      }
+    },
+    "/v1/consent": {
+      "get": {
+        "description": "현재 유효한 보호자 동의 상태 조회.",
+        "operationId": "get_consent_v1_consent_get",
+        "parameters": [
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsentResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Consent",
+        "tags": [
+          "Consent"
+        ]
+      },
+      "post": {
+        "description": "보호자 동의 기록. granted 는 필수 동의(개인정보+데이터 처리) 충족 시 True.",
+        "operationId": "grant_consent_v1_consent_post",
+        "parameters": [
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConsentGrantRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsentResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Grant Consent",
+        "tags": [
+          "Consent"
+        ]
+      }
+    },
+    "/v1/consent/revoke": {
+      "post": {
+        "description": "보호자 동의 철회. 이후 사진 기반 기능은 다시 차단된다(기존 수집 데이터 삭제는 별도).",
+        "operationId": "revoke_consent_v1_consent_revoke_post",
+        "parameters": [
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsentResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revoke Consent",
+        "tags": [
+          "Consent"
         ]
       }
     },
