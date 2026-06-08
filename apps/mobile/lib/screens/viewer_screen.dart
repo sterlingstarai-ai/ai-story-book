@@ -1201,6 +1201,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
           onQuizAnswered: (correct, questionIndex) {
             unawaited(_recordQuizAnswer(page, correct, questionIndex));
           },
+          onVocabAnswered: (term, correct, index) {
+            unawaited(_recordVocabAnswer(page, term, correct, index));
+          },
         ),
       ),
     );
@@ -1228,6 +1231,32 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     } catch (_) {
       // 조용히 무시 — 학습 응답 기록 실패가 읽기를 방해하지 않는다.
       _recordedQuiz.remove(key); // 실패 시 재시도 허용
+    }
+  }
+
+  /// 어휘 게임 응답을 vocab 측정으로 기록('학습 어휘'의 실데이터 — 재인 신호).
+  Future<void> _recordVocabAnswer(
+    PageResult page,
+    String term,
+    bool correct,
+    int index,
+  ) async {
+    final key = 'vocab:${page.pageNumber}:$term';
+    if (_recordedQuiz.contains(key)) {
+      return;
+    }
+    _recordedQuiz.add(key);
+    try {
+      await ref.read(apiClientProvider).recordQuizAnswer(
+            bookId: widget.bookId,
+            quizType: 'vocab',
+            correct: correct,
+            pageNumber: page.pageNumber,
+            questionIndex: index,
+            term: term,
+          );
+    } catch (_) {
+      _recordedQuiz.remove(key);
     }
   }
 
@@ -2027,11 +2056,13 @@ class _LearningModeSheet extends StatefulWidget {
   final PageResult page;
   final ScrollController scrollController;
   final void Function(bool correct, int questionIndex)? onQuizAnswered;
+  final void Function(String term, bool correct, int index)? onVocabAnswered;
 
   const _LearningModeSheet({
     required this.page,
     required this.scrollController,
     this.onQuizAnswered,
+    this.onVocabAnswered,
   });
 
   @override
@@ -2092,7 +2123,10 @@ class _LearningModeSheetState extends State<_LearningModeSheet>
           child: TabBarView(
             controller: _tabController,
             children: [
-              _VocabTab(vocab: widget.page.vocab ?? []),
+              _VocabTab(
+                vocab: widget.page.vocab ?? [],
+                onAnswered: widget.onVocabAnswered,
+              ),
               _ComprehensionTab(
                   questions: widget.page.comprehensionQuestions ?? []),
               _QuizTab(
@@ -2107,60 +2141,174 @@ class _LearningModeSheetState extends State<_LearningModeSheet>
   }
 }
 
-/// 단어 탭
+/// 단어 탭 — '어휘 맞추기 게임'(4지선다). 정답이 vocab 측정으로 기록돼 '학습 어휘'를 살린다.
+/// 단어가 2개 이상이면 게임, 1개뿐이면 단순 표시로 폴백.
 class _VocabTab extends StatelessWidget {
   final List<VocabItem> vocab;
+  final void Function(String term, bool correct, int index)? onAnswered;
 
-  const _VocabTab({required this.vocab});
+  const _VocabTab({required this.vocab, this.onAnswered});
 
   @override
   Widget build(BuildContext context) {
     if (vocab.isEmpty) {
       return const Center(child: Text('이 페이지에는 단어 학습이 없어요'));
     }
-
+    final playable = vocab.length >= 2;
+    final meanings = vocab.map((v) => v.meaning).toList();
     return ListView.builder(
       padding: const EdgeInsets.all(AppSpacing.md),
       itemCount: vocab.length,
       itemBuilder: (context, index) {
         final item = vocab[index];
-        return Card(
-          margin: const EdgeInsets.only(bottom: AppSpacing.sm),
-          child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Text(
-                      item.word,
-                      style: AppTextStyles.heading3.copyWith(
-                        color: AppColors.primary,
-                      ),
-                    ),
-                    const SizedBox(width: AppSpacing.sm),
-                    Text(
-                      item.meaning,
-                      style: AppTextStyles.body,
-                    ),
-                  ],
-                ),
-                if (item.example != null) ...[
-                  const SizedBox(height: AppSpacing.sm),
-                  Text(
-                    item.example!,
-                    style: AppTextStyles.caption.copyWith(
-                      fontStyle: FontStyle.italic,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
+        if (!playable) {
+          return _VocabDisplayCard(item: item);
+        }
+        return _VocabGameCard(
+          key: ValueKey('vocab-${item.word}-$index'),
+          item: item,
+          allMeanings: meanings,
+          onAnswered: (correct) => onAnswered?.call(item.word, correct, index),
         );
       },
+    );
+  }
+}
+
+/// 단어 1개일 때 폴백(게임 불가) — 단어·뜻 표시.
+class _VocabDisplayCard extends StatelessWidget {
+  final VocabItem item;
+  const _VocabDisplayCard({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        child: Row(
+          children: [
+            Text(item.word,
+                style: AppTextStyles.heading3
+                    .copyWith(color: AppColors.primary)),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(child: Text(item.meaning, style: AppTextStyles.body)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 어휘 맞추기 게임 카드 — "단어의 뜻은?" 4지선다, 즉시 피드백.
+class _VocabGameCard extends StatefulWidget {
+  final VocabItem item;
+  final List<String> allMeanings;
+  final void Function(bool correct)? onAnswered;
+
+  const _VocabGameCard({
+    super.key,
+    required this.item,
+    required this.allMeanings,
+    this.onAnswered,
+  });
+
+  @override
+  State<_VocabGameCard> createState() => _VocabGameCardState();
+}
+
+class _VocabGameCardState extends State<_VocabGameCard> {
+  late final List<String> _choices;
+  String? _selected;
+
+  @override
+  void initState() {
+    super.initState();
+    final correct = widget.item.meaning;
+    final distractors =
+        widget.allMeanings.where((m) => m != correct).toList()..shuffle();
+    _choices = <String>{correct, ...distractors.take(3)}.toList()..shuffle();
+  }
+
+  void _pick(String meaning) {
+    if (_selected != null) {
+      return; // 한 번만 채점
+    }
+    setState(() => _selected = meaning);
+    widget.onAnswered?.call(meaning == widget.item.meaning);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final answered = _selected != null;
+    final correct = _selected == widget.item.meaning;
+    return Card(
+      key: const Key('vocab_game_card'),
+      margin: const EdgeInsets.only(bottom: AppSpacing.md),
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '"${widget.item.word}"의 뜻은?',
+              style: AppTextStyles.heading3,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            for (final choice in _choices) _choiceTile(choice),
+            if (answered) ...[
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                correct ? '잘했어요! ⭐' : '다시 한 번 기억해요: ${widget.item.meaning}',
+                style: AppTextStyles.bodySmall.copyWith(
+                  color: correct ? AppColors.success : AppColors.textSecondary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _choiceTile(String choice) {
+    final answered = _selected != null;
+    final isCorrect = choice == widget.item.meaning;
+    final isPicked = choice == _selected;
+    Color border = AppColors.divider;
+    Color? bg;
+    if (answered && isCorrect) {
+      border = AppColors.success;
+      bg = AppColors.successLight;
+    } else if (answered && isPicked && !isCorrect) {
+      border = AppColors.error;
+    }
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: InkWell(
+        onTap: answered ? null : () => _pick(choice),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        child: Container(
+          width: double.infinity,
+          constraints: const BoxConstraints(minHeight: 48),
+          padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.md, vertical: AppSpacing.sm),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            border: Border.all(color: border, width: 1.5),
+          ),
+          child: Row(
+            children: [
+              Expanded(child: Text(choice, style: AppTextStyles.body)),
+              if (answered && isCorrect)
+                const Icon(Icons.check_circle,
+                    color: AppColors.success, size: 20),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

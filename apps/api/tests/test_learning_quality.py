@@ -64,3 +64,22 @@ def test_quality_gate_flags_empty_quiz():
     issues = _assess_and_clean_learning_quality(assets)
     assert "퀴즈 0개" in issues
     assert "어휘 0개" not in issues
+
+
+def test_quality_gate_drops_ungrounded_quiz():
+    # 정답 '우주 비행사'는 본문에 없음 → 환각 의심 드롭. '숲속 친구'는 본문에 있음 → 유지.
+    assets = _assets(
+        [
+            [
+                _quiz(0, ["숲속 친구", "바닷가"]),
+                _quiz(0, ["우주 비행사", "공룡"]),
+            ],
+            [],
+            [],
+            [],
+        ]
+    )
+    story_text = "오늘 숲속 친구를 만났어요."
+    issues = _assess_and_clean_learning_quality(assets, story_text)
+    assert any("환각" in s for s in issues)
+    assert sum(len(p.quiz) for p in assets.pages) == 1  # '숲속 친구'만 유지

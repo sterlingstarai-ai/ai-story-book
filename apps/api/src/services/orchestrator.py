@@ -425,31 +425,68 @@ async def generate_image_prompts(
 
 
 def _is_gradeable_quiz(quiz_item) -> bool:
-    """퀴즈가 채점 가능한지 — 정답 인덱스가 보기 범위 내이고 보기에 중복이 없어야 한다."""
+    """퀴즈가 채점 가능한지 — 정답 인덱스가 보기 범위 내·보기 중복 없음·정답 보기 비어있지 않음."""
     options = quiz_item.options or []
-    if quiz_item.answer_index >= len(options):
+    if not (0 <= quiz_item.answer_index < len(options)):
         return False
     if len(set(options)) < len(options):  # 중복 보기 → 정답 모호
+        return False
+    if not (options[quiz_item.answer_index] or "").strip():  # 빈 정답 보기
         return False
     return True
 
 
-def _assess_and_clean_learning_quality(assets: LearningAssets) -> list[str]:
-    """학습 자산 품질 점검 + 채점 불가 퀴즈 제거. 미달/조치 항목 목록 반환(빈 목록=양호).
+def _quiz_answer_grounded(quiz_item, story_text: str) -> bool:
+    """정답이 본문에 근거하는지(환각 오답키 차단).
+
+    정답의 의미 토큰(2자+) 중 하나라도 본문에 있으면 grounded(완전 환각만 드롭).
+    짧은 정답(예/아니오/숫자 등)은 본문 의존이 약하므로 통과(과드롭 방지).
+    LLM 자기채점(answer_index)이 본문과 무관한 단어를 정답으로 고른 경우를 거른다.
+    """
+    options = quiz_item.options or []
+    if not (0 <= quiz_item.answer_index < len(options)):
+        return False
+    answer = (options[quiz_item.answer_index] or "").strip()
+    if len(answer) <= 2:
+        return True
+    tokens = [
+        t
+        for t in answer.replace(",", " ").replace(".", " ").split()
+        if len(t) >= 2
+    ]
+    if not tokens:
+        return True
+    return any(tok in story_text for tok in tokens)
+
+
+def _assess_and_clean_learning_quality(
+    assets: LearningAssets, story_text: str = ""
+) -> list[str]:
+    """학습 자산 품질 점검 + 채점 불가/환각 퀴즈 제거. 미달/조치 항목 목록 반환(빈 목록=양호).
 
     LLM(gpt-4o-mini)이 생성한 어휘/퀴즈를 부모에게 '교육 증거'로 노출하기 전,
-    최소 품질을 점검하고 채점 불가한 환각 퀴즈를 걸러낸다.
+    최소 품질을 점검하고 채점 불가·본문 미근거(환각) 퀴즈를 걸러낸다.
     """
     issues: list[str] = []
     pages = assets.pages or []
     dropped = 0
+    ungrounded = 0
     for page in pages:
         if page.quiz:
-            valid = [q for q in page.quiz if _is_gradeable_quiz(q)]
-            dropped += len(page.quiz) - len(valid)
+            valid = []
+            for q in page.quiz:
+                if not _is_gradeable_quiz(q):
+                    dropped += 1
+                    continue
+                if story_text and not _quiz_answer_grounded(q, story_text):
+                    ungrounded += 1
+                    continue
+                valid.append(q)
             page.quiz = valid
     if dropped:
         issues.append(f"채점 불가 퀴즈 {dropped}개 제거")
+    if ungrounded:
+        issues.append(f"본문 미근거(환각 의심) 퀴즈 {ungrounded}개 제거")
     if sum(len(p.vocab or []) for p in pages) == 0:
         issues.append("어휘 0개")
     if sum(len(p.quiz or []) for p in pages) == 0:
@@ -484,7 +521,8 @@ async def generate_learning_assets(story: StoryDraft) -> Optional[LearningAssets
     if assets is None:
         return None
 
-    issues = _assess_and_clean_learning_quality(assets)
+    story_text = " ".join((p.text or "") for p in (story.pages or []))
+    issues = _assess_and_clean_learning_quality(assets, story_text)
     if issues:
         logger.warning(
             "Learning assets quality gate", issues=issues, title=story.title
