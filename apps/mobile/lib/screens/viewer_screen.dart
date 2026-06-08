@@ -15,6 +15,7 @@ import 'package:printing/printing.dart';
 import '../core/api_error.dart';
 import '../models/models.dart';
 import '../providers/providers.dart';
+import '../services/analytics.dart';
 import '../utils/constants.dart';
 import '../widgets/common_widgets.dart';
 import '../widgets/credit_shortage_modal.dart';
@@ -63,6 +64,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       duration: const Duration(seconds: 3),
     );
     _viewStartedAt = DateTime.now();
+    ref.read(analyticsProvider).logEvent(
+      AnalyticsEvents.readingStarted,
+      params: {'book_id': widget.bookId},
+    );
     unawaited(_loadViewerSettings());
     // Store subscription to cancel later (memory leak fix)
     _playerStateSubscription = _audioPlayer.playerStateStream.listen((state) {
@@ -195,6 +200,14 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               }
               if (index == totalPages - 1 && !_completionHandled) {
                 _completionHandled = true;
+                ref.read(analyticsProvider).logEvent(
+                  AnalyticsEvents.readingCompleted,
+                  params: {
+                    'book_id': widget.bookId,
+                    'reading_seconds':
+                        DateTime.now().difference(_viewStartedAt).inSeconds,
+                  },
+                );
                 _handleBookCompleted(book);
               }
             },

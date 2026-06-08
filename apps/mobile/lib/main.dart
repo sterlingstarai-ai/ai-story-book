@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'core/app_telemetry.dart';
 import 'providers/providers.dart';
 import 'screens/screens.dart';
+import 'services/analytics.dart';
 import 'services/screen_time_service.dart';
 import 'utils/constants.dart';
 import 'widgets/age_gate_dialog.dart';
@@ -82,6 +83,7 @@ class _AIStoryBookAppState extends ConsumerState<AIStoryBookApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    ref.read(analyticsProvider).logEvent(AnalyticsEvents.appOpen);
     final screenTimeNotifier = ref.read(screenTimeStateProvider.notifier);
     unawaited(screenTimeNotifier.initialize().then((_) {
       screenTimeNotifier.onAppResumed();

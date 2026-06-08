@@ -3,11 +3,45 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../utils/constants.dart';
 import '../widgets/app_shell.dart';
 import '../widgets/common_widgets.dart';
+import '../widgets/credit_shortage_modal.dart';
 import '../providers/providers.dart';
+import '../services/analytics.dart';
 
 /// 홈 화면
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
+
+  /// 오늘의 동화 카드 기본 액션.
+  /// 오늘 책이 있으면 바로 읽고, 없으면 오늘의 테마로 *원탭 개인화 생성*(B3) → 로딩.
+  /// 크레딧/한도 등 실패 시 일반 생성 화면으로 폴백한다(기존 동작 유지).
+  Future<void> _onTodayPrimary(
+    BuildContext context,
+    WidgetRef ref,
+    HomeStreakSnapshot streak,
+  ) async {
+    if (streak.todayBookId != null) {
+      Navigator.pushNamed(context, '/viewer', arguments: streak.todayBookId);
+      return;
+    }
+    ref.read(analyticsProvider).logEvent(AnalyticsEvents.todayStoryRequested);
+    try {
+      final jobId = await ref.read(apiClientProvider).generateTodayStory(
+            targetAge: '5-7',
+            style: 'watercolor',
+          );
+      if (context.mounted) {
+        Navigator.pushReplacementNamed(context, '/loading', arguments: jobId);
+      }
+    } catch (_) {
+      // 크레딧 부족·무료한도 등 → 일반 생성 화면으로 폴백
+      if (context.mounted) {
+        await showCreditShortageModal(context);
+        if (context.mounted) {
+          Navigator.pushNamed(context, '/create');
+        }
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -68,17 +102,7 @@ class HomeScreen extends ConsumerWidget {
                 child: streakAsync.when(
                   data: (streak) => _StreakSummaryCard(
                     data: streak,
-                    onTapPrimary: () {
-                      if (streak.todayBookId != null) {
-                        Navigator.pushNamed(
-                          context,
-                          '/viewer',
-                          arguments: streak.todayBookId,
-                        );
-                      } else {
-                        Navigator.pushNamed(context, '/create');
-                      }
-                    },
+                    onTapPrimary: () => _onTodayPrimary(context, ref, streak),
                   ),
                   loading: () => const _StreakLoadingCard(),
                   error: (error, _) => _StreakErrorCard(

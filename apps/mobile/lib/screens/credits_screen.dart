@@ -7,6 +7,7 @@ import 'package:in_app_purchase/in_app_purchase.dart';
 
 import '../core/api_error.dart';
 import '../providers/providers.dart';
+import '../services/analytics.dart';
 import '../services/rewarded_ad_service.dart';
 import '../utils/constants.dart';
 import '../widgets/age_gate_dialog.dart';
@@ -840,6 +841,10 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
     try {
       final apiClient = ref.read(apiClientProvider);
       await apiClient.subscribe(planId);
+      ref.read(analyticsProvider).logEvent(
+        AnalyticsEvents.subscriptionStarted,
+        params: {'plan_id': planId},
+      );
       await _loadCreditsStatus();
 
       if (mounted) {

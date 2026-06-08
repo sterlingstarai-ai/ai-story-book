@@ -678,6 +678,30 @@ class ApiClient {
     return _asJsonMap(response.data, context: '/v1/streak/today response');
   }
 
+  /// 오늘의 동화를 '내 아이가 주인공'인 개인화 책으로 생성 (job_id 반환)
+  Future<String> generateTodayStory({
+    required String targetAge,
+    required String style,
+    String? protagonistName,
+  }) async {
+    final response = await _dio.post(
+      '/v1/streak/today/generate',
+      data: {
+        'target_age': targetAge,
+        'style': style,
+        if (protagonistName != null && protagonistName.isNotEmpty)
+          'protagonist_name': protagonistName,
+      },
+      options: Options(headers: _headers),
+    );
+
+    final data = _asJsonMap(
+      response.data,
+      context: '/v1/streak/today/generate response',
+    );
+    return data['job_id'].toString();
+  }
+
   /// 읽기 기록
   Future<Map<String, dynamic>> recordReading({
     required String bookId,
