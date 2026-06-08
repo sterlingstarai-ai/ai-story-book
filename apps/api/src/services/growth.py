@@ -1,8 +1,11 @@
 """Growth Service: '읽기 성장' 측정 집계.
 
 'AI 동화 생성기'→'측정되는 읽기성장 부모 동반자' 리포지셔닝의 핵심 데이터.
-읽은 책·스트릭·학습 어휘·퀴즈 정확도를 집계하고 *추정* 읽기레벨을 산출한다.
-(추정치이며 공인 척도가 아님 — 응답 데이터(QuizAnswer)에 근거.)
+읽은 책·완독·학습 어휘·퀴즈 정확도를 *복합 점수*로 종합해 추정 읽기레벨을 산출한다.
+(추정치이며 공인 척도가 아님 — 응답 데이터(QuizAnswer)·읽기로그(ReadingLog)에 근거.)
+
+설계 근거(시장 조사): Lexile/F&P/DRA·Raz/Reading Eggs 모두 단일 지표가 아닌 *가중 복합*을
+연령층별로 정규화해 레벨/백분위를 낸다. 또래 비교도 단일축(읽은 책 수) 대신 복합 점수 기준.
 """
 
 from typing import Optional
@@ -12,15 +15,42 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.db import ChildProfile, DailyStreak, QuizAnswer, ReadingLog
 
-# 연령대별 기준선 — 또래 표본이 희소할 때(또래 < MIN_PEERS_FOR_REAL) 폴백.
+# 연령대별 기준선 — 정규화 타깃 + 또래 표본 희소 시(또래 < MIN_PEERS_FOR_REAL) 폴백.
 # 한국 유아 읽기 습관의 보수적 추정치이며, 실제 또래 데이터가 쌓이면 그쪽을 쓴다.
 AGE_BASELINES = {
-    "3-5": {"books_read": 3.0, "vocab_learned": 12.0, "quiz_accuracy": 0.60},
-    "5-7": {"books_read": 8.0, "vocab_learned": 45.0, "quiz_accuracy": 0.72},
-    "7-9": {"books_read": 15.0, "vocab_learned": 80.0, "quiz_accuracy": 0.78},
-    "adult": {"books_read": 25.0, "vocab_learned": 140.0, "quiz_accuracy": 0.85},
+    "3-5": {"books_read": 3.0, "vocab_learned": 12.0, "quiz_accuracy": 0.60, "completion": 0.60},
+    "5-7": {"books_read": 8.0, "vocab_learned": 45.0, "quiz_accuracy": 0.72, "completion": 0.65},
+    "7-9": {"books_read": 15.0, "vocab_learned": 80.0, "quiz_accuracy": 0.78, "completion": 0.70},
+    "adult": {"books_read": 25.0, "vocab_learned": 140.0, "quiz_accuracy": 0.85, "completion": 0.75},
 }
+
+# 연령층별 복합 점수 가중치(합=1.0). 저연령일수록 완독·정확도, 고연령일수록 어휘 비중↑
+# (읽기발달: 해독→유창성→독해, Lexile/F&P 가중 설계 반영).
+AGE_WEIGHTS = {
+    "3-5": {"books": 0.20, "vocab": 0.10, "accuracy": 0.30, "completion": 0.40},
+    "5-7": {"books": 0.25, "vocab": 0.25, "accuracy": 0.30, "completion": 0.20},
+    "7-9": {"books": 0.20, "vocab": 0.30, "accuracy": 0.30, "completion": 0.20},
+    "adult": {"books": 0.20, "vocab": 0.30, "accuracy": 0.30, "completion": 0.20},
+}
+
 MIN_PEERS_FOR_REAL = 5
+# 어휘 '습득'으로 인정하는 최소 정답 횟수(distinct term) — 1회 정답=습득의 거짓양성(70-80%)을
+# 막기 위해 재인 2회 이상을 요구(시장 조사: recognition≥2 또는 recognition+recall).
+VOCAB_MASTERY_MIN_CORRECT = 2
+
+_LEVEL_LABELS = {
+    1: "첫 걸음", 2: "첫 걸음", 3: "기초 다지기", 4: "기초 다지기",
+    5: "꾸준히 성장", 6: "꾸준히 성장", 7: "읽기 도약", 8: "읽기 도약",
+    9: "능숙한 독서가", 10: "능숙한 독서가",
+}
+
+
+def _level_label(level: int) -> str:
+    return _LEVEL_LABELS.get(level, "성장 중")
+
+
+def _clamp01(x: float) -> float:
+    return 0.0 if x < 0 else 1.0 if x > 1 else x
 
 
 def _medal_for(top_percent: int) -> str:
@@ -33,11 +63,11 @@ def _medal_for(top_percent: int) -> str:
     return "none"
 
 
-def _top_percent_vs_avg(mine: float, avg: float) -> int:
+def _top_percent_vs_ref(mine: float, ref: float) -> int:
     """또래 표본이 희소할 때, 내 값/기준선 비율로 상위% 근사."""
-    if avg <= 0:
+    if ref <= 0:
         return 50
-    ratio = mine / avg
+    ratio = mine / ref
     if ratio >= 1.5:
         return 5
     if ratio >= 1.2:
@@ -49,23 +79,52 @@ def _top_percent_vs_avg(mine: float, avg: float) -> int:
     return 80
 
 
+def composite_reading_score(
+    books_read: float,
+    vocab_learned: float,
+    quiz_accuracy: float,
+    completion: float,
+    age_band: str,
+) -> dict:
+    """다축 복합 읽기 점수(0~100) + 레벨(1~10). 연령층별 가중·정규화.
+
+    단일 지표(읽은 책 수)가 아니라 읽은 책·어휘·정확도·완독을 종합한다.
+    공인 척도가 아닌 *추정*임을 estimated=True 로 명시.
+    """
+    base = AGE_BASELINES.get(age_band, AGE_BASELINES["5-7"])
+    w = AGE_WEIGHTS.get(age_band, AGE_WEIGHTS["5-7"])
+    n_books = _clamp01(books_read / (base["books_read"] * 1.5)) if base["books_read"] else 0.0
+    n_vocab = _clamp01(vocab_learned / (base["vocab_learned"] * 1.5)) if base["vocab_learned"] else 0.0
+    n_acc = _clamp01(quiz_accuracy)
+    n_comp = _clamp01(completion)
+    raw = _clamp01(
+        w["books"] * n_books
+        + w["vocab"] * n_vocab
+        + w["accuracy"] * n_acc
+        + w["completion"] * n_comp
+    )
+    level = max(1, min(10, int(round(1 + raw * 9))))
+    return {
+        "level": level,
+        "label": _level_label(level),
+        "score": round(raw * 100),
+        "scale_max": 10,
+        "estimated": True,
+    }
+
+
 def estimate_reading_level(
     books_read: int, quiz_accuracy: float, vocab_learned: int
 ) -> dict:
-    """간단한 추정 읽기 레벨(1~10). 공인 척도가 아닌 *추정*임을 명시한다."""
+    """(레거시·테스트용) 단순 추정 레벨. 실제 산출은 composite_reading_score 사용."""
     score = 0.0
-    score += min(books_read, 60) * 0.08  # 읽은 책 (최대 ~4.8)
-    score += min(vocab_learned, 200) * 0.015  # 학습 어휘 (최대 3.0)
-    score += quiz_accuracy * 2.0  # 정확도 (최대 2.0)
+    score += min(books_read, 60) * 0.08
+    score += min(vocab_learned, 200) * 0.015
+    score += quiz_accuracy * 2.0
     level = max(1, min(10, int(round(1 + score))))
-    labels = {
-        1: "첫 걸음", 2: "첫 걸음", 3: "기초 다지기", 4: "기초 다지기",
-        5: "꾸준히 성장", 6: "꾸준히 성장", 7: "읽기 도약", 8: "읽기 도약",
-        9: "능숙한 독서가", 10: "능숙한 독서가",
-    }
     return {
         "level": level,
-        "label": labels.get(level, "성장 중"),
+        "label": _level_label(level),
         "scale_max": 10,
         "estimated": True,
     }
@@ -104,13 +163,32 @@ class GrowthService:
         await db.refresh(answer)
         return answer
 
+    async def _tiered_vocab_count(
+        self, db: AsyncSession, qa_where: list
+    ) -> int:
+        """'습득' 어휘 수 = 정답 ≥ VOCAB_MASTERY_MIN_CORRECT 인 distinct term(거짓양성 차단)."""
+        sub = (
+            select(QuizAnswer.term)
+            .where(
+                *qa_where,
+                QuizAnswer.quiz_type == "vocab",
+                QuizAnswer.correct.is_(True),
+                QuizAnswer.term.isnot(None),
+            )
+            .group_by(QuizAnswer.term)
+            .having(func.count(QuizAnswer.id) >= VOCAB_MASTERY_MIN_CORRECT)
+            .subquery()
+        )
+        return (
+            await db.execute(select(func.count()).select_from(sub))
+        ).scalar() or 0
+
     async def get_growth_report(
         self,
         db: AsyncSession,
         user_key: str,
         profile_id: Optional[str] = None,
     ) -> dict:
-        # 읽은 책 수 (distinct)
         rl_where = [ReadingLog.user_key == user_key]
         if profile_id:
             rl_where.append(ReadingLog.profile_id == profile_id)
@@ -120,7 +198,19 @@ class GrowthService:
             )
         ).scalar() or 0
 
-        # 스트릭
+        # 완독률 = 완독 로그 / 전체 로그
+        rl_total = (
+            await db.execute(select(func.count(ReadingLog.id)).where(*rl_where))
+        ).scalar() or 0
+        rl_completed = (
+            await db.execute(
+                select(func.count(ReadingLog.id)).where(
+                    *rl_where, ReadingLog.completed.is_(True)
+                )
+            )
+        ).scalar() or 0
+        completion = round(rl_completed / rl_total, 3) if rl_total else 0.0
+
         streak = (
             await db.execute(
                 select(DailyStreak).where(DailyStreak.user_key == user_key)
@@ -130,7 +220,6 @@ class GrowthService:
         longest_streak = streak.longest_streak if streak else 0
         total_reading_days = streak.total_days if streak else 0
 
-        # 퀴즈 응답
         qa_where = [QuizAnswer.user_key == user_key]
         if profile_id:
             qa_where.append(QuizAnswer.profile_id == profile_id)
@@ -146,17 +235,13 @@ class GrowthService:
         ).scalar() or 0
         quiz_accuracy = round(quiz_correct / quiz_total, 3) if quiz_total else 0.0
 
-        # 학습 어휘 = 정답 처리된 vocab 문항의 distinct term
-        vocab_learned = (
-            await db.execute(
-                select(func.count(distinct(QuizAnswer.term))).where(
-                    *qa_where,
-                    QuizAnswer.quiz_type == "vocab",
-                    QuizAnswer.correct.is_(True),
-                    QuizAnswer.term.isnot(None),
-                )
-            )
-        ).scalar() or 0
+        # 학습 어휘 = '습득'(정답 ≥2회) distinct term (1회 정답 거짓양성 차단)
+        vocab_learned = await self._tiered_vocab_count(db, qa_where)
+
+        age_band = await self._resolve_age_band(db, user_key, profile_id)
+        reading_level = composite_reading_score(
+            int(books_read), int(vocab_learned), quiz_accuracy, completion, age_band
+        )
 
         return {
             "books_read": int(books_read),
@@ -167,9 +252,8 @@ class GrowthService:
             "quiz_total": int(quiz_total),
             "quiz_correct": int(quiz_correct),
             "quiz_accuracy": quiz_accuracy,
-            "reading_level": estimate_reading_level(
-                int(books_read), quiz_accuracy, int(vocab_learned)
-            ),
+            "completion": completion,
+            "reading_level": reading_level,
         }
 
     async def _resolve_age_band(
@@ -186,88 +270,35 @@ class GrowthService:
         band = (await db.execute(q.limit(1))).scalar_one_or_none()
         return band or "5-7"
 
-    async def get_peer_comparison(
-        self,
-        db: AsyncSession,
-        user_key: str,
-        profile_id: Optional[str] = None,
-    ) -> dict:
-        """같은 연령대(age_band) 또래 대비 비교 — 평균·상위%·메달.
+    async def _bulk_metrics(self, db: AsyncSession, user_keys: list) -> dict:
+        """여러 user_key의 지표를 한 번에 — 또래 비교용. 반환: {uk: {books,vocab,accuracy,completion}} + active set."""
+        if not user_keys:
+            return {"metrics": {}, "active": set()}
 
-        또래 표본이 적으면(< MIN_PEERS_FOR_REAL) 연령대 기준선으로 폴백(is_baseline=True).
-        '사람은 경쟁의 동물' — 부모에게 또래 대비 위치를 보여 동기·전환을 끌어올린다(참고용 추정).
-        """
-        age_band = await self._resolve_age_band(db, user_key, profile_id)
-        # 또래 분포는 user_key 단위로 집계하므로, 비교 기준인 '나'도 user_key 전체로 산출해
-        # 동일 스코프를 유지한다(다중 프로필에서 '나 vs 나 포함 또래'가 어긋나는 것 방지).
-        my = await self.get_growth_report(db, user_key, profile_id=None)
-        my_metrics = {
-            "books_read": my["books_read"],
-            "vocab_learned": my["vocab_learned"],
-            "quiz_accuracy": my["quiz_accuracy"],
-        }
-        baseline = AGE_BASELINES.get(age_band, AGE_BASELINES["5-7"])
-
-        peer_keys = (
-            await db.execute(
-                select(distinct(ChildProfile.user_key)).where(
-                    ChildProfile.age_band == age_band
-                )
-            )
-        ).scalars().all()
-        peer_count = len(peer_keys)
-
-        if peer_count < MIN_PEERS_FOR_REAL:
-            peer_avg = {
-                "books_read": baseline["books_read"],
-                "vocab_learned": baseline["vocab_learned"],
-                "quiz_accuracy": baseline["quiz_accuracy"],
-            }
-            top_percent = _top_percent_vs_avg(
-                my_metrics["books_read"], baseline["books_read"]
-            )
-            return {
-                "age_band": age_band,
-                "peer_count": peer_count,
-                "is_baseline": True,
-                "my": my_metrics,
-                "peer_avg": peer_avg,
-                "top_percent": top_percent,
-                "medal": _medal_for(top_percent),
-            }
-
-        # 또래 표본 충분 — 실제 분포로 평균·백분위 산출
         book_rows = (
             await db.execute(
-                select(
-                    ReadingLog.user_key,
-                    func.count(distinct(ReadingLog.book_id)),
-                )
-                .where(ReadingLog.user_key.in_(peer_keys))
+                select(ReadingLog.user_key, func.count(distinct(ReadingLog.book_id)))
+                .where(ReadingLog.user_key.in_(user_keys))
                 .group_by(ReadingLog.user_key)
             )
         ).all()
-        books_by_user = {k: int(c) for k, c in book_rows}
-        book_list = [books_by_user.get(k, 0) for k in peer_keys]
-        avg_books = sum(book_list) / peer_count
+        books = {k: int(c) for k, c in book_rows}
 
-        vocab_rows = (
+        comp_rows = (
             await db.execute(
                 select(
-                    QuizAnswer.user_key,
-                    func.count(distinct(QuizAnswer.term)),
+                    ReadingLog.user_key,
+                    func.count(ReadingLog.id),
+                    func.sum(case((ReadingLog.completed.is_(True), 1), else_=0)),
                 )
-                .where(
-                    QuizAnswer.user_key.in_(peer_keys),
-                    QuizAnswer.quiz_type == "vocab",
-                    QuizAnswer.correct.is_(True),
-                    QuizAnswer.term.isnot(None),
-                )
-                .group_by(QuizAnswer.user_key)
+                .where(ReadingLog.user_key.in_(user_keys))
+                .group_by(ReadingLog.user_key)
             )
         ).all()
-        vocab_by_user = {k: int(c) for k, c in vocab_rows}
-        avg_vocab = sum(vocab_by_user.get(k, 0) for k in peer_keys) / peer_count
+        completion = {
+            k: (int(c or 0) / int(t)) if int(t or 0) > 0 else 0.0
+            for k, t, c in comp_rows
+        }
 
         acc_rows = (
             await db.execute(
@@ -276,34 +307,139 @@ class GrowthService:
                     func.count(QuizAnswer.id),
                     func.sum(case((QuizAnswer.correct.is_(True), 1), else_=0)),
                 )
-                .where(QuizAnswer.user_key.in_(peer_keys))
+                .where(QuizAnswer.user_key.in_(user_keys))
                 .group_by(QuizAnswer.user_key)
             )
         ).all()
-        # pooled 정확도 = Σ정답 / Σ응답 (개인별 평균의 평균이 아닌 전역 비율 —
-        # 개별 quiz_accuracy 정의와 일치, 소표본 사용자 과대가중/Simpson 편향 방지)
-        total_answers = sum(int(t or 0) for _k, t, _c in acc_rows)
-        total_correct = sum(int(c or 0) for _k, _t, c in acc_rows)
-        avg_acc = (
-            total_correct / total_answers
-            if total_answers > 0
-            else baseline["quiz_accuracy"]
-        )
+        accuracy = {
+            k: (int(c or 0) / int(t)) if int(t or 0) > 0 else 0.0
+            for k, t, c in acc_rows
+        }
+        quiz_users = {k for k, _t, _c in acc_rows}
 
-        # 상위% = 또래 중 내 읽은 책 수가 상위 몇 %인지(동률 포함)
-        at_or_below = sum(1 for b in book_list if b <= my_metrics["books_read"])
-        percentile = at_or_below / peer_count * 100  # 클수록 상위
+        vsub = (
+            select(QuizAnswer.user_key.label("uk"))
+            .where(
+                QuizAnswer.user_key.in_(user_keys),
+                QuizAnswer.quiz_type == "vocab",
+                QuizAnswer.correct.is_(True),
+                QuizAnswer.term.isnot(None),
+            )
+            .group_by(QuizAnswer.user_key, QuizAnswer.term)
+            .having(func.count(QuizAnswer.id) >= VOCAB_MASTERY_MIN_CORRECT)
+            .subquery()
+        )
+        vrows = (
+            await db.execute(
+                select(vsub.c.uk, func.count()).group_by(vsub.c.uk)
+            )
+        ).all()
+        vocab = {k: int(c) for k, c in vrows}
+
+        active = set(books.keys()) | quiz_users
+        metrics = {}
+        for uk in user_keys:
+            metrics[uk] = {
+                "books": books.get(uk, 0),
+                "vocab": vocab.get(uk, 0),
+                "accuracy": accuracy.get(uk, 0.0),
+                "completion": completion.get(uk, 0.0),
+            }
+        return {"metrics": metrics, "active": active}
+
+    async def get_peer_comparison(
+        self,
+        db: AsyncSession,
+        user_key: str,
+        profile_id: Optional[str] = None,
+    ) -> dict:
+        """같은 연령대 또래 대비 — *복합 점수* 기준 상위%·메달.
+
+        - 단일축(읽은 책 수) 대신 복합 점수로 순위(거짓 일관성 제거).
+        - 본인·비활성 가입자는 또래 모집단에서 제외(역네트워크·디플레이트 차단).
+        - 3-5세는 백분위·등수가 발달상 무의미 → show_ranking=False(UI는 자기성장만 노출).
+        - 또래 < MIN_PEERS_FOR_REAL 이면 연령대 기준선 폴백(is_baseline=True, 참고용).
+        """
+        age_band = await self._resolve_age_band(db, user_key, profile_id)
+        base = AGE_BASELINES.get(age_band, AGE_BASELINES["5-7"])
+        show_ranking = age_band not in ("3-5",)
+
+        # 같은 연령대·본인 제외 후보
+        peer_keys = (
+            await db.execute(
+                select(distinct(ChildProfile.user_key)).where(
+                    ChildProfile.age_band == age_band,
+                    ChildProfile.user_key != user_key,
+                )
+            )
+        ).scalars().all()
+
+        bulk = await self._bulk_metrics(db, list(peer_keys) + [user_key])
+        metrics = bulk["metrics"]
+        active = bulk["active"]
+
+        def score_of(uk: str) -> int:
+            m = metrics.get(uk, {"books": 0, "vocab": 0, "accuracy": 0.0, "completion": 0.0})
+            return composite_reading_score(
+                m["books"], m["vocab"], m["accuracy"], m["completion"], age_band
+            )["score"]
+
+        my_m = metrics.get(user_key, {"books": 0, "vocab": 0, "accuracy": 0.0, "completion": 0.0})
+        my_score = score_of(user_key)
+        my_metrics = {
+            "books_read": my_m["books"],
+            "vocab_learned": my_m["vocab"],
+            "quiz_accuracy": round(my_m["accuracy"], 3),
+            "score": my_score,
+        }
+
+        # 활성 또래만 코호트로
+        cohort = [k for k in peer_keys if k in active]
+        peer_count = len(cohort)
+
+        if peer_count < MIN_PEERS_FOR_REAL:
+            ref_score = composite_reading_score(
+                base["books_read"], int(base["vocab_learned"]),
+                base["quiz_accuracy"], base["completion"], age_band
+            )["score"]
+            top_percent = _top_percent_vs_ref(my_score, ref_score)
+            return {
+                "age_band": age_band,
+                "peer_count": peer_count,
+                "is_baseline": True,
+                "show_ranking": show_ranking,
+                "my": my_metrics,
+                "peer_avg": {
+                    "books_read": base["books_read"],
+                    "vocab_learned": base["vocab_learned"],
+                    "quiz_accuracy": base["quiz_accuracy"],
+                    "score": ref_score,
+                },
+                "top_percent": top_percent,
+                "medal": _medal_for(top_percent),
+            }
+
+        peer_scores = [score_of(k) for k in cohort]
+        at_or_below = sum(1 for s in peer_scores if s <= my_score)
+        percentile = at_or_below / peer_count * 100
         top_percent = max(1, round(100 - percentile))
+
+        avg_books = sum(metrics[k]["books"] for k in cohort) / peer_count
+        avg_vocab = sum(metrics[k]["vocab"] for k in cohort) / peer_count
+        avg_acc = sum(metrics[k]["accuracy"] for k in cohort) / peer_count
+        avg_score = sum(peer_scores) / peer_count
 
         return {
             "age_band": age_band,
             "peer_count": peer_count,
             "is_baseline": False,
+            "show_ranking": show_ranking,
             "my": my_metrics,
             "peer_avg": {
                 "books_read": round(avg_books, 1),
                 "vocab_learned": round(avg_vocab, 1),
                 "quiz_accuracy": round(avg_acc, 3),
+                "score": round(avg_score),
             },
             "top_percent": top_percent,
             "medal": _medal_for(top_percent),
