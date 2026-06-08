@@ -37,6 +37,10 @@ dependencies:
   printing: ^5.13.4
   confetti: ^0.8.0
 
+  # Local Notifications (잠자리 알림)
+  flutter_local_notifications: ^18.0.1
+  timezone: ^0.9.4
+
   # Audio Player
   just_audio: ^0.9.36
   in_app_review: ^2.0.10

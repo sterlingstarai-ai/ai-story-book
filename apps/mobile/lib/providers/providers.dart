@@ -12,6 +12,7 @@ import '../services/kakao_share_service.dart';
 import '../services/parental_control_service.dart';
 import '../services/rewarded_ad_service.dart';
 import '../services/review_service.dart';
+import '../services/notification_scheduler.dart';
 import '../services/screen_time_service.dart';
 import '../services/user_service.dart';
 
@@ -101,6 +102,11 @@ class AppThemeModeNotifier extends Notifier<ThemeMode> {
 
 final screenTimeServiceProvider = Provider<ScreenTimeService>((ref) {
   return ScreenTimeService();
+});
+
+/// 잠자리 로컬 알림 스케줄러(테스트에서 Fake 주입).
+final notificationSchedulerProvider = Provider<NotificationScheduler>((ref) {
+  return LocalNotificationScheduler();
 });
 
 final screenTimeStateProvider =

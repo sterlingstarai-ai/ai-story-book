@@ -125,6 +125,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             enabled: _screenTimeEnabled,
             dailyLimitMinutes: _dailyLimitMinutes.round(),
           );
+      await _applyBedtimeSchedule();
 
       if (!mounted) {
         return;
@@ -143,6 +144,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       if (mounted) {
         setState(() => _isSaving = false);
       }
+    }
+  }
+
+  /// 취침 알림 토글/시간을 실제 로컬 알림 스케줄에 반영한다(실패는 저장 흐름을 막지 않음).
+  Future<void> _applyBedtimeSchedule() async {
+    final scheduler = ref.read(notificationSchedulerProvider);
+    try {
+      if (_bedtimeNotificationEnabled) {
+        await scheduler.requestPermissions();
+        await scheduler.scheduleDailyBedtime(
+          hour: _bedtime.hour,
+          minute: _bedtime.minute,
+          title: '오늘의 동화 읽을 시간이에요',
+          body: '잠들기 전 오늘의 동화를 함께 읽어요',
+        );
+      } else {
+        await scheduler.cancelBedtime();
+      }
+    } catch (_) {
+      // 스케줄 실패는 설정 저장 흐름을 막지 않는다(토글 상태 유지).
     }
   }
 

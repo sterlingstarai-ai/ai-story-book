@@ -89,6 +89,7 @@ class _AIStoryBookAppState extends ConsumerState<AIStoryBookApp>
     unawaited(screenTimeNotifier.initialize().then((_) {
       screenTimeNotifier.onAppResumed();
     }));
+    unawaited(ref.read(notificationSchedulerProvider).initialize());
   }
 
   @override
