@@ -641,8 +641,10 @@ class GrowthReport {
     required this.quizTotal,
     required this.quizCorrect,
     required this.quizAccuracy,
+    required this.completion,
     required this.levelNumber,
     required this.levelLabel,
+    required this.scoreValue,
   });
 
   final int booksRead;
@@ -653,8 +655,10 @@ class GrowthReport {
   final int quizTotal;
   final int quizCorrect;
   final double quizAccuracy;
+  final double completion;
   final int levelNumber;
   final String levelLabel;
+  final int scoreValue; // 복합 읽기 점수(0~100)
 }
 
 final growthReportProvider = FutureProvider<GrowthReport>((ref) async {
@@ -673,8 +677,12 @@ final growthReportProvider = FutureProvider<GrowthReport>((ref) async {
     quizAccuracy: (data['quiz_accuracy'] is num)
         ? (data['quiz_accuracy'] as num).toDouble()
         : 0.0,
+    completion: (data['completion'] is num)
+        ? (data['completion'] as num).toDouble()
+        : 0.0,
     levelNumber: _toInt(levelMap['level'], fallback: 1),
     levelLabel: _toStringValue(levelMap['label'], fallback: '성장 중'),
+    scoreValue: _toInt(levelMap['score']),
   );
 });
 
@@ -705,12 +713,15 @@ class PeerComparison {
     required this.ageBand,
     required this.peerCount,
     required this.isBaseline,
+    required this.showRanking,
     required this.myBooks,
     required this.peerBooks,
     required this.myVocab,
     required this.peerVocab,
     required this.myAccuracy,
     required this.peerAccuracy,
+    required this.myScore,
+    required this.peerScore,
     required this.topPercent,
     required this.medal,
   });
@@ -718,12 +729,15 @@ class PeerComparison {
   final String ageBand;
   final int peerCount;
   final bool isBaseline;
+  final bool showRanking; // 3-5세(전조작기)는 등수 미노출 → 자기성장만
   final int myBooks;
   final double peerBooks;
   final int myVocab;
   final double peerVocab;
   final double myAccuracy;
   final double peerAccuracy;
+  final int myScore; // 복합 점수(0~100)
+  final int peerScore;
   final int topPercent;
   final String medal;
 }
@@ -739,12 +753,15 @@ final peerComparisonProvider = FutureProvider<PeerComparison>((ref) async {
     ageBand: _toStringValue(data['age_band'], fallback: '5-7'),
     peerCount: _toInt(data['peer_count']),
     isBaseline: data['is_baseline'] == true,
+    showRanking: data['show_ranking'] != false,
     myBooks: _toInt(my['books_read']),
     peerBooks: toDouble(avg['books_read']),
     myVocab: _toInt(my['vocab_learned']),
     peerVocab: toDouble(avg['vocab_learned']),
     myAccuracy: toDouble(my['quiz_accuracy']),
     peerAccuracy: toDouble(avg['quiz_accuracy']),
+    myScore: _toInt(my['score']),
+    peerScore: _toInt(avg['score']),
     topPercent: _toInt(data['top_percent'], fallback: 50),
     medal: _toStringValue(data['medal'], fallback: 'none'),
   );

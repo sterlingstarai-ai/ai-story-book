@@ -25,8 +25,10 @@ GrowthReport _sample() => const GrowthReport(
       quizTotal: 0,
       quizCorrect: 0,
       quizAccuracy: 0.0,
+      completion: 0.0,
       levelNumber: 1,
       levelLabel: '첫 걸음',
+      scoreValue: 5,
     );
 
 void main() {

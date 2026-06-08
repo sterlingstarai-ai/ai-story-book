@@ -15,22 +15,44 @@ GrowthReport _sample() => const GrowthReport(
       quizTotal: 8,
       quizCorrect: 6,
       quizAccuracy: 0.75,
+      completion: 0.8,
       levelNumber: 4,
       levelLabel: '기초 다지기',
+      scoreValue: 60,
     );
 
 PeerComparison _samplePeer() => const PeerComparison(
       ageBand: '5-7',
       peerCount: 42,
       isBaseline: false,
+      showRanking: true,
       myBooks: 12,
       peerBooks: 8.0,
       myVocab: 84,
       peerVocab: 56.0,
       myAccuracy: 0.87,
       peerAccuracy: 0.72,
+      myScore: 78,
+      peerScore: 60,
       topPercent: 8,
       medal: 'gold',
+    );
+
+PeerComparison _samplePeerYoung() => const PeerComparison(
+      ageBand: '3-5',
+      peerCount: 30,
+      isBaseline: false,
+      showRanking: false,
+      myBooks: 4,
+      peerBooks: 5.0,
+      myVocab: 6,
+      peerVocab: 10.0,
+      myAccuracy: 0.6,
+      peerAccuracy: 0.65,
+      myScore: 40,
+      peerScore: 55,
+      topPercent: 70,
+      medal: 'none',
     );
 
 void main() {
@@ -64,6 +86,35 @@ void main() {
     expect(find.text('또래 비교'), findsOneWidget);
     expect(find.text('상위 8%'), findsOneWidget);
     expect(find.textContaining('또래 42명'), findsOneWidget);
+  });
+
+  testWidgets('ReadingGrowthScreen hides ranking for 3-5 (self-growth only)',
+      (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          growthReportProvider.overrideWith((ref) async => _sample()),
+          peerComparisonProvider.overrideWith((ref) async => _samplePeerYoung()),
+        ],
+        child: const MaterialApp(
+          locale: Locale('ko'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: ReadingGrowthScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('growth_peer_comparison')),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+
+    // 3-5세는 등수·백분위 미노출(전조작기) → 자기성장 카드만
+    expect(find.text('우리 아이 읽기 성장'), findsOneWidget);
+    expect(find.textContaining('상위'), findsNothing);
   });
 
   testWidgets('ReadingGrowthScreen renders level and stats', (tester) async {
