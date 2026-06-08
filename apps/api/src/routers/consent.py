@@ -9,7 +9,7 @@ from typing import Optional
 import structlog
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
@@ -67,7 +67,19 @@ async def grant_consent(
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
 ):
-    """보호자 동의 기록. granted 는 필수 동의(개인정보+데이터 처리) 충족 시 True."""
+    """보호자 동의 기록. granted 는 필수 동의(개인정보+데이터 처리) 충족 시 True.
+
+    유저당 비철회 동의 행은 최대 1개가 되도록, 새 동의 시 기존 비철회 행을 폐기(supersede)한다.
+    """
+    # 기존 비철회 행 폐기(누적 방지 — 게이트/철회 일관성)
+    await db.execute(
+        update(UserConsent)
+        .where(
+            UserConsent.user_key == user_key,
+            UserConsent.revoked_at.is_(None),
+        )
+        .values(revoked_at=utcnow())
+    )
     consent = UserConsent(
         user_key=user_key,
         consent_version=request.consent_version or settings.consent_current_version,
@@ -100,10 +112,15 @@ async def revoke_consent(
 
     이후 사진 기반 기능은 다시 차단되고, from_photo 캐릭터 레코드·원본 사진(스토리지)은 삭제된다.
     """
-    consent = await latest_active_consent(db, user_key)
-    if consent is not None:
-        consent.revoked_at = utcnow()
-        consent.granted = False
+    # 비철회 동의 행 '전부' 폐기 — granted=False/photos=True 같은 잔여 행이 게이트를 열어두지 않도록.
+    await db.execute(
+        update(UserConsent)
+        .where(
+            UserConsent.user_key == user_key,
+            UserConsent.revoked_at.is_(None),
+        )
+        .values(revoked_at=utcnow(), granted=False)
+    )
 
     result = await db.execute(
         select(Character).where(

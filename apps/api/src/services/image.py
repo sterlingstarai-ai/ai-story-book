@@ -113,6 +113,12 @@ _GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
 async def _fetch_image_as_base64(url: str) -> tuple[str, str] | None:
     """레퍼런스 이미지 URL → (base64, mime_type). 실패 시 None(얼굴보존 없이 진행)."""
+    from src.services.storage import _is_url_allowed
+
+    # 스토리지 이미지 다운로드와 동일한 SSRF 가드(사설/메타데이터 IP·비http 차단, fail-closed).
+    if not _is_url_allowed(url):
+        logger.warning("reference image URL blocked by SSRF protection", url=url[:100])
+        return None
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.get(url)
@@ -153,7 +159,9 @@ async def _generate_gemini(
 
     body = {
         "contents": [{"parts": parts}],
-        "generationConfig": {"responseModalities": ["IMAGE"]},
+        # Gemini 이미지 모델은 멀티모달이라 TEXT+IMAGE를 함께 요청해야 한다
+        # (["IMAGE"] 단독은 공식 plain-generation 규약과 어긋나 이미지 미생성 위험).
+        "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]},
     }
 
     async with httpx.AsyncClient(timeout=settings.image_timeout) as client:
@@ -192,9 +200,19 @@ async def _generate_gemini(
 
     from src.services.storage import storage_service
 
-    ext = "png" if "png" in mime else "jpg"
+    ext = _IMAGE_MIME_EXT.get(mime.split(";")[0].lower().strip(), "png")
     key = f"images/gemini/{uuid.uuid4().hex}.{ext}"
     return await storage_service.upload_bytes(image_bytes, key, content_type=mime)
+
+
+_IMAGE_MIME_EXT = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/webp": "webp",
+    "image/gif": "gif",
+    "image/avif": "avif",
+}
 
 
 def _extract_gemini_image(result: dict) -> tuple[bytes | None, str]:

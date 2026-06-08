@@ -313,7 +313,7 @@ async def start_book_generation(
 
         # F. 이미지 생성 (cover + pages)
         total_images = len(image_prompts.pages) + 1  # +1 for cover
-        face_reference_url = await _resolve_face_reference(normalized_spec)
+        face_reference_url = await _resolve_face_reference(normalized_spec, user_key)
         image_urls = await generate_all_images(
             job_id=job_id,
             image_prompts=image_prompts,
@@ -502,16 +502,21 @@ async def generate_learning_assets(story: StoryDraft) -> Optional[LearningAssets
     return assets
 
 
-async def _resolve_face_reference(spec) -> Optional[str]:
+async def _resolve_face_reference(spec, user_key: str) -> Optional[str]:
     """주인공이 사진 파생(from_photo) 캐릭터면 그 원본 사진 URL을 얼굴 레퍼런스로 반환.
 
-    얼굴 보존 provider(gemini)에서만 사용 — 그 외 provider는 레퍼런스를 무시하므로 조회도 생략.
+    - 얼굴 보존 provider(gemini)에서만 사용.
+    - **반드시 user_key로 스코프**(타 유저 아동 사진 도용 IDOR 차단).
+    - 스토리 생성과 동일한 '택일' 의미(character_ids 우선) + 주인공(char_ids[0]) 우선의 결정적 선택.
     """
     if settings.image_provider != "gemini":
         return None
-    char_ids = list(getattr(spec, "character_ids", None) or [])
-    if getattr(spec, "character_id", None):
-        char_ids.append(spec.character_id)
+    cids = getattr(spec, "character_ids", None)
+    char_ids = (
+        list(cids)
+        if cids
+        else ([spec.character_id] if getattr(spec, "character_id", None) else [])
+    )
     char_ids = [c for c in char_ids if c]
     if not char_ids:
         return None
@@ -523,14 +528,19 @@ async def _resolve_face_reference(spec) -> Optional[str]:
 
         async with AsyncSessionLocal() as session:
             result = await session.execute(
-                select(Character.source_image_url).where(
+                select(Character.id, Character.source_image_url).where(
                     Character.id.in_(char_ids),
+                    Character.user_key == user_key,
                     Character.from_photo.is_(True),
                     Character.source_image_url.isnot(None),
                 )
             )
-            row = result.first()
-            return row[0] if row else None
+            by_id = {row[0]: row[1] for row in result.all()}
+        # 주인공(char_ids[0])부터 순서대로 첫 매칭 — DB plan 무관 결정적 선택
+        for cid in char_ids:
+            if cid in by_id:
+                return by_id[cid]
+        return None
     except Exception as e:  # pragma: no cover - 방어적
         logger.warning("face reference resolve failed", error=str(e))
         return None

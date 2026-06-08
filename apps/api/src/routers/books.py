@@ -24,7 +24,7 @@ from src.models.dto import (
     BookResult,
     PageResult,
 )
-from src.models.db import ChildProfile, Job, Book, Page
+from src.models.db import ChildProfile, Job, Book, Page, Character
 from src.services.orchestrator import start_book_generation, regenerate_page
 from src.services.pdf import pdf_service
 from src.services.tts import tts_service
@@ -565,6 +565,17 @@ async def create_book(
     char_ids = list(spec.character_ids or [])
     if spec.character_id:
         char_ids.append(spec.character_id)
+    # 캐릭터 소유권 강제 — 타 유저 캐릭터(특히 아동 사진 파생) 도용 차단(IDOR).
+    if char_ids:
+        owned = await db.execute(
+            select(Character.id).where(
+                Character.id.in_(char_ids),
+                Character.user_key == user_key,
+            )
+        )
+        owned_ids = {row[0] for row in owned.all()}
+        if any(cid not in owned_ids for cid in char_ids):
+            raise AuthorizationError("선택한 캐릭터의 소유자가 아닙니다.")
     if spec.reference_image_base64:
         await require_photo_consent(db, user_key)
     # 사진/그림 파생 캐릭터(아동 얼굴 데이터)를 재사용하면 동의를 강제(철회 후 차단)

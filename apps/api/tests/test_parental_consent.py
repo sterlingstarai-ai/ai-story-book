@@ -202,3 +202,43 @@ async def test_revoke_deletes_photo_characters(client, db_session, monkeypatch):
     ids = {c.id for c in remaining}
     assert "char-rev-photo" not in ids  # 사진 파생 → 파기
     assert "char-rev-text" in ids  # 텍스트 → 유지
+
+
+@pytest.mark.asyncio
+async def test_create_book_rejects_foreign_character(client, db_session):
+    # 캐릭터 소유자 A
+    db_session.add(_character("char-owner-a", "owner-a-key", from_photo=False))
+    await db_session.commit()
+    # 다른 유저 B가 그 캐릭터로 책 생성 시도 → 403(IDOR 차단)
+    res = await client.post(
+        "/v1/books",
+        json={
+            "topic": "우주 여행",
+            "target_age": "5-7",
+            "style": "watercolor",
+            "character_ids": ["char-owner-a"],
+        },
+        headers={"X-User-Key": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"},
+    )
+    assert res.status_code == 403, res.text
+
+
+@pytest.mark.asyncio
+async def test_revoke_closes_gate_for_photos_only_consent(
+    db_session, client, consent_enforced
+):
+    h = {"X-User-Key": "cccccccc-cccc-4ccc-8ccc-cccccccccccc"}
+    uk = h["X-User-Key"]
+    # photos=true·granted=false(필수동의 미충족) — 게이트는 photos 독립 평가로 통과
+    await client.post(
+        "/v1/consent",
+        json={"privacy": False, "photos": True, "data_processing": False},
+        headers=h,
+    )
+    await require_photo_consent(db_session, uk)  # raise 없음
+
+    rev = await client.post("/v1/consent/revoke", headers=h)
+    assert rev.status_code == 200
+    # 철회 후 게이트가 실제로 닫힌다(granted=False 잔여행이 열어두지 않음)
+    with pytest.raises(AuthorizationError):
+        await require_photo_consent(db_session, uk)

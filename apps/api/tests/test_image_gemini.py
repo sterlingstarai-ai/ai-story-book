@@ -46,14 +46,14 @@ def test_extract_gemini_image_missing():
 async def test_resolve_face_reference_non_gemini_skips(monkeypatch):
     monkeypatch.setattr(settings, "image_provider", "mock")
     spec = types.SimpleNamespace(character_id="any", character_ids=None)
-    assert await _resolve_face_reference(spec) is None
+    assert await _resolve_face_reference(spec, "uk-any") is None
 
 
 @pytest.mark.asyncio
 async def test_resolve_face_reference_no_characters(monkeypatch):
     monkeypatch.setattr(settings, "image_provider", "gemini")
     spec = types.SimpleNamespace(character_id=None, character_ids=None)
-    assert await _resolve_face_reference(spec) is None
+    assert await _resolve_face_reference(spec, "uk-any") is None
 
 
 @pytest.mark.asyncio
@@ -92,9 +92,44 @@ async def test_resolve_face_reference_returns_photo_url(db_session, monkeypatch)
 
     photo_spec = types.SimpleNamespace(character_id="char-face-ref", character_ids=None)
     assert (
-        await _resolve_face_reference(photo_spec)
+        await _resolve_face_reference(photo_spec, "uk-face-ref")
         == "https://cdn.example/characters/char-face-ref/photo.jpg"
     )
 
     text_spec = types.SimpleNamespace(character_id="char-text-ref", character_ids=None)
-    assert await _resolve_face_reference(text_spec) is None
+    assert await _resolve_face_reference(text_spec, "uk-face-ref") is None
+
+    # IDOR 차단: 다른 유저로는 동일 사진 캐릭터를 못 가져온다
+    assert await _resolve_face_reference(photo_spec, "uk-attacker") is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_face_reference_picks_primary_deterministically(
+    db_session, monkeypatch
+):
+    monkeypatch.setattr(settings, "image_provider", "gemini")
+    from src.core.database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as session:
+        for cid, url in [("mc-A", "https://cdn/A.jpg"), ("mc-B", "https://cdn/B.jpg")]:
+            session.add(
+                Character(
+                    id=cid,
+                    name=cid,
+                    master_description="동화 주인공 설명입니다",
+                    appearance={},
+                    clothing={},
+                    personality_traits=[],
+                    user_key="uk-multi",
+                    from_photo=True,
+                    source_image_url=url,
+                )
+            )
+        await session.commit()
+
+    # 주인공 = character_ids[0] → 순서와 무관하게 결정적으로 0번 캐릭터의 사진
+    s1 = types.SimpleNamespace(character_id=None, character_ids=["mc-A", "mc-B"])
+    assert await _resolve_face_reference(s1, "uk-multi") == "https://cdn/A.jpg"
+    s2 = types.SimpleNamespace(character_id=None, character_ids=["mc-B", "mc-A"])
+    assert await _resolve_face_reference(s2, "uk-multi") == "https://cdn/B.jpg"
+
