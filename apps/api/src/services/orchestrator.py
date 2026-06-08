@@ -422,8 +422,41 @@ async def generate_image_prompts(
     return await call_image_prompts_generation(spec, story, character)
 
 
+def _is_gradeable_quiz(quiz_item) -> bool:
+    """퀴즈가 채점 가능한지 — 정답 인덱스가 보기 범위 내이고 보기에 중복이 없어야 한다."""
+    options = quiz_item.options or []
+    if quiz_item.answer_index >= len(options):
+        return False
+    if len(set(options)) < len(options):  # 중복 보기 → 정답 모호
+        return False
+    return True
+
+
+def _assess_and_clean_learning_quality(assets: LearningAssets) -> list[str]:
+    """학습 자산 품질 점검 + 채점 불가 퀴즈 제거. 미달/조치 항목 목록 반환(빈 목록=양호).
+
+    LLM(gpt-4o-mini)이 생성한 어휘/퀴즈를 부모에게 '교육 증거'로 노출하기 전,
+    최소 품질을 점검하고 채점 불가한 환각 퀴즈를 걸러낸다.
+    """
+    issues: list[str] = []
+    pages = assets.pages or []
+    dropped = 0
+    for page in pages:
+        if page.quiz:
+            valid = [q for q in page.quiz if _is_gradeable_quiz(q)]
+            dropped += len(page.quiz) - len(valid)
+            page.quiz = valid
+    if dropped:
+        issues.append(f"채점 불가 퀴즈 {dropped}개 제거")
+    if sum(len(p.vocab or []) for p in pages) == 0:
+        issues.append("어휘 0개")
+    if sum(len(p.quiz or []) for p in pages) == 0:
+        issues.append("퀴즈 0개")
+    return issues
+
+
 async def generate_learning_assets(story: StoryDraft) -> Optional[LearningAssets]:
-    """G-2. 학습 자산 생성 (번역 + 어휘 + 질문 + 퀴즈)"""
+    """G-2. 학습 자산 생성 (번역 + 어휘 + 질문 + 퀴즈) + 품질 게이트"""
     from src.services.llm import call_learning_assets
 
     # 원본 언어에서 영어로 번역 (ko -> en)
@@ -438,13 +471,33 @@ async def generate_learning_assets(story: StoryDraft) -> Optional[LearningAssets
         target_lang = Language.en
 
     try:
-        return await call_learning_assets(story, source_lang, target_lang)
+        assets = await call_learning_assets(story, source_lang, target_lang)
     except Exception as e:
         logger.warning(
             "Failed to generate learning assets, continuing without",
             error=str(e),
         )
         return None
+
+    if assets is None:
+        return None
+
+    issues = _assess_and_clean_learning_quality(assets)
+    if issues:
+        logger.warning(
+            "Learning assets quality gate", issues=issues, title=story.title
+        )
+
+    # 어휘·퀴즈가 모두 비면 '교육 증거'로 노출하지 않는다(무자산이 오히려 안전).
+    has_vocab = any((p.vocab or []) for p in (assets.pages or []))
+    has_quiz = any((p.quiz or []) for p in (assets.pages or []))
+    if not has_vocab and not has_quiz:
+        logger.warning(
+            "Learning assets empty after quality gate; dropping", title=story.title
+        )
+        return None
+
+    return assets
 
 
 async def generate_all_images(
