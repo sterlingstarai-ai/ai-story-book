@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -125,7 +127,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             enabled: _screenTimeEnabled,
             dailyLimitMinutes: _dailyLimitMinutes.round(),
           );
-      await _applyBedtimeSchedule();
+      // 알림 예약은 저장의 부수효과 — 저장 완료 표시를 막지 않도록 백그라운드로 처리.
+      unawaited(_applyBedtimeSchedule());
 
       if (!mounted) {
         return;

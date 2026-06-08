@@ -1,11 +1,36 @@
 import 'dart:io';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../core/api_error.dart';
 import '../providers/providers.dart';
 import '../utils/constants.dart';
+
+/// DioException 으로 래핑된 ApiError 까지 추출(create_screen 패턴과 동일).
+ApiError? _extractApiError(Object error) {
+  if (error is ApiError) {
+    return error;
+  }
+  if (error is DioException && error.error is ApiError) {
+    return error.error as ApiError;
+  }
+  return null;
+}
+
+/// 보호자 동의 미동의(403)는 서버가 내려준 구체 사유를 그대로 노출한다.
+String _errorMessage(Object error, String fallback) {
+  final apiError = _extractApiError(error);
+  if (apiError == null) {
+    return fallback;
+  }
+  if (apiError.statusCode == 403) {
+    return apiError.message;
+  }
+  return apiError.userMessage;
+}
 
 /// '우리 아이를 주인공으로' 소스 선택 시트.
 ///
@@ -63,8 +88,8 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
       if (mounted) {
         Navigator.pop(context, id);
       }
-    } catch (_) {
-      _showError('주인공을 만들지 못했어요. 잠시 후 다시 시도해주세요.');
+    } catch (error) {
+      _showError(_errorMessage(error, '주인공을 만들지 못했어요. 잠시 후 다시 시도해주세요.'));
     }
   }
 
@@ -87,12 +112,21 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
             name: widget.childName,
           );
       ref.invalidate(charactersProvider);
-      final id = result['character_id']?.toString();
-      if (mounted && id != null) {
-        Navigator.pop(context, id);
+      if (!mounted) {
+        return;
       }
-    } catch (_) {
-      _showError('사진으로 주인공을 만들지 못했어요. 보호자 동의/권한을 확인해주세요.');
+      final id = result['character_id']?.toString();
+      if (id != null) {
+        Navigator.pop(context, id);
+      } else {
+        // 2xx인데 character_id 누락 — _busy를 풀어 시트 잠금을 방지
+        _showError('사진으로 주인공을 만들지 못했어요. 잠시 후 다시 시도해주세요.');
+      }
+    } catch (error) {
+      _showError(_errorMessage(
+        error,
+        '사진으로 주인공을 만들지 못했어요. 보호자 동의/권한을 확인해주세요.',
+      ));
     }
   }
 

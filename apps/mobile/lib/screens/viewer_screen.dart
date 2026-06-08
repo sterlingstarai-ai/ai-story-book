@@ -43,6 +43,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   bool _isLoadingAudio = false;
   bool _completionHandled = false;
   bool _progressRestored = false;
+  // 같은 세션에서 학습 시트 재오픈 시 동일 퀴즈 중복 기록 방지(성장 집계 왜곡 방지)
+  final Set<String> _recordedQuiz = {};
   bool _dualLanguageEnabled = false;
   bool _followReadingEnabled = false;
   bool _allowKakaoShare = true;
@@ -1155,6 +1157,11 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     bool correct,
     int questionIndex,
   ) async {
+    final key = '${page.pageNumber}:$questionIndex';
+    if (_recordedQuiz.contains(key)) {
+      return; // 이미 기록한 문항 — 시트 재오픈 중복 적재 방지
+    }
+    _recordedQuiz.add(key);
     try {
       await ref.read(apiClientProvider).recordQuizAnswer(
             bookId: widget.bookId,
@@ -1165,6 +1172,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
           );
     } catch (_) {
       // 조용히 무시 — 학습 응답 기록 실패가 읽기를 방해하지 않는다.
+      _recordedQuiz.remove(key); // 실패 시 재시도 허용
     }
   }
 

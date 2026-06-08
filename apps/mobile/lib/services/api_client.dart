@@ -213,7 +213,7 @@ class ApiClient {
       response.data,
       context: '/v1/characters/from-preset response',
     );
-    return data['character_id'].toString();
+    return _asString(data['character_id'], field: 'character_id');
   }
 
   /// 캐릭터 목록

@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
@@ -38,6 +39,14 @@ class LocalNotificationScheduler implements NotificationScheduler {
     }
     try {
       tzdata.initializeTimeZones();
+      // 디바이스 실제 타임존을 등록해야 매일 '로컬' 시각에 정확히 발사된다.
+      // (미설정 시 tz.local 이 UTC 로 남아 DST 지역에서 1시간 오발사.)
+      try {
+        final localName = await FlutterTimezone.getLocalTimezone();
+        tz.setLocalLocation(tz.getLocation(localName));
+      } catch (e) {
+        AppTelemetry.logInfo('notification_tz_local_failed', data: {'error': '$e'});
+      }
       const android = AndroidInitializationSettings('@mipmap/ic_launcher');
       const darwin = DarwinInitializationSettings(
         requestAlertPermission: false,

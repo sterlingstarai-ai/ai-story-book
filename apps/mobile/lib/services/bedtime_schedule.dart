@@ -2,11 +2,6 @@
 class BedtimeSchedule {
   const BedtimeSchedule._();
 
-  /// 로컬 캐시 키(백엔드 bedtime_notification_* 와 별개, 오프라인 재예약용).
-  static const String enabledKey = 'bedtime_notification_enabled_v1';
-  static const String hourKey = 'bedtime_notification_hour_v1';
-  static const String minuteKey = 'bedtime_notification_minute_v1';
-
   /// 잠자리 알림 ID(취소/갱신용 고정값).
   static const int notificationId = 7001;
 
