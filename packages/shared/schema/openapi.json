@@ -55,6 +55,81 @@
         "title": "AddCreditsRequest",
         "type": "object"
       },
+      "AnswerRequest": {
+        "properties": {
+          "book_id": {
+            "maxLength": 60,
+            "title": "Book Id",
+            "type": "string"
+          },
+          "correct": {
+            "title": "Correct",
+            "type": "boolean"
+          },
+          "page_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Number"
+          },
+          "question_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question Index"
+          },
+          "quiz_type": {
+            "enum": [
+              "vocab",
+              "comprehension",
+              "quiz"
+            ],
+            "title": "Quiz Type",
+            "type": "string"
+          },
+          "term": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Term"
+          },
+          "user_answer": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Answer"
+          }
+        },
+        "required": [
+          "book_id",
+          "quiz_type",
+          "correct"
+        ],
+        "title": "AnswerRequest",
+        "type": "object"
+      },
       "AssetStatusDetail": {
         "additionalProperties": false,
         "properties": {
@@ -4669,6 +4744,138 @@
         "summary": "Get Transactions",
         "tags": [
           "Credits"
+        ]
+      }
+    },
+    "/v1/growth": {
+      "get": {
+        "description": "아이의 읽기 성장 리포트 — 읽은 책·스트릭·학습 어휘·퀴즈 정확도·추정 읽기레벨.",
+        "operationId": "get_growth_v1_growth_get",
+        "parameters": [
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional active child profile id",
+            "in": "header",
+            "name": "x-profile-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional active child profile id",
+              "title": "X-Profile-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Growth",
+        "tags": [
+          "Growth"
+        ]
+      }
+    },
+    "/v1/growth/answers": {
+      "post": {
+        "description": "학습 퀴즈/어휘 응답 기록 — 성장 측정의 근거 데이터.",
+        "operationId": "record_answer_v1_growth_answers_post",
+        "parameters": [
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional active child profile id",
+            "in": "header",
+            "name": "x-profile-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional active child profile id",
+              "title": "X-Profile-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnswerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Record Answer",
+        "tags": [
+          "Growth"
         ]
       }
     },

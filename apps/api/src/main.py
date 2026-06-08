@@ -16,6 +16,7 @@ from src.routers import (
     library,
     credits,
     streak,
+    growth,
     iap,
     users,
     profiles,
@@ -145,9 +146,11 @@ async def lifespan(app: FastAPI):
     # Start job monitor (background task for stuck job detection)
     # 테스트 환경에서는 job_monitor 비활성화 (DB 세션 타이밍 이슈 방지)
     from src.services.job_monitor import job_monitor
+    from src.services.periodic_credits import periodic_credits
 
     if not settings.testing:
         await job_monitor.start()
+        await periodic_credits.start()
 
     yield
 
@@ -156,6 +159,7 @@ async def lifespan(app: FastAPI):
 
     if not settings.testing:
         await job_monitor.stop()
+        await periodic_credits.stop()
 
     # Close rate limiter Redis connection
     await rate_limiter.close()
@@ -459,6 +463,12 @@ app.include_router(
     streak.router,
     prefix="/v1/streak",
     tags=["Streak"],
+    dependencies=[Depends(check_rate_limit)],
+)
+app.include_router(
+    growth.router,
+    prefix="/v1/growth",
+    tags=["Growth"],
     dependencies=[Depends(check_rate_limit)],
 )
 app.include_router(

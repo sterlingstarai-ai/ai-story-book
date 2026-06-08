@@ -512,3 +512,29 @@ class PronunciationLog(Base):
     feedback = Column(Text, nullable=True)
     audio_url = Column(String(500), nullable=True)
     created_at = Column(DateTime, default=utcnow)
+
+
+class QuizAnswer(Base):
+    """학습 퀴즈/어휘 응답 기록 — '읽기 성장' 측정의 근거 데이터.
+
+    Page.vocab/comprehension/quiz(JSON)는 생성되어 쌓이지만, 지금까지 아이의
+    '응답'을 저장하는 곳이 없어 학습 진척을 측정할 수 없었다. 이 테이블이 그 공백을 메운다.
+    """
+
+    __tablename__ = "quiz_answers"
+    __table_args__ = (
+        Index("ix_quiz_answers_user_created", "user_key", "created_at"),
+        Index("ix_quiz_answers_user_book", "user_key", "book_id"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_key = Column(String(80), nullable=False)
+    profile_id = Column(String(60), nullable=True, index=True)
+    book_id = Column(String(60), ForeignKey("books.id"), nullable=False)
+    page_number = Column(Integer, nullable=True)
+    quiz_type = Column(String(20), nullable=False)  # vocab | comprehension | quiz
+    question_index = Column(Integer, nullable=True)
+    term = Column(String(120), nullable=True)  # 어휘 단어/문항 키 (vocab 학습 추적)
+    user_answer = Column(Text, nullable=True)
+    correct = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, default=utcnow)

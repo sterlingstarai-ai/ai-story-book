@@ -13,6 +13,7 @@ H. 패키징 (BookResult 생성, 업로드, 저장)
 """
 
 import asyncio
+import re
 from typing import Optional, Callable, Awaitable, TypeVar
 import uuid
 import structlog
@@ -580,46 +581,52 @@ async def generate_image_with_retry(prompt, job_id: str, page: int) -> str:
     ) from last_error
 
 
+# 출력 모더레이션 금칙 패턴
+# - 영어: 단어 경계(\b)로 검사 → "begun"의 "gun", "assassin"의 "sin" 같은 오탐 방지.
+# - 한국어: 구체적 표현으로 검사 → 단음절 광범위 패턴('피/술/총/죽이')은 정상 단어
+#   (피자·커피·예술·기술·총총·반죽 등)을 silent-fail시켜 churn을 유발하므로 사용하지 않음.
+_MOD_FORBIDDEN_EN = [
+    "kill", "murder", "blood", "sex", "drug", "alcohol", "violence",
+    "weapon", "gun", "knife", "porn", "suicide", "rape",
+]
+_MOD_FORBIDDEN_EN_RE = [
+    re.compile(r"\b" + re.escape(w) + r"\b", re.IGNORECASE) for w in _MOD_FORBIDDEN_EN
+]
+_MOD_FORBIDDEN_KO = [
+    # 살해·폭력
+    "죽여", "죽이는", "죽이고", "죽이려", "죽인다", "살해", "살인", "폭력",
+    "때려 죽", "패 죽", "목 졸", "목졸",
+    # 무기
+    "권총", "총격", "총살", "총을 쏘", "총을 쐈", "총으로", "총구", "기관총",
+    "엽총", "칼로 찌", "칼로 찔", "칼로 베", "흉기",
+    # 유혈·잔혹
+    "피범벅", "피투성", "유혈", "잔혹", "참수", "토막",
+    # 약물·음주·흡연
+    "마약", "담배", "흡연", "음주", "술에 취", "술을 마", "술주정",
+    "소주", "맥주", "막걸리",
+    # 성인
+    "섹스", "성행위", "음란", "포르노", "야한", "자살",
+]
+
+
 async def moderate_output(story: StoryDraft, image_urls: dict) -> bool:
-    """G. 출력 안전성 검사 - 생성된 콘텐츠 검증"""
-    # 금지 키워드 목록 (아동 부적절 콘텐츠)
-    forbidden_patterns = [
-        "죽이",
-        "살인",
-        "폭력",
-        "피",
-        "술",
-        "담배",
-        "마약",
-        "성인",
-        "섹스",
-        "야한",
-        "총",
-        "칼로 찔",
-        "kill",
-        "murder",
-        "blood",
-        "sex",
-        "drug",
-        "alcohol",
-        "violence",
-        "weapon",
-        "gun",
-        "knife",
-    ]
+    """G. 출력 안전성 검사 - 생성된 콘텐츠 검증.
 
-    # 모든 페이지 텍스트 검사
-    all_text = story.title.lower()
+    영어 금칙어는 단어 경계로, 한국어 금칙어는 구체적 표현으로 검사하여
+    '피자/예술/총총' 등 정상 단어의 오탐(=정상 동화의 silent generation failure)을 방지한다.
+    """
+    text = story.title
     for page in story.pages:
-        all_text += " " + page.text.lower()
+        text += " " + page.text
 
-    for pattern in forbidden_patterns:
-        if pattern.lower() in all_text:
-            logger.warning(
-                "Output moderation failed",
-                pattern=pattern,
-                title=story.title,
-            )
+    for pattern in _MOD_FORBIDDEN_KO:
+        if pattern in text:
+            logger.warning("Output moderation failed", pattern=pattern, title=story.title)
+            return False
+
+    for rx in _MOD_FORBIDDEN_EN_RE:
+        if rx.search(text):
+            logger.warning("Output moderation failed", pattern=rx.pattern, title=story.title)
             return False
 
     return True
