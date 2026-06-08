@@ -13,6 +13,7 @@ import '../services/parental_control_service.dart';
 import '../services/rewarded_ad_service.dart';
 import '../services/review_service.dart';
 import '../services/notification_scheduler.dart';
+import '../services/reading_trend.dart';
 import '../services/screen_time_service.dart';
 import '../services/user_service.dart';
 
@@ -675,6 +676,27 @@ final growthReportProvider = FutureProvider<GrowthReport>((ref) async {
     levelNumber: _toInt(levelMap['level'], fallback: 1),
     levelLabel: _toStringValue(levelMap['label'], fallback: '성장 중'),
   );
+});
+
+/// 최근 6주 주간 읽기 추이 — /v1/streak/history(날짜 목록)에서 클라이언트 집계.
+final weeklyReadingTrendProvider = FutureProvider<List<int>>((ref) async {
+  final api = ref.read(apiClientProvider);
+  final history = await api.getReadingHistory(days: 42);
+  final dates = <DateTime>[];
+  for (final item in history) {
+    if (item is! Map) {
+      continue;
+    }
+    final raw = item['date'];
+    if (raw == null) {
+      continue;
+    }
+    final dt = DateTime.tryParse(raw.toString());
+    if (dt != null) {
+      dates.add(dt);
+    }
+  }
+  return weeklyReadingCounts(dates, DateTime.now());
 });
 
 int _toInt(dynamic value, {int fallback = 0}) {

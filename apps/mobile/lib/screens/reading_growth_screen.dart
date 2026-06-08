@@ -28,6 +28,8 @@ class _ReadingGrowthScreenState extends ConsumerState<ReadingGrowthScreen> {
   @override
   Widget build(BuildContext context) {
     final reportAsync = ref.watch(growthReportProvider);
+    final weekly = ref.watch(weeklyReadingTrendProvider).asData?.value;
+    final hasTrend = weekly != null && weekly.any((c) => c > 0);
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -49,6 +51,10 @@ class _ReadingGrowthScreenState extends ConsumerState<ReadingGrowthScreen> {
               _LevelHero(report: report),
               const SizedBox(height: AppSpacing.md),
               _StatGrid(report: report),
+              if (hasTrend) ...[
+                const SizedBox(height: AppSpacing.md),
+                _WeeklyTrend(counts: weekly),
+              ],
               const SizedBox(height: AppSpacing.md),
               const _DisclaimerNote(),
             ],
@@ -218,6 +224,84 @@ class _StatCard extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 주간 읽기 추이 막대차트(C1 신규) — 읽기 기록에서 클라이언트 집계.
+class _WeeklyTrend extends StatelessWidget {
+  const _WeeklyTrend({required this.counts});
+
+  final List<int> counts;
+
+  @override
+  Widget build(BuildContext context) {
+    final maxC = counts.fold<int>(1, (m, c) => c > m ? c : m);
+    return Container(
+      key: const Key('growth_weekly_trend'),
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: AppColors.divider),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('주간 읽기 추이', style: AppTextStyles.heading3),
+          const SizedBox(height: 2),
+          Text('최근 ${counts.length}주 · 읽은 횟수', style: AppTextStyles.caption),
+          const SizedBox(height: AppSpacing.md),
+          SizedBox(
+            height: 120,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                for (var i = 0; i < counts.length; i++)
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 5),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          Text(
+                            '${counts[i]}',
+                            style: AppTextStyles.caption.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Container(
+                            height: 8 + (counts[i] / maxC) * 64,
+                            decoration: const BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  AppColors.primary,
+                                  AppColors.primaryHalf
+                                ],
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                              ),
+                              borderRadius: BorderRadius.vertical(
+                                top: Radius.circular(6),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            i == counts.length - 1 ? '이번' : '${i + 1}주',
+                            style: AppTextStyles.caption,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ],
       ),
