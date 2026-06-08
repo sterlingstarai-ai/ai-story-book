@@ -11,6 +11,7 @@ export 'settings_screen.dart';
 export 'profiles_screen.dart';
 export 'startup_gate_screen.dart';
 export 'parent_dashboard_screen.dart';
+export 'reading_growth_screen.dart';
 export 'voice_profiles_screen.dart';
 export 'branch_story_screen.dart';
 export 'pronunciation_practice_screen.dart';

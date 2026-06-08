@@ -387,6 +387,11 @@ Route<dynamic> buildAppRoute(RouteSettings settings) {
         builder: (_) => const ParentDashboardScreen(),
       );
 
+    case '/reading-growth':
+      return MaterialPageRoute(
+        builder: (_) => const ReadingGrowthScreen(),
+      );
+
     case '/voice-profiles':
       return MaterialPageRoute(
         builder: (_) => const VoiceProfilesScreen(),

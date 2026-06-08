@@ -90,6 +90,20 @@ class HomeScreen extends ConsumerWidget {
             ),
 
             const SliverToBoxAdapter(
+              child: SizedBox(height: AppSpacing.lg),
+            ),
+
+            // 읽기 성장 진입
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+                child: _GrowthEntryCard(
+                  onTap: () => Navigator.pushNamed(context, '/reading-growth'),
+                ),
+              ),
+            ),
+
+            const SliverToBoxAdapter(
               child: SizedBox(height: AppSpacing.xl),
             ),
 
@@ -554,4 +568,55 @@ class _RecentDayEntry {
     required this.label,
     required this.read,
   });
+}
+
+/// 홈에서 '읽기 성장' 리포트로 가는 진입 카드.
+class _GrowthEntryCard extends StatelessWidget {
+  const _GrowthEntryCard({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppRadius.md),
+      child: Container(
+        key: const Key('home_growth_entry'),
+        padding: const EdgeInsets.all(AppSpacing.md),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          border: Border.all(color: AppColors.divider),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(AppSpacing.sm),
+              decoration: BoxDecoration(
+                color: AppColors.primaryLight,
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+              ),
+              child: const Icon(Icons.trending_up_rounded,
+                  color: AppColors.primary, size: 22),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('읽기 성장 보기', style: AppTextStyles.heading3),
+                  SizedBox(height: 2),
+                  Text('우리 아이의 읽기 실력이 쌓이는 과정',
+                      style: AppTextStyles.bodySmall),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right_rounded,
+                color: AppColors.textHint),
+          ],
+        ),
+      ),
+    );
+  }
 }

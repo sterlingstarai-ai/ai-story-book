@@ -623,6 +623,54 @@ final homeStreakProvider = FutureProvider<HomeStreakSnapshot>((ref) async {
   );
 });
 
+/// 읽기 성장 리포트 (부모 성장카드)
+class GrowthReport {
+  const GrowthReport({
+    required this.booksRead,
+    required this.currentStreak,
+    required this.longestStreak,
+    required this.totalReadingDays,
+    required this.vocabLearned,
+    required this.quizTotal,
+    required this.quizCorrect,
+    required this.quizAccuracy,
+    required this.levelNumber,
+    required this.levelLabel,
+  });
+
+  final int booksRead;
+  final int currentStreak;
+  final int longestStreak;
+  final int totalReadingDays;
+  final int vocabLearned;
+  final int quizTotal;
+  final int quizCorrect;
+  final double quizAccuracy;
+  final int levelNumber;
+  final String levelLabel;
+}
+
+final growthReportProvider = FutureProvider<GrowthReport>((ref) async {
+  final api = ref.read(apiClientProvider);
+  final data = await api.getGrowthReport();
+  final level = data['reading_level'];
+  final levelMap = level is Map ? level : const <String, dynamic>{};
+  return GrowthReport(
+    booksRead: _toInt(data['books_read']),
+    currentStreak: _toInt(data['current_streak']),
+    longestStreak: _toInt(data['longest_streak']),
+    totalReadingDays: _toInt(data['total_reading_days']),
+    vocabLearned: _toInt(data['vocab_learned']),
+    quizTotal: _toInt(data['quiz_total']),
+    quizCorrect: _toInt(data['quiz_correct']),
+    quizAccuracy: (data['quiz_accuracy'] is num)
+        ? (data['quiz_accuracy'] as num).toDouble()
+        : 0.0,
+    levelNumber: _toInt(levelMap['level'], fallback: 1),
+    levelLabel: _toStringValue(levelMap['label'], fallback: '성장 중'),
+  );
+});
+
 int _toInt(dynamic value, {int fallback = 0}) {
   if (value is int) {
     return value;

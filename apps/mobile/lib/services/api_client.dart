@@ -631,6 +631,43 @@ class ApiClient {
     return _asJsonMap(response.data, context: '/v1/streak/info response');
   }
 
+  /// 읽기 성장 리포트 조회 (읽은 책·스트릭·어휘·정확도·추정 읽기레벨)
+  Future<Map<String, dynamic>> getGrowthReport() async {
+    final response = await _dio.get(
+      '/v1/growth',
+      options: Options(headers: _headers),
+    );
+
+    return _asJsonMap(response.data, context: '/v1/growth response');
+  }
+
+  /// 학습 퀴즈/어휘 응답 기록 (성장 측정 근거)
+  Future<Map<String, dynamic>> recordQuizAnswer({
+    required String bookId,
+    required String quizType,
+    required bool correct,
+    int? pageNumber,
+    int? questionIndex,
+    String? term,
+    String? userAnswer,
+  }) async {
+    final response = await _dio.post(
+      '/v1/growth/answers',
+      data: {
+        'book_id': bookId,
+        'quiz_type': quizType,
+        'correct': correct,
+        if (pageNumber != null) 'page_number': pageNumber,
+        if (questionIndex != null) 'question_index': questionIndex,
+        if (term != null) 'term': term,
+        if (userAnswer != null) 'user_answer': userAnswer,
+      },
+      options: Options(headers: _headers),
+    );
+
+    return _asJsonMap(response.data, context: '/v1/growth/answers response');
+  }
+
   /// 오늘의 동화 조회
   Future<Map<String, dynamic>> getTodayStory() async {
     final response = await _dio.get(
