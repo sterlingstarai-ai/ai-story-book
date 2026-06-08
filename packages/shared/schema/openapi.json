@@ -2798,6 +2798,50 @@
         "title": "Theme",
         "type": "string"
       },
+      "TodayGenerateRequest": {
+        "properties": {
+          "character_id": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Character Id"
+          },
+          "language": {
+            "$ref": "#/components/schemas/Language",
+            "default": "ko"
+          },
+          "protagonist_name": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Protagonist Name"
+          },
+          "style": {
+            "$ref": "#/components/schemas/Style"
+          },
+          "target_age": {
+            "$ref": "#/components/schemas/TargetAge"
+          }
+        },
+        "required": [
+          "target_age",
+          "style"
+        ],
+        "title": "TodayGenerateRequest",
+        "type": "object"
+      },
       "TodayStoryResponse": {
         "properties": {
           "book_id": {
@@ -6281,6 +6325,79 @@
           }
         },
         "summary": "Get Today Story",
+        "tags": [
+          "Streak"
+        ]
+      }
+    },
+    "/v1/streak/today/generate": {
+      "post": {
+        "description": "오늘의 동화를 '내 아이가 주인공'인 개인화 책으로 생성한다.\n\n오늘의 테마/주제를 시드로 일반 책 생성과 동일 경로(크레딧·무료한도)로 처리한다.\n이전에는 오늘의 동화 book_id 가 항상 null 이라 실제로 읽을 수 없었다 — 이 엔드포인트가 그 공백을 메운다.\n무료 사용자는 *생성* 한도가 있지만 *읽기*(POST /read)는 한도와 무관하게 스트릭을 유지한다.",
+        "operationId": "generate_today_story_v1_streak_today_generate_post",
+        "parameters": [
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional active child profile id",
+            "in": "header",
+            "name": "x-profile-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional active child profile id",
+              "title": "X-Profile-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TodayGenerateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateBookResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Generate Today Story",
         "tags": [
           "Streak"
         ]

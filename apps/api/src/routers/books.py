@@ -472,6 +472,57 @@ async def check_guardrails(db: AsyncSession, user_key: str):
         )
 
 
+async def schedule_book_generation(
+    db: AsyncSession,
+    background_tasks: BackgroundTasks,
+    job_id: str,
+    spec: BookSpec,
+    user_key: str,
+) -> None:
+    """책 생성 백그라운드 작업을 큐에 등록 (Celery/BackgroundTasks). 실패 시 크레딧 환불.
+
+    create_book 과 오늘동화 생성(streak)에서 공유한다.
+    """
+    if settings.testing:
+        logger.info(
+            "Skipping book generation background task in testing mode", job_id=job_id
+        )
+        return
+    try:
+        if settings.use_celery:
+            from src.services.tasks import generate_book_task
+
+            generate_book_task.delay(job_id, spec.model_dump(), user_key)
+        else:
+            background_tasks.add_task(start_book_generation, job_id, spec, user_key)
+    except Exception as e:
+        logger.error(
+            "Failed to enqueue book generation job",
+            job_id=job_id,
+            user_key=user_key[:8] + "...",
+            error=str(e),
+        )
+        try:
+            await _mark_job_failed_with_refund(
+                db=db,
+                user_key=user_key,
+                job_id=job_id,
+                fail_message="작업 큐 등록 실패",
+                refund_description="큐 등록 실패 환불",
+            )
+        except Exception as refund_error:
+            await db.rollback()
+            logger.error(
+                "Failed to refund credit after enqueue failure",
+                job_id=job_id,
+                user_key=user_key[:8] + "...",
+                error=str(refund_error),
+            )
+        raise InternalServerError(
+            "작업 시작에 실패했습니다. 크레딧은 환불되었습니다."
+        ) from e
+
+
 @router.post("", response_model=CreateBookResponse)
 async def create_book(
     spec: BookSpec,
@@ -526,45 +577,7 @@ async def create_book(
     )
 
     # Start background task (Celery or FastAPI BackgroundTasks)
-    # 테스트 환경에서는 background_tasks 실행 스킵 (테스트 안정화)
-    if settings.testing:
-        logger.info(
-            "Skipping book generation background task in testing mode", job_id=job_id
-        )
-    else:
-        try:
-            if settings.use_celery:
-                from src.services.tasks import generate_book_task
-
-                generate_book_task.delay(job_id, spec.model_dump(), user_key)
-            else:
-                background_tasks.add_task(start_book_generation, job_id, spec, user_key)
-        except Exception as e:
-            logger.error(
-                "Failed to enqueue book generation job",
-                job_id=job_id,
-                user_key=user_key[:8] + "...",
-                error=str(e),
-            )
-            try:
-                await _mark_job_failed_with_refund(
-                    db=db,
-                    user_key=user_key,
-                    job_id=job_id,
-                    fail_message="작업 큐 등록 실패",
-                    refund_description="큐 등록 실패 환불",
-                )
-            except Exception as refund_error:
-                await db.rollback()
-                logger.error(
-                    "Failed to refund credit after enqueue failure",
-                    job_id=job_id,
-                    user_key=user_key[:8] + "...",
-                    error=str(refund_error),
-                )
-            raise InternalServerError(
-                "작업 시작에 실패했습니다. 크레딧은 환불되었습니다."
-            ) from e
+    await schedule_book_generation(db, background_tasks, job_id, spec, user_key)
 
     return CreateBookResponse(
         job_id=job_id, status=JobState.queued, estimated_time_seconds=120

@@ -3,16 +3,33 @@ Streak Router
 오늘의 동화 및 스트릭 관련 API
 """
 
-from fastapi import APIRouter, Depends, Query
+import uuid
+
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Literal, Optional
 
 from src.core.database import get_db
 from src.core.dependencies import get_profile_id, get_user_key
 from src.core.exceptions import ValidationError
+from src.core.utils import utcnow
 from src.models.db import ChildProfile
+from src.models.dto import (
+    BookSpec,
+    CreateBookResponse,
+    JobState,
+    Language,
+    Style,
+    TargetAge,
+    Theme,
+)
+from src.routers.books import (
+    _create_job_with_credit,
+    _enforce_free_plan_create_limits,
+    schedule_book_generation,
+)
 from src.services.streak import streak_service, DAILY_THEMES
 
 router = APIRouter()
@@ -139,6 +156,68 @@ async def get_today_story(
         theme_name=theme_name,
         topic=story["topic"],
         book_id=story.get("book_id"),
+    )
+
+
+class TodayGenerateRequest(BaseModel):
+    target_age: TargetAge
+    style: Style
+    language: Language = Language.ko
+    protagonist_name: Optional[str] = Field(default=None, max_length=40)
+    character_id: Optional[str] = Field(default=None, max_length=60)
+
+
+@router.post("/today/generate", response_model=CreateBookResponse)
+async def generate_today_story(
+    request: TodayGenerateRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    user_key: str = Depends(get_user_key),
+    profile_id: Optional[str] = Depends(get_profile_id),
+):
+    """오늘의 동화를 '내 아이가 주인공'인 개인화 책으로 생성한다.
+
+    오늘의 테마/주제를 시드로 일반 책 생성과 동일 경로(크레딧·무료한도)로 처리한다.
+    이전에는 오늘의 동화 book_id 가 항상 null 이라 실제로 읽을 수 없었다 — 이 엔드포인트가 그 공백을 메운다.
+    무료 사용자는 *생성* 한도가 있지만 *읽기*(POST /read)는 한도와 무관하게 스트릭을 유지한다.
+    """
+    scoped_profile_id = await _validate_profile_ownership(db, user_key, profile_id)
+    today = await streak_service.get_today_story(db)
+
+    theme_name = next(
+        (t["name"] for t in DAILY_THEMES if t["theme"] == today["theme"]), None
+    )
+    try:
+        book_theme = Theme(theme_name) if theme_name else None
+    except ValueError:
+        book_theme = None
+
+    spec = BookSpec(
+        topic=today["topic"],
+        target_age=request.target_age,
+        style=request.style,
+        language=request.language,
+        theme=book_theme,
+        protagonist_name=request.protagonist_name,
+        character_id=request.character_id,
+    )
+
+    await _enforce_free_plan_create_limits(db, user_key, spec.style)
+
+    job_id = f"job_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    await _create_job_with_credit(
+        db=db,
+        user_key=user_key,
+        job_id=job_id,
+        current_step="오늘의 동화 대기 중",
+        credit_description="오늘의 동화 생성",
+        refund_description="오늘의 동화 생성 실패 환불",
+        profile_id=scoped_profile_id,
+    )
+    await schedule_book_generation(db, background_tasks, job_id, spec, user_key)
+
+    return CreateBookResponse(
+        job_id=job_id, status=JobState.queued, estimated_time_seconds=120
     )
 
 
