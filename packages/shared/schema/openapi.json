@@ -5235,6 +5235,67 @@
         ]
       }
     },
+    "/v1/growth/peers": {
+      "get": {
+        "description": "같은 연령대 또래 대비 비교 — 또래 평균·상위%·메달(참고용 추정).",
+        "operationId": "get_peer_comparison_v1_growth_peers_get",
+        "parameters": [
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional active child profile id",
+            "in": "header",
+            "name": "x-profile-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional active child profile id",
+              "title": "X-Profile-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Peer Comparison",
+        "tags": [
+          "Growth"
+        ]
+      }
+    },
     "/v1/iap/verify": {
       "post": {
         "description": "결제 영수증 검증 및 보상 지급.",

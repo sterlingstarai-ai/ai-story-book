@@ -15,23 +15,52 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
   bool _privacy = false;
   bool _photo = false;
   bool _dataProcess = false;
+  bool _submitting = false;
 
   bool get _canContinue => _privacy && _photo && _dataProcess;
 
+  void _setAll(bool value) {
+    setState(() {
+      _privacy = value;
+      _photo = value;
+      _dataProcess = value;
+    });
+  }
+
   Future<void> _accept() async {
-    if (!_canContinue) {
+    if (!_canContinue || _submitting) {
       return;
     }
+    setState(() => _submitting = true);
 
     final prefs = ref.read(sharedPreferencesProvider);
+    final apiClient = ref.read(apiClientProvider);
     final parental = ref.read(parentalControlServiceProvider);
-    await parental.setConsent(prefs, true);
 
-    if (!mounted) {
-      return;
+    try {
+      // 1) 서버에 동의 기록(사진 기능 게이트의 근거) — 성공해야 진행
+      await apiClient.grantConsent(
+        privacy: _privacy,
+        photos: _photo,
+        dataProcessing: _dataProcess,
+      );
+      // 2) 로컬 플래그 저장
+      await parental.setConsent(prefs, true);
+      if (!mounted) {
+        return;
+      }
+      Navigator.pushReplacementNamed(context, '/onboarding');
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _submitting = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('동의 저장에 실패했어요. 네트워크 확인 후 다시 시도해주세요.'),
+        ),
+      );
     }
-
-    Navigator.pushReplacementNamed(context, '/onboarding');
   }
 
   void _reject() {
@@ -68,29 +97,60 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
                 style: AppTextStyles.bodySmall,
               ),
               const SizedBox(height: AppSpacing.xl),
+              Container(
+                decoration: BoxDecoration(
+                  color: AppColors.primaryLight,
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                ),
+                child: CheckboxListTile(
+                  value: _canContinue,
+                  onChanged: (value) => _setAll(value ?? false),
+                  title: const Text(
+                    '약관 전체 동의',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  subtitle: const Text('아래 항목에 모두 동의합니다.'),
+                ),
+              ),
+              const Divider(height: AppSpacing.lg),
               CheckboxListTile(
                 value: _privacy,
                 onChanged: (value) => setState(() => _privacy = value ?? false),
-                title: const Text('개인정보 수집 및 이용에 동의'),
+                title: const Text('개인정보 수집 및 이용에 동의 (필수)'),
               ),
               CheckboxListTile(
                 value: _photo,
                 onChanged: (value) => setState(() => _photo = value ?? false),
-                title: const Text('사진 데이터 처리(캐릭터 생성)에 동의'),
+                title: const Text('사진 데이터 처리(우리 아이 주인공)에 동의 (필수)'),
+                subtitle: const Text(
+                  '업로드한 사진은 동화 캐릭터 생성을 위해 AI로 처리(해외 서버 포함)되며, '
+                  '동의 철회 시 사진·캐릭터가 즉시 파기됩니다.',
+                  style: TextStyle(fontSize: 12),
+                ),
+                isThreeLine: true,
               ),
               CheckboxListTile(
                 value: _dataProcess,
                 onChanged: (value) =>
                     setState(() => _dataProcess = value ?? false),
-                title: const Text('데이터 처리 및 저장 정책에 동의'),
+                title: const Text('데이터 처리 및 저장 정책에 동의 (필수)'),
               ),
               const Spacer(),
               SizedBox(
                 width: double.infinity,
                 height: 64,
                 child: ElevatedButton(
-                  onPressed: _canContinue ? _accept : null,
-                  child: const Text('동의하고 시작하기'),
+                  onPressed: (_canContinue && !_submitting) ? _accept : null,
+                  child: _submitting
+                      ? const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text('동의하고 시작하기'),
                 ),
               ),
               const SizedBox(height: AppSpacing.sm),

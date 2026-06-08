@@ -680,6 +680,57 @@ class ApiClient {
     return _asJsonMap(response.data, context: '/v1/growth response');
   }
 
+  /// 같은 연령대 또래 대비 비교 (또래 평균·상위%·메달)
+  Future<Map<String, dynamic>> getPeerComparison() async {
+    final response = await _dio.get(
+      '/v1/growth/peers',
+      options: Options(headers: _headers),
+    );
+
+    return _asJsonMap(response.data, context: '/v1/growth/peers response');
+  }
+
+  /// 보호자 동의를 서버에 기록 (약관 동의 시 호출 — 사진 기능 게이트의 근거)
+  Future<Map<String, dynamic>> grantConsent({
+    required bool privacy,
+    required bool photos,
+    required bool dataProcessing,
+    String? consentVersion,
+  }) async {
+    final response = await _dio.post(
+      '/v1/consent',
+      data: {
+        'privacy': privacy,
+        'photos': photos,
+        'data_processing': dataProcessing,
+        if (consentVersion != null) 'consent_version': consentVersion,
+      },
+      options: Options(headers: _headers),
+    );
+
+    return _asJsonMap(response.data, context: '/v1/consent response');
+  }
+
+  /// 현재 보호자 동의 상태 조회
+  Future<Map<String, dynamic>> getConsent() async {
+    final response = await _dio.get(
+      '/v1/consent',
+      options: Options(headers: _headers),
+    );
+
+    return _asJsonMap(response.data, context: '/v1/consent get response');
+  }
+
+  /// 보호자 동의 철회 (아동 사진·파생 캐릭터 파기)
+  Future<Map<String, dynamic>> revokeConsent() async {
+    final response = await _dio.post(
+      '/v1/consent/revoke',
+      options: Options(headers: _headers),
+    );
+
+    return _asJsonMap(response.data, context: '/v1/consent/revoke response');
+  }
+
   /// 학습 퀴즈/어휘 응답 기록 (성장 측정 근거)
   Future<Map<String, dynamic>> recordQuizAnswer({
     required String bookId,

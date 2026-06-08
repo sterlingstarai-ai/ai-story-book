@@ -699,6 +699,57 @@ final weeklyReadingTrendProvider = FutureProvider<List<int>>((ref) async {
   return weeklyReadingCounts(dates, DateTime.now());
 });
 
+/// 같은 연령대 또래 대비 비교 — /v1/growth/peers.
+class PeerComparison {
+  const PeerComparison({
+    required this.ageBand,
+    required this.peerCount,
+    required this.isBaseline,
+    required this.myBooks,
+    required this.peerBooks,
+    required this.myVocab,
+    required this.peerVocab,
+    required this.myAccuracy,
+    required this.peerAccuracy,
+    required this.topPercent,
+    required this.medal,
+  });
+
+  final String ageBand;
+  final int peerCount;
+  final bool isBaseline;
+  final int myBooks;
+  final double peerBooks;
+  final int myVocab;
+  final double peerVocab;
+  final double myAccuracy;
+  final double peerAccuracy;
+  final int topPercent;
+  final String medal;
+}
+
+final peerComparisonProvider = FutureProvider<PeerComparison>((ref) async {
+  final api = ref.read(apiClientProvider);
+  final data = await api.getPeerComparison();
+  final my = data['my'] is Map ? data['my'] as Map : const <dynamic, dynamic>{};
+  final avg =
+      data['peer_avg'] is Map ? data['peer_avg'] as Map : const <dynamic, dynamic>{};
+  double toDouble(dynamic v) => v is num ? v.toDouble() : 0.0;
+  return PeerComparison(
+    ageBand: _toStringValue(data['age_band'], fallback: '5-7'),
+    peerCount: _toInt(data['peer_count']),
+    isBaseline: data['is_baseline'] == true,
+    myBooks: _toInt(my['books_read']),
+    peerBooks: toDouble(avg['books_read']),
+    myVocab: _toInt(my['vocab_learned']),
+    peerVocab: toDouble(avg['vocab_learned']),
+    myAccuracy: toDouble(my['quiz_accuracy']),
+    peerAccuracy: toDouble(avg['quiz_accuracy']),
+    topPercent: _toInt(data['top_percent'], fallback: 50),
+    medal: _toStringValue(data['medal'], fallback: 'none'),
+  );
+});
+
 int _toInt(dynamic value, {int fallback = 0}) {
   if (value is int) {
     return value;

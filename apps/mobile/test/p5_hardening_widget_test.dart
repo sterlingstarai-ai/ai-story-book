@@ -179,9 +179,29 @@ class _InteractiveMockApiClient extends ApiClient {
   int _profileSeq = 1;
   int _voiceProfileSeq = 1;
 
+  bool grantConsentCalled = false;
+
   @override
   Future<Map<String, dynamic>> getSettings() async =>
       Map<String, dynamic>.from(_settingsPayload);
+
+  @override
+  Future<Map<String, dynamic>> grantConsent({
+    required bool privacy,
+    required bool photos,
+    required bool dataProcessing,
+    String? consentVersion,
+  }) async {
+    grantConsentCalled = true;
+    return {
+      'granted': privacy && dataProcessing,
+      'privacy': privacy,
+      'photos': photos,
+      'data_processing': dataProcessing,
+      'consent_version': consentVersion ?? 'v1',
+      'revoked': false,
+    };
+  }
 
   @override
   Future<void> patchSettings(Map<String, dynamic> payload) async {
@@ -409,10 +429,12 @@ void main() {
     testWidgets('ConsentScreen requires all approvals before continuing',
         (tester) async {
       final prefs = await _createPrefs();
+      final api = _InteractiveMockApiClient();
 
       await tester.pumpWidget(_buildHarness(
         const ConsentScreen(),
         prefs: prefs,
+        overrides: [apiClientProvider.overrideWithValue(api)],
       ));
       await tester.pumpAndSettle();
 
@@ -421,14 +443,16 @@ void main() {
       );
       expect(continueButton.onPressed, isNull);
 
-      await tester.tap(find.text('개인정보 수집 및 이용에 동의'));
-      await tester.tap(find.text('사진 데이터 처리(캐릭터 생성)에 동의'));
-      await tester.tap(find.text('데이터 처리 및 저장 정책에 동의'));
+      await tester.tap(find.text('개인정보 수집 및 이용에 동의 (필수)'));
+      await tester.tap(find.text('사진 데이터 처리(우리 아이 주인공)에 동의 (필수)'));
+      await tester.tap(find.text('데이터 처리 및 저장 정책에 동의 (필수)'));
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('동의하고 시작하기'));
       await tester.pumpAndSettle();
 
+      // 서버에 동의가 실제로 전송됐는지(게이트의 근거) + 로컬 플래그 + 라우팅
+      expect(api.grantConsentCalled, isTrue);
       expect(
         prefs.getBool(ParentalControlService.consentGrantedKey),
         isTrue,

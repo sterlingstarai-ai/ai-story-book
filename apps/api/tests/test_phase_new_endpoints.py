@@ -480,7 +480,18 @@ async def test_delete_me_removes_profiles_and_characters(
     client: AsyncClient,
     headers: dict,
     valid_character: dict,
+    monkeypatch,
 ):
+    from src.services.storage import storage_service
+
+    deleted_prefixes: list[str] = []
+
+    async def _spy(prefix):
+        deleted_prefixes.append(prefix)
+        return 0
+
+    monkeypatch.setattr(storage_service, "delete_prefix", _spy)
+
     profile_res = await client.post(
         "/v1/profiles",
         json={"name": "삭제테스트", "age_band": "5-7"},
@@ -522,6 +533,9 @@ async def test_delete_me_removes_profiles_and_characters(
     voice_after = await client.get("/v1/voice-profiles", headers=headers)
     assert voice_after.status_code == 200
     assert voice_after.json()["profiles"] == []
+
+    # 아동 사진/그림 원본(characters/{id}/) 스토리지 파기까지 수행됐는지(삭제권)
+    assert any(p.startswith("characters/") for p in deleted_prefixes)
 
 
 @pytest.mark.asyncio

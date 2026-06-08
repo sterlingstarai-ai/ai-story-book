@@ -56,6 +56,8 @@ class _ReadingGrowthScreenState extends ConsumerState<ReadingGrowthScreen> {
                 _WeeklyTrend(counts: weekly),
               ],
               const SizedBox(height: AppSpacing.md),
+              const _PeerComparison(),
+              const SizedBox(height: AppSpacing.md),
               const _DisclaimerNote(),
             ],
           ),
@@ -304,6 +306,168 @@ class _WeeklyTrend extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 또래 비교(경쟁 동기) — /v1/growth/peers. 데이터 없으면 조용히 숨김.
+class _PeerComparison extends ConsumerWidget {
+  const _PeerComparison();
+
+  static const _medalEmoji = {
+    'gold': '🥇',
+    'silver': '🥈',
+    'bronze': '🥉',
+    'none': '🌱',
+  };
+
+  String _encourage(int topPercent) {
+    if (topPercent <= 10) {
+      return '또래 중 최상위! 정말 잘하고 있어요 🎉';
+    }
+    if (topPercent <= 30) {
+      return '또래보다 앞서가고 있어요 👍';
+    }
+    if (topPercent <= 60) {
+      return '또래와 비슷하게 잘 읽고 있어요';
+    }
+    return '조금만 더 읽으면 또래를 따라잡아요!';
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return ref.watch(peerComparisonProvider).maybeWhen(
+          data: _card,
+          orElse: () => const SizedBox.shrink(),
+        );
+  }
+
+  Widget _card(PeerComparison peer) {
+    final subtitle = peer.isBaseline
+        ? '또래 표본이 적어 ${peer.ageBand}세 기준값과 비교했어요 (참고용)'
+        : '같은 ${peer.ageBand}세 또래 ${peer.peerCount}명 기준';
+    return Container(
+      key: const Key('growth_peer_comparison'),
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: AppColors.divider),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('또래 비교', style: AppTextStyles.heading3),
+          const SizedBox(height: 2),
+          Text(subtitle, style: AppTextStyles.caption),
+          const SizedBox(height: AppSpacing.md),
+          Row(
+            children: [
+              Text(_medalEmoji[peer.medal] ?? '🌱',
+                  style: const TextStyle(fontSize: 34)),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '상위 ${peer.topPercent}%',
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                    Text(_encourage(peer.topPercent),
+                        style: AppTextStyles.bodySmall),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          _CompareRow(
+            label: '읽은 책',
+            mine: peer.myBooks.toDouble(),
+            peerValue: peer.peerBooks,
+            mineText: '${peer.myBooks}권',
+            peerText: '또래 ${peer.peerBooks.toStringAsFixed(1)}권',
+          ),
+          _CompareRow(
+            label: '학습 어휘',
+            mine: peer.myVocab.toDouble(),
+            peerValue: peer.peerVocab,
+            mineText: '${peer.myVocab}개',
+            peerText: '또래 ${peer.peerVocab.toStringAsFixed(1)}개',
+          ),
+          _CompareRow(
+            label: '퀴즈 정확도',
+            mine: peer.myAccuracy * 100,
+            peerValue: peer.peerAccuracy * 100,
+            mineText: '${(peer.myAccuracy * 100).round()}%',
+            peerText: '또래 ${(peer.peerAccuracy * 100).round()}%',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CompareRow extends StatelessWidget {
+  const _CompareRow({
+    required this.label,
+    required this.mine,
+    required this.peerValue,
+    required this.mineText,
+    required this.peerText,
+  });
+
+  final String label;
+  final double mine;
+  final double peerValue;
+  final String mineText;
+  final String peerText;
+
+  @override
+  Widget build(BuildContext context) {
+    final maxV = [mine, peerValue, 1.0].reduce((a, b) => a > b ? a : b);
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.sm),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(child: Text(label, style: AppTextStyles.bodySmall)),
+              Text(
+                mineText,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.primary,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Text(peerText, style: AppTextStyles.caption),
+            ],
+          ),
+          const SizedBox(height: 6),
+          _bar(mine / maxV, AppColors.primary),
+          const SizedBox(height: 4),
+          _bar(peerValue / maxV, AppColors.textHint),
+        ],
+      ),
+    );
+  }
+
+  Widget _bar(double ratio, Color color) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(AppRadius.sm),
+      child: LinearProgressIndicator(
+        value: ratio.clamp(0.0, 1.0),
+        minHeight: 8,
+        backgroundColor: AppColors.background,
+        valueColor: AlwaysStoppedAnimation<Color>(color),
       ),
     );
   }

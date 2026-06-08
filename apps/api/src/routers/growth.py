@@ -33,6 +33,18 @@ async def get_growth(
     return await growth_service.get_growth_report(db, user_key, profile_id=profile_id)
 
 
+@router.get("/peers")
+async def get_peer_comparison(
+    db: AsyncSession = Depends(get_db),
+    user_key: str = Depends(get_user_key),
+    profile_id: Optional[str] = Depends(get_profile_id),
+):
+    """같은 연령대 또래 대비 비교 — 또래 평균·상위%·메달(참고용 추정)."""
+    return await growth_service.get_peer_comparison(
+        db, user_key, profile_id=profile_id
+    )
+
+
 @router.post("/answers")
 async def record_answer(
     payload: AnswerRequest,

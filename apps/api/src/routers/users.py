@@ -35,7 +35,7 @@ from src.models.db import (
     BranchStoryNode,
     BranchStoryEdge,
 )
-from src.services.storage import delete_book_files
+from src.services.storage import delete_book_files, storage_service
 
 router = APIRouter()
 logger = structlog.get_logger()
@@ -58,6 +58,11 @@ async def delete_my_data(
     book_ids = [book_id for (book_id,) in books_result.all()]
     jobs_result = await db.execute(select(Job.id).where(Job.user_key == user_key))
     job_ids = [job_id for (job_id,) in jobs_result.all()]
+    # 캐릭터 원본 사진/그림(characters/{id}/...)도 파기해야 함 — 행 삭제 전 id 확보
+    chars_result = await db.execute(
+        select(Character.id).where(Character.user_key == user_key)
+    )
+    character_ids = [cid for (cid,) in chars_result.all()]
 
     # FK 순서를 고려해 자식/로그 테이블부터 삭제
     if book_ids:
@@ -100,6 +105,18 @@ async def delete_my_data(
                 "Failed to delete book files during user deletion",
                 user_key=user_key,
                 book_id=book_id,
+                error=str(exc),
+            )
+    # 아동 사진/그림 파생 캐릭터 원본 파기(PIPA/GDPR 삭제권 — revoke 경로와 동일)
+    for character_id in character_ids:
+        try:
+            await storage_service.delete_prefix(f"characters/{character_id}/")
+        except Exception as exc:
+            storage_failures += 1
+            logger.warning(
+                "Failed to delete character files during user deletion",
+                user_key=user_key,
+                character_id=character_id,
                 error=str(exc),
             )
 

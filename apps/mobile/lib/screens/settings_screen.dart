@@ -219,7 +219,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
 
     final prefs = ref.read(sharedPreferencesProvider);
+    final apiClient = ref.read(apiClientProvider);
     final parental = ref.read(parentalControlServiceProvider);
+
+    // 서버에 철회를 먼저 반영해야 사진 게이트가 실제로 닫히고 아동 사진·파생
+    // 캐릭터가 파기된다(성공해야 로컬 철회 진행 — grant 배선과 대칭).
+    try {
+      await apiClient.revokeConsent();
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('철회 처리에 실패했어요. 네트워크 확인 후 다시 시도해주세요.'),
+        ),
+      );
+      return;
+    }
+
     await parental.setConsent(prefs, false);
 
     if (!mounted) {
