@@ -1141,9 +1141,31 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
         builder: (context, scrollController) => _LearningModeSheet(
           page: page,
           scrollController: scrollController,
+          onQuizAnswered: (correct, questionIndex) {
+            unawaited(_recordQuizAnswer(page, correct, questionIndex));
+          },
         ),
       ),
     );
+  }
+
+  /// 퀴즈 응답을 성장 측정에 기록한다(실패는 읽기 흐름을 막지 않음).
+  Future<void> _recordQuizAnswer(
+    PageResult page,
+    bool correct,
+    int questionIndex,
+  ) async {
+    try {
+      await ref.read(apiClientProvider).recordQuizAnswer(
+            bookId: widget.bookId,
+            quizType: 'quiz',
+            correct: correct,
+            pageNumber: page.pageNumber,
+            questionIndex: questionIndex,
+          );
+    } catch (_) {
+      // 조용히 무시 — 학습 응답 기록 실패가 읽기를 방해하지 않는다.
+    }
   }
 
   /// 부모 가이드 표시
@@ -1941,10 +1963,12 @@ class _LanguageToggle extends StatelessWidget {
 class _LearningModeSheet extends StatefulWidget {
   final PageResult page;
   final ScrollController scrollController;
+  final void Function(bool correct, int questionIndex)? onQuizAnswered;
 
   const _LearningModeSheet({
     required this.page,
     required this.scrollController,
+    this.onQuizAnswered,
   });
 
   @override
@@ -2008,7 +2032,10 @@ class _LearningModeSheetState extends State<_LearningModeSheet>
               _VocabTab(vocab: widget.page.vocab ?? []),
               _ComprehensionTab(
                   questions: widget.page.comprehensionQuestions ?? []),
-              _QuizTab(quiz: widget.page.quiz ?? []),
+              _QuizTab(
+                quiz: widget.page.quiz ?? [],
+                onAnswered: widget.onQuizAnswered,
+              ),
             ],
           ),
         ),
@@ -2147,8 +2174,9 @@ class _ComprehensionCardState extends State<_ComprehensionCard> {
 /// 퀴즈 탭
 class _QuizTab extends StatelessWidget {
   final List<QuizItem> quiz;
+  final void Function(bool correct, int questionIndex)? onAnswered;
 
-  const _QuizTab({required this.quiz});
+  const _QuizTab({required this.quiz, this.onAnswered});
 
   @override
   Widget build(BuildContext context) {
@@ -2161,7 +2189,7 @@ class _QuizTab extends StatelessWidget {
       itemCount: quiz.length,
       itemBuilder: (context, index) {
         final q = quiz[index];
-        return _QuizCard(quiz: q, index: index + 1);
+        return _QuizCard(quiz: q, index: index + 1, onAnswered: onAnswered);
       },
     );
   }
@@ -2170,8 +2198,9 @@ class _QuizTab extends StatelessWidget {
 class _QuizCard extends StatefulWidget {
   final QuizItem quiz;
   final int index;
+  final void Function(bool correct, int questionIndex)? onAnswered;
 
-  const _QuizCard({required this.quiz, required this.index});
+  const _QuizCard({required this.quiz, required this.index, this.onAnswered});
 
   @override
   State<_QuizCard> createState() => _QuizCardState();
@@ -2233,7 +2262,11 @@ class _QuizCardState extends State<_QuizCard> {
             }),
             if (_selectedIndex != null && !_showResult)
               ElevatedButton(
-                onPressed: () => setState(() => _showResult = true),
+                onPressed: () {
+                  final correct = _selectedIndex == widget.quiz.answerIndex;
+                  setState(() => _showResult = true);
+                  widget.onAnswered?.call(correct, widget.index - 1);
+                },
                 child: const Text('정답 확인'),
               ),
             if (_showResult) ...[
