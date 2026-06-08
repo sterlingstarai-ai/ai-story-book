@@ -313,10 +313,12 @@ async def start_book_generation(
 
         # F. 이미지 생성 (cover + pages)
         total_images = len(image_prompts.pages) + 1  # +1 for cover
+        face_reference_url = await _resolve_face_reference(normalized_spec)
         image_urls = await generate_all_images(
             job_id=job_id,
             image_prompts=image_prompts,
             total_images=total_images,
+            reference_image_url=face_reference_url,
         )
 
         # G. 출력 안전성 검사 (이미지)
@@ -500,13 +502,51 @@ async def generate_learning_assets(story: StoryDraft) -> Optional[LearningAssets
     return assets
 
 
+async def _resolve_face_reference(spec) -> Optional[str]:
+    """주인공이 사진 파생(from_photo) 캐릭터면 그 원본 사진 URL을 얼굴 레퍼런스로 반환.
+
+    얼굴 보존 provider(gemini)에서만 사용 — 그 외 provider는 레퍼런스를 무시하므로 조회도 생략.
+    """
+    if settings.image_provider != "gemini":
+        return None
+    char_ids = list(getattr(spec, "character_ids", None) or [])
+    if getattr(spec, "character_id", None):
+        char_ids.append(spec.character_id)
+    char_ids = [c for c in char_ids if c]
+    if not char_ids:
+        return None
+    try:
+        from sqlalchemy import select
+
+        from src.core.database import AsyncSessionLocal
+        from src.models.db import Character
+
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(Character.source_image_url).where(
+                    Character.id.in_(char_ids),
+                    Character.from_photo.is_(True),
+                    Character.source_image_url.isnot(None),
+                )
+            )
+            row = result.first()
+            return row[0] if row else None
+    except Exception as e:  # pragma: no cover - 방어적
+        logger.warning("face reference resolve failed", error=str(e))
+        return None
+
+
 async def generate_all_images(
     job_id: str,
     image_prompts: ImagePrompts,
     total_images: int,
+    reference_image_url: Optional[str] = None,
 ) -> dict[int, str]:
     """
     F. 이미지 생성 (cover + pages)
+
+    reference_image_url: 주인공 아이 얼굴 사진 — 얼굴 보존 provider(gemini)에서
+    표지·모든 페이지에 같은 아이 얼굴을 동화체로 일관 반영하는 데 쓰인다.
 
     Returns:
         dict mapping page number to image URL (0 = cover)
@@ -520,7 +560,9 @@ async def generate_all_images(
 
     # Generate cover
     await update_job_status(job_id, "표지 그리는 중...", int(current_progress))
-    cover_url = await generate_image_with_retry(image_prompts.cover, job_id, 0)
+    cover_url = await generate_image_with_retry(
+        image_prompts.cover, job_id, 0, reference_image_url=reference_image_url
+    )
     image_urls[0] = cover_url
     current_progress += progress_per_image
 
@@ -534,7 +576,9 @@ async def generate_all_images(
                 f"그림 그리는 중... ({page_num}/{len(image_prompts.pages)})",
                 int(current_progress + (page_num * progress_per_image)),
             )
-            return await generate_image_with_retry(prompt, job_id, page_num)
+            return await generate_image_with_retry(
+                prompt, job_id, page_num, reference_image_url=reference_image_url
+            )
 
     tasks = [
         generate_with_semaphore(prompt, prompt.page) for prompt in image_prompts.pages
@@ -573,18 +617,20 @@ async def generate_all_images(
     return image_urls
 
 
-async def generate_image(prompt) -> str:
+async def generate_image(prompt, reference_image_url: Optional[str] = None) -> str:
     """Thin wrapper for easier testing/patching."""
     from src.services.image import generate_image as image_generate
 
-    return await image_generate(prompt)
+    return await image_generate(prompt, reference_image_url=reference_image_url)
 
 
 def _is_placeholder_image_url(url: str) -> bool:
     return isinstance(url, str) and "placeholder" in url
 
 
-async def generate_image_with_retry(prompt, job_id: str, page: int) -> str:
+async def generate_image_with_retry(
+    prompt, job_id: str, page: int, reference_image_url: Optional[str] = None
+) -> str:
     """이미지 생성 (재시도 포함)"""
     max_retries = max(1, int(settings.image_max_retries))
     last_error: Exception | None = None
@@ -592,7 +638,8 @@ async def generate_image_with_retry(prompt, job_id: str, page: int) -> str:
     for attempt in range(max_retries):
         try:
             url = await asyncio.wait_for(
-                generate_image(prompt), timeout=settings.image_timeout
+                generate_image(prompt, reference_image_url=reference_image_url),
+                timeout=settings.image_timeout,
             )
             return url
 

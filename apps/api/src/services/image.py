@@ -2,6 +2,11 @@
 Image Generation Service: 이미지 생성 API 연동
 """
 
+from __future__ import annotations
+
+import base64
+import uuid
+
 import httpx
 import asyncio
 import structlog
@@ -13,15 +18,23 @@ from src.models.dto import ImagePrompt
 logger = structlog.get_logger()
 
 
-async def generate_image(prompt: ImagePrompt) -> str:
+async def generate_image(
+    prompt: ImagePrompt, reference_image_url: str | None = None
+) -> str:
     """
-    Generate image from prompt
+    Generate image from prompt.
+
+    reference_image_url: 아이 얼굴 사진(또는 캐릭터 원본) URL. 얼굴 보존을 지원하는
+    provider(gemini)에서 주인공 얼굴을 모든 페이지에 동화체로 일관 반영하는 데 쓰인다.
+    미지원 provider는 무시한다.
 
     Returns:
         Image URL
     """
     if settings.image_provider == "openai":
         return await _generate_openai(prompt)
+    elif settings.image_provider == "gemini":
+        return await _generate_gemini(prompt, reference_image_url)
     elif settings.image_provider == "replicate":
         return await _generate_replicate(prompt)
     elif settings.image_provider == "fal":
@@ -93,6 +106,110 @@ async def _generate_openai(prompt: ImagePrompt) -> str:
         raise ImageError(
             ErrorCode.IMAGE_FAILED, "No output from OpenAI Image", page=prompt.page
         )
+
+
+_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+
+
+async def _fetch_image_as_base64(url: str) -> tuple[str, str] | None:
+    """레퍼런스 이미지 URL → (base64, mime_type). 실패 시 None(얼굴보존 없이 진행)."""
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(url)
+            if resp.status_code != 200:
+                return None
+            mime = resp.headers.get("content-type", "image/jpeg").split(";")[0]
+            return base64.b64encode(resp.content).decode("ascii"), mime
+    except Exception as e:  # pragma: no cover - 방어적
+        logger.warning("reference image fetch failed", error=str(e))
+        return None
+
+
+async def _generate_gemini(
+    prompt: ImagePrompt, reference_image_url: str | None = None
+) -> str:
+    """Gemini 이미지 생성(Nano Banana Pro / gemini-3-pro-image-preview).
+
+    reference_image_url 이 있으면 아이 얼굴을 inline 레퍼런스로 넣어 모든 페이지에
+    같은 아이 얼굴을 동화체로 보존한다. 생성 이미지는 스토리지에 업로드 후 URL 반환.
+    """
+    if not settings.image_api_key:
+        raise ImageError(
+            ErrorCode.IMAGE_FAILED,
+            "Gemini API 키가 설정되지 않았습니다. IMAGE_API_KEY 환경 변수를 설정해주세요.",
+            page=prompt.page,
+        )
+
+    parts: list[dict] = []
+    if reference_image_url:
+        fetched = await _fetch_image_as_base64(reference_image_url)
+        if fetched:
+            ref_b64, ref_mime = fetched
+            parts.append(
+                {"text": "아래 사진 속 아이의 얼굴 생김새(눈·코·머리·피부)를 유지하되, 동화 그림책 일러스트 스타일로 그려라. 실사 사진이 아니라 따뜻한 동화 삽화로 변환한다."}
+            )
+            parts.append({"inline_data": {"mime_type": ref_mime, "data": ref_b64}})
+    parts.append({"text": prompt.positive_prompt})
+
+    body = {
+        "contents": [{"parts": parts}],
+        "generationConfig": {"responseModalities": ["IMAGE"]},
+    }
+
+    async with httpx.AsyncClient(timeout=settings.image_timeout) as client:
+        response = await client.post(
+            f"{_GEMINI_BASE_URL}/{settings.image_model}:generateContent",
+            params={"key": settings.image_api_key},
+            headers={"Content-Type": "application/json"},
+            json=body,
+        )
+
+        if response.status_code == 429:
+            logger.warning("Gemini rate limit hit", page=prompt.page)
+            raise ImageError(
+                ErrorCode.IMAGE_RATE_LIMIT, "Gemini API 요청 한도 초과", page=prompt.page
+            )
+        if response.status_code != 200:
+            logger.error("Gemini Image API error", status=response.status_code)
+            raise ImageError(
+                ErrorCode.IMAGE_FAILED,
+                f"Gemini Image API error: {response.status_code}",
+                page=prompt.page,
+            )
+
+        try:
+            result = response.json()
+        except Exception:
+            raise ImageError(
+                ErrorCode.IMAGE_FAILED, "Invalid JSON from Gemini", page=prompt.page
+            )
+
+    image_bytes, mime = _extract_gemini_image(result)
+    if image_bytes is None:
+        raise ImageError(
+            ErrorCode.IMAGE_FAILED, "No image in Gemini response", page=prompt.page
+        )
+
+    from src.services.storage import storage_service
+
+    ext = "png" if "png" in mime else "jpg"
+    key = f"images/gemini/{uuid.uuid4().hex}.{ext}"
+    return await storage_service.upload_bytes(image_bytes, key, content_type=mime)
+
+
+def _extract_gemini_image(result: dict) -> tuple[bytes | None, str]:
+    """Gemini 응답에서 첫 inline_data 이미지(base64) 추출 → (bytes, mime)."""
+    for candidate in result.get("candidates", []) or []:
+        content = candidate.get("content", {}) or {}
+        for part in content.get("parts", []) or []:
+            inline = part.get("inline_data") or part.get("inlineData")
+            if inline and inline.get("data"):
+                mime = inline.get("mime_type") or inline.get("mimeType") or "image/png"
+                try:
+                    return base64.b64decode(inline["data"]), mime
+                except Exception:
+                    return None, mime
+    return None, "image/png"
 
 
 def _get_openai_size(aspect_ratio: str) -> str:

@@ -325,7 +325,7 @@ class TestGenerateImageWithRetry:
         mock_prompt = MagicMock()
         call_count = 0
 
-        async def flaky_generate(_prompt):
+        async def flaky_generate(_prompt, reference_image_url=None):
             nonlocal call_count
             call_count += 1
             if call_count < 3:
@@ -421,7 +421,7 @@ class TestGenerateAllImages:
         prompts = self._make_image_prompts(4)
         call_count = 0
 
-        async def partial_failure(prompt, job_id, page):
+        async def partial_failure(prompt, job_id, page, reference_image_url=None):
             nonlocal call_count
             call_count += 1
             if page == 2:  # 1개만 실패 (4개 중)
@@ -449,7 +449,7 @@ class TestGenerateAllImages:
 
         prompts = self._make_image_prompts(4)
 
-        async def mostly_fail(prompt, job_id, page):
+        async def mostly_fail(prompt, job_id, page, reference_image_url=None):
             if page == 0:  # cover만 성공
                 return "https://example.com/cover.png"
             raise RuntimeError("Image gen failed")

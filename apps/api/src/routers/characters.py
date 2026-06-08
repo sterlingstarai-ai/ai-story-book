@@ -536,7 +536,7 @@ async def create_character_from_photo(
 
         ext = _content_type_to_extension(photo.content_type)
         photo_key = f"characters/{character_id}/photo{ext}"
-        await storage_service.upload_bytes(
+        source_image_url = await storage_service.upload_bytes(
             data=contents,
             key=photo_key,
             content_type=photo.content_type or "image/jpeg",
@@ -556,6 +556,7 @@ async def create_character_from_photo(
             visual_style_notes=character_data.get("visual_style_notes", ""),
             user_key=user_key,
             from_photo=True,
+            source_image_url=source_image_url,
         )
 
         db.add(character)
@@ -638,6 +639,7 @@ async def create_character_from_drawing(
             visual_style_notes=character_data.get("visual_style_notes", ""),
             user_key=user_key,
             from_photo=True,
+            source_image_url=source_image_url,
         )
         db.add(character)
         await db.commit()

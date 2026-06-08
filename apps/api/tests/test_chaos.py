@@ -98,7 +98,7 @@ class TestImageAPIFailures:
         # Mock to simulate 429 then success
         call_count = 0
 
-        async def mock_generate(p):
+        async def mock_generate(p, reference_image_url=None):
             nonlocal call_count
             call_count += 1
             if call_count < 3:
@@ -131,7 +131,7 @@ class TestImageAPIFailures:
             aspect_ratio="3:4",
         )
 
-        async def mock_generate_fail(p):
+        async def mock_generate_fail(p, reference_image_url=None):
             raise ImageError(ErrorCode.IMAGE_FAILED, "Server error 500", page=1)
 
         with patch("src.services.image.generate_image", side_effect=mock_generate_fail):

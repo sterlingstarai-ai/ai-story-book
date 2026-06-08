@@ -193,6 +193,8 @@ class Character(Base):
     visual_style_notes = Column(String(200), nullable=True)
     # 아동 사진/그림에서 파생된 캐릭터 여부 — 보호자 동의 게이트·철회 시 파기 대상 식별
     from_photo = Column(Boolean, nullable=False, default=False)
+    # 원본 사진/그림 URL — 얼굴 보존 이미지 생성(gemini)의 레퍼런스로 사용
+    source_image_url = Column(String(500), nullable=True)
     user_key = Column(String(80), nullable=False, index=True)
     created_at = Column(DateTime, default=utcnow)
 
