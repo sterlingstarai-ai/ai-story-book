@@ -6,6 +6,7 @@
   "readingGrowthEntrySubtitle": "お子さまの読書力が育つ様子",
   "estimatedReadingLevel": "お子さまの推定読書レベル",
   "booksReadLabel": "読んだ本",
+  "currentStreakLabel": "連続読書",
   "vocabLearnedLabel": "学んだ語彙",
   "quizAccuracyLabel": "クイズ正答率",
   "retry": "再試行"

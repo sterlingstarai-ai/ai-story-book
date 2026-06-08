@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:ai_story_book/l10n/app_localizations.dart';
 import 'package:ai_story_book/providers/providers.dart';
 import 'package:ai_story_book/screens/reading_growth_screen.dart';
 import 'package:ai_story_book/services/analytics.dart';
@@ -41,7 +42,12 @@ void main() {
           analyticsProvider.overrideWithValue(fake),
           growthReportProvider.overrideWith((ref) async => _sample()),
         ],
-        child: const MaterialApp(home: ReadingGrowthScreen()),
+        child: const MaterialApp(
+          locale: Locale('ko'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: ReadingGrowthScreen(),
+        ),
       ),
     );
     await tester.pump();

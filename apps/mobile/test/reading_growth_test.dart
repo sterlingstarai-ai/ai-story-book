@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:ai_story_book/l10n/app_localizations.dart';
 import 'package:ai_story_book/providers/providers.dart';
 import 'package:ai_story_book/screens/reading_growth_screen.dart';
 
@@ -25,7 +26,12 @@ void main() {
         overrides: [
           growthReportProvider.overrideWith((ref) async => _sample()),
         ],
-        child: const MaterialApp(home: ReadingGrowthScreen()),
+        child: const MaterialApp(
+          locale: Locale('ko'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: ReadingGrowthScreen(),
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -36,5 +42,25 @@ void main() {
     expect(find.text('7권'), findsOneWidget); // 읽은 책
     expect(find.text('75%'), findsOneWidget); // 퀴즈 정확도
     expect(find.text('12개'), findsOneWidget); // 학습 어휘
+  });
+
+  testWidgets('ReadingGrowthScreen localizes to English', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          growthReportProvider.overrideWith((ref) async => _sample()),
+        ],
+        child: const MaterialApp(
+          locale: Locale('en'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: ReadingGrowthScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Reading Growth'), findsOneWidget); // AppBar
+    expect(find.text('Books read'), findsOneWidget); // 스탯 라벨
   });
 }

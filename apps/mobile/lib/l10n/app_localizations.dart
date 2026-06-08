@@ -136,6 +136,12 @@ abstract class AppLocalizations {
   /// **'Books read'**
   String get booksReadLabel;
 
+  /// Stat label: current reading streak in days
+  ///
+  /// In en, this message translates to:
+  /// **'Reading streak'**
+  String get currentStreakLabel;
+
   /// Stat label: vocabulary words learned
   ///
   /// In en, this message translates to:

@@ -28,6 +28,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get booksReadLabel => 'Books read';
 
   @override
+  String get currentStreakLabel => 'Reading streak';
+
+  @override
   String get vocabLearnedLabel => 'Words learned';
 
   @override

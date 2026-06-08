@@ -27,6 +27,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get booksReadLabel => '읽은 책';
 
   @override
+  String get currentStreakLabel => '연속 읽기';
+
+  @override
   String get vocabLearnedLabel => '학습 어휘';
 
   @override

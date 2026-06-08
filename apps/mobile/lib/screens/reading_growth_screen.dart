@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../l10n/app_localizations.dart';
 import '../providers/providers.dart';
 import '../services/analytics.dart';
 import '../utils/constants.dart';
@@ -30,7 +31,7 @@ class _ReadingGrowthScreenState extends ConsumerState<ReadingGrowthScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('읽기 성장'),
+        title: Text(AppLocalizations.of(context).readingGrowthTitle),
         backgroundColor: AppColors.surface,
         foregroundColor: AppColors.textPrimary,
         elevation: 0,
@@ -76,9 +77,9 @@ class _LevelHero extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            '우리 아이 추정 읽기레벨',
-            style: TextStyle(color: Colors.white70, fontSize: 13),
+          Text(
+            AppLocalizations.of(context).estimatedReadingLevel,
+            style: const TextStyle(color: Colors.white70, fontSize: 13),
           ),
           const SizedBox(height: AppSpacing.sm),
           Row(
@@ -128,6 +129,7 @@ class _StatGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final accuracyLabel = report.quizTotal > 0
         ? '${(report.quizAccuracy * 100).round()}%'
         : '—';
@@ -141,26 +143,26 @@ class _StatGrid extends StatelessWidget {
       children: [
         _StatCard(
           icon: Icons.menu_book_rounded,
-          label: '읽은 책',
+          label: l10n.booksReadLabel,
           value: '${report.booksRead}권',
           color: AppColors.primary,
         ),
         _StatCard(
           icon: Icons.local_fire_department_rounded,
-          label: '연속 읽기',
+          label: l10n.currentStreakLabel,
           value: '${report.currentStreak}일',
           sub: '최장 ${report.longestStreak}일',
           color: AppColors.warning,
         ),
         _StatCard(
           icon: Icons.spellcheck_rounded,
-          label: '학습 어휘',
+          label: l10n.vocabLearnedLabel,
           value: '${report.vocabLearned}개',
           color: AppColors.secondary,
         ),
         _StatCard(
           icon: Icons.quiz_rounded,
-          label: '퀴즈 정확도',
+          label: l10n.quizAccuracyLabel,
           value: accuracyLabel,
           sub: report.quizTotal > 0 ? '${report.quizCorrect}/${report.quizTotal}' : null,
           color: AppColors.success,
@@ -256,7 +258,10 @@ class _ErrorView extends StatelessWidget {
         children: [
           const Text('성장 리포트를 불러오지 못했어요.'),
           const SizedBox(height: AppSpacing.md),
-          ElevatedButton(onPressed: onRetry, child: const Text('다시 시도')),
+          ElevatedButton(
+            onPressed: onRetry,
+            child: Text(AppLocalizations.of(context).retry),
+          ),
         ],
       ),
     );
