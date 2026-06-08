@@ -727,6 +727,12 @@ final charactersProvider =
   CharactersNotifier.new,
 );
 
+/// 기본 제공 캐릭터 프리셋 Provider ('우리 아이를 주인공으로' 기본 이미지 선택)
+final characterPresetsProvider =
+    FutureProvider<List<Map<String, dynamic>>>((ref) async {
+  return ref.read(apiClientProvider).getCharacterPresets();
+});
+
 class CharactersNotifier extends AsyncNotifier<List<Character>> {
   @override
   Future<List<Character>> build() async {

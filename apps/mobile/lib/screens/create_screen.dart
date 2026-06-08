@@ -6,6 +6,7 @@ import '../models/models.dart';
 import '../providers/providers.dart';
 import '../services/analytics.dart';
 import '../utils/constants.dart';
+import '../widgets/character_source_sheet.dart';
 import '../widgets/credit_shortage_modal.dart';
 import '../widgets/common_widgets.dart';
 
@@ -145,6 +146,18 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
       if (mounted) {
         setState(() => _isLoading = false);
       }
+    }
+  }
+
+  /// '우리 아이를 주인공으로' — 사진/기본 캐릭터 시트를 열어 주인공 캐릭터를 만든다.
+  Future<void> _selectChildProtagonist() async {
+    final childName = _protagonistController.text.trim();
+    final characterId = await showCharacterSourceSheet(
+      context,
+      childName: childName.isEmpty ? null : childName,
+    );
+    if (characterId != null && characterId.isNotEmpty && mounted) {
+      setState(() => _selectedCharacterIds = [characterId]);
     }
   }
 
@@ -376,6 +389,15 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                       description: '이야기에 맞는 캐릭터를 자동으로 만들어요',
                       isSelected: _selectedCharacterIds.isEmpty,
                       onTap: () => setState(() => _selectedCharacterIds = []),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    _CharacterOption(
+                      icon: Icons.face_retouching_natural,
+                      iconColor: AppColors.primary,
+                      title: '우리 아이를 주인공으로',
+                      description: '사진 또는 기본 캐릭터로 주인공을 만들어요',
+                      isSelected: false,
+                      onTap: _selectChildProtagonist,
                     ),
 
                     if (characters.isNotEmpty) ...[

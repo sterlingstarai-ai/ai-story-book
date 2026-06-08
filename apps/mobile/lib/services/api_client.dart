@@ -177,6 +177,45 @@ class ApiClient {
     );
   }
 
+  /// 기본 제공 캐릭터 프리셋 목록 ('기본 이미지' 주인공 선택)
+  Future<List<Map<String, dynamic>>> getCharacterPresets() async {
+    final response = await _dio.get(
+      '/v1/characters/presets',
+      options: Options(headers: _headers),
+    );
+    final data = _asJsonMap(
+      response.data,
+      context: '/v1/characters/presets response',
+    );
+    final presets = _asJsonList(
+      data['presets'],
+      context: '/v1/characters/presets.presets',
+    );
+    return presets
+        .map((e) => _asJsonMap(e, context: '/v1/characters/presets.preset'))
+        .toList();
+  }
+
+  /// 프리셋으로 주인공 캐릭터 생성 (아이 이름 지정 가능, character_id 반환)
+  Future<String> createCharacterFromPreset({
+    required String presetId,
+    String? name,
+  }) async {
+    final response = await _dio.post(
+      '/v1/characters/from-preset',
+      data: {
+        'preset_id': presetId,
+        if (name != null && name.isNotEmpty) 'name': name,
+      },
+      options: Options(headers: _headers),
+    );
+    final data = _asJsonMap(
+      response.data,
+      context: '/v1/characters/from-preset response',
+    );
+    return data['character_id'].toString();
+  }
+
   /// 캐릭터 목록
   Future<List<Character>> getCharacters() async {
     final response = await _dio.get(
