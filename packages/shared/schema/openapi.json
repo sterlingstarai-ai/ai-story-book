@@ -1345,6 +1345,30 @@
         "title": "ErrorInfo",
         "type": "object"
       },
+      "FromPresetRequest": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "preset_id": {
+            "title": "Preset Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "preset_id"
+        ],
+        "title": "FromPresetRequest",
+        "type": "object"
+      },
       "GenerationWarningInfo": {
         "additionalProperties": false,
         "properties": {
@@ -4324,6 +4348,61 @@
         ]
       }
     },
+    "/v1/characters/from-preset": {
+      "post": {
+        "description": "기본 캐릭터 프리셋으로 주인공 캐릭터를 생성한다(아이 이름 지정 가능).",
+        "operationId": "create_character_from_preset_v1_characters_from_preset_post",
+        "parameters": [
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FromPresetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CharacterResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Character From Preset",
+        "tags": [
+          "Characters"
+        ]
+      }
+    },
     "/v1/characters/from-text": {
       "post": {
         "description": "텍스트 설명으로 캐릭터 생성\n\n- 이름, 나이, 특징만 입력\n- AI가 나머지 세부사항을 자동 생성",
@@ -4374,6 +4453,26 @@
           }
         },
         "summary": "Create Character From Text",
+        "tags": [
+          "Characters"
+        ]
+      }
+    },
+    "/v1/characters/presets": {
+      "get": {
+        "description": "기본 제공 캐릭터 프리셋 목록(외형 묘사 + 썸네일 asset). '기본 이미지 선택' 경로.",
+        "operationId": "list_character_presets_v1_characters_presets_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Character Presets",
         "tags": [
           "Characters"
         ]

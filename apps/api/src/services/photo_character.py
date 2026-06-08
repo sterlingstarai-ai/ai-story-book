@@ -188,7 +188,8 @@ class PhotoCharacterService:
 주의사항:
 - 동화책에 적합하게 귀엽고 친근한 느낌으로 해석
 - 사진의 실제 특징을 기반으로 하되 만화/일러스트 스타일로 변환
-- visual_description은 영어로 작성
+- distinctive_features에는 그 아이를 알아볼 수 있는 고유한 얼굴/머리 특징(예: 머리 모양·앞머리·눈 모양·보조개·주근깨 등)을 구체적으로 담아 모든 페이지에서 같은 아이로 일관되게 그려지도록 한다
+- visual_description은 영어로 작성하며, 얼굴·머리·피부 등 정체성 식별이 가능한 외형을 또렷이 고정해 같은 아이가 반복 등장하도록 한다
 """
 
     def _get_drawing_analysis_prompt(self) -> str:

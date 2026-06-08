@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, File, UploadFile, Form
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import Optional
@@ -6,6 +7,7 @@ import random
 import uuid
 import structlog
 
+from src.core.character_presets import CHARACTER_PRESETS, get_preset
 from src.core.consent import require_photo_consent
 from src.core.database import get_db
 from src.core.dependencies import get_user_key
@@ -223,6 +225,66 @@ async def create_character(
             "Character creation failed",
             user_key=user_key[:8] + "...",
             error=str(e),
+        )
+        raise InternalServerError(
+            "캐릭터 저장에 실패했습니다. 잠시 후 다시 시도해주세요."
+        ) from e
+
+    return CharacterResponse(
+        character_id=character.id,
+        name=character.name,
+        master_description=character.master_description,
+        appearance=CharacterAppearance(**character.appearance),
+        clothing=CharacterClothing(**character.clothing),
+        personality_traits=character.personality_traits,
+        visual_style_notes=character.visual_style_notes,
+        created_at=character.created_at,
+    )
+
+
+class FromPresetRequest(BaseModel):
+    preset_id: str
+    name: Optional[str] = None
+
+
+@router.get("/presets")
+async def list_character_presets():
+    """기본 제공 캐릭터 프리셋 목록(외형 묘사 + 썸네일 asset). '기본 이미지 선택' 경로."""
+    return {"presets": CHARACTER_PRESETS}
+
+
+@router.post("/from-preset", response_model=CharacterResponse)
+async def create_character_from_preset(
+    request: FromPresetRequest,
+    db: AsyncSession = Depends(get_db),
+    user_key: str = Depends(get_user_key),
+):
+    """기본 캐릭터 프리셋으로 주인공 캐릭터를 생성한다(아이 이름 지정 가능)."""
+    preset = get_preset(request.preset_id)
+    if preset is None:
+        raise NotFoundError("캐릭터 프리셋", request.preset_id)
+
+    character_id = f"char_{utcnow().strftime('%Y%m%d')}_{uuid.uuid4().hex[:8]}"
+    character = Character(
+        id=character_id,
+        name=request.name or preset["name"],
+        master_description=preset["master_description"],
+        appearance=preset["appearance"],
+        clothing=preset["clothing"],
+        personality_traits=preset["personality_traits"],
+        visual_style_notes=preset["visual_style_notes"],
+        user_key=user_key,
+    )
+    db.add(character)
+    try:
+        await db.commit()
+        await db.refresh(character)
+    except Exception as e:
+        await _rollback_safely(
+            db,
+            operation="create_character_from_preset",
+            error=e,
+            user_key=user_key[:8] + "...",
         )
         raise InternalServerError(
             "캐릭터 저장에 실패했습니다. 잠시 후 다시 시도해주세요."
