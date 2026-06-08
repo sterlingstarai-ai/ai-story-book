@@ -444,7 +444,7 @@ void main() {
       expect(continueButton.onPressed, isNull);
 
       await tester.tap(find.text('개인정보 수집 및 이용에 동의 (필수)'));
-      await tester.tap(find.text('사진 데이터 처리(우리 아이 주인공)에 동의 (필수)'));
+      await tester.tap(find.text('사진으로 우리 아이 주인공 만들기 (선택)'));
       await tester.tap(find.text('데이터 처리 및 저장 정책에 동의 (필수)'));
       await tester.pumpAndSettle();
 

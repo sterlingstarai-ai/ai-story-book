@@ -113,7 +113,7 @@ class Settings(BaseSettings):
     # Parental consent enforcement (PIPA/COPPA) — gates child photo/face data collection
     require_parental_consent_enabled: bool = True
     require_parental_consent_in_testing: bool = False
-    consent_current_version: str = "v1"
+    consent_current_version: str = "v2"
 
     # Admin
     admin_api_key: str = ""  # MUST be set in production for /credits/add

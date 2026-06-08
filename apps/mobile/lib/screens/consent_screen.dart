@@ -4,6 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/providers.dart';
 import '../utils/constants.dart';
 
+/// 약관 버전 — 개정 시 올리면 재동의를 유발(서버 consent_version과 맞춤).
+const kConsentVersion = 'v2';
+
 class ConsentScreen extends ConsumerStatefulWidget {
   const ConsentScreen({super.key});
 
@@ -17,7 +20,9 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
   bool _dataProcess = false;
   bool _submitting = false;
 
-  bool get _canContinue => _privacy && _photo && _dataProcess;
+  // 필수 동의는 개인정보·데이터 처리뿐. 사진(아동 얼굴)은 *선택* — 데이터 최소수집·자유 동의
+  // 원칙(PIPA)에 맞춰 앱 진입을 막지 않고, 실제 '사진 주인공' 사용 시점에 동의받는다.
+  bool get _canContinue => _privacy && _dataProcess;
 
   void _setAll(bool value) {
     setState(() {
@@ -43,6 +48,7 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
         privacy: _privacy,
         photos: _photo,
         dataProcessing: _dataProcess,
+        consentVersion: kConsentVersion,
       );
       // 2) 로컬 플래그 저장
       await parental.setConsent(prefs, true);
@@ -103,7 +109,7 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
                   borderRadius: BorderRadius.circular(AppRadius.md),
                 ),
                 child: CheckboxListTile(
-                  value: _canContinue,
+                  value: _privacy && _photo && _dataProcess,
                   onChanged: (value) => _setAll(value ?? false),
                   title: const Text(
                     '약관 전체 동의',
@@ -121,10 +127,11 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
               CheckboxListTile(
                 value: _photo,
                 onChanged: (value) => setState(() => _photo = value ?? false),
-                title: const Text('사진 데이터 처리(우리 아이 주인공)에 동의 (필수)'),
+                title: const Text('사진으로 우리 아이 주인공 만들기 (선택)'),
                 subtitle: const Text(
-                  '업로드한 사진은 동화 캐릭터 생성을 위해 AI로 처리(해외 서버 포함)되며, '
-                  '동의 철회 시 사진·캐릭터가 즉시 파기됩니다.',
+                  '아이 사진은 동화 캐릭터 생성에만 쓰입니다. · 받는 곳: AI 처리 업체(미국 등 해외) '
+                  '· 항목: 아이 얼굴 사진 · 목적: 캐릭터 생성 · 보유: 동의 철회 시 즉시 파기 '
+                  '· 운영자는 사진을 열람하지 않습니다. (선택 — 나중에 켤 수 있어요)',
                   style: TextStyle(fontSize: 12),
                 ),
                 isThreeLine: true,

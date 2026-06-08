@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../core/api_error.dart';
 import '../providers/providers.dart';
+import '../services/api_client.dart';
 import '../utils/constants.dart';
 
 /// DioException 으로 래핑된 ApiError 까지 추출(create_screen 패턴과 동일).
@@ -106,11 +107,16 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
       if (image == null) {
         return;
       }
+      final api = ref.read(apiClientProvider);
+      // 사진(아동 얼굴)은 선택 동의 — 실제 사용 시점에 받는다(JIT, 데이터 최소수집).
+      if (!await _ensurePhotoConsent(api)) {
+        return;
+      }
       setState(() => _busy = true);
-      final result = await ref.read(apiClientProvider).createCharacterFromPhoto(
-            File(image.path),
-            name: widget.childName,
-          );
+      final result = await api.createCharacterFromPhoto(
+        File(image.path),
+        name: widget.childName,
+      );
       ref.invalidate(charactersProvider);
       if (!mounted) {
         return;
@@ -127,6 +133,58 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
         error,
         '사진으로 주인공을 만들지 못했어요. 보호자 동의/권한을 확인해주세요.',
       ));
+    }
+  }
+
+  /// 사진 사용 직전 JIT 동의 — 이미 동의했으면 통과, 아니면 5요소 고지 후 받는다.
+  Future<bool> _ensurePhotoConsent(ApiClient api) async {
+    Map<String, dynamic> consent;
+    try {
+      consent = await api.getConsent();
+    } catch (_) {
+      consent = const <String, dynamic>{};
+    }
+    if (consent['photos'] == true) {
+      return true;
+    }
+    if (!mounted) {
+      return false;
+    }
+    final agreed = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('사진으로 우리 아이 주인공 만들기'),
+            content: const Text(
+              '아이 사진은 동화 캐릭터 생성에만 쓰입니다.\n'
+              '· 받는 곳: AI 처리 업체(미국 등 해외)\n'
+              '· 항목: 아이 얼굴 사진 · 목적: 캐릭터 생성\n'
+              '· 보유: 동의 철회 시 즉시 파기\n'
+              '· 운영자는 사진을 직접 열람하지 않습니다.\n\n'
+              '동의하고 사진을 사용할까요?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('취소'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('동의'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!agreed) {
+      return false;
+    }
+    try {
+      // 사진 동의를 추가(필수 동의는 이미 온보딩에서 받음).
+      await api.grantConsent(privacy: true, photos: true, dataProcessing: true);
+      return true;
+    } catch (_) {
+      _showError('동의 저장에 실패했어요. 네트워크 확인 후 다시 시도해주세요.');
+      return false;
     }
   }
 
