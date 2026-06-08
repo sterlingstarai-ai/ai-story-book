@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import '../core/api_error.dart';
 import '../models/models.dart';
 import '../providers/providers.dart';
+import '../services/analytics.dart';
 import '../utils/constants.dart';
 import '../widgets/credit_shortage_modal.dart';
 import '../widgets/common_widgets.dart';
@@ -67,6 +68,10 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
     try {
       final credits = await ref.read(apiClientProvider).getCreditsBalance();
       if (credits <= 0) {
+        ref.read(analyticsProvider).logEvent(
+          AnalyticsEvents.paywallShown,
+          params: const {'reason': 'no_credits'},
+        );
         if (mounted) {
           await showCreditShortageModal(context);
         }
@@ -94,6 +99,15 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
       final jobId =
           await ref.read(bookCreationProvider.notifier).createBook(spec);
 
+      ref.read(analyticsProvider).logEvent(
+        AnalyticsEvents.bookCreateRequested,
+        params: {
+          'target_age': _selectedAge.value,
+          'style': _selectedStyle.value,
+          'has_protagonist': _protagonistController.text.trim().isNotEmpty,
+        },
+      );
+
       if (mounted) {
         Navigator.pushReplacementNamed(
           context,
@@ -106,6 +120,10 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
         final apiError = _extractApiError(e);
         if (apiError != null && apiError.code == 'PAYMENT_REQUIRED') {
           final message = apiError.message.trim();
+          ref.read(analyticsProvider).logEvent(
+            AnalyticsEvents.paywallShown,
+            params: const {'reason': 'payment_required'},
+          );
           final title = message.contains('스타일') || message.contains('월 ')
               ? '플랜 업그레이드가 필요해요'
               : '크레딧이 부족해요';

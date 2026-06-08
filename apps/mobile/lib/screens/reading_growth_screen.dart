@@ -2,17 +2,30 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/providers.dart';
+import '../services/analytics.dart';
 import '../utils/constants.dart';
 
 /// 부모용 '읽기 성장' 리포트 화면.
 ///
 /// '동화 생성기'가 아니라 '측정되는 읽기성장 동반자' 리포지셔닝의 얼굴.
 /// 아이가 동화를 읽을수록 쌓이는 성장(읽은 책·연속 읽기·학습 어휘·퀴즈 정확도·추정 읽기레벨)을 보여준다.
-class ReadingGrowthScreen extends ConsumerWidget {
+class ReadingGrowthScreen extends ConsumerStatefulWidget {
   const ReadingGrowthScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ReadingGrowthScreen> createState() =>
+      _ReadingGrowthScreenState();
+}
+
+class _ReadingGrowthScreenState extends ConsumerState<ReadingGrowthScreen> {
+  @override
+  void initState() {
+    super.initState();
+    ref.read(analyticsProvider).logEvent(AnalyticsEvents.growthViewed);
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final reportAsync = ref.watch(growthReportProvider);
     return Scaffold(
       backgroundColor: AppColors.background,
