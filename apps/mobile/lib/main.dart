@@ -375,6 +375,7 @@ Route<dynamic> buildAppRoute(RouteSettings settings) {
 
     case '/credits':
       return MaterialPageRoute(
+        settings: settings, // route name 전달(age-gate 트리거가 의존)
         builder: (_) => const CreditsScreen(),
       );
 
@@ -395,6 +396,7 @@ Route<dynamic> buildAppRoute(RouteSettings settings) {
 
     case '/reading-growth':
       return MaterialPageRoute(
+        settings: settings, // route name 전달(부모 age-gate 트리거가 의존)
         builder: (_) => const ReadingGrowthScreen(),
       );
 

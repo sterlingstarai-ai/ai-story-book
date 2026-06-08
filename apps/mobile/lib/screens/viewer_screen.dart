@@ -2154,8 +2154,9 @@ class _VocabTab extends StatelessWidget {
     if (vocab.isEmpty) {
       return const Center(child: Text('이 페이지에는 단어 학습이 없어요'));
     }
-    final playable = vocab.length >= 2;
+    // 서로 다른 뜻이 3개 이상일 때만 게임(3지선다↑) — 2지선다 trivial 게임의 측정 오염 방지.
     final meanings = vocab.map((v) => v.meaning).toList();
+    final playable = meanings.toSet().length >= 3;
     return ListView.builder(
       padding: const EdgeInsets.all(AppSpacing.md),
       itemCount: vocab.length,

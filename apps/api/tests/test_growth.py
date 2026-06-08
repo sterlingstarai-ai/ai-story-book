@@ -64,22 +64,22 @@ async def test_growth_empty_returns_zeros(client):
 
 
 @pytest.mark.asyncio
-async def test_record_answers_and_tiered_vocab(client):
-    # tiered: '습득'은 정답 ≥2회. 사과·바나나는 2회씩 → 습득, 포도는 1회 → 미습득
-    answers = (
-        [{"book_id": "b1", "quiz_type": "vocab", "correct": True, "term": "사과"}] * 2
-        + [{"book_id": "b1", "quiz_type": "vocab", "correct": True, "term": "바나나"}] * 2
-        + [{"book_id": "b1", "quiz_type": "vocab", "correct": True, "term": "포도"}]  # 1회
-        + [{"book_id": "b1", "quiz_type": "comprehension", "correct": False}]
-    )
+async def test_record_answers_and_vocab_count(client):
+    # 학습 어휘 = 정답 1회 이상인 distinct term. 포도는 오답뿐 → 미카운트.
+    answers = [
+        {"book_id": "b1", "quiz_type": "vocab", "correct": True, "term": "사과"},
+        {"book_id": "b1", "quiz_type": "vocab", "correct": True, "term": "바나나"},
+        {"book_id": "b1", "quiz_type": "vocab", "correct": False, "term": "포도"},
+        {"book_id": "b1", "quiz_type": "comprehension", "correct": False},
+    ]
     for a in answers:
         r = await client.post("/v1/growth/answers", json=a, headers=H)
         assert r.status_code == 200, r.text
 
     data = (await client.get("/v1/growth", headers=H)).json()
-    assert data["quiz_total"] == 6
-    assert data["quiz_correct"] == 5
-    assert data["vocab_learned"] == 2  # 사과·바나나만(포도 1회는 거짓양성 차단)
+    assert data["quiz_total"] == 4
+    assert data["quiz_correct"] == 2
+    assert data["vocab_learned"] == 2  # 사과·바나나(포도는 정답 0회 → 제외)
     assert data["reading_level"]["level"] >= 1
 
 
@@ -152,6 +152,21 @@ async def test_peer_comparison_real_cohort_composite_ranks(db_session):
 
     bottom = await growth_service.get_peer_comparison(db_session, "p0")
     assert bottom["top_percent"] > top["top_percent"]  # 최하위가 상위% 더 큼
+
+
+@pytest.mark.asyncio
+async def test_peer_comparison_midrank_no_gold_for_median(db_session):
+    # 본인+또래 5명이 모두 동일 활동(책 2권 완독) → 전부 동점.
+    # midrank(동점 절반)로 중앙값 아동이 '상위 1%·금메달'로 부풀려지면 안 됨.
+    for i, uk in enumerate(["m_self", "m0", "m1", "m2", "m3", "m4"]):
+        db_session.add(_profile(uk, "5-7", 300 + i))
+        db_session.add_all(_reads(uk, 2, completed=True))
+    await db_session.commit()
+
+    res = await growth_service.get_peer_comparison(db_session, "m_self")
+    assert res["peer_count"] == 5
+    assert 30 <= res["top_percent"] <= 70  # 동점 → 중앙값(상위 50% 근처)
+    assert res["medal"] != "gold"
 
 
 @pytest.mark.asyncio

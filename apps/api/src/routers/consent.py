@@ -13,7 +13,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
-from src.core.consent import latest_active_consent
+from src.core.consent import _has_active_photo_consent, latest_active_consent
 from src.core.database import get_db
 from src.core.dependencies import get_user_key
 from src.core.utils import utcnow
@@ -100,7 +100,11 @@ async def get_consent(
     user_key: str = Depends(get_user_key),
 ):
     """현재 유효한 보호자 동의 상태 조회."""
-    return _to_response(await latest_active_consent(db, user_key))
+    resp = _to_response(await latest_active_consent(db, user_key))
+    # photos 게이트는 'granted'와 독립으로 평가되므로(require_photo_consent와 동일 소스),
+    # JIT 판단이 서버 집행과 어긋나지 않게 photos 필드를 게이트 기준으로 보정한다.
+    resp.photos = await _has_active_photo_consent(db, user_key)
+    return resp
 
 
 @router.post("/revoke", response_model=ConsentResponse)

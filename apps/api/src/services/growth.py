@@ -34,9 +34,10 @@ AGE_WEIGHTS = {
 }
 
 MIN_PEERS_FOR_REAL = 5
-# 어휘 '습득'으로 인정하는 최소 정답 횟수(distinct term) — 1회 정답=습득의 거짓양성(70-80%)을
-# 막기 위해 재인 2회 이상을 요구(시장 조사: recognition≥2 또는 recognition+recall).
-VOCAB_MASTERY_MIN_CORRECT = 2
+# 어휘 '습득'으로 인정하는 최소 정답 횟수(distinct term).
+# 4지선다 어휘 게임에서 정답 1회 = 한 번의 '인식' 신호로 인정한다(추정). 자유 탭이 아니라
+# 4지선다라 무지성 양성은 아니며, 1회로 둬야 단권 읽기에서도 '학습 어휘'가 실제로 쌓인다.
+VOCAB_MASTERY_MIN_CORRECT = 1
 
 _LEVEL_LABELS = {
     1: "첫 걸음", 2: "첫 걸음", 3: "기초 다지기", 4: "기초 다지기",
@@ -420,9 +421,12 @@ class GrowthService:
             }
 
         peer_scores = [score_of(k) for k in cohort]
-        at_or_below = sum(1 for s in peer_scores if s <= my_score)
-        percentile = at_or_below / peer_count * 100
-        top_percent = max(1, round(100 - percentile))
+        # 표준 백분위(midrank): 동점은 절반만 내 아래로 — '동점=내 위'(<=)로 인한
+        # 중앙값 아동의 '상위 1%·금메달' 과대평가를 막는다(복합점수 정수라 동점 흔함).
+        below = sum(1 for s in peer_scores if s < my_score)
+        ties = sum(1 for s in peer_scores if s == my_score)
+        percentile = (below + 0.5 * ties) / peer_count * 100
+        top_percent = max(1, min(99, round(100 - percentile)))
 
         avg_books = sum(metrics[k]["books"] for k in cohort) / peer_count
         avg_vocab = sum(metrics[k]["vocab"] for k in cohort) / peer_count

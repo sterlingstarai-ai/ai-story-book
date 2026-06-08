@@ -436,27 +436,41 @@ def _is_gradeable_quiz(quiz_item) -> bool:
     return True
 
 
-def _quiz_answer_grounded(quiz_item, story_text: str) -> bool:
-    """정답이 본문에 근거하는지(환각 오답키 차단).
+def _grounding_corpus(assets: LearningAssets, story_text: str) -> str:
+    """grounding 대조 코퍼스 — 원문 + 번역문 + 어휘(원어/뜻) + 이해질문 답.
 
-    정답의 의미 토큰(2자+) 중 하나라도 본문에 있으면 grounded(완전 환각만 드롭).
-    짧은 정답(예/아니오/숫자 등)은 본문 의존이 약하므로 통과(과드롭 방지).
-    LLM 자기채점(answer_index)이 본문과 무관한 단어를 정답으로 고른 경우를 거른다.
+    학습 퀴즈는 번역언어(target)로 생성되므로(예: ko 동화 → 'rabbit' 정답) 원문만으로는
+    정상 퀴즈도 환각으로 오판된다. 학습자산이 실제 쓰는 언어 코퍼스 전체에 대조한다.
+    """
+    parts = [story_text]
+    for p in (assets.pages or []):
+        if getattr(p, "translated_text", None):
+            parts.append(p.translated_text)
+        for v in (p.vocab or []):
+            parts.append(getattr(v, "word", "") or "")
+            parts.append(getattr(v, "meaning", "") or "")
+        for q in (p.comprehension_questions or []):
+            parts.append(getattr(q, "answer", "") or "")
+    return " ".join(parts)
+
+
+def _quiz_answer_grounded(quiz_item, corpus: str) -> bool:
+    """정답이 학습 코퍼스(원문·번역·어휘·이해답)에 근거하는지 — 완전 환각만 드롭.
+
+    의미 토큰(2자+) 중 하나라도 코퍼스에 있으면 통과(보수적 = 정상 콘텐츠 과드롭 방지).
+    구두점은 정규화해 분리한다. 1자/숫자 등 짧은 답은 통과(과드롭 방지).
     """
     options = quiz_item.options or []
     if not (0 <= quiz_item.answer_index < len(options)):
         return False
     answer = (options[quiz_item.answer_index] or "").strip()
-    if len(answer) <= 2:
-        return True
-    tokens = [
-        t
-        for t in answer.replace(",", " ").replace(".", " ").split()
-        if len(t) >= 2
-    ]
+    if not answer:
+        return False
+    norm = re.sub(r"[^\w가-힣ぁ-んァ-ン一-鿿]+", " ", answer)
+    tokens = [t for t in norm.split() if len(t) >= 2]
     if not tokens:
         return True
-    return any(tok in story_text for tok in tokens)
+    return any(tok in corpus for tok in tokens)
 
 
 def _assess_and_clean_learning_quality(
@@ -465,10 +479,11 @@ def _assess_and_clean_learning_quality(
     """학습 자산 품질 점검 + 채점 불가/환각 퀴즈 제거. 미달/조치 항목 목록 반환(빈 목록=양호).
 
     LLM(gpt-4o-mini)이 생성한 어휘/퀴즈를 부모에게 '교육 증거'로 노출하기 전,
-    최소 품질을 점검하고 채점 불가·본문 미근거(환각) 퀴즈를 걸러낸다.
+    최소 품질을 점검하고 채점 불가·코퍼스 미근거(환각) 퀴즈를 걸러낸다.
     """
     issues: list[str] = []
     pages = assets.pages or []
+    corpus = _grounding_corpus(assets, story_text)
     dropped = 0
     ungrounded = 0
     for page in pages:
@@ -478,7 +493,7 @@ def _assess_and_clean_learning_quality(
                 if not _is_gradeable_quiz(q):
                     dropped += 1
                     continue
-                if story_text and not _quiz_answer_grounded(q, story_text):
+                if corpus.strip() and not _quiz_answer_grounded(q, corpus):
                     ungrounded += 1
                     continue
                 valid.append(q)

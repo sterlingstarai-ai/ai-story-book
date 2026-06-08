@@ -110,6 +110,10 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
       final api = ref.read(apiClientProvider);
       // 사진(아동 얼굴)은 선택 동의 — 실제 사용 시점에 받는다(JIT, 데이터 최소수집).
       if (!await _ensurePhotoConsent(api)) {
+        // 동의 거부/취소 시 선택된 임시 이미지(아동 얼굴)를 즉시 폐기.
+        try {
+          await File(image.path).delete();
+        } catch (_) {}
         return;
       }
       setState(() => _busy = true);
@@ -179,8 +183,13 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
       return false;
     }
     try {
-      // 사진 동의를 추가(필수 동의는 이미 온보딩에서 받음).
-      await api.grantConsent(privacy: true, photos: true, dataProcessing: true);
+      // 사진 동의만 추가하고, 필수 동의(개인정보·데이터처리)는 임의로 만들지 않고
+      // 서버의 기존 값을 그대로 echo한다(동의 진정성·감사추적 보존).
+      await api.grantConsent(
+        privacy: consent['privacy'] == true,
+        photos: true,
+        dataProcessing: consent['data_processing'] == true,
+      );
       return true;
     } catch (_) {
       _showError('동의 저장에 실패했어요. 네트워크 확인 후 다시 시도해주세요.');
