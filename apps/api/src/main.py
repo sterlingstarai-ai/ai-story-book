@@ -374,11 +374,33 @@ async def _build_readiness_payload(*, include_metrics: bool) -> dict:
     except Exception:
         db_status = "unhealthy"
 
+    # Check S3/storage connectivity + provider key presence (운영에서만 — 테스트는 mock 인프라).
+    # 키 누락/S3 오설정이 readiness를 통과해 무관측 배포되는 것을 막는다.
+    storage_status = "healthy"
+    keys_status = "healthy"
+    missing_keys: list[str] = []
+    if not settings.testing:
+        try:
+            from src.services.storage import ensure_bucket_exists
+
+            await ensure_bucket_exists()
+        except Exception:
+            storage_status = "unhealthy"
+
+        if settings.llm_provider != "mock" and not settings.llm_api_key:
+            missing_keys.append("llm")
+        if settings.image_provider != "mock" and not settings.image_api_key:
+            missing_keys.append("image")
+        if missing_keys:
+            keys_status = "unhealthy"
+
     overall_status = (
         "healthy"
         if db_status == "healthy"
         and redis_status == "healthy"
         and jobs_status == "healthy"
+        and storage_status == "healthy"
+        and keys_status == "healthy"
         else "degraded"
     )
 
@@ -389,10 +411,14 @@ async def _build_readiness_payload(*, include_metrics: bool) -> dict:
             "database": db_status,
             "redis": redis_status,
             "job_monitor": jobs_status,
+            "storage": storage_status,
+            "provider_keys": keys_status,
             "llm_provider": settings.llm_provider,
             "image_provider": settings.image_provider,
         },
     }
+    if missing_keys:
+        payload["missing_keys"] = missing_keys
     if include_metrics:
         payload["jobs"] = job_metrics
         payload["config"] = {
