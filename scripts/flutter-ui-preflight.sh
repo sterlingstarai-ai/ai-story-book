@@ -14,7 +14,12 @@ count_dart_matches() {
   local pattern="$1"
   shift
   local matches
-  matches="$(rg -n --glob '*.dart' "$pattern" "$@" 2>/dev/null || true)"
+  # ripgrep이 없는 환경(CI Ubuntu 러너 등)에서도 동작하도록 grep 폴백.
+  if command -v rg >/dev/null 2>&1; then
+    matches="$(rg -n --glob '*.dart' "$pattern" "$@" 2>/dev/null || true)"
+  else
+    matches="$(grep -rn --include='*.dart' "$pattern" "$@" 2>/dev/null || true)"
+  fi
   if [ -z "$matches" ]; then
     echo "0"
     return
@@ -47,7 +52,11 @@ echo "  Scroll restoration primitives: $scroll_restoration_count"
 
 echo ""
 echo "  Bottom sheet locations:"
-rg -n "showModalBottomSheet" "$MOBILE_DIR/lib" | sed 's#^#   - #'
+if command -v rg >/dev/null 2>&1; then
+  rg -n "showModalBottomSheet" "$MOBILE_DIR/lib" | sed 's#^#   - #'
+else
+  grep -rn --include='*.dart' "showModalBottomSheet" "$MOBILE_DIR/lib" | sed 's#^#   - #' || true
+fi
 
 if [ "$filter_count" -eq 0 ]; then
   echo ""
