@@ -38,3 +38,19 @@ def local_day_bounds_utc(dt=None) -> tuple:
     start_local = datetime(local_d.year, local_d.month, local_d.day)
     start_utc = start_local - LOCAL_TZ_OFFSET
     return start_utc, start_utc + timedelta(days=1)
+
+
+def derive_age_band(birth_year: int, birth_month: int, ref=None) -> str:
+    """생년월 → 연령대(age_band). 부모 임의선택 대신 실제 나이로 1:1 결정.
+
+    반열린 구간으로 5/7세 경계중복을 제거: [<5)→'3-5'(3미만 floor 포함), [5,7)→'5-7',
+    [7,9)→'7-9', ≥9→'7-9'(아동 제품 상한 — DOB로 'adult' 자동배정하지 않음).
+    """
+    today = ref if ref is not None else local_today()
+    months = (today.year - birth_year) * 12 + (today.month - birth_month)
+    age = months // 12
+    if age < 5:
+        return "3-5"
+    if age < 7:
+        return "5-7"
+    return "7-9"

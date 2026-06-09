@@ -1,8 +1,10 @@
 """읽기 성장 측정(growth) — 복합점수·tiered 어휘·또래 비교 테스트."""
 
+from datetime import date
+
 import pytest
 
-from src.core.utils import utcnow
+from src.core.utils import derive_age_band, utcnow
 from src.models.db import Book, ChildProfile, Job, QuizAnswer, ReadingLog
 from src.services.growth import (
     composite_reading_score,
@@ -124,6 +126,35 @@ async def test_books_read_counts_distinct(db_session):
     await db_session.commit()
     report = await growth_service.get_growth_report(db_session, uk)
     assert report["books_read"] == 2
+
+
+def test_derive_age_band_boundaries():
+    # 반열린 구간으로 5/7세 경계중복 제거. 기준일 고정(2026-06-09).
+    ref = date(2026, 6, 9)
+    assert derive_age_band(2024, 6, ref) == "3-5"  # 만 2세(3미만 floor)
+    assert derive_age_band(2022, 6, ref) == "3-5"  # 만 4세
+    assert derive_age_band(2021, 6, ref) == "5-7"  # 만 5세(경계)
+    assert derive_age_band(2020, 6, ref) == "5-7"  # 만 6세
+    assert derive_age_band(2019, 7, ref) == "5-7"  # 만 6세 11개월(생일 전)
+    assert derive_age_band(2019, 6, ref) == "7-9"  # 만 7세(경계)
+    assert derive_age_band(2017, 6, ref) == "7-9"  # 만 9세(아동 상한, adult 아님)
+
+
+@pytest.mark.asyncio
+async def test_create_profile_derives_age_band_from_birth(client):
+    # 생년월을 주면 age_band가 자동 파생 — 부모가 보낸(틀린) age_band는 무시.
+    r = await client.post(
+        "/v1/profiles",
+        json={
+            "name": "민지", "age_band": "3-5",
+            "birth_year": 2019, "birth_month": 3,
+        },
+        headers=FRESH,
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["age_band"] == "7-9"  # 2019-03생(만 7세) → DOB 우선
+    assert body["birth_year"] == 2019 and body["birth_month"] == 3
 
 
 def test_estimate_reading_level_monotonic():

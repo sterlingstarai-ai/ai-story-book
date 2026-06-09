@@ -478,6 +478,8 @@ class ApiClient {
   Future<Map<String, dynamic>> createProfile({
     required String name,
     required String ageBand,
+    int? birthYear,
+    int? birthMonth,
     String? preferredTheme,
     bool? isDefault,
   }) async {
@@ -486,6 +488,8 @@ class ApiClient {
       data: {
         'name': name,
         'age_band': ageBand,
+        if (birthYear != null) 'birth_year': birthYear,
+        if (birthMonth != null) 'birth_month': birthMonth,
         if (preferredTheme != null) 'preferred_theme': preferredTheme,
         if (isDefault != null) 'is_default': isDefault,
       },
@@ -507,6 +511,8 @@ class ApiClient {
     String profileId, {
     String? name,
     String? ageBand,
+    int? birthYear,
+    int? birthMonth,
     String? preferredTheme,
     String? avatarUrl,
     bool? isDefault,
@@ -517,6 +523,12 @@ class ApiClient {
     }
     if (ageBand != null) {
       payload['age_band'] = ageBand;
+    }
+    if (birthYear != null) {
+      payload['birth_year'] = birthYear;
+    }
+    if (birthMonth != null) {
+      payload['birth_month'] = birthMonth;
     }
     if (preferredTheme != null) {
       payload['preferred_theme'] = preferredTheme;

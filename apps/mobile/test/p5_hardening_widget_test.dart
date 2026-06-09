@@ -227,6 +227,8 @@ class _InteractiveMockApiClient extends ApiClient {
   Future<Map<String, dynamic>> createProfile({
     required String name,
     required String ageBand,
+    int? birthYear,
+    int? birthMonth,
     String? preferredTheme,
     bool? isDefault,
   }) async {
@@ -234,6 +236,8 @@ class _InteractiveMockApiClient extends ApiClient {
       'id': 'profile-${_profileSeq++}',
       'name': name,
       'age_band': ageBand,
+      'birth_year': birthYear,
+      'birth_month': birthMonth,
       'preferred_theme': preferredTheme,
       'is_default': (isDefault ?? false) || _profiles.isEmpty,
     };
@@ -251,6 +255,8 @@ class _InteractiveMockApiClient extends ApiClient {
     String profileId, {
     String? name,
     String? ageBand,
+    int? birthYear,
+    int? birthMonth,
     String? preferredTheme,
     String? avatarUrl,
     bool? isDefault,
@@ -261,6 +267,12 @@ class _InteractiveMockApiClient extends ApiClient {
     }
     if (ageBand != null) {
       profile['age_band'] = ageBand;
+    }
+    if (birthYear != null) {
+      profile['birth_year'] = birthYear;
+    }
+    if (birthMonth != null) {
+      profile['birth_month'] = birthMonth;
     }
     if (preferredTheme != null) {
       profile['preferred_theme'] = preferredTheme;

@@ -380,7 +380,11 @@ class ChildProfile(Base):
     id = Column(String(60), primary_key=True)
     user_key = Column(String(80), nullable=False)
     name = Column(String(40), nullable=False)
+    # age_band은 NOT NULL 유지(점수/또래 코호트의 기준). 생년월(birth_year/month)이 있으면
+    # age_band를 거기서 *파생*해 저장한다(부모 임의선택 제거, 5/7세 경계중복 해소).
     age_band = Column(String(10), nullable=False, default="5-7")
+    birth_year = Column(Integer, nullable=True)
+    birth_month = Column(Integer, nullable=True)
     preferred_theme = Column(String(30), nullable=True)
     avatar_url = Column(String(500), nullable=True)
     is_default = Column(Boolean, nullable=False, default=False)

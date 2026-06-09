@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.database import get_db
 from src.core.dependencies import get_user_key
 from src.core.exceptions import NotFoundError, ValidationError
-from src.core.utils import utcnow
+from src.core.utils import derive_age_band, utcnow
 from src.models.db import ChildProfile
 
 router = APIRouter()
@@ -24,7 +24,10 @@ router = APIRouter()
 
 class ProfileCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=40)
+    # 생년월을 주면 age_band는 거기서 파생(부모 임의선택 무시). 없으면 age_band 사용.
     age_band: str = Field(default="5-7", pattern="^(3-5|5-7|7-9|adult)$")
+    birth_year: Optional[int] = Field(default=None, ge=2005, le=2100)
+    birth_month: Optional[int] = Field(default=None, ge=1, le=12)
     preferred_theme: Optional[str] = Field(default=None, max_length=30)
     avatar_url: Optional[str] = Field(default=None, max_length=500)
     is_default: bool = False
@@ -33,9 +36,24 @@ class ProfileCreateRequest(BaseModel):
 class ProfileUpdateRequest(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=40)
     age_band: Optional[str] = Field(default=None, pattern="^(3-5|5-7|7-9|adult)$")
+    birth_year: Optional[int] = Field(default=None, ge=2005, le=2100)
+    birth_month: Optional[int] = Field(default=None, ge=1, le=12)
     preferred_theme: Optional[str] = Field(default=None, max_length=30)
     avatar_url: Optional[str] = Field(default=None, max_length=500)
     is_default: Optional[bool] = None
+
+
+def _profile_to_dict(p: ChildProfile) -> dict:
+    return {
+        "id": p.id,
+        "name": p.name,
+        "age_band": p.age_band,
+        "birth_year": p.birth_year,
+        "birth_month": p.birth_month,
+        "preferred_theme": p.preferred_theme,
+        "avatar_url": p.avatar_url,
+        "is_default": p.is_default,
+    }
 
 
 def _normalize_required_name(name: str) -> str:
@@ -65,16 +83,7 @@ async def list_profiles(
     profiles = result.scalars().all()
     return {
         "profiles": [
-            {
-                "id": p.id,
-                "name": p.name,
-                "age_band": p.age_band,
-                "preferred_theme": p.preferred_theme,
-                "avatar_url": p.avatar_url,
-                "is_default": p.is_default,
-                "created_at": p.created_at,
-            }
-            for p in profiles
+            {**_profile_to_dict(p), "created_at": p.created_at} for p in profiles
         ]
     }
 
@@ -98,11 +107,18 @@ async def create_profile(
 
     should_be_default = request.is_default or len(current) == 0
 
+    # 생년월이 둘 다 있으면 age_band를 파생(DOB 우선, 클라 age_band 무시).
+    band = request.age_band
+    if request.birth_year and request.birth_month:
+        band = derive_age_band(request.birth_year, request.birth_month)
+
     profile = ChildProfile(
         id=f"profile_{utcnow().strftime('%Y%m%d')}_{uuid.uuid4().hex[:8]}",
         user_key=user_key,
         name=normalized_name,
-        age_band=request.age_band,
+        age_band=band,
+        birth_year=request.birth_year,
+        birth_month=request.birth_month,
         preferred_theme=normalized_preferred_theme,
         avatar_url=normalized_avatar_url,
         is_default=should_be_default,
@@ -116,14 +132,7 @@ async def create_profile(
     await db.commit()
     await db.refresh(profile)
 
-    return {
-        "id": profile.id,
-        "name": profile.name,
-        "age_band": profile.age_band,
-        "preferred_theme": profile.preferred_theme,
-        "avatar_url": profile.avatar_url,
-        "is_default": profile.is_default,
-    }
+    return _profile_to_dict(profile)
 
 
 @router.patch("/{profile_id}")
@@ -159,6 +168,10 @@ async def update_profile(
     for key, value in data.items():
         setattr(profile, key, value)
 
+    # 생년월(갱신값 또는 기존값)이 둘 다 있으면 age_band 재파생(DOB 우선).
+    if profile.birth_year and profile.birth_month:
+        profile.age_band = derive_age_band(profile.birth_year, profile.birth_month)
+
     if request.is_default:
         others = await db.execute(
             select(ChildProfile).where(
@@ -172,14 +185,7 @@ async def update_profile(
     await db.commit()
     await db.refresh(profile)
 
-    return {
-        "id": profile.id,
-        "name": profile.name,
-        "age_band": profile.age_band,
-        "preferred_theme": profile.preferred_theme,
-        "avatar_url": profile.avatar_url,
-        "is_default": profile.is_default,
-    }
+    return _profile_to_dict(profile)
 
 
 @router.delete("/{profile_id}")

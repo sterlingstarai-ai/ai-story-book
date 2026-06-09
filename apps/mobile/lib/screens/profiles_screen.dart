@@ -19,6 +19,22 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
     {'value': 'adult', 'label': '성인'},
   ];
 
+  // 생년월을 입력하면 연령대를 실제 나이에서 파생(부모 임의선택 제거). 서버가 권위적으로
+  // 재파생하지만, 클라에서도 같은 규칙으로 미리보기·잠금한다(반열린 구간).
+  static List<int> _birthYearOptions() {
+    final now = DateTime.now().year;
+    return [for (var y = now; y >= now - 12; y--) y];
+  }
+
+  static String _deriveAgeBand(int year, int month) {
+    final now = DateTime.now();
+    final months = (now.year - year) * 12 + (now.month - month);
+    final age = months ~/ 12;
+    if (age < 5) return '3-5';
+    if (age < 7) return '5-7';
+    return '7-9';
+  }
+
   bool _isLoading = true;
   bool _isSubmitting = false;
   String? _errorMessage;
@@ -95,6 +111,8 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
       text: initial?['name']?.toString() ?? '',
     );
     var selectedAgeBand = initial?['age_band']?.toString() ?? '5-7';
+    int? selectedBirthYear = (initial?['birth_year'] as num?)?.toInt();
+    int? selectedBirthMonth = (initial?['birth_month'] as num?)?.toInt();
     var isDefault = initial?['is_default'] == true;
 
     final result = await showDialog<Map<String, dynamic>>(
@@ -127,6 +145,69 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
                         },
                       ),
                       const SizedBox(height: AppSpacing.sm),
+                      // 출생연월(선택) — 입력하면 연령대를 실제 나이에서 자동 파생.
+                      Row(
+                        children: [
+                          Expanded(
+                            child: DropdownButtonFormField<int>(
+                              initialValue: selectedBirthYear,
+                              isExpanded: true,
+                              decoration: const InputDecoration(
+                                labelText: '출생연도(선택)',
+                              ),
+                              items: _birthYearOptions()
+                                  .map((y) => DropdownMenuItem<int>(
+                                        value: y,
+                                        child: Text('$y년'),
+                                      ))
+                                  .toList(),
+                              onChanged: (value) {
+                                setDialogState(() {
+                                  selectedBirthYear = value;
+                                  if (selectedBirthYear != null &&
+                                      selectedBirthMonth != null) {
+                                    selectedAgeBand = _deriveAgeBand(
+                                        selectedBirthYear!, selectedBirthMonth!);
+                                  }
+                                });
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: AppSpacing.sm),
+                          Expanded(
+                            child: DropdownButtonFormField<int>(
+                              initialValue: selectedBirthMonth,
+                              isExpanded: true,
+                              decoration: const InputDecoration(labelText: '월'),
+                              items: [for (var m = 1; m <= 12; m++) m]
+                                  .map((m) => DropdownMenuItem<int>(
+                                        value: m,
+                                        child: Text('$m월'),
+                                      ))
+                                  .toList(),
+                              onChanged: (value) {
+                                setDialogState(() {
+                                  selectedBirthMonth = value;
+                                  if (selectedBirthYear != null &&
+                                      selectedBirthMonth != null) {
+                                    selectedAgeBand = _deriveAgeBand(
+                                        selectedBirthYear!, selectedBirthMonth!);
+                                  }
+                                });
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: AppSpacing.xs),
+                      Text(
+                        (selectedBirthYear != null &&
+                                selectedBirthMonth != null)
+                            ? '연령대 자동: $selectedAgeBand세'
+                            : '출생연월을 입력하면 연령대가 자동 설정돼요(선택).',
+                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
                       DropdownButtonFormField<String>(
                         initialValue: selectedAgeBand,
                         decoration: const InputDecoration(
@@ -141,12 +222,16 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
                               ),
                             )
                             .toList(),
-                        onChanged: (value) {
-                          if (value == null) {
-                            return;
-                          }
-                          setDialogState(() => selectedAgeBand = value);
-                        },
+                        // 생년월이 둘 다 있으면 자동 파생값으로 잠금(부모 임의선택 방지).
+                        onChanged: (selectedBirthYear != null &&
+                                selectedBirthMonth != null)
+                            ? null
+                            : (value) {
+                                if (value == null) {
+                                  return;
+                                }
+                                setDialogState(() => selectedAgeBand = value);
+                              },
                       ),
                       const SizedBox(height: AppSpacing.sm),
                       SwitchListTile(
@@ -176,6 +261,8 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
                       {
                         'name': nameController.text.trim(),
                         'age_band': selectedAgeBand,
+                        'birth_year': selectedBirthYear,
+                        'birth_month': selectedBirthMonth,
                         'is_default': isDefault,
                       },
                     );
@@ -205,6 +292,8 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
       await api.createProfile(
         name: draft['name'].toString(),
         ageBand: draft['age_band'].toString(),
+        birthYear: (draft['birth_year'] as num?)?.toInt(),
+        birthMonth: (draft['birth_month'] as num?)?.toInt(),
         isDefault: draft['is_default'] == true,
       );
       await _load(showLoading: false);
@@ -235,6 +324,8 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
         profile['id'].toString(),
         name: draft['name'].toString(),
         ageBand: draft['age_band'].toString(),
+        birthYear: (draft['birth_year'] as num?)?.toInt(),
+        birthMonth: (draft['birth_month'] as num?)?.toInt(),
         isDefault: draft['is_default'] == true,
       );
       await _load(showLoading: false);
