@@ -216,14 +216,24 @@ class GrowthService:
         ).scalar() or 0
         completion = round(rl_completed / rl_total, 3) if rl_total else 0.0
 
-        streak = (
-            await db.execute(
-                select(DailyStreak).where(DailyStreak.user_key == user_key)
-            )
-        ).scalar_one_or_none()
-        current_streak = streak.current_streak if streak else 0
-        longest_streak = streak.longest_streak if streak else 0
-        total_reading_days = streak.total_days if streak else 0
+        # 스트릭: 프로필 지정 시 프로필 단위로(형제 합산 방지). DailyStreak 테이블은
+        # 계정 단위라 profile_id 컬럼이 없으므로, 프로필별은 ReadingLog 기반 재계산에 위임.
+        if profile_id:
+            from src.services.streak import streak_service
+
+            ps = await streak_service.get_streak_info(db, user_key, profile_id)
+            current_streak = ps["current_streak"]
+            longest_streak = ps["longest_streak"]
+            total_reading_days = ps["total_days"]
+        else:
+            streak = (
+                await db.execute(
+                    select(DailyStreak).where(DailyStreak.user_key == user_key)
+                )
+            ).scalar_one_or_none()
+            current_streak = streak.current_streak if streak else 0
+            longest_streak = streak.longest_streak if streak else 0
+            total_reading_days = streak.total_days if streak else 0
 
         qa_where = [QuizAnswer.user_key == user_key]
         if profile_id:
@@ -402,7 +412,19 @@ class GrowthService:
             )
         ).scalars().all()
 
-        bulk = await self._bulk_metrics(db, list(peer_keys) + [user_key])
+        # 본인 점수는 프로필 단위로 산출(형제 합산 방지 + 성장 리포트 히어로와 일치).
+        my_report = await self.get_growth_report(db, user_key, profile_id)
+        my_score = my_report["reading_level"]["score"]
+        my_metrics = {
+            "books_read": my_report["books_read"],
+            "vocab_learned": my_report["vocab_learned"],
+            "quiz_accuracy": my_report["quiz_accuracy"],
+            "score": my_score,
+        }
+
+        # 또래는 계정(user_key) 단위 집계 — 같은 연령대 가정당 1개. 프로필 단위 코호트는
+        # ReadingLog.profile_id가 nullable이라 신뢰 불가하여 보수적으로 계정 단위 유지.
+        bulk = await self._bulk_metrics(db, list(peer_keys))
         metrics = bulk["metrics"]
         active = bulk["active"]
 
@@ -413,15 +435,6 @@ class GrowthService:
             return composite_reading_score(
                 m["books"], m["vocab"], m["accuracy"], m["completion"], age_band
             )["score"]
-
-        my_m = metrics.get(user_key, _empty)
-        my_score = score_of(user_key)
-        my_metrics = {
-            "books_read": my_m["books"],
-            "vocab_learned": my_m["vocab"],
-            "quiz_accuracy": round(my_m["accuracy"], 3) if my_m["accuracy"] is not None else 0.0,
-            "score": my_score,
-        }
 
         # 활성 또래만 코호트로
         cohort = [k for k in peer_keys if k in active]

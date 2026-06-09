@@ -342,6 +342,10 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
     ref.invalidate(libraryProvider);
     ref.invalidate(libraryBrowseProvider);
     ref.invalidate(homeStreakProvider);
+    // 읽기성장·또래비교·주간추이는 프로필 단위 데이터 → 전환 시 무효화(이전 아이 데이터 잔류 방지).
+    ref.invalidate(growthReportProvider);
+    ref.invalidate(peerComparisonProvider);
+    ref.invalidate(weeklyReadingTrendProvider);
     if (!mounted) {
       return;
     }

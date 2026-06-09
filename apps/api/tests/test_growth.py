@@ -129,6 +129,35 @@ def test_composite_score_is_multiaxis_and_monotonic():
 
 
 @pytest.mark.asyncio
+async def test_growth_report_is_profile_scoped_for_multichild(db_session):
+    # 한 계정 두 자녀: 성장 리포트의 책수·스트릭이 형제 합산이 아니라 프로필 단위여야 한다.
+    uk = "multi-1"
+    db_session.add(
+        ChildProfile(id="prof-A", user_key=uk, name="형", age_band="7-9", is_default=True)
+    )
+    db_session.add(
+        ChildProfile(id="prof-B", user_key=uk, name="동생", age_band="3-5", is_default=False)
+    )
+    for j in range(3):
+        db_session.add(
+            ReadingLog(user_key=uk, profile_id="prof-A", book_id=f"a{j}",
+                       read_date=utcnow(), completed=True)
+        )
+    db_session.add(
+        ReadingLog(user_key=uk, profile_id="prof-B", book_id="b0",
+                   read_date=utcnow(), completed=True)
+    )
+    await db_session.commit()
+
+    rep_a = await growth_service.get_growth_report(db_session, uk, "prof-A")
+    rep_b = await growth_service.get_growth_report(db_session, uk, "prof-B")
+    assert rep_a["books_read"] == 3  # 형제 합산(4) 아님
+    assert rep_b["books_read"] == 1
+    assert rep_a["total_reading_days"] >= 1  # 프로필 단위 스트릭(ReadingLog.profile_id 기반)
+    assert rep_b["total_reading_days"] >= 1
+
+
+@pytest.mark.asyncio
 async def test_peer_comparison_baseline_when_sparse(db_session):
     uk = "solo-79"
     db_session.add(_profile(uk, "7-9", 0))
