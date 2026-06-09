@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import AsyncSessionLocal
@@ -104,8 +104,25 @@ class PeriodicCredits:
 
                 amount = sub.credits_per_month or plan_info["credits_per_month"]
 
-                sub.current_period_start = new_start
-                sub.current_period_end = new_end
+                # 원자적 claim: 조건부 UPDATE로 주기를 전진. 다중 복제본/동시 실행에서 같은
+                # 구독을 둘이 동시에 처리해도 WHERE(current_period_end <= now)에 매칭되는
+                # 프로세스는 하나뿐(나머지는 행 잠금 해제 후 재평가에서 미매칭) → 이중 지급 방지.
+                claim = await session.execute(
+                    update(Subscription)
+                    .where(
+                        Subscription.id == sub.id,
+                        Subscription.status == "active",
+                        Subscription.current_period_end <= now,
+                    )
+                    .values(
+                        current_period_start=new_start,
+                        current_period_end=new_end,
+                    )
+                )
+                if (claim.rowcount or 0) != 1:
+                    # 다른 프로세스가 이미 이 주기를 전진·지급함 → 크레딧 지급 스킵
+                    await session.commit()
+                    continue
 
                 await credits_service.add_credits(
                     db=session,

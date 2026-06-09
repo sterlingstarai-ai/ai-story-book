@@ -11,6 +11,7 @@ from datetime import datetime
 
 import structlog
 
+from src.core.config import settings
 from src.core.database import get_db
 from src.core.dependencies import get_user_key
 from src.core.exceptions import (
@@ -184,6 +185,18 @@ async def subscribe(
         raise ValidationError(
             message="유효하지 않은 구독 플랜입니다.",
             details={"available_plans": list(SUBSCRIPTION_PLANS.keys())},
+        )
+
+    # 결제 우회 차단: 유료 플랜은 검증된 IAP 영수증(POST /v1/iap/verify)으로만 열어야 한다.
+    # 이 엔드포인트는 사용자 키만으로 크레딧을 지급하므로 운영에선 유료 직접 구독을 막는다.
+    # (free 플랜 변경·테스트는 허용. allow_unverified_subscribe=True면 dev에서 허용.)
+    if (
+        request.plan != "free"
+        and not settings.testing
+        and not settings.allow_unverified_subscribe
+    ):
+        raise AuthorizationError(
+            "유료 구독은 앱스토어 결제(검증된 영수증)를 통해서만 시작할 수 있습니다."
         )
 
     existing = await credits_service.get_active_subscription(db, user_key)
