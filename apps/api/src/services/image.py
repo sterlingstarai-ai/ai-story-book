@@ -54,22 +54,26 @@ async def _generate_openai(prompt: ImagePrompt) -> str:
             page=prompt.page,
         )
 
+    # dall-e-3는 b64_json을 명시 요청(URL 모드는 ~1시간 후 만료). gpt-image-1은 항상
+    # b64_json을 반환하며 response_format/quality 파라미터를 거부하므로 보내지 않는다.
+    json_body = {
+        "model": settings.image_model,
+        "prompt": prompt.positive_prompt,
+        "n": 1,
+        "size": _get_openai_size(prompt.aspect_ratio),
+    }
+    if settings.image_model.startswith("dall-e"):
+        json_body["response_format"] = "b64_json"
+        json_body["quality"] = "standard"
+
     async with httpx.AsyncClient(timeout=settings.image_timeout) as client:
-        # DALL-E 3 API 호출
         response = await client.post(
             "https://api.openai.com/v1/images/generations",
             headers={
                 "Authorization": f"Bearer {settings.image_api_key}",
                 "Content-Type": "application/json",
             },
-            json={
-                "model": settings.image_model,
-                "prompt": prompt.positive_prompt,
-                "n": 1,
-                "size": _get_openai_size(prompt.aspect_ratio),
-                "quality": "standard",
-                "response_format": "url",
-            },
+            json=json_body,
         )
 
         if response.status_code == 429:
@@ -101,7 +105,15 @@ async def _generate_openai(prompt: ImagePrompt) -> str:
 
         data = result.get("data", [])
         if data:
-            return data[0].get("url", "")
+            # b64_json(gpt-image-1·요청한 dall-e) 우선, 없으면 url 폴백 — 어느 쪽이든 S3 영속화.
+            b64 = data[0].get("b64_json")
+            if b64:
+                return await _persist_image_bytes(
+                    base64.b64decode(b64), "image/png", "openai"
+                )
+            url = data[0].get("url")
+            if url:
+                return await _persist_external_url(url, "openai", prompt.page)
 
         raise ImageError(
             ErrorCode.IMAGE_FAILED, "No output from OpenAI Image", page=prompt.page
@@ -198,11 +210,7 @@ async def _generate_gemini(
             ErrorCode.IMAGE_FAILED, "No image in Gemini response", page=prompt.page
         )
 
-    from src.services.storage import storage_service
-
-    ext = _IMAGE_MIME_EXT.get(mime.split(";")[0].lower().strip(), "png")
-    key = f"images/gemini/{uuid.uuid4().hex}.{ext}"
-    return await storage_service.upload_bytes(image_bytes, key, content_type=mime)
+    return await _persist_image_bytes(image_bytes, mime, "gemini")
 
 
 _IMAGE_MIME_EXT = {
@@ -213,6 +221,44 @@ _IMAGE_MIME_EXT = {
     "image/gif": "gif",
     "image/avif": "avif",
 }
+
+
+async def _persist_image_bytes(image_bytes: bytes, mime: str, provider: str) -> str:
+    """생성된 이미지 바이트를 S3에 영속화하고 공개 URL 반환.
+
+    provider가 돌려준 임시(만료성) URL을 그대로 DB에 저장하면 수 시간 뒤 404가 되므로,
+    모든 실 provider 산출물은 S3로 재업로드해 영구 URL로 만든다(gemini와 동일 패턴).
+    """
+    from src.services.storage import storage_service
+
+    ext = _IMAGE_MIME_EXT.get(mime.split(";")[0].lower().strip(), "png")
+    key = f"images/{provider}/{uuid.uuid4().hex}.{ext}"
+    return await storage_service.upload_bytes(image_bytes, key, content_type=mime)
+
+
+async def _persist_external_url(url: str, provider: str, page: int) -> str:
+    """provider의 임시 이미지 URL을 다운로드해 S3로 영속화(만료 방지). SSRF 가드 적용."""
+    from src.services.storage import _is_url_allowed
+
+    if not url:
+        raise ImageError(
+            ErrorCode.IMAGE_FAILED, f"Empty image URL from {provider}", page=page
+        )
+    if not _is_url_allowed(url):
+        logger.warning("generated image URL blocked by SSRF protection", url=url[:100])
+        raise ImageError(
+            ErrorCode.IMAGE_FAILED, f"Image URL not allowed from {provider}", page=page
+        )
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(url)
+        if resp.status_code != 200:
+            raise ImageError(
+                ErrorCode.IMAGE_FAILED,
+                f"Failed to download {provider} image: {resp.status_code}",
+                page=page,
+            )
+        mime = resp.headers.get("content-type", "image/png").split(";")[0]
+        return await _persist_image_bytes(resp.content, mime, provider)
 
 
 def _extract_gemini_image(result: dict) -> tuple[bytes | None, str]:
@@ -323,7 +369,10 @@ async def _generate_replicate(prompt: ImagePrompt) -> str:
             if status == "succeeded":
                 output = result.get("output", [])
                 if output:
-                    return output[0]
+                    # Replicate delivery URL은 단기 만료 → S3로 영속화.
+                    return await _persist_external_url(
+                        output[0], "replicate", prompt.page
+                    )
                 raise ImageError(
                     ErrorCode.IMAGE_FAILED, "No output from Replicate", page=prompt.page
                 )
@@ -388,7 +437,10 @@ async def _generate_fal(prompt: ImagePrompt) -> str:
 
         images = result.get("images", [])
         if images:
-            return images[0].get("url", "")
+            # FAL media URL은 단기 만료 → S3로 영속화.
+            return await _persist_external_url(
+                images[0].get("url", ""), "fal", prompt.page
+            )
 
         raise ImageError(ErrorCode.IMAGE_FAILED, "No output from FAL", page=prompt.page)
 
