@@ -53,6 +53,8 @@ async def record_answer(
     profile_id: Optional[str] = Depends(get_profile_id),
 ):
     """학습 퀴즈/어휘 응답 기록 — 성장 측정의 근거 데이터."""
+    # 남의 책으로 내 성장 지표를 부풀리는 조작 차단(IDOR).
+    await growth_service.assert_book_not_foreign(db, payload.book_id, user_key)
     answer = await growth_service.record_answer(
         db,
         user_key,

@@ -3,7 +3,7 @@
 import pytest
 
 from src.core.utils import utcnow
-from src.models.db import ChildProfile, QuizAnswer, ReadingLog
+from src.models.db import Book, ChildProfile, Job, QuizAnswer, ReadingLog
 from src.services.growth import (
     composite_reading_score,
     estimate_reading_level,
@@ -82,6 +82,33 @@ async def test_record_answers_and_vocab_count(client):
     assert data["quiz_correct"] == 0
     assert data["vocab_learned"] == 2  # 사과·바나나(포도는 정답 0회 → 제외)
     assert data["reading_level"]["level"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_record_answer_rejects_foreign_book(client, db_session):
+    # 남의 책으로 내 성장 지표를 부풀리는 조작 차단(IDOR). 미존재 id는 허용.
+    db_session.add(Job(id="job-foreign", status="done", user_key="owner-x"))
+    await db_session.flush()
+    db_session.add(
+        Book(id="book-foreign", job_id="job-foreign", title="t", language="ko",
+             target_age="5-7", style="watercolor", user_key="owner-x",
+             cover_image_url="https://e/c.png")
+    )
+    await db_session.commit()
+
+    foreign = await client.post(
+        "/v1/growth/answers",
+        json={"book_id": "book-foreign", "quiz_type": "comprehension", "correct": True},
+        headers=H,
+    )
+    assert foreign.status_code == 403, foreign.text  # 타 유저 책 → 차단
+
+    unknown = await client.post(
+        "/v1/growth/answers",
+        json={"book_id": "no-such-book", "quiz_type": "comprehension", "correct": True},
+        headers=H,
+    )
+    assert unknown.status_code == 200, unknown.text  # 미존재 id(데일리/레거시) → 허용
 
 
 @pytest.mark.asyncio

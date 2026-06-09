@@ -30,6 +30,7 @@ from src.routers.books import (
     _enforce_free_plan_create_limits,
     schedule_book_generation,
 )
+from src.services.growth import growth_service
 from src.services.streak import streak_service, DAILY_THEMES
 
 router = APIRouter()
@@ -236,6 +237,8 @@ async def record_reading(
     - 마일스톤 달성 시 알림
     """
     scoped_profile_id = await _validate_profile_ownership(db, user_key, profile_id)
+    # 남의 책으로 읽기/스트릭 지표를 부풀리는 조작 차단(IDOR).
+    await growth_service.assert_book_not_foreign(db, request.book_id, user_key)
     result = await streak_service.record_reading(
         db=db,
         user_key=user_key,

@@ -13,7 +13,8 @@ from typing import Optional
 from sqlalchemy import case, distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models.db import ChildProfile, DailyStreak, QuizAnswer, ReadingLog
+from src.core.exceptions import AuthorizationError
+from src.models.db import Book, ChildProfile, DailyStreak, QuizAnswer, ReadingLog
 
 # 연령대별 기준선 — 정규화 타깃 + 또래 표본 희소 시(또래 < MIN_PEERS_FOR_REAL) 폴백.
 # 한국 유아 읽기 습관의 보수적 추정치이며, 실제 또래 데이터가 쌓이면 그쪽을 쓴다.
@@ -137,6 +138,22 @@ def estimate_reading_level(
 
 class GrowthService:
     """읽기 성장 측정 서비스."""
+
+    async def assert_book_not_foreign(
+        self, db: AsyncSession, book_id: Optional[str], user_key: str
+    ) -> None:
+        """기록 대상 book_id가 *다른 유저*의 책이면 차단(IDOR·점수 부풀리기 방지).
+
+        존재하지 않는 id(오늘의 동화·레거시 등)는 허용 — 과도한 차단으로 정상 기록을
+        막지 않되, 남의 책으로 내 성장 지표를 부풀리는 명백한 조작만 거른다.
+        """
+        if not book_id:
+            return
+        owner = (
+            await db.execute(select(Book.user_key).where(Book.id == book_id))
+        ).scalar_one_or_none()
+        if owner is not None and owner != user_key:
+            raise AuthorizationError()
 
     async def record_answer(
         self,
