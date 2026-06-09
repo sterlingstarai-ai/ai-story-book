@@ -396,7 +396,9 @@ class _PeerComparison extends ConsumerWidget {
     if (topPercent <= 60) {
       return '또래와 비슷하게 잘 읽고 있어요';
     }
-    return '조금만 더 읽으면 또래를 따라잡아요!';
+    // 중앙값 미만에도 '따라잡아라'식 열세·추격 프레이밍 대신 자기성장에 초점
+    // (아동 사회비교 상향 압박 완화 — 매일 읽는 습관이 성장의 핵심).
+    return '매일 읽을수록 쑥쑥 자라요. 오늘도 한 권 어때요? 🌱';
   }
 
   @override

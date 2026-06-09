@@ -449,8 +449,11 @@ class GrowthService:
             return {
                 "age_band": age_band,
                 "peer_count": peer_count,
+                # 실제 또래가 부족하면(< MIN_PEERS_FOR_REAL) 등수/메달을 '또래 비교'로
+                # 노출하지 않는다 — 비교 대상이 없는데 '상위 N%·금메달'을 단정하면 거짓.
+                # UI는 자기성장만 보여준다(연령 무관).
                 "is_baseline": True,
-                "show_ranking": show_ranking,
+                "show_ranking": False,
                 "my": my_metrics,
                 "peer_avg": {
                     "books_read": base["books_read"],

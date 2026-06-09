@@ -167,7 +167,8 @@ async def test_peer_comparison_baseline_when_sparse(db_session):
     res = await growth_service.get_peer_comparison(db_session, uk)
     assert res["is_baseline"] is True  # 또래(본인 제외) < 5명 → 기준선
     assert res["age_band"] == "7-9"
-    assert res["show_ranking"] is True  # 7-9세는 등수 노출 가능
+    # 또래가 부족하면 7-9세라도 등수/메달을 '또래 비교'로 노출하지 않음(자기성장만).
+    assert res["show_ranking"] is False
     assert "score" in res["my"] and "score" in res["peer_avg"]
     assert res["my"]["books_read"] == 20
 

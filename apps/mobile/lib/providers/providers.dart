@@ -753,7 +753,8 @@ final peerComparisonProvider = FutureProvider<PeerComparison>((ref) async {
     ageBand: _toStringValue(data['age_band'], fallback: '5-7'),
     peerCount: _toInt(data['peer_count']),
     isBaseline: data['is_baseline'] == true,
-    showRanking: data['show_ranking'] != false,
+    // fail-closed: 명시적 true일 때만 등수 노출(누락/오류 시 자기성장만 — 저연령 보호).
+    showRanking: data['show_ranking'] == true,
     myBooks: _toInt(my['books_read']),
     peerBooks: toDouble(avg['books_read']),
     myVocab: _toInt(my['vocab_learned']),
