@@ -10,6 +10,7 @@ import structlog
 
 from src.core.config import settings
 from src.core.errors import LLMError, ErrorCode
+from src.core.i18n import language_display_name
 from src.models.dto import (
     BookSpec,
     StoryDraft,
@@ -65,7 +66,7 @@ async def _call_openai(
     """Call OpenAI API"""
     if not settings.llm_api_key:
         raise LLMError(
-            ErrorCode.LLM_TIMEOUT,
+            ErrorCode.UNKNOWN,
             "OpenAI API 키가 설정되지 않았습니다. LLM_API_KEY 환경 변수를 설정해주세요.",
         )
 
@@ -89,17 +90,28 @@ async def _call_openai(
         )
 
         if response.status_code != 200:
+            status = response.status_code
+            error_code = (
+                ErrorCode.LLM_TIMEOUT
+                if status in {408, 429, 500, 502, 503, 504}
+                else ErrorCode.UNKNOWN
+            )
             logger.error(
-                "OpenAI API error", status=response.status_code, body=response.text
+                "OpenAI API error",
+                status=status,
+                body_length=len(response.text or ""),
             )
             raise LLMError(
-                ErrorCode.LLM_TIMEOUT, f"OpenAI API error: {response.status_code}"
+                error_code, f"OpenAI API error: {status}"
             )
 
         try:
             data = response.json()
         except Exception as e:
-            logger.error("OpenAI response JSON parse error", body=response.text[:200])
+            logger.error(
+                "OpenAI response JSON parse error",
+                body_length=len(response.text or ""),
+            )
             raise LLMError(
                 ErrorCode.LLM_JSON_INVALID,
                 f"OpenAI 응답 JSON 파싱 실패: {e}",
@@ -303,7 +315,7 @@ async def _call_anthropic(
     """Call Anthropic API"""
     if not settings.llm_api_key:
         raise LLMError(
-            ErrorCode.LLM_TIMEOUT,
+            ErrorCode.UNKNOWN,
             "Anthropic API 키가 설정되지 않았습니다. LLM_API_KEY 환경 변수를 설정해주세요.",
         )
 
@@ -327,17 +339,28 @@ async def _call_anthropic(
         )
 
         if response.status_code != 200:
+            status = response.status_code
+            error_code = (
+                ErrorCode.LLM_TIMEOUT
+                if status in {408, 429, 500, 502, 503, 504}
+                else ErrorCode.UNKNOWN
+            )
             logger.error(
-                "Anthropic API error", status=response.status_code, body=response.text
+                "Anthropic API error",
+                status=status,
+                body_length=len(response.text or ""),
             )
             raise LLMError(
-                ErrorCode.LLM_TIMEOUT, f"Anthropic API error: {response.status_code}"
+                error_code, f"Anthropic API error: {status}"
             )
 
         try:
             data = response.json()
         except Exception as e:
-            logger.error("Anthropic response JSON parse error", body=response.text[:200])
+            logger.error(
+                "Anthropic response JSON parse error",
+                body_length=len(response.text or ""),
+            )
             raise LLMError(
                 ErrorCode.LLM_JSON_INVALID,
                 f"Anthropic 응답 JSON 파싱 실패: {e}",
@@ -437,11 +460,15 @@ async def call_story_generation(spec: BookSpec) -> StoryDraft:
     all_character_specs.extend(loaded_characters)
 
     system_prompt = render_prompt(
-        "generate_story.system.jinja2", page_count=spec.page_count
+        "generate_story.system.jinja2",
+        page_count=spec.page_count,
+        language=spec.language.value,
+        language_name=language_display_name(spec.language.value),
     )
     user_prompt = render_prompt(
         "generate_story.user.jinja2",
         topic=spec.topic,
+        protagonist_name=spec.protagonist_name,
         language=spec.language.value,
         target_age=spec.target_age.value,
         theme=spec.theme.value if spec.theme else None,

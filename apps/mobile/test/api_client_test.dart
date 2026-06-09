@@ -2,8 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:ai_story_book/core/api_error.dart';
+import 'package:ai_story_book/models/models.dart';
 import 'package:ai_story_book/services/api_client.dart';
 
 void main() {
@@ -137,6 +140,341 @@ void main() {
         () => CreateBookResponse.fromJson({'status': 'queued'}),
         throwsA(isA<FormatException>()),
       );
+    });
+
+    test('getLibrary sends active profile header when configured', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+
+      final requestHandled = Completer<void>();
+      server.listen((request) async {
+        if (request.method != 'GET' || request.uri.path != '/v1/library') {
+          request.response.statusCode = HttpStatus.notFound;
+          await request.response.close();
+          return;
+        }
+
+        expect(request.headers.value('x-user-key'), 'test-user');
+        expect(request.headers.value('x-profile-id'), 'profile-1');
+
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(
+          jsonEncode({
+            'books': [],
+            'total': 0,
+            'next_cursor': null,
+            'has_more': false,
+          }),
+        );
+        await request.response.close();
+        requestHandled.complete();
+      });
+
+      final client = ApiClient(
+        baseUrl: 'http://${server.address.host}:${server.port}',
+        userKey: 'test-user',
+        profileId: 'profile-1',
+        enableLogging: false,
+      );
+
+      final response = await client.getLibrary();
+
+      expect(response.books, isEmpty);
+      expect(response.total, 0);
+      await requestHandled.future.timeout(const Duration(seconds: 1));
+    });
+
+    test('patchSettings sends payload to settings endpoint', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+
+      final requestHandled = Completer<void>();
+      server.listen((request) async {
+        if (request.method != 'PATCH' || request.uri.path != '/v1/settings') {
+          request.response.statusCode = HttpStatus.notFound;
+          await request.response.close();
+          return;
+        }
+
+        expect(request.headers.value('x-user-key'), 'test-user');
+
+        final body = await utf8.decoder.bind(request).join();
+        final payload = jsonDecode(body) as Map<String, dynamic>;
+        expect(payload['language'], 'en');
+        expect(payload['dark_mode'], true);
+        expect(payload['screen_time_enabled'], true);
+        expect(payload['daily_limit_minutes'], 45);
+
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({'status': 'success'}));
+        await request.response.close();
+        requestHandled.complete();
+      });
+
+      final client = ApiClient(
+        baseUrl: 'http://${server.address.host}:${server.port}',
+        userKey: 'test-user',
+        enableLogging: false,
+      );
+
+      await client.patchSettings({
+        'language': 'en',
+        'dark_mode': true,
+        'screen_time_enabled': true,
+        'daily_limit_minutes': 45,
+      });
+      await requestHandled.future.timeout(const Duration(seconds: 1));
+    });
+
+    test('createPodOrder sends nested shipping address payload', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+
+      final requestHandled = Completer<void>();
+      server.listen((request) async {
+        if (request.method != 'POST' || request.uri.path != '/v1/pod/orders') {
+          request.response.statusCode = HttpStatus.notFound;
+          await request.response.close();
+          return;
+        }
+
+        expect(request.headers.value('x-user-key'), 'test-user');
+
+        final body = await utf8.decoder.bind(request).join();
+        final payload = jsonDecode(body) as Map<String, dynamic>;
+        expect(payload['book_id'], 'book-1');
+        expect(payload['quantity'], 2);
+        final shipping = payload['shipping_address'] as Map<String, dynamic>;
+        expect(shipping['name'], '홍길동');
+        expect(shipping['country'], 'KR');
+
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(
+          jsonEncode({
+            'order_id': 'pod_1',
+            'status': 'created',
+            'provider': 'printful',
+            'total_price': 39000,
+            'currency': 'KRW',
+          }),
+        );
+        await request.response.close();
+        requestHandled.complete();
+      });
+
+      final client = ApiClient(
+        baseUrl: 'http://${server.address.host}:${server.port}',
+        userKey: 'test-user',
+        enableLogging: false,
+      );
+
+      final order = await client.createPodOrder(
+        bookId: 'book-1',
+        quantity: 2,
+        shippingAddress: const {
+          'name': '홍길동',
+          'line1': '서울시 강남구',
+          'postal_code': '12345',
+          'country': 'KR',
+        },
+      );
+
+      expect(order['order_id'], 'pod_1');
+      expect(order['provider'], 'printful');
+      await requestHandled.future.timeout(const Duration(seconds: 1));
+    });
+
+    test('getBookStatus parses generation warnings and page asset status',
+        () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+
+      final requestHandled = Completer<void>();
+      server.listen((request) async {
+        if (request.method != 'GET' || request.uri.path != '/v1/books/job-1') {
+          request.response.statusCode = HttpStatus.notFound;
+          await request.response.close();
+          return;
+        }
+
+        expect(request.headers.value('x-user-key'), 'test-user');
+        expect(request.headers.value('x-request-id'), isNotNull);
+
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(
+          jsonEncode({
+            'job_id': 'job-1',
+            'status': 'done',
+            'progress': 100,
+            'current_step': '완료',
+            'result': {
+              'book_id': 'book-1',
+              'title': '테스트 동화',
+              'language': 'ko',
+              'target_age': '5-7',
+              'style': 'watercolor',
+              'cover_image_url': 'https://placeholder.invalid/cover.png',
+              'created_at': '2026-03-07T00:00:00Z',
+              'generation_warnings': [
+                {
+                  'code': 'page_placeholder_image',
+                  'message': '일부 페이지 이미지 생성이 실패해 임시 이미지를 표시하고 있습니다.',
+                  'asset': 'image',
+                  'page_number': 1,
+                },
+              ],
+              'pages': [
+                {
+                  'page_number': 1,
+                  'text': '첫 페이지',
+                  'image_url': 'https://placeholder.invalid/page-1.png',
+                  'audio_url': null,
+                  'asset_status': {
+                    'image': {
+                      'state': 'degraded',
+                      'reason': 'placeholder_image',
+                      'url': 'https://placeholder.invalid/page-1.png',
+                    },
+                    'audio': {
+                      'state': 'missing',
+                      'reason': 'audio_not_generated',
+                    },
+                  },
+                },
+              ],
+            },
+          }),
+        );
+        await request.response.close();
+        requestHandled.complete();
+      });
+
+      final client = ApiClient(
+        baseUrl: 'http://${server.address.host}:${server.port}',
+        userKey: 'test-user',
+        enableLogging: false,
+      );
+
+      final status = await client.getBookStatus('job-1');
+
+      expect(status.status, JobState.done);
+      expect(status.result, isNotNull);
+      expect(status.result!.hasGenerationWarnings, isTrue);
+      expect(
+        status.result!.generationWarnings.single.code,
+        'page_placeholder_image',
+      );
+      expect(status.result!.pages.single.hasDegradedImage, isTrue);
+      expect(
+        status.result!.pages.single.assetStatus['image']?.state,
+        'degraded',
+      );
+      expect(
+        status.result!.pages.single.assetStatus['audio']?.state,
+        'missing',
+      );
+      await requestHandled.future.timeout(const Duration(seconds: 1));
+    });
+
+    test('ApiError keeps requestId from standard error envelope', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+
+      final requestHandled = Completer<void>();
+      server.listen((request) async {
+        if (request.method != 'GET' || request.uri.path != '/v1/settings') {
+          request.response.statusCode = HttpStatus.notFound;
+          await request.response.close();
+          return;
+        }
+
+        request.response.statusCode = HttpStatus.serviceUnavailable;
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(
+          jsonEncode({
+            'request_id': 'req-p5-123',
+            'error': {
+              'code': 'SERVICE_UNAVAILABLE',
+              'message': '일시 장애',
+            },
+            'detail': '일시 장애',
+          }),
+        );
+        await request.response.close();
+        requestHandled.complete();
+      });
+
+      final client = ApiClient(
+        baseUrl: 'http://${server.address.host}:${server.port}',
+        userKey: 'test-user',
+        enableLogging: false,
+      );
+
+      try {
+        await client.getSettings();
+        fail('Expected getSettings to throw');
+      } on DioException catch (error) {
+        expect(error.error, isA<ApiError>());
+        final apiError = error.error as ApiError;
+        expect(apiError.requestId, 'req-p5-123');
+        expect(apiError.code, 'SERVICE_UNAVAILABLE');
+      }
+      await requestHandled.future.timeout(const Duration(seconds: 1));
+    });
+
+    test('evaluatePronunciation sends expected payload and parses response',
+        () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+
+      final requestHandled = Completer<void>();
+      server.listen((request) async {
+        if (request.method != 'POST' ||
+            request.uri.path != '/v1/pronunciation/evaluate') {
+          request.response.statusCode = HttpStatus.notFound;
+          await request.response.close();
+          return;
+        }
+
+        expect(request.headers.value('x-user-key'), 'test-user');
+
+        final body = await utf8.decoder.bind(request).join();
+        final payload = jsonDecode(body) as Map<String, dynamic>;
+        expect(payload['book_id'], 'book-1');
+        expect(payload['page_number'], 2);
+        expect(payload['transcript'], '토끼가 숲속으로 걸어갔어요');
+        expect(payload['expected_text'], '토끼가 숲속으로 천천히 걸어갔어요');
+        expect(payload['audio_url'], 'https://example.com/audio.m4a');
+
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(
+          jsonEncode({
+            'status': 'success',
+            'score': 88.5,
+            'feedback': '좋아요',
+          }),
+        );
+        await request.response.close();
+        requestHandled.complete();
+      });
+
+      final client = ApiClient(
+        baseUrl: 'http://${server.address.host}:${server.port}',
+        userKey: 'test-user',
+        enableLogging: false,
+      );
+
+      final result = await client.evaluatePronunciation(
+        bookId: 'book-1',
+        pageNumber: 2,
+        transcript: '토끼가 숲속으로 걸어갔어요',
+        expectedText: '토끼가 숲속으로 천천히 걸어갔어요',
+        audioUrl: 'https://example.com/audio.m4a',
+      );
+
+      expect(result['status'], 'success');
+      expect(result['score'], 88.5);
+      await requestHandled.future.timeout(const Duration(seconds: 1));
     });
   });
 }

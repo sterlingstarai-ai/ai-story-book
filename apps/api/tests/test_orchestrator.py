@@ -239,6 +239,49 @@ class TestModerateOutput:
         assert result is False
 
     @pytest.mark.asyncio
+    async def test_safe_words_with_forbidden_syllables_pass(self):
+        """금칙 음절을 포함한 정상 단어는 통과해야 한다 (피자/예술/총총 등 오탐 방지)."""
+        from src.services.orchestrator import moderate_output
+
+        story = self._make_story(
+            title="피자와 피아노",
+            page_texts=[
+                "오늘은 커피와 피자를 먹었어요.",
+                "예술 작품을 만들고 총총 뛰어갔어요.",
+                "반죽을 하고 미술 시간에 그림을 그렸어요.",
+                "기술 시간에 술래잡기를 했어요.",
+            ],
+        )
+        result = await moderate_output(story, {})
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_specific_korean_forbidden_still_blocked(self):
+        """구체적 한국어 금칙 표현은 여전히 차단."""
+        from src.services.orchestrator import moderate_output
+
+        for bad in [
+            "권총을 들었어요",
+            "술을 마시기 시작했어요",
+            "마약을 팔았어요",
+            "칼로 찔렀어요",
+        ]:
+            story = self._make_story(page_texts=["좋은 아침이에요.", bad])
+            result = await moderate_output(story, {})
+            assert result is False, f"차단되어야 함: {bad}"
+
+    @pytest.mark.asyncio
+    async def test_english_word_boundary_no_false_positive(self):
+        """영어 단어 경계: 'begun'의 'gun'은 오탐하지 않는다."""
+        from src.services.orchestrator import moderate_output
+
+        story = self._make_story(
+            page_texts=["The day had begun happily.", "We had so much fun!"]
+        )
+        result = await moderate_output(story, {})
+        assert result is True
+
+    @pytest.mark.asyncio
     async def test_case_insensitive_check(self):
         """대소문자 구분 없이 검사"""
         from src.services.orchestrator import moderate_output
@@ -282,7 +325,7 @@ class TestGenerateImageWithRetry:
         mock_prompt = MagicMock()
         call_count = 0
 
-        async def flaky_generate(_prompt):
+        async def flaky_generate(_prompt, reference_image_url=None):
             nonlocal call_count
             call_count += 1
             if call_count < 3:
@@ -378,7 +421,7 @@ class TestGenerateAllImages:
         prompts = self._make_image_prompts(4)
         call_count = 0
 
-        async def partial_failure(prompt, job_id, page):
+        async def partial_failure(prompt, job_id, page, reference_image_url=None):
             nonlocal call_count
             call_count += 1
             if page == 2:  # 1개만 실패 (4개 중)
@@ -406,7 +449,7 @@ class TestGenerateAllImages:
 
         prompts = self._make_image_prompts(4)
 
-        async def mostly_fail(prompt, job_id, page):
+        async def mostly_fail(prompt, job_id, page, reference_image_url=None):
             if page == 0:  # cover만 성공
                 return "https://example.com/cover.png"
             raise RuntimeError("Image gen failed")

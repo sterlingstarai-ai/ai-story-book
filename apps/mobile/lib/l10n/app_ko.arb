@@ -1,0 +1,13 @@
+{
+  "@@locale": "ko",
+  "appTitle": "AI 동화책",
+  "readingGrowthTitle": "읽기 성장",
+  "readingGrowthEntryTitle": "읽기 성장 보기",
+  "readingGrowthEntrySubtitle": "우리 아이의 읽기 실력이 쌓이는 과정",
+  "estimatedReadingLevel": "우리 아이 추정 읽기레벨",
+  "booksReadLabel": "읽은 책",
+  "currentStreakLabel": "연속 읽기",
+  "vocabLearnedLabel": "학습 어휘",
+  "quizAccuracyLabel": "퀴즈 정확도",
+  "retry": "다시 시도"
+}

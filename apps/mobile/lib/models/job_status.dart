@@ -38,6 +38,7 @@ class JobStatus {
   factory JobStatus.fromJson(Map<String, dynamic> json) {
     final resultJson =
         JsonParsing.asNullableMap(json['result'], field: 'result');
+    final errorJson = JsonParsing.asNullableMap(json['error'], field: 'error');
 
     return JobStatus(
       jobId: JsonParsing.asRequiredString(json['job_id'], field: 'job_id'),
@@ -47,8 +48,11 @@ class JobStatus {
       progress:
           JsonParsing.asOptionalInt(json['progress'], field: 'progress') ?? 0,
       currentStep: JsonParsing.asOptionalString(json['current_step']),
-      errorCode: JsonParsing.asOptionalString(json['error_code']),
-      errorMessage: JsonParsing.asOptionalString(json['error_message']),
+      errorCode: JsonParsing.asOptionalString(json['error_code']) ??
+          JsonParsing.asOptionalString(errorJson?['code']),
+      errorMessage: JsonParsing.asOptionalString(json['error_message']) ??
+          JsonParsing.asOptionalString(errorJson?['message']) ??
+          JsonParsing.asOptionalString(json['detail']),
       result: resultJson == null ? null : BookResult.fromJson(resultJson),
     );
   }
@@ -56,6 +60,67 @@ class JobStatus {
   bool get isComplete => status == JobState.done;
   bool get isFailed => status == JobState.failed;
   bool get isRunning => status == JobState.running || status == JobState.queued;
+}
+
+class AssetStatusDetail {
+  final String state;
+  final String? reason;
+  final String? url;
+
+  AssetStatusDetail({
+    required this.state,
+    this.reason,
+    this.url,
+  });
+
+  factory AssetStatusDetail.fromJson(Map<String, dynamic> json) {
+    return AssetStatusDetail(
+      state: JsonParsing.asRequiredString(json['state'], field: 'state'),
+      reason: JsonParsing.asOptionalString(json['reason']),
+      url: JsonParsing.asOptionalString(json['url']),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'state': state,
+      if (reason != null) 'reason': reason,
+      if (url != null) 'url': url,
+    };
+  }
+}
+
+class GenerationWarning {
+  final String code;
+  final String message;
+  final String? asset;
+  final int? pageNumber;
+
+  GenerationWarning({
+    required this.code,
+    required this.message,
+    this.asset,
+    this.pageNumber,
+  });
+
+  factory GenerationWarning.fromJson(Map<String, dynamic> json) {
+    return GenerationWarning(
+      code: JsonParsing.asRequiredString(json['code'], field: 'code'),
+      message: JsonParsing.asRequiredString(json['message'], field: 'message'),
+      asset: JsonParsing.asOptionalString(json['asset']),
+      pageNumber:
+          JsonParsing.asOptionalInt(json['page_number'], field: 'page_number'),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'code': code,
+      'message': message,
+      if (asset != null) 'asset': asset,
+      if (pageNumber != null) 'page_number': pageNumber,
+    };
+  }
 }
 
 /// 책 결과 모델
@@ -74,6 +139,7 @@ class BookResult {
   final String? titleEn;
   // 학습 자산
   final LearningAssets? learningAssets;
+  final List<GenerationWarning> generationWarnings;
 
   BookResult({
     required this.bookId,
@@ -87,6 +153,7 @@ class BookResult {
     this.titleKo,
     this.titleEn,
     this.learningAssets,
+    this.generationWarnings = const [],
   });
 
   factory BookResult.fromJson(Map<String, dynamic> json) {
@@ -98,6 +165,14 @@ class BookResult {
     final learningAssetsJson = JsonParsing.asNullableMap(
         json['learning_assets'],
         field: 'learning_assets');
+    final generationWarnings = JsonParsing.asNullableList(
+                json['generation_warnings'],
+                field: 'generation_warnings')
+            ?.map((warning) => GenerationWarning.fromJson(
+                  JsonParsing.asMap(warning, field: 'generation_warnings[]'),
+                ))
+            .toList() ??
+        const <GenerationWarning>[];
 
     return BookResult(
       bookId: JsonParsing.asRequiredString(json['book_id'], field: 'book_id'),
@@ -117,6 +192,7 @@ class BookResult {
       learningAssets: learningAssetsJson == null
           ? null
           : LearningAssets.fromJson(learningAssetsJson),
+      generationWarnings: generationWarnings,
     );
   }
 
@@ -125,6 +201,27 @@ class BookResult {
     if (language == 'ko' && titleKo != null) return titleKo!;
     if (language == 'en' && titleEn != null) return titleEn!;
     return title;
+  }
+
+  bool get hasGenerationWarnings => generationWarnings.isNotEmpty;
+
+  Map<String, dynamic> toJson() {
+    return {
+      'book_id': bookId,
+      if (jobId != null) 'job_id': jobId,
+      'title': title,
+      'cover_image_url': coverImageUrl,
+      'pages': pages.map((page) => page.toJson()).toList(),
+      if (characterId != null) 'character_id': characterId,
+      if (seriesId != null) 'series_id': seriesId,
+      if (seriesIndex != null) 'series_index': seriesIndex,
+      if (titleKo != null) 'title_ko': titleKo,
+      if (titleEn != null) 'title_en': titleEn,
+      if (learningAssets != null) 'learning_assets': learningAssets!.toJson(),
+      if (generationWarnings.isNotEmpty)
+        'generation_warnings':
+            generationWarnings.map((warning) => warning.toJson()).toList(),
+    };
   }
 }
 
@@ -143,6 +240,7 @@ class PageResult {
   final List<VocabItem>? vocab;
   final List<ComprehensionQuestion>? comprehensionQuestions;
   final List<QuizItem>? quiz;
+  final Map<String, AssetStatusDetail> assetStatus;
 
   PageResult({
     required this.pageNumber,
@@ -156,6 +254,7 @@ class PageResult {
     this.vocab,
     this.comprehensionQuestions,
     this.quiz,
+    this.assetStatus = const {},
   });
 
   factory PageResult.fromJson(Map<String, dynamic> json) {
@@ -177,6 +276,16 @@ class PageResult {
               JsonParsing.asMap(item, field: 'quiz[]'),
             ))
         .toList();
+    final assetStatusJson =
+        JsonParsing.asNullableMap(json['asset_status'], field: 'asset_status');
+    final assetStatus = <String, AssetStatusDetail>{};
+    if (assetStatusJson != null) {
+      for (final entry in assetStatusJson.entries) {
+        assetStatus[entry.key] = AssetStatusDetail.fromJson(
+          JsonParsing.asMap(entry.value, field: 'asset_status.${entry.key}'),
+        );
+      }
+    }
 
     return PageResult(
       pageNumber:
@@ -192,6 +301,7 @@ class PageResult {
       vocab: vocab,
       comprehensionQuestions: comprehensionQuestions,
       quiz: quiz,
+      assetStatus: assetStatus,
     );
   }
 
@@ -207,6 +317,39 @@ class PageResult {
     if (language == 'ko' && audioUrlKo != null) return audioUrlKo;
     if (language == 'en' && audioUrlEn != null) return audioUrlEn;
     return audioUrl;
+  }
+
+  /// 학습 모드 노출 여부 (단어/이해질문/퀴즈 중 하나라도 있으면 true)
+  bool get hasLearningContent {
+    final hasVocab = vocab != null && vocab!.isNotEmpty;
+    final hasComprehension =
+        comprehensionQuestions != null && comprehensionQuestions!.isNotEmpty;
+    final hasQuiz = quiz != null && quiz!.isNotEmpty;
+    return hasVocab || hasComprehension || hasQuiz;
+  }
+
+  bool get hasDegradedImage => assetStatus['image']?.state == 'degraded';
+
+  Map<String, dynamic> toJson() {
+    return {
+      'page_number': pageNumber,
+      'text': text,
+      'image_url': imageUrl,
+      if (audioUrl != null) 'audio_url': audioUrl,
+      if (textKo != null) 'text_ko': textKo,
+      if (textEn != null) 'text_en': textEn,
+      if (audioUrlKo != null) 'audio_url_ko': audioUrlKo,
+      if (audioUrlEn != null) 'audio_url_en': audioUrlEn,
+      if (vocab != null) 'vocab': vocab!.map((item) => item.toJson()).toList(),
+      if (comprehensionQuestions != null)
+        'comprehension_questions':
+            comprehensionQuestions!.map((item) => item.toJson()).toList(),
+      if (quiz != null) 'quiz': quiz!.map((item) => item.toJson()).toList(),
+      if (assetStatus.isNotEmpty)
+        'asset_status': assetStatus.map(
+          (key, value) => MapEntry(key, value.toJson()),
+        ),
+    };
   }
 }
 
@@ -229,6 +372,14 @@ class VocabItem {
       example: JsonParsing.asOptionalString(json['example']),
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'word': word,
+      'meaning': meaning,
+      if (example != null) 'example': example,
+    };
+  }
 }
 
 /// 이해 질문
@@ -247,6 +398,13 @@ class ComprehensionQuestion {
           JsonParsing.asRequiredString(json['question'], field: 'question'),
       answer: JsonParsing.asOptionalString(json['answer']),
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'question': question,
+      if (answer != null) 'answer': answer,
+    };
   }
 }
 
@@ -278,6 +436,15 @@ class QuizItem {
           field: 'answer_index'),
       explanation: JsonParsing.asOptionalString(json['explanation']),
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'question': question,
+      'options': options,
+      'answer_index': answerIndex,
+      if (explanation != null) 'explanation': explanation,
+    };
   }
 }
 
@@ -315,6 +482,14 @@ class ParentGuide {
       activities: activities,
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'summary': summary,
+      'discussion_prompts': discussionPrompts,
+      'activities': activities,
+    };
+  }
 }
 
 /// 전체 학습 자산
@@ -349,5 +524,14 @@ class LearningAssets {
         JsonParsing.asMap(json['parent_guide'], field: 'parent_guide'),
       ),
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'source_language': sourceLanguage,
+      'target_language': targetLanguage,
+      'title_translation': titleTranslation,
+      'parent_guide': parentGuide.toJson(),
+    };
   }
 }

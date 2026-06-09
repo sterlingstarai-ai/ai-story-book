@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
@@ -35,6 +35,10 @@ class Style(str, Enum):
 
 class Theme(str, Enum):
     lifestyle = "생활습관"
+    lunar_new_year = "설날"
+    chuseok = "추석"
+    childrens_day = "어린이날"
+    christmas = "크리스마스"
     emotion = "감정코칭"
     social = "사회성"
     friendship = "우정"
@@ -76,6 +80,7 @@ class BookSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     topic: str = Field(min_length=1, max_length=200)
+    protagonist_name: Optional[str] = Field(default=None, min_length=1, max_length=40)
     language: Language = Language.ko
     target_age: TargetAge
     style: Style
@@ -193,10 +198,10 @@ class CharacterAppearance(BaseModel):
 class CharacterClothing(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    top: str = Field(default="알 수 없음", max_length=80)
-    bottom: str = Field(default="알 수 없음", max_length=80)
-    shoes: str = Field(default="알 수 없음", max_length=80)
-    accessories: str = Field(default="없음", max_length=80)
+    top: str = Field(min_length=1, max_length=80)
+    bottom: str = Field(min_length=1, max_length=80)
+    shoes: str = Field(min_length=1, max_length=80)
+    accessories: str = Field(min_length=1, max_length=80)
 
 
 class CharacterSheet(BaseModel):
@@ -242,7 +247,7 @@ class PageResult(BaseModel):
     page_number: int = Field(ge=1, le=12)
     text: str = Field(min_length=1, max_length=800)
     image_url: str = Field(min_length=8, max_length=500)
-    image_prompt: str = Field(min_length=10, max_length=1400)
+    image_prompt: Optional[str] = Field(default=None, max_length=1400)
     audio_url: Optional[str] = Field(default=None, max_length=500)
 
     # 다국어 지원 (v0.3)
@@ -252,9 +257,27 @@ class PageResult(BaseModel):
     audio_url_en: Optional[str] = Field(default=None, max_length=500)
 
     # 학습 자산 (v0.3)
-    vocab: Optional[List[Dict[str, Any]]] = None
-    comprehension_questions: Optional[List[Dict[str, Any]]] = None
-    quiz: Optional[List[Dict[str, Any]]] = None
+    vocab: Optional[List[VocabItem]] = None
+    comprehension_questions: Optional[List[ComprehensionQuestion]] = None
+    quiz: Optional[List[QuizItem]] = None
+    asset_status: Dict[str, AssetStatusDetail] = Field(default_factory=dict)
+
+
+class AssetStatusDetail(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    state: str = Field(min_length=1, max_length=30)
+    reason: Optional[str] = Field(default=None, max_length=120)
+    url: Optional[str] = Field(default=None, max_length=500)
+
+
+class GenerationWarningInfo(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = Field(min_length=1, max_length=60)
+    message: str = Field(min_length=1, max_length=300)
+    asset: Optional[str] = Field(default=None, max_length=30)
+    page_number: Optional[int] = Field(default=None, ge=0, le=12)
 
 
 class BookResult(BaseModel):
@@ -266,7 +289,7 @@ class BookResult(BaseModel):
     target_age: TargetAge
     style: str
     cover_image_url: str = Field(min_length=8, max_length=500)
-    pages: List[PageResult] = Field(min_length=4, max_length=12)
+    pages: List[PageResult] = Field(max_length=12)
     character_sheet: Optional[CharacterSheet] = (
         None  # Made optional for API responses without full sheet
     )
@@ -283,7 +306,8 @@ class BookResult(BaseModel):
     title_en: Optional[str] = Field(default=None, max_length=100)
 
     # 학습 자산 (v0.3)
-    learning_assets: Optional[Dict[str, Any]] = None
+    learning_assets: Optional[LearningAssets] = None
+    generation_warnings: List[GenerationWarningInfo] = Field(default_factory=list)
 
 
 # ==================== Job/API Response Models ====================
@@ -304,7 +328,7 @@ class JobStatus(BaseModel):
     progress: int = Field(ge=0, le=100)
     current_step: str = Field(min_length=1, max_length=120)
     error: Optional[ErrorInfo] = None
-    result: Optional[Dict[str, Any]] = None
+    result: Optional[BookResult] = None
 
 
 class CreateBookResponse(BaseModel):
@@ -384,8 +408,8 @@ class ParentGuide(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     summary: str = Field(min_length=1, max_length=500)
-    discussion_prompts: List[str] = Field(default_factory=list, max_length=5)
-    activities: List[str] = Field(default_factory=list, max_length=5)
+    discussion_prompts: List[str] = Field(max_length=5)
+    activities: List[str] = Field(max_length=5)
 
 
 class LearningAssets(BaseModel):
@@ -473,3 +497,5 @@ class LibraryResponse(BaseModel):
 
     books: List[BookSummary]
     total: int
+    next_cursor: Optional[str] = None
+    has_more: bool = False

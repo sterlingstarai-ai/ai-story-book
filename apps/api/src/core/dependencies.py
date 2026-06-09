@@ -1,6 +1,7 @@
 """Common FastAPI dependencies."""
 
 import re
+from typing import Optional
 
 from fastapi import Header, HTTPException
 
@@ -23,3 +24,26 @@ def get_user_key(
     if not x_user_key or not _UUID_RE.match(x_user_key):
         raise HTTPException(status_code=400, detail="Invalid X-User-Key header: UUID format required")
     return x_user_key
+
+
+def get_profile_id(
+    x_profile_id: Optional[str] = Header(
+        default=None,
+        description="Optional active child profile id",
+    ),
+) -> Optional[str]:
+    """
+    Extract optional profile id from header.
+
+    Format rule:
+    - 1~60 chars
+    - alnum, underscore, hyphen only
+    """
+    if x_profile_id is None:
+        return None
+    value = x_profile_id.strip()
+    if value == "":
+        return None
+    if len(value) > 60 or not re.match(r"^[A-Za-z0-9_-]+$", value):
+        raise HTTPException(status_code=400, detail="Invalid X-Profile-Id header")
+    return value

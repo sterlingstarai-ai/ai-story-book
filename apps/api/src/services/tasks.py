@@ -20,6 +20,52 @@ def run_async(coro):
         loop.close()
 
 
+async def _mark_job_failed_async(job_id: str, message: str) -> None:
+    """Best-effort async DB update for failed jobs from Celery context."""
+    from sqlalchemy import select
+
+    from src.core.database import AsyncSessionLocal
+    from src.models.db import Job
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(Job).where(Job.id == job_id))
+        job = result.scalar_one_or_none()
+        if not job:
+            return
+
+        job.status = "failed"
+        job.error_message = message[:300]
+        await session.commit()
+
+
+async def _regenerate_page_async(
+    job_id: str,
+    page_number: int,
+    target: str,
+) -> dict:
+    """Resolve book by job_id and run page regeneration."""
+    from sqlalchemy import select
+
+    from src.core.database import AsyncSessionLocal
+    from src.models.db import Book
+    from src.services.orchestrator import regenerate_page
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(Book).where(Book.job_id == job_id))
+        book = result.scalar_one_or_none()
+
+    if not book:
+        raise ValueError(f"Book not found for job_id={job_id}")
+
+    return await regenerate_page(
+        job_id=job_id,
+        book_id=book.id,
+        page_number=page_number,
+        mode=target,
+        feedback=None,
+    )
+
+
 @shared_task(
     bind=True,
     max_retries=0,
@@ -53,17 +99,7 @@ def generate_book_task(self, job_id: str, spec_dict: dict, user_key: str):
         logger.error("Book generation failed", job_id=job_id, error=str(e))
         # Update job status to failed
         try:
-            from src.core.database import SessionLocal
-            from src.models.db import Job
-            from sqlalchemy import select
-
-            with SessionLocal() as session:
-                result = session.execute(select(Job).where(Job.id == job_id))
-                job = result.scalar_one_or_none()
-                if job:
-                    job.status = "failed"
-                    job.error_message = str(e)[:300]
-                    session.commit()
+            run_async(_mark_job_failed_async(job_id, str(e)))
         except Exception as db_error:
             logger.error("Failed to update job status", error=str(db_error))
 
@@ -102,15 +138,13 @@ def regenerate_page_task(
     )
 
     try:
-        from src.services.orchestrator import regenerate_page
-
-        result = run_async(regenerate_page(
-            job_id=job_id,
-            book_id=job_id,  # job_id is used to find book
-            page_number=page_number,
-            mode=target,
-            feedback=None,
-        ))
+        result = run_async(
+            _regenerate_page_async(
+                job_id=job_id,
+                page_number=page_number,
+                target=target,
+            )
+        )
         logger.info(
             "Page regeneration completed", job_id=job_id, page_number=page_number
         )

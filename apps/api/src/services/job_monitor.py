@@ -9,7 +9,7 @@ Background service that runs periodically to:
 """
 
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 import structlog
 
@@ -26,6 +26,18 @@ STUCK_JOB_TIMEOUT_MINUTES = 15  # Jobs running > 15 min are considered stuck
 QUEUED_JOB_TIMEOUT_MINUTES = 30  # Jobs queued > 30 min are considered stuck
 MAX_JOB_RETRIES = 3
 MONITOR_INTERVAL_SECONDS = 60 * 5  # Run every 5 minutes
+
+
+def _db_timestamp(value: datetime) -> datetime:
+    """Normalize datetimes for timestamp-without-time-zone columns."""
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _db_utcnow() -> datetime:
+    """Return UTC now as a naive timestamp for DB comparisons."""
+    return _db_timestamp(utcnow())
 
 
 class JobMonitor:
@@ -67,7 +79,7 @@ class JobMonitor:
 
     async def check_and_recover_jobs(self):
         """Check for stuck jobs and attempt recovery"""
-        now = utcnow()
+        now = _db_utcnow()
 
         stuck_running_threshold = now - timedelta(minutes=STUCK_JOB_TIMEOUT_MINUTES)
         stuck_queued_threshold = now - timedelta(minutes=QUEUED_JOB_TIMEOUT_MINUTES)
@@ -140,15 +152,16 @@ class JobMonitor:
 
     async def _handle_stuck_job(self, session, job: Job, reason: str):
         """Handle a stuck job - retry or fail"""
+        max_job_retries = max(0, int(settings.job_max_retries))
         retry_count = job.retry_count or 0
 
-        if retry_count < MAX_JOB_RETRIES:
+        if retry_count < max_job_retries:
             # Retry the job
             job.status = "queued"
             job.retry_count = retry_count + 1
-            job.last_retry_at = utcnow()
-            job.current_step = f"재시도 중... ({job.retry_count}/{MAX_JOB_RETRIES})"
-            job.updated_at = utcnow()
+            job.last_retry_at = _db_utcnow()
+            job.current_step = f"재시도 중... ({job.retry_count}/{max_job_retries})"
+            job.updated_at = _db_utcnow()
 
             logger.info(
                 "Job requeued for retry",
@@ -159,7 +172,7 @@ class JobMonitor:
         else:
             # Max retries exceeded, mark as failed
             await self._mark_job_failed(
-                session, job, reason, f"Max retries ({MAX_JOB_RETRIES}) exceeded"
+                session, job, reason, f"Max retries ({max_job_retries}) exceeded"
             )
 
     async def _mark_job_failed(self, session, job: Job, error_code: str, message: str):
@@ -167,7 +180,7 @@ class JobMonitor:
         job.status = "failed"
         job.error_code = error_code
         job.error_message = message
-        job.updated_at = utcnow()
+        job.updated_at = _db_utcnow()
 
         logger.warning(
             "Job marked as failed by monitor",
@@ -184,7 +197,7 @@ job_monitor = JobMonitor()
 async def get_job_metrics() -> dict:
     """Get current job metrics for health check (uses efficient COUNT queries)"""
     async with AsyncSessionLocal() as session:
-        now = utcnow()
+        now = _db_utcnow()
 
         # Count by status - use func.count() for efficient counting
         queued_result = await session.execute(

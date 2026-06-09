@@ -1,49 +1,67 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-<dict>
-	<key>CFBundleDevelopmentRegion</key>
-	<string>$(DEVELOPMENT_LANGUAGE)</string>
-	<key>CFBundleDisplayName</key>
-	<string>Ai Story Book</string>
-	<key>CFBundleExecutable</key>
-	<string>$(EXECUTABLE_NAME)</string>
-	<key>CFBundleIdentifier</key>
-	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-	<key>CFBundleInfoDictionaryVersion</key>
-	<string>6.0</string>
-	<key>CFBundleName</key>
-	<string>ai_story_book</string>
-	<key>CFBundlePackageType</key>
-	<string>APPL</string>
-	<key>CFBundleShortVersionString</key>
-	<string>$(FLUTTER_BUILD_NAME)</string>
-	<key>CFBundleSignature</key>
-	<string>????</string>
-	<key>CFBundleVersion</key>
-	<string>$(FLUTTER_BUILD_NUMBER)</string>
-	<key>LSRequiresIPhoneOS</key>
-	<true/>
-	<key>UILaunchStoryboardName</key>
-	<string>LaunchScreen</string>
-	<key>UIMainStoryboardFile</key>
-	<string>Main</string>
-	<key>UISupportedInterfaceOrientations</key>
-	<array>
-		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
-	</array>
-	<key>UISupportedInterfaceOrientations~ipad</key>
-	<array>
-		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationPortraitUpsideDown</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
-	</array>
-	<key>CADisableMinimumFrameDurationOnPhone</key>
-	<true/>
-	<key>UIApplicationSupportsIndirectInputEvents</key>
-	<true/>
-</dict>
+	<dict>
+		<key>CFBundleDevelopmentRegion</key>
+		<string>$(DEVELOPMENT_LANGUAGE)</string>
+		<key>CFBundleDisplayName</key>
+		<string>AI 동화책</string>
+		<key>CFBundleExecutable</key>
+		<string>$(EXECUTABLE_NAME)</string>
+		<key>CFBundleIdentifier</key>
+		<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+		<key>CFBundleInfoDictionaryVersion</key>
+		<string>6.0</string>
+		<key>CFBundleName</key>
+		<string>ai_story_book</string>
+		<key>CFBundlePackageType</key>
+		<string>APPL</string>
+		<key>CFBundleShortVersionString</key>
+		<string>$(FLUTTER_BUILD_NAME)</string>
+		<key>CFBundleSignature</key>
+		<string>????</string>
+		<key>CFBundleVersion</key>
+		<string>$(FLUTTER_BUILD_NUMBER)</string>
+		<key>LSRequiresIPhoneOS</key>
+		<true/>
+		<key>UILaunchStoryboardName</key>
+		<string>LaunchScreen</string>
+		<key>UIMainStoryboardFile</key>
+		<string>Main</string>
+		<key>NSCameraUsageDescription</key>
+		<string>아이 사진으로 캐릭터를 만들기 위해 카메라 접근이 필요합니다.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>갤러리의 사진을 동화 캐릭터로 변환하기 위해 접근이 필요합니다.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>발음 연습과 음성 샘플 업로드를 위해 마이크 접근이 필요합니다.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>발음 연습 결과를 분석하기 위해 음성 인식 기능을 사용합니다.</string>
+	<key>PrivacyPolicyURL</key>
+	<string>https://example.com/privacy-policy.ko.html</string>
+		<key>TermsOfServiceURL</key>
+		<string>https://example.com/terms-of-service.ko.html</string>
+		<key>GADApplicationIdentifier</key>
+		<string>ca-app-pub-3940256099942544~1458002511</string>
+		<key>UISupportedInterfaceOrientations</key>
+		<array>
+			<string>UIInterfaceOrientationPortrait</string>
+			<string>UIInterfaceOrientationLandscapeLeft</string>
+			<string>UIInterfaceOrientationLandscapeRight</string>
+		</array>
+		<key>UISupportedInterfaceOrientations~ipad</key>
+		<array>
+			<string>UIInterfaceOrientationPortrait</string>
+			<string>UIInterfaceOrientationPortraitUpsideDown</string>
+			<string>UIInterfaceOrientationLandscapeLeft</string>
+			<string>UIInterfaceOrientationLandscapeRight</string>
+		</array>
+		<key>CADisableMinimumFrameDurationOnPhone</key>
+		<true/>
+		<key>UIApplicationSupportsIndirectInputEvents</key>
+		<true/>
+		<key>UIStatusBarHidden</key>
+		<true/>
+		<key>UIViewControllerBasedStatusBarAppearance</key>
+		<false/>
+	</dict>
 </plist>

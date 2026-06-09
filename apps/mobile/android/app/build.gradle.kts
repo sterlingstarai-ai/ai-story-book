@@ -1,3 +1,11 @@
+import java.util.Properties
+
+val keyProperties = Properties()
+val keyPropertiesFile = rootProject.file("key.properties")
+if (keyPropertiesFile.exists()) {
+    keyProperties.load(keyPropertiesFile.inputStream())
+}
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -11,6 +19,8 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
+        // flutter_local_notifications 18.x 요구사항
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -30,15 +40,36 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        create("release") {
+            if (keyPropertiesFile.exists()) {
+                val storePath = keyProperties.getProperty("storeFile")
+                if (!storePath.isNullOrBlank()) {
+                    storeFile = file(storePath)
+                }
+                storePassword = keyProperties.getProperty("storePassword")
+                keyAlias = keyProperties.getProperty("keyAlias")
+                keyPassword = keyProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (keyPropertiesFile.exists()) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // flutter_local_notifications 18.x core library desugaring
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }

@@ -3,12 +3,19 @@ Streak Service
 오늘의 동화 스트릭 시스템
 """
 
-from datetime import datetime, timedelta
+from collections import defaultdict
+from datetime import timedelta
+from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, update
+from sqlalchemy import select, update
 
-from ..models.db import DailyStreak, DailyStory, ReadingLog
-from ..core.utils import utcnow
+from ..models.db import Book, DailyStreak, DailyStory, ReadingLog
+from ..core.utils import (
+    local_day_bounds_utc,
+    local_today,
+    to_local_date,
+    utcnow,
+)
 
 
 # 오늘의 동화 테마 목록
@@ -117,20 +124,24 @@ class StreakService:
         self,
         db: AsyncSession,
         user_key: str,
+        profile_id: Optional[str] = None,
     ) -> dict:
         """스트릭 정보 조회"""
-        streak = await self.get_or_create_streak(db, user_key)
-        today = utcnow().date()
+        if profile_id:
+            return await self._get_profile_streak_info(db, user_key, profile_id)
 
-        # 오늘 읽었는지 확인
+        streak = await self.get_or_create_streak(db, user_key)
+        today = local_today()
+
+        # 오늘 읽었는지 확인(KST 로컬 날짜 기준)
         read_today = False
         if streak.last_read_date:
-            read_today = streak.last_read_date.date() == today
+            read_today = to_local_date(streak.last_read_date) == today
 
         # 스트릭이 끊어졌는지 확인
         streak_broken = False
         if streak.last_read_date and not read_today:
-            days_since = (today - streak.last_read_date.date()).days
+            days_since = (today - to_local_date(streak.last_read_date)).days
             if days_since > 1:
                 streak_broken = True
 
@@ -145,6 +156,79 @@ class StreakService:
             "streak_broken": streak_broken,
         }
 
+    async def _get_profile_streak_info(
+        self,
+        db: AsyncSession,
+        user_key: str,
+        profile_id: str,
+    ) -> dict:
+        result = await db.execute(
+            select(ReadingLog.read_date)
+            .where(
+                ReadingLog.user_key == user_key,
+                ReadingLog.profile_id == profile_id,
+            )
+            .order_by(ReadingLog.read_date.asc())
+        )
+        rows = result.all()
+        if not rows:
+            return {
+                "current_streak": 0,
+                "longest_streak": 0,
+                "total_days": 0,
+                "last_read_date": None,
+                "read_today": False,
+                "streak_broken": False,
+            }
+
+        datetimes = [read_date for (read_date,) in rows if read_date is not None]
+        unique_dates = sorted({to_local_date(dt) for dt in datetimes})
+        last_date = unique_dates[-1]
+        today = local_today()
+        days_since = (today - last_date).days
+
+        read_today = last_date == today
+        streak_broken = (not read_today) and days_since > 1
+
+        if days_since > 1:
+            current_streak = 0
+        else:
+            current_streak = 1
+            pointer = len(unique_dates) - 1
+            cursor = unique_dates[pointer]
+            while pointer > 0:
+                prev = unique_dates[pointer - 1]
+                diff = (cursor - prev).days
+                if diff == 1:
+                    current_streak += 1
+                    cursor = prev
+                    pointer -= 1
+                    continue
+                if diff == 0:
+                    pointer -= 1
+                    continue
+                break
+
+        longest_streak = 1
+        running = 1
+        for idx in range(1, len(unique_dates)):
+            diff = (unique_dates[idx] - unique_dates[idx - 1]).days
+            if diff == 1:
+                running += 1
+                if running > longest_streak:
+                    longest_streak = running
+            elif diff > 1:
+                running = 1
+
+        return {
+            "current_streak": current_streak,
+            "longest_streak": longest_streak,
+            "total_days": len(unique_dates),
+            "last_read_date": datetimes[-1].isoformat(),
+            "read_today": read_today,
+            "streak_broken": streak_broken,
+        }
+
     async def record_reading(
         self,
         db: AsyncSession,
@@ -152,20 +236,60 @@ class StreakService:
         book_id: str,
         reading_time: int = 0,
         completed: bool = False,
+        profile_id: Optional[str] = None,
     ) -> dict:
         """읽기 기록 및 스트릭 업데이트 (원자적)"""
+        if profile_id:
+            # '오늘' 판정은 KST 로컬 하루 경계로(UTC 자정 = KST 오전 9시 어긋남 방지).
+            today_start, tomorrow_start = local_day_bounds_utc()
+
+            today_result = await db.execute(
+                select(ReadingLog.id).where(
+                    ReadingLog.user_key == user_key,
+                    ReadingLog.profile_id == profile_id,
+                    ReadingLog.read_date >= today_start,
+                    ReadingLog.read_date < tomorrow_start,
+                )
+            )
+            already_read_today = len(today_result.all()) > 0
+
+            reading_log = ReadingLog(
+                user_key=user_key,
+                profile_id=profile_id,
+                book_id=book_id,
+                read_date=utcnow(),
+                reading_time=reading_time,
+                completed=completed,
+            )
+            db.add(reading_log)
+            await db.commit()
+
+            profile_streak = await self._get_profile_streak_info(db, user_key, profile_id)
+            milestones = self._check_milestones(
+                profile_streak["current_streak"],
+                profile_streak["total_days"],
+            )
+            return {
+                "current_streak": profile_streak["current_streak"],
+                "longest_streak": profile_streak["longest_streak"],
+                "total_days": profile_streak["total_days"],
+                "new_streak_day": not already_read_today,
+                "milestones": milestones,
+            }
+
         streak = await self.get_or_create_streak(db, user_key)
-        today = utcnow().date()
+        today = local_today()
         today_dt = utcnow()
 
-        # 오늘 이미 읽었는지 확인
+        # 오늘 이미 읽었는지 확인(KST 로컬 날짜)
         already_read_today = False
         if streak.last_read_date:
-            already_read_today = streak.last_read_date.date() == today
+            already_read_today = to_local_date(streak.last_read_date) == today
 
         # 읽기 기록 추가
         reading_log = ReadingLog(
             user_key=user_key,
+            profile_id=None,
             book_id=book_id,
             read_date=today_dt,
             reading_time=reading_time,
@@ -177,7 +301,7 @@ class StreakService:
         if not already_read_today:
             # 새 스트릭 값 계산
             if streak.last_read_date:
-                days_since = (today - streak.last_read_date.date()).days
+                days_since = (today - to_local_date(streak.last_read_date)).days
                 if days_since == 1:
                     new_streak = streak.current_streak + 1
                 elif days_since > 1:
@@ -278,12 +402,15 @@ class StreakService:
 
     async def get_today_story(self, db: AsyncSession) -> dict:
         """오늘의 동화 정보 조회"""
-        today = utcnow().date()
-        today_start = datetime.combine(today, datetime.min.time())
+        today = local_today()
+        today_start, tomorrow_start = local_day_bounds_utc()
 
         # 오늘 이미 생성된 스토리가 있는지 확인
         result = await db.execute(
-            select(DailyStory).where(func.date(DailyStory.date) == today)
+            select(DailyStory).where(
+                DailyStory.date >= today_start,
+                DailyStory.date < tomorrow_start,
+            )
         )
         daily_story = result.scalar_one_or_none()
 
@@ -325,6 +452,7 @@ class StreakService:
         db: AsyncSession,
         user_key: str,
         days: int = 30,
+        profile_id: Optional[str] = None,
     ) -> list[dict]:
         """최근 읽기 기록 조회"""
         since = utcnow() - timedelta(days=days)
@@ -334,6 +462,7 @@ class StreakService:
             .where(
                 ReadingLog.user_key == user_key,
                 ReadingLog.read_date >= since,
+                ReadingLog.profile_id == profile_id if profile_id else ReadingLog.profile_id.is_(None),
             )
             .order_by(ReadingLog.read_date.desc())
         )
@@ -342,7 +471,7 @@ class StreakService:
         # 날짜별로 그룹화
         by_date = {}
         for log in logs:
-            date_key = log.read_date.date().isoformat()
+            date_key = to_local_date(log.read_date).isoformat()
             if date_key not in by_date:
                 by_date[date_key] = {
                     "date": date_key,
@@ -356,6 +485,113 @@ class StreakService:
                 by_date[date_key]["completed_count"] += 1
 
         return list(by_date.values())
+
+    async def get_reading_report(
+        self,
+        db: AsyncSession,
+        user_key: str,
+        days: int = 7,
+        profile_id: Optional[str] = None,
+    ) -> dict:
+        """읽기 통계 리포트 (주간/월간 대시보드용)"""
+        report_days = max(1, min(days, 365))
+        # 주간/월간 추이도 KST 로컬 하루 경계로(한국 부모 기준 '오늘'이 맞도록).
+        today_start, _ = local_day_bounds_utc()
+        since = today_start - timedelta(days=report_days - 1)
+
+        logs_result = await db.execute(
+            select(ReadingLog)
+            .where(
+                ReadingLog.user_key == user_key,
+                ReadingLog.read_date >= since,
+                ReadingLog.profile_id == profile_id if profile_id else ReadingLog.profile_id.is_(None),
+            )
+            .order_by(ReadingLog.read_date.asc())
+        )
+        logs = logs_result.scalars().all()
+
+        daily_map = {}
+        for day_index in range(report_days):
+            day = to_local_date(since + timedelta(days=day_index))
+            key = day.isoformat()
+            daily_map[key] = {
+                "date": key,
+                "sessions": 0,
+                "minutes": 0,
+                "completed": 0,
+            }
+
+        total_read_seconds = 0
+        completed_sessions = 0
+        unique_books = set()
+        for log in logs:
+            key = to_local_date(log.read_date).isoformat()
+            if key not in daily_map:
+                continue
+            minutes = max(0, int(round((log.reading_time or 0) / 60)))
+            daily_map[key]["sessions"] += 1
+            daily_map[key]["minutes"] += minutes
+            if log.completed:
+                daily_map[key]["completed"] += 1
+                completed_sessions += 1
+            total_read_seconds += max(0, log.reading_time or 0)
+            unique_books.add(log.book_id)
+
+        theme_counts = defaultdict(int)
+        if unique_books:
+            books_result = await db.execute(
+                select(Book.id, Book.theme).where(Book.id.in_(unique_books))
+            )
+            theme_by_book = {book_id: theme for book_id, theme in books_result.all()}
+            for log in logs:
+                theme = theme_by_book.get(log.book_id)
+                if theme:
+                    theme_counts[theme] += 1
+
+        preferred_theme = None
+        if theme_counts:
+            preferred_theme = max(theme_counts.items(), key=lambda item: item[1])[0]
+
+        total_sessions = len(logs)
+        avg_reading_minutes = (
+            round((total_read_seconds / 60) / total_sessions, 1)
+            if total_sessions > 0
+            else 0.0
+        )
+        completion_rate = (
+            round((completed_sessions / total_sessions) * 100, 1)
+            if total_sessions > 0
+            else 0.0
+        )
+
+        streak_info = await self.get_streak_info(
+            db,
+            user_key,
+            profile_id=profile_id,
+        )
+
+        return {
+            "period_days": report_days,
+            "from_date": to_local_date(since).isoformat(),
+            "to_date": local_today().isoformat(),
+            "total_books_read": len(unique_books),
+            "total_sessions": total_sessions,
+            "total_reading_minutes": int(round(total_read_seconds / 60)),
+            "average_reading_minutes": avg_reading_minutes,
+            "preferred_theme": preferred_theme,
+            "streak": {
+                "current": streak_info["current_streak"],
+                "longest": streak_info["longest_streak"],
+                "total_days": streak_info["total_days"],
+                "read_today": streak_info["read_today"],
+            },
+            "learning_progress": {
+                "sessions": total_sessions,
+                "completed_sessions": completed_sessions,
+                "completion_rate": completion_rate,
+            },
+            "daily_breakdown": list(daily_map.values()),
+        }
 
 
 # 싱글톤 인스턴스

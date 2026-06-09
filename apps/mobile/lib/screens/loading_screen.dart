@@ -17,6 +17,13 @@ class LoadingScreen extends ConsumerStatefulWidget {
 
 class _LoadingScreenState extends ConsumerState<LoadingScreen> {
   bool _hasNavigated = false; // Prevent double navigation
+  late final String _selectedTip;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedTip = _pickTip();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -128,7 +135,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Text(
-                  _getRandomTip(),
+                  _selectedTip,
                   style: AppTextStyles.bodySmall.copyWith(
                     color: AppColors.primary,
                   ),
@@ -190,6 +197,11 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
               Navigator.pushReplacementNamed(context, '/create');
             },
           ),
+          const SizedBox(height: AppSpacing.sm),
+          TextButton(
+            onPressed: () => ref.invalidate(jobPollingProvider(widget.jobId)),
+            child: const Text('상태 다시 확인'),
+          ),
           const SizedBox(height: AppSpacing.md),
           TextButton(
             onPressed: () => Navigator.pushReplacementNamed(context, '/'),
@@ -217,7 +229,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
     return descriptions[step] ?? step;
   }
 
-  String _getRandomTip() {
+  String _pickTip() {
     final tips = [
       '아이에게 맞는 단어와 문장으로 이야기가 만들어져요',
       '캐릭터가 일관되게 그려지도록 AI가 신경 쓰고 있어요',
@@ -225,7 +237,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
       '마음에 들지 않는 페이지는 나중에 다시 생성할 수 있어요',
       '같은 캐릭터로 시리즈 동화를 만들 수도 있어요',
     ];
-    return tips[DateTime.now().second % tips.length];
+    return tips[DateTime.now().millisecond % tips.length];
   }
 }
 

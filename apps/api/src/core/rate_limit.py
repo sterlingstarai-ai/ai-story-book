@@ -89,6 +89,10 @@ rate_limiter = RateLimiter()
 
 async def check_rate_limit(request: Request):
     """FastAPI dependency for rate limiting."""
+    # 테스트에선 기본 우회(시간 기반 리미터가 실행 속도에 따라 플래키 429를 냄).
+    # 레이트리밋을 검증하는 테스트만 rate_limit_enforce_in_testing=True로 켠다.
+    if settings.testing and not settings.rate_limit_enforce_in_testing:
+        return
     user_key = request.headers.get("X-User-Key")
 
     if not user_key:

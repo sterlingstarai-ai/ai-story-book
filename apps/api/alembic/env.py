@@ -29,6 +29,17 @@ from src.models.db import (  # noqa: F401
     DailyStreak,
     DailyStory,
     ReadingLog,
+    IAPReceipt,
+    UserConsent,
+    UserSettings,
+    ChildProfile,
+    ScreenTimeLimit,
+    AdRewardLog,
+    PodOrder,
+    VoiceProfile,
+    BranchStoryNode,
+    BranchStoryEdge,
+    PronunciationLog,
 )
 
 config = context.config

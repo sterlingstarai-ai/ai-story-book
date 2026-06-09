@@ -6,12 +6,14 @@ class ApiError implements Exception {
   final String message;
   final int statusCode;
   final dynamic details;
+  final String? requestId;
 
   ApiError({
     required this.code,
     required this.message,
     required this.statusCode,
     this.details,
+    this.requestId,
   });
 
   /// Create ApiError from DioException
@@ -34,6 +36,7 @@ class ApiError implements Exception {
                 '알 수 없는 오류가 발생했습니다.',
             statusCode: statusCode,
             details: error['details'] ?? _detailsFromDetail(data['detail']),
+            requestId: _nonEmptyString(data['request_id']),
           );
         }
       }
@@ -44,6 +47,7 @@ class ApiError implements Exception {
           message: _messageFromDetail(data['detail']) ?? '요청 처리 중 오류가 발생했습니다.',
           statusCode: statusCode,
           details: _detailsFromDetail(data['detail']),
+          requestId: _nonEmptyString(data['request_id']),
         );
       }
 
@@ -53,6 +57,9 @@ class ApiError implements Exception {
         message: data?.toString() ?? '서버 오류가 발생했습니다.',
         statusCode: statusCode,
         details: data is Map<String, dynamic> ? data : null,
+        requestId: data is Map<String, dynamic>
+            ? _nonEmptyString(data['request_id'])
+            : null,
       );
     }
 
@@ -122,7 +129,8 @@ class ApiError implements Exception {
       return detail;
     }
     if (detail is Map<String, dynamic>) {
-      final msg = _nonEmptyString(detail['message']) ?? _nonEmptyString(detail['detail']);
+      final msg = _nonEmptyString(detail['message']) ??
+          _nonEmptyString(detail['detail']);
       if (msg != null) {
         return msg;
       }
@@ -169,7 +177,7 @@ class ApiError implements Exception {
       case 'FORBIDDEN':
         return '접근 권한이 없습니다.';
       case 'PAYMENT_REQUIRED':
-        return '크레딧이 부족합니다.';
+        return message;
       case 'INTERNAL_ERROR':
         return '서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.';
       case 'RATE_LIMIT_EXCEEDED':

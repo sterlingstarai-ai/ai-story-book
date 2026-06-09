@@ -46,27 +46,34 @@ log_info() {
 # Test Functions
 # =============================================================================
 
-test_health() {
-    log_info "Testing health endpoint..."
+check_json_endpoint() {
+    local url="$1"
+    local expected_http="$2"
+    local label="$3"
 
     local response
-    response=$(curl -s -w "\n%{http_code}" --max-time $TIMEOUT "${BASE_URL}/health" 2>/dev/null)
-    local http_code=$(echo "$response" | tail -n1)
-    local body=$(echo "$response" | sed '$d')
+    response=$(curl -s -w "\n%{http_code}" --max-time $TIMEOUT "$url" 2>/dev/null)
+    local http_code
+    http_code=$(echo "$response" | tail -n1)
+    local body
+    body=$(echo "$response" | sed '$d')
 
-    if [ "$http_code" = "200" ]; then
-        # Check if response contains expected fields
-        if echo "$body" | grep -q '"status"'; then
-            log_pass "Health check returned 200 with valid response"
-            return 0
-        else
-            log_fail "Health check returned 200 but invalid response body"
-            return 1
-        fi
-    else
-        log_fail "Health check failed with HTTP $http_code"
-        return 1
+    if [ "$http_code" = "$expected_http" ] && echo "$body" | grep -q '"status"'; then
+        log_pass "$label returned HTTP $expected_http with valid response"
+        return 0
     fi
+
+    log_fail "$label failed with HTTP $http_code"
+    echo "Response: $body"
+    return 1
+}
+
+test_health() {
+    log_info "Testing liveness/readiness/compat health endpoints..."
+
+    check_json_endpoint "${BASE_URL}/health/live" "200" "Liveness check" || return 1
+    check_json_endpoint "${BASE_URL}/health/ready" "200" "Readiness check" || return 1
+    check_json_endpoint "${BASE_URL}/health" "200" "Compatibility health check" || return 1
 }
 
 test_book_creation() {

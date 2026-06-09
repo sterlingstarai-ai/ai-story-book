@@ -25,8 +25,6 @@ logger = structlog.get_logger()
 
 # Allowed domains for image fetching (SSRF protection)
 ALLOWED_IMAGE_DOMAINS = {
-    "localhost",
-    "127.0.0.1",
     "picsum.photos",  # Mock images
     "s3.amazonaws.com",
     "r2.cloudflarestorage.com",
@@ -250,6 +248,8 @@ class PDFService:
             # Also allow S3 endpoint from settings
             s3_host = urlparse(settings.s3_endpoint).hostname or ""
             allowed = ALLOWED_IMAGE_DOMAINS | {s3_host}
+            if settings.debug or settings.testing:
+                allowed |= {"localhost", "127.0.0.1"}
 
             # Check exact match or subdomain match
             for domain in allowed:

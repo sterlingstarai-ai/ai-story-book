@@ -13,11 +13,13 @@ H. 패키징 (BookResult 생성, 업로드, 저장)
 """
 
 import asyncio
+import re
 from typing import Optional, Callable, Awaitable, TypeVar
 import uuid
 import structlog
 
 from src.core.config import settings
+from src.core.book_assets import build_generation_warnings, build_page_asset_status
 from src.core.errors import StoryBookError, ErrorCode, TransientError, get_backoff
 from src.core.utils import utcnow
 from src.models.dto import (
@@ -311,10 +313,12 @@ async def start_book_generation(
 
         # F. 이미지 생성 (cover + pages)
         total_images = len(image_prompts.pages) + 1  # +1 for cover
+        face_reference_url = await _resolve_face_reference(normalized_spec, user_key)
         image_urls = await generate_all_images(
             job_id=job_id,
             image_prompts=image_prompts,
             total_images=total_images,
+            reference_image_url=face_reference_url,
         )
 
         # G. 출력 안전성 검사 (이미지)
@@ -420,12 +424,98 @@ async def generate_image_prompts(
     return await call_image_prompts_generation(spec, story, character)
 
 
+def _is_gradeable_quiz(quiz_item) -> bool:
+    """퀴즈가 채점 가능한지 — 정답 인덱스가 보기 범위 내·보기 중복 없음·정답 보기 비어있지 않음."""
+    options = quiz_item.options or []
+    if not (0 <= quiz_item.answer_index < len(options)):
+        return False
+    if len(set(options)) < len(options):  # 중복 보기 → 정답 모호
+        return False
+    if not (options[quiz_item.answer_index] or "").strip():  # 빈 정답 보기
+        return False
+    return True
+
+
+def _grounding_corpus(assets: LearningAssets, story_text: str) -> str:
+    """grounding 대조 코퍼스 — 원문 + 번역문 + 어휘(원어/뜻) + 이해질문 답.
+
+    학습 퀴즈는 번역언어(target)로 생성되므로(예: ko 동화 → 'rabbit' 정답) 원문만으로는
+    정상 퀴즈도 환각으로 오판된다. 학습자산이 실제 쓰는 언어 코퍼스 전체에 대조한다.
+    """
+    parts = [story_text]
+    for p in (assets.pages or []):
+        if getattr(p, "translated_text", None):
+            parts.append(p.translated_text)
+        for v in (p.vocab or []):
+            parts.append(getattr(v, "word", "") or "")
+            parts.append(getattr(v, "meaning", "") or "")
+        for q in (p.comprehension_questions or []):
+            parts.append(getattr(q, "answer", "") or "")
+    return " ".join(parts)
+
+
+def _quiz_answer_grounded(quiz_item, corpus: str) -> bool:
+    """정답이 학습 코퍼스(원문·번역·어휘·이해답)에 근거하는지 — 완전 환각만 드롭.
+
+    의미 토큰(2자+) 중 하나라도 코퍼스에 있으면 통과(보수적 = 정상 콘텐츠 과드롭 방지).
+    구두점은 정규화해 분리한다. 1자/숫자 등 짧은 답은 통과(과드롭 방지).
+    """
+    options = quiz_item.options or []
+    if not (0 <= quiz_item.answer_index < len(options)):
+        return False
+    answer = (options[quiz_item.answer_index] or "").strip()
+    if not answer:
+        return False
+    norm = re.sub(r"[^\w가-힣ぁ-んァ-ン一-鿿]+", " ", answer)
+    tokens = [t for t in norm.split() if len(t) >= 2]
+    if not tokens:
+        return True
+    return any(tok in corpus for tok in tokens)
+
+
+def _assess_and_clean_learning_quality(
+    assets: LearningAssets, story_text: str = ""
+) -> list[str]:
+    """학습 자산 품질 점검 + 채점 불가/환각 퀴즈 제거. 미달/조치 항목 목록 반환(빈 목록=양호).
+
+    LLM(gpt-4o-mini)이 생성한 어휘/퀴즈를 부모에게 '교육 증거'로 노출하기 전,
+    최소 품질을 점검하고 채점 불가·코퍼스 미근거(환각) 퀴즈를 걸러낸다.
+    """
+    issues: list[str] = []
+    pages = assets.pages or []
+    corpus = _grounding_corpus(assets, story_text)
+    dropped = 0
+    ungrounded = 0
+    for page in pages:
+        if page.quiz:
+            valid = []
+            for q in page.quiz:
+                if not _is_gradeable_quiz(q):
+                    dropped += 1
+                    continue
+                if corpus.strip() and not _quiz_answer_grounded(q, corpus):
+                    ungrounded += 1
+                    continue
+                valid.append(q)
+            page.quiz = valid
+    if dropped:
+        issues.append(f"채점 불가 퀴즈 {dropped}개 제거")
+    if ungrounded:
+        issues.append(f"본문 미근거(환각 의심) 퀴즈 {ungrounded}개 제거")
+    if sum(len(p.vocab or []) for p in pages) == 0:
+        issues.append("어휘 0개")
+    if sum(len(p.quiz or []) for p in pages) == 0:
+        issues.append("퀴즈 0개")
+    return issues
+
+
 async def generate_learning_assets(story: StoryDraft) -> Optional[LearningAssets]:
-    """G-2. 학습 자산 생성 (번역 + 어휘 + 질문 + 퀴즈)"""
+    """G-2. 학습 자산 생성 (번역 + 어휘 + 질문 + 퀴즈) + 품질 게이트"""
     from src.services.llm import call_learning_assets
 
-    # 원본 언어에서 영어로 번역 (ko -> en)
-    # 영어 원본이면 한국어로 (en -> ko)
+    # translated_text(이중언어 읽기용)는 원본→타깃 번역(ko→en, en→ko). 단, vocab의
+    # meaning은 프롬프트에서 원어(source_language) 뜻풀이로 생성된다 — '한국어 읽기성장'
+    # 제품의 어휘 게임이 영어 번역 시험이 아니라 모국어 어휘 실력을 측정하게 하기 위함.
     source_lang = story.language
     if source_lang == Language.ko:
         target_lang = Language.en
@@ -436,7 +526,7 @@ async def generate_learning_assets(story: StoryDraft) -> Optional[LearningAssets
         target_lang = Language.en
 
     try:
-        return await call_learning_assets(story, source_lang, target_lang)
+        assets = await call_learning_assets(story, source_lang, target_lang)
     except Exception as e:
         logger.warning(
             "Failed to generate learning assets, continuing without",
@@ -444,14 +534,83 @@ async def generate_learning_assets(story: StoryDraft) -> Optional[LearningAssets
         )
         return None
 
+    if assets is None:
+        return None
+
+    story_text = " ".join((p.text or "") for p in (story.pages or []))
+    issues = _assess_and_clean_learning_quality(assets, story_text)
+    if issues:
+        logger.warning(
+            "Learning assets quality gate", issues=issues, title=story.title
+        )
+
+    # 어휘·퀴즈가 모두 비면 '교육 증거'로 노출하지 않는다(무자산이 오히려 안전).
+    has_vocab = any((p.vocab or []) for p in (assets.pages or []))
+    has_quiz = any((p.quiz or []) for p in (assets.pages or []))
+    if not has_vocab and not has_quiz:
+        logger.warning(
+            "Learning assets empty after quality gate; dropping", title=story.title
+        )
+        return None
+
+    return assets
+
+
+async def _resolve_face_reference(spec, user_key: str) -> Optional[str]:
+    """주인공이 사진 파생(from_photo) 캐릭터면 그 원본 사진 URL을 얼굴 레퍼런스로 반환.
+
+    - 얼굴 보존 provider(gemini)에서만 사용.
+    - **반드시 user_key로 스코프**(타 유저 아동 사진 도용 IDOR 차단).
+    - 스토리 생성과 동일한 '택일' 의미(character_ids 우선) + 주인공(char_ids[0]) 우선의 결정적 선택.
+    """
+    if settings.image_provider != "gemini":
+        return None
+    cids = getattr(spec, "character_ids", None)
+    char_ids = (
+        list(cids)
+        if cids
+        else ([spec.character_id] if getattr(spec, "character_id", None) else [])
+    )
+    char_ids = [c for c in char_ids if c]
+    if not char_ids:
+        return None
+    try:
+        from sqlalchemy import select
+
+        from src.core.database import AsyncSessionLocal
+        from src.models.db import Character
+
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(Character.id, Character.source_image_url).where(
+                    Character.id.in_(char_ids),
+                    Character.user_key == user_key,
+                    Character.from_photo.is_(True),
+                    Character.source_image_url.isnot(None),
+                )
+            )
+            by_id = {row[0]: row[1] for row in result.all()}
+        # 주인공(char_ids[0])부터 순서대로 첫 매칭 — DB plan 무관 결정적 선택
+        for cid in char_ids:
+            if cid in by_id:
+                return by_id[cid]
+        return None
+    except Exception as e:  # pragma: no cover - 방어적
+        logger.warning("face reference resolve failed", error=str(e))
+        return None
+
 
 async def generate_all_images(
     job_id: str,
     image_prompts: ImagePrompts,
     total_images: int,
+    reference_image_url: Optional[str] = None,
 ) -> dict[int, str]:
     """
     F. 이미지 생성 (cover + pages)
+
+    reference_image_url: 주인공 아이 얼굴 사진 — 얼굴 보존 provider(gemini)에서
+    표지·모든 페이지에 같은 아이 얼굴을 동화체로 일관 반영하는 데 쓰인다.
 
     Returns:
         dict mapping page number to image URL (0 = cover)
@@ -465,7 +624,9 @@ async def generate_all_images(
 
     # Generate cover
     await update_job_status(job_id, "표지 그리는 중...", int(current_progress))
-    cover_url = await generate_image_with_retry(image_prompts.cover, job_id, 0)
+    cover_url = await generate_image_with_retry(
+        image_prompts.cover, job_id, 0, reference_image_url=reference_image_url
+    )
     image_urls[0] = cover_url
     current_progress += progress_per_image
 
@@ -479,7 +640,9 @@ async def generate_all_images(
                 f"그림 그리는 중... ({page_num}/{len(image_prompts.pages)})",
                 int(current_progress + (page_num * progress_per_image)),
             )
-            return await generate_image_with_retry(prompt, job_id, page_num)
+            return await generate_image_with_retry(
+                prompt, job_id, page_num, reference_image_url=reference_image_url
+            )
 
     tasks = [
         generate_with_semaphore(prompt, prompt.page) for prompt in image_prompts.pages
@@ -518,18 +681,20 @@ async def generate_all_images(
     return image_urls
 
 
-async def generate_image(prompt) -> str:
+async def generate_image(prompt, reference_image_url: Optional[str] = None) -> str:
     """Thin wrapper for easier testing/patching."""
     from src.services.image import generate_image as image_generate
 
-    return await image_generate(prompt)
+    return await image_generate(prompt, reference_image_url=reference_image_url)
 
 
 def _is_placeholder_image_url(url: str) -> bool:
     return isinstance(url, str) and "placeholder" in url
 
 
-async def generate_image_with_retry(prompt, job_id: str, page: int) -> str:
+async def generate_image_with_retry(
+    prompt, job_id: str, page: int, reference_image_url: Optional[str] = None
+) -> str:
     """이미지 생성 (재시도 포함)"""
     max_retries = max(1, int(settings.image_max_retries))
     last_error: Exception | None = None
@@ -537,7 +702,8 @@ async def generate_image_with_retry(prompt, job_id: str, page: int) -> str:
     for attempt in range(max_retries):
         try:
             url = await asyncio.wait_for(
-                generate_image(prompt), timeout=settings.image_timeout
+                generate_image(prompt, reference_image_url=reference_image_url),
+                timeout=settings.image_timeout,
             )
             return url
 
@@ -579,46 +745,52 @@ async def generate_image_with_retry(prompt, job_id: str, page: int) -> str:
     ) from last_error
 
 
+# 출력 모더레이션 금칙 패턴
+# - 영어: 단어 경계(\b)로 검사 → "begun"의 "gun", "assassin"의 "sin" 같은 오탐 방지.
+# - 한국어: 구체적 표현으로 검사 → 단음절 광범위 패턴('피/술/총/죽이')은 정상 단어
+#   (피자·커피·예술·기술·총총·반죽 등)을 silent-fail시켜 churn을 유발하므로 사용하지 않음.
+_MOD_FORBIDDEN_EN = [
+    "kill", "murder", "blood", "sex", "drug", "alcohol", "violence",
+    "weapon", "gun", "knife", "porn", "suicide", "rape",
+]
+_MOD_FORBIDDEN_EN_RE = [
+    re.compile(r"\b" + re.escape(w) + r"\b", re.IGNORECASE) for w in _MOD_FORBIDDEN_EN
+]
+_MOD_FORBIDDEN_KO = [
+    # 살해·폭력
+    "죽여", "죽이는", "죽이고", "죽이려", "죽인다", "살해", "살인", "폭력",
+    "때려 죽", "패 죽", "목 졸", "목졸",
+    # 무기
+    "권총", "총격", "총살", "총을 쏘", "총을 쐈", "총으로", "총구", "기관총",
+    "엽총", "칼로 찌", "칼로 찔", "칼로 베", "흉기",
+    # 유혈·잔혹
+    "피범벅", "피투성", "유혈", "잔혹", "참수", "토막",
+    # 약물·음주·흡연
+    "마약", "담배", "흡연", "음주", "술에 취", "술을 마", "술주정",
+    "소주", "맥주", "막걸리",
+    # 성인
+    "섹스", "성행위", "음란", "포르노", "야한", "자살",
+]
+
+
 async def moderate_output(story: StoryDraft, image_urls: dict) -> bool:
-    """G. 출력 안전성 검사 - 생성된 콘텐츠 검증"""
-    # 금지 키워드 목록 (아동 부적절 콘텐츠)
-    forbidden_patterns = [
-        "죽이",
-        "살인",
-        "폭력",
-        "피",
-        "술",
-        "담배",
-        "마약",
-        "성인",
-        "섹스",
-        "야한",
-        "총",
-        "칼로 찔",
-        "kill",
-        "murder",
-        "blood",
-        "sex",
-        "drug",
-        "alcohol",
-        "violence",
-        "weapon",
-        "gun",
-        "knife",
-    ]
+    """G. 출력 안전성 검사 - 생성된 콘텐츠 검증.
 
-    # 모든 페이지 텍스트 검사
-    all_text = story.title.lower()
+    영어 금칙어는 단어 경계로, 한국어 금칙어는 구체적 표현으로 검사하여
+    '피자/예술/총총' 등 정상 단어의 오탐(=정상 동화의 silent generation failure)을 방지한다.
+    """
+    text = story.title
     for page in story.pages:
-        all_text += " " + page.text.lower()
+        text += " " + page.text
 
-    for pattern in forbidden_patterns:
-        if pattern.lower() in all_text:
-            logger.warning(
-                "Output moderation failed",
-                pattern=pattern,
-                title=story.title,
-            )
+    for pattern in _MOD_FORBIDDEN_KO:
+        if pattern in text:
+            logger.warning("Output moderation failed", pattern=pattern, title=story.title)
+            return False
+
+    for rx in _MOD_FORBIDDEN_EN_RE:
+        if rx.search(text):
+            logger.warning("Output moderation failed", pattern=rx.pattern, title=story.title)
             return False
 
     return True
@@ -638,7 +810,8 @@ async def package_book(
 ) -> BookResult:
     """H. 패키징 및 저장"""
     from src.core.database import AsyncSessionLocal
-    from src.models.db import Book, Page
+    from src.models.db import Book, Job, Page
+    from sqlalchemy import select
 
     book_id = f"book_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
 
@@ -656,6 +829,10 @@ async def package_book(
 
     async with AsyncSessionLocal() as session:
         try:
+            job_result = await session.execute(select(Job).where(Job.id == job_id))
+            job = job_result.scalar_one_or_none()
+            profile_id = job.profile_id if job else None
+
             # Create book
             # character_id: 단일 캐릭터 (기존 호환성), character_ids: 다중 캐릭터
             primary_char_id = (
@@ -673,6 +850,7 @@ async def package_book(
                 character_ids=spec.character_ids,
                 cover_image_url=image_urls.get(0, ""),
                 user_key=user_key,
+                profile_id=profile_id,
                 # 시리즈 관련
                 series_id=series_id,
                 series_index=series_index,
@@ -773,6 +951,10 @@ async def package_book(
                 "",
             ),
             "audio_url": None,
+            "asset_status": build_page_asset_status(
+                image_urls.get(p.page, ""),
+                audio_urls=[None],
+            ),
         }
         # 다국어 텍스트 추가
         if story.language == Language.ko:
@@ -808,6 +990,17 @@ async def package_book(
 
         page_results.append(page_result)
 
+    generation_warnings = build_generation_warnings(
+        cover_image_url=image_urls.get(0, ""),
+        page_images=[(p.page, image_urls.get(p.page, "")) for p in story.pages],
+    )
+    if generation_warnings:
+        logger.warning(
+            "Book packaged with degraded assets",
+            job_id=job_id,
+            warning_count=len(generation_warnings),
+        )
+
     return BookResult(
         book_id=book_id,
         title=story.title,
@@ -826,6 +1019,7 @@ async def package_book(
         title_en=title_en,
         # 학습 자산
         learning_assets=learning_assets.model_dump() if learning_assets else None,
+        generation_warnings=generation_warnings,
     )
 
 

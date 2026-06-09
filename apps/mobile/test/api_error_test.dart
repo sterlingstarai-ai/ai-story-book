@@ -173,5 +173,34 @@ void main() {
       expect(apiError.message, 'upstream unavailable');
       expect(apiError.statusCode, 503);
     });
+
+    test('preserves payment required message for upgrade guidance', () {
+      final requestOptions = RequestOptions(path: '/v1/books');
+      final response = Response(
+        requestOptions: requestOptions,
+        statusCode: 402,
+        data: {
+          'detail': '무료 플랜은 월 2권까지 생성할 수 있습니다. 베이직 이상으로 업그레이드해주세요.',
+          'error': {
+            'code': 'PAYMENT_REQUIRED',
+            'message': '무료 플랜은 월 2권까지 생성할 수 있습니다. 베이직 이상으로 업그레이드해주세요.',
+          },
+        },
+      );
+
+      final dioError = DioException(
+        requestOptions: requestOptions,
+        response: response,
+        type: DioExceptionType.badResponse,
+      );
+
+      final apiError = ApiError.fromDioException(dioError);
+
+      expect(apiError.code, 'PAYMENT_REQUIRED');
+      expect(
+        apiError.userMessage,
+        '무료 플랜은 월 2권까지 생성할 수 있습니다. 베이직 이상으로 업그레이드해주세요.',
+      );
+    });
   });
 }

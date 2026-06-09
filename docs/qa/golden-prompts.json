@@ -1,0 +1,41 @@
+[
+  {
+    "id": "golden-ko-friendship-001",
+    "language": "ko",
+    "target_age": "5-7",
+    "style": "watercolor",
+    "theme": "우정",
+    "topic": "숲속에서 길을 잃은 고슴도치를 도와 함께 집을 찾는 토끼 이야기",
+    "expected_signals": [
+      "도입-갈등-해결 구조가 명확할 것",
+      "주인공의 말투와 성격이 끝까지 유지될 것",
+      "학습 자산이 1페이지 이상 생성될 것"
+    ]
+  },
+  {
+    "id": "golden-ko-bedtime-002",
+    "language": "ko",
+    "target_age": "3-5",
+    "style": "storybook_crayon",
+    "theme": "생활습관",
+    "topic": "잠들기 싫어하는 아이가 달님과 함께 편안한 잠자리 루틴을 배우는 이야기",
+    "expected_signals": [
+      "자극적 표현 없이 안정적인 정서 톤을 유지할 것",
+      "수면 루틴이 자연스럽게 이야기 안에 녹아들 것",
+      "표지와 마지막 페이지의 분위기가 일관될 것"
+    ]
+  },
+  {
+    "id": "golden-en-bilingual-003",
+    "language": "en",
+    "target_age": "7-9",
+    "style": "cartoon",
+    "theme": "adventure",
+    "topic": "A child and her robot kite discover a hidden sky library above Seoul.",
+    "expected_signals": [
+      "English source text and Korean learning assets should align semantically",
+      "Vocabulary difficulty should fit upper elementary readers",
+      "No degraded asset warnings should appear in the healthy-path baseline"
+    ]
+  }
+]

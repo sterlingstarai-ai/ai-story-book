@@ -22,7 +22,7 @@ class PrimaryButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       width: isFullWidth ? double.infinity : null,
-      height: 52,
+      height: 64,
       child: ElevatedButton(
         onPressed: isLoading ? null : onPressed,
         style: ElevatedButton.styleFrom(
@@ -63,7 +63,7 @@ class SecondaryButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       width: double.infinity,
-      height: 52,
+      height: 64,
       child: OutlinedButton(
         onPressed: onPressed,
         style: OutlinedButton.styleFrom(
@@ -365,6 +365,77 @@ class ProgressIndicatorBar extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// 작은 화면에서도 액션 시트를 스크롤 가능하게 유지하는 공통 프레임
+class AdaptiveModalSheet extends StatelessWidget {
+  final String? title;
+  final String? subtitle;
+  final Widget child;
+  final double maxHeightFactor;
+  final EdgeInsetsGeometry contentPadding;
+  final Key? scrollViewKey;
+
+  const AdaptiveModalSheet({
+    super.key,
+    this.title,
+    this.subtitle,
+    required this.child,
+    this.maxHeightFactor = 0.85,
+    this.contentPadding = EdgeInsets.zero,
+    this.scrollViewKey,
+  }) : assert(
+          maxHeightFactor > 0 && maxHeightFactor <= 1,
+          'maxHeightFactor must be between 0 and 1',
+        );
+
+  @override
+  Widget build(BuildContext context) {
+    final mediaQuery = MediaQuery.of(context);
+    final maxHeight = mediaQuery.size.height * maxHeightFactor;
+
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxHeight),
+        child: SingleChildScrollView(
+          key: scrollViewKey,
+          padding: EdgeInsets.only(
+            bottom: AppSpacing.lg + mediaQuery.viewInsets.bottom,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: AppSpacing.md),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.divider,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              if (title != null) ...[
+                const SizedBox(height: AppSpacing.lg),
+                Text(title!, style: AppTextStyles.heading3),
+              ],
+              if (subtitle != null) ...[
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  subtitle!,
+                  style: AppTextStyles.bodySmall,
+                  textAlign: TextAlign.center,
+                ),
+              ],
+              Padding(
+                padding: contentPadding,
+                child: child,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

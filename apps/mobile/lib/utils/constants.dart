@@ -8,6 +8,7 @@ class AppColors {
   static const surface = Colors.white;
   static const error = Color(0xFFEF4444);
   static const success = Color(0xFF22C55E);
+  static const warning = Color(0xFFF59E0B);
 
   static const textPrimary = Color(0xFF1F2937);
   static const textSecondary = Color(0xFF6B7280);
@@ -26,6 +27,7 @@ class AppColors {
   static const secondaryLight = Color(0x33F472B6); // secondary 20%
 
   static const successLight = Color(0x1A22C55E); // success 10%
+  static const warningLight = Color(0x1AF59E0B); // warning 10%
 
   static const blackOverlay = Color(0x80000000); // black 50%
   static const blackOverlayLight = Color(0x0D000000); // black 5%
@@ -94,4 +96,10 @@ class AppRadius {
   static const md = 12.0;
   static const lg = 16.0;
   static const xl = 24.0;
+}
+
+/// 공통 인터랙션 사이즈
+class AppSizing {
+  /// 아동 UX 기준 최소 터치 타겟
+  static const minTouchTarget = 64.0;
 }

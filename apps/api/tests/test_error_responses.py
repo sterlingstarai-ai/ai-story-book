@@ -107,6 +107,7 @@ class TestErrorResponseFormat:
         from src.core import rate_limit
         from src.core.config import settings
 
+        monkeypatch.setattr(settings, "rate_limit_enforce_in_testing", True)
         monkeypatch.setattr(
             rate_limit.rate_limiter,
             "is_allowed",
@@ -218,6 +219,172 @@ class TestErrorResponseFormat:
         body = response.json()
         assert body["error"]["code"] == "VALIDATION_ERROR"
         assert body["detail"] == "파일 크기는 10MB 이하여야 합니다."
+        assert body["error"]["message"] == body["detail"]
+
+    @pytest.mark.asyncio
+    async def test_character_drawing_invalid_content_type_uses_validation_error(
+        self,
+        client: AsyncClient,
+        headers: dict,
+    ):
+        response = await client.post(
+            "/v1/characters/from-drawing",
+            files={"drawing": ("not-image.txt", b"plain text", "text/plain")},
+            headers=headers,
+        )
+
+        assert response.status_code == 400
+        body = response.json()
+        assert body["error"]["code"] == "VALIDATION_ERROR"
+        assert body["detail"] == "이미지 파일만 업로드 가능합니다."
+        assert body["error"]["message"] == body["detail"]
+
+    @pytest.mark.asyncio
+    async def test_character_drawing_oversized_file_uses_validation_error(
+        self,
+        client: AsyncClient,
+        headers: dict,
+    ):
+        oversized = b"0" * (10 * 1024 * 1024 + 1)
+        response = await client.post(
+            "/v1/characters/from-drawing",
+            files={"drawing": ("large.png", oversized, "image/png")},
+            headers=headers,
+        )
+
+        assert response.status_code == 400
+        body = response.json()
+        assert body["error"]["code"] == "VALIDATION_ERROR"
+        assert body["detail"] == "파일 크기는 10MB 이하여야 합니다."
+        assert body["error"]["message"] == body["detail"]
+
+    @pytest.mark.asyncio
+    async def test_voice_sample_upload_invalid_type_uses_validation_error(
+        self,
+        client: AsyncClient,
+        headers: dict,
+    ):
+        response = await client.post(
+            "/v1/voice-profiles/upload-sample",
+            files={"sample": ("not-audio.txt", b"text", "text/plain")},
+            headers=headers,
+        )
+
+        assert response.status_code == 400
+        body = response.json()
+        assert body["error"]["code"] == "VALIDATION_ERROR"
+        assert body["detail"] == "오디오 파일만 업로드 가능합니다."
+        assert body["error"]["message"] == body["detail"]
+
+    @pytest.mark.asyncio
+    async def test_voice_sample_upload_oversized_uses_validation_error(
+        self,
+        client: AsyncClient,
+        headers: dict,
+    ):
+        oversized = b"1" * (15 * 1024 * 1024 + 1)
+        response = await client.post(
+            "/v1/voice-profiles/upload-sample",
+            files={"sample": ("huge.m4a", oversized, "audio/mp4")},
+            headers=headers,
+        )
+
+        assert response.status_code == 400
+        body = response.json()
+        assert body["error"]["code"] == "VALIDATION_ERROR"
+        assert body["detail"] == "샘플 오디오는 15MB 이하여야 합니다."
+        assert body["error"]["message"] == body["detail"]
+
+    @pytest.mark.asyncio
+    async def test_pronunciation_audio_invalid_type_uses_validation_error(
+        self,
+        client: AsyncClient,
+        headers: dict,
+    ):
+        response = await client.post(
+            "/v1/pronunciation/evaluate-audio",
+            files={"audio_file": ("not-audio.txt", b"text", "text/plain")},
+            data={"expected_text": "토끼가 걸어가요", "language": "ko"},
+            headers=headers,
+        )
+
+        assert response.status_code == 400
+        body = response.json()
+        assert body["error"]["code"] == "VALIDATION_ERROR"
+        assert body["detail"] == "오디오 파일만 업로드 가능합니다."
+        assert body["error"]["message"] == body["detail"]
+
+    @pytest.mark.asyncio
+    async def test_pronunciation_audio_oversized_uses_validation_error(
+        self,
+        client: AsyncClient,
+        headers: dict,
+    ):
+        oversized = b"2" * (15 * 1024 * 1024 + 1)
+        response = await client.post(
+            "/v1/pronunciation/evaluate-audio",
+            files={"audio_file": ("large.m4a", oversized, "audio/mp4")},
+            data={"expected_text": "토끼가 걸어가요", "language": "ko"},
+            headers=headers,
+        )
+
+        assert response.status_code == 400
+        body = response.json()
+        assert body["error"]["code"] == "VALIDATION_ERROR"
+        assert body["detail"] == "발음 평가 오디오는 15MB 이하여야 합니다."
+        assert body["error"]["message"] == body["detail"]
+
+    @pytest.mark.asyncio
+    async def test_pod_order_invalid_country_uses_validation_error(
+        self,
+        client: AsyncClient,
+        headers: dict,
+    ):
+        response = await client.post(
+            "/v1/pod/orders",
+            json={
+                "book_id": "book-any",
+                "quantity": 1,
+                "shipping_address": {
+                    "name": "홍길동",
+                    "line1": "서울시 테스트",
+                    "postal_code": "12345",
+                    "country": "KOR",
+                },
+            },
+            headers=headers,
+        )
+
+        assert response.status_code == 422
+        body = response.json()
+        assert body["error"]["code"] == "VALIDATION_ERROR"
+        assert isinstance(body["detail"], list)
+        assert body["error"]["details"] == body["detail"]
+
+    @pytest.mark.asyncio
+    async def test_profile_unset_default_uses_validation_error(
+        self,
+        client: AsyncClient,
+        headers: dict,
+    ):
+        create_profile = await client.post(
+            "/v1/profiles",
+            json={"name": "첫째", "age_band": "5-7"},
+            headers=headers,
+        )
+        assert create_profile.status_code == 200
+        profile_id = create_profile.json()["id"]
+
+        response = await client.patch(
+            f"/v1/profiles/{profile_id}",
+            json={"is_default": False},
+            headers=headers,
+        )
+
+        assert response.status_code == 400
+        body = response.json()
+        assert body["error"]["code"] == "VALIDATION_ERROR"
+        assert body["detail"] == "기본 프로필은 직접 해제할 수 없습니다. 다른 프로필을 기본으로 지정하세요."
         assert body["error"]["message"] == body["detail"]
 
     @pytest.mark.asyncio

@@ -4,11 +4,29 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from contextlib import asynccontextmanager
+from time import perf_counter
 import uuid
 import structlog
 
 from src.core.config import settings
-from src.routers import books, characters, library, credits, streak
+from src.routers import (
+    books,
+    branch,
+    characters,
+    library,
+    credits,
+    streak,
+    growth,
+    iap,
+    users,
+    profiles,
+    settings as user_settings,
+    rewards,
+    pod,
+    pronunciation,
+    voice_profiles,
+    consent,
+)
 from src.core.database import get_db  # noqa: F401
 from src.core.rate_limit import check_rate_limit, rate_limiter
 from src.core.exceptions import (
@@ -57,6 +75,35 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class AccessLogMiddleware(BaseHTTPMiddleware):
+    """Emit structured access logs with request correlation and latency."""
+
+    async def dispatch(self, request: Request, call_next):
+        started = perf_counter()
+        try:
+            response = await call_next(request)
+        except Exception as exc:
+            duration_ms = round((perf_counter() - started) * 1000, 2)
+            logger.error(
+                "HTTP request failed",
+                method=request.method,
+                path=request.url.path,
+                duration_ms=duration_ms,
+                error=str(exc),
+            )
+            raise
+
+        duration_ms = round((perf_counter() - started) * 1000, 2)
+        logger.info(
+            "HTTP request completed",
+            method=request.method,
+            path=request.url.path,
+            status_code=response.status_code,
+            duration_ms=duration_ms,
+        )
+        return response
+
+
 class RateLimitHeadersMiddleware(BaseHTTPMiddleware):
     """Add rate limit headers to responses for client visibility."""
 
@@ -100,9 +147,11 @@ async def lifespan(app: FastAPI):
     # Start job monitor (background task for stuck job detection)
     # 테스트 환경에서는 job_monitor 비활성화 (DB 세션 타이밍 이슈 방지)
     from src.services.job_monitor import job_monitor
+    from src.services.periodic_credits import periodic_credits
 
     if not settings.testing:
         await job_monitor.start()
+        await periodic_credits.start()
 
     yield
 
@@ -111,6 +160,7 @@ async def lifespan(app: FastAPI):
 
     if not settings.testing:
         await job_monitor.stop()
+        await periodic_credits.stop()
 
     # Close rate limiter Redis connection
     await rate_limiter.close()
@@ -191,6 +241,9 @@ AI 기반 맞춤형 동화책 생성 API입니다.
 # Request ID middleware (outermost - runs first)
 app.add_middleware(RequestIDMiddleware)
 
+# Access logs with request_id bound in middleware above
+app.add_middleware(AccessLogMiddleware)
+
 # Security headers middleware
 app.add_middleware(SecurityHeadersMiddleware)
 
@@ -218,8 +271,15 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
-    allow_headers=["X-User-Key", "X-Idempotency-Key", "X-Admin-Key", "Content-Type"],
+    allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=[
+        "X-User-Key",
+        "X-Profile-Id",
+        "X-Idempotency-Key",
+        "X-Admin-Key",
+        "X-Request-ID",
+        "Content-Type",
+    ],
 )
 
 
@@ -283,18 +343,8 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
-# Health check
-@app.get("/health")
-async def health_check():
-    return {
-        "status": "healthy",
-        "version": settings.app_version,
-    }
-
-
-@app.get("/health/detailed")
-async def detailed_health_check():
-    """Detailed health check with job metrics and external API status"""
+async def _build_readiness_payload(*, include_metrics: bool) -> dict:
+    """Build readiness payload with dependency state."""
     from src.services.job_monitor import get_job_metrics
 
     jobs_status = "healthy"
@@ -332,10 +382,9 @@ async def detailed_health_check():
         else "degraded"
     )
 
-    return {
+    payload = {
         "status": overall_status,
         "version": settings.app_version,
-        "jobs": job_metrics,
         "services": {
             "database": db_status,
             "redis": redis_status,
@@ -343,13 +392,47 @@ async def detailed_health_check():
             "llm_provider": settings.llm_provider,
             "image_provider": settings.image_provider,
         },
-        "config": {
+    }
+    if include_metrics:
+        payload["jobs"] = job_metrics
+        payload["config"] = {
             "rate_limit_requests": settings.rate_limit_requests,
             "rate_limit_window": settings.rate_limit_window,
             "job_sla_seconds": settings.job_sla_seconds,
             "image_max_concurrent": settings.image_max_concurrent,
-        },
+        }
+    return payload
+
+
+@app.get("/health")
+async def health_check():
+    return {
+        "status": "healthy",
+        "version": settings.app_version,
     }
+
+
+@app.get("/health/live")
+async def live_health_check():
+    return {
+        "status": "alive",
+        "version": settings.app_version,
+    }
+
+
+@app.get("/health/ready")
+async def ready_health_check():
+    payload = await _build_readiness_payload(include_metrics=False)
+    return JSONResponse(
+        status_code=200 if payload["status"] == "healthy" else 503,
+        content=payload,
+    )
+
+
+@app.get("/health/detailed")
+async def detailed_health_check():
+    """Detailed health check with job metrics and external API status"""
+    return await _build_readiness_payload(include_metrics=True)
 
 
 # Include routers with rate limiting
@@ -381,6 +464,72 @@ app.include_router(
     streak.router,
     prefix="/v1/streak",
     tags=["Streak"],
+    dependencies=[Depends(check_rate_limit)],
+)
+app.include_router(
+    growth.router,
+    prefix="/v1/growth",
+    tags=["Growth"],
+    dependencies=[Depends(check_rate_limit)],
+)
+app.include_router(
+    iap.router,
+    prefix="/v1/iap",
+    tags=["IAP"],
+    dependencies=[Depends(check_rate_limit)],
+)
+app.include_router(
+    users.router,
+    prefix="/v1/users",
+    tags=["Users"],
+    dependencies=[Depends(check_rate_limit)],
+)
+app.include_router(
+    profiles.router,
+    prefix="/v1/profiles",
+    tags=["Profiles"],
+    dependencies=[Depends(check_rate_limit)],
+)
+app.include_router(
+    user_settings.router,
+    prefix="/v1/settings",
+    tags=["Settings"],
+    dependencies=[Depends(check_rate_limit)],
+)
+app.include_router(
+    rewards.router,
+    prefix="/v1/rewards",
+    tags=["Rewards"],
+    dependencies=[Depends(check_rate_limit)],
+)
+app.include_router(
+    pod.router,
+    prefix="/v1/pod",
+    tags=["POD"],
+    dependencies=[Depends(check_rate_limit)],
+)
+app.include_router(
+    pronunciation.router,
+    prefix="/v1/pronunciation",
+    tags=["Pronunciation"],
+    dependencies=[Depends(check_rate_limit)],
+)
+app.include_router(
+    branch.router,
+    prefix="/v1/branch",
+    tags=["Branch"],
+    dependencies=[Depends(check_rate_limit)],
+)
+app.include_router(
+    voice_profiles.router,
+    prefix="/v1/voice-profiles",
+    tags=["VoiceProfiles"],
+    dependencies=[Depends(check_rate_limit)],
+)
+app.include_router(
+    consent.router,
+    prefix="/v1/consent",
+    tags=["Consent"],
     dependencies=[Depends(check_rate_limit)],
 )
 

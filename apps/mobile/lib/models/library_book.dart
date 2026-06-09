@@ -49,10 +49,14 @@ class LibraryBook {
 class LibraryResponse {
   final List<LibraryBook> books;
   final int total;
+  final String? nextCursor;
+  final bool hasMore;
 
   LibraryResponse({
     required this.books,
     required this.total,
+    required this.nextCursor,
+    required this.hasMore,
   });
 
   factory LibraryResponse.fromJson(Map<String, dynamic> json) {
@@ -66,6 +70,10 @@ class LibraryResponse {
       books: books,
       total: JsonParsing.asOptionalInt(json['total'], field: 'total') ??
           books.length,
+      nextCursor: JsonParsing.asOptionalString(json['next_cursor']),
+      hasMore:
+          JsonParsing.asOptionalBool(json['has_more'], field: 'has_more') ??
+              false,
     );
   }
 }

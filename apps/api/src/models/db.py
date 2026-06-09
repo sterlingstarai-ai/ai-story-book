@@ -2,6 +2,7 @@ from sqlalchemy import (
     Column,
     String,
     Integer,
+    Float,
     Text,
     DateTime,
     Boolean,
@@ -20,6 +21,7 @@ class Job(Base):
     __tablename__ = "jobs"
     __table_args__ = (
         Index("ix_jobs_status_created", "status", "created_at"),
+        Index("ix_jobs_user_profile_created", "user_key", "profile_id", "created_at"),
     )
 
     id = Column(String(60), primary_key=True)
@@ -33,6 +35,7 @@ class Job(Base):
     moderation_input = Column(JSON, nullable=True)
     moderation_output = Column(JSON, nullable=True)
     user_key = Column(String(80), nullable=False, index=True)
+    profile_id = Column(String(60), nullable=True, index=True)
     idempotency_key = Column(String(80), nullable=True, index=True)
     retry_count = Column(Integer, default=0)  # Number of retry attempts
     last_retry_at = Column(DateTime, nullable=True)  # Last retry timestamp
@@ -99,6 +102,7 @@ class Book(Base):
     __tablename__ = "books"
     __table_args__ = (
         Index("ix_books_user_created", "user_key", "created_at"),
+        Index("ix_books_user_profile_created", "user_key", "profile_id", "created_at"),
     )
 
     id = Column(String(60), primary_key=True)
@@ -114,6 +118,7 @@ class Book(Base):
     pdf_url = Column(String(500), nullable=True)
     audio_url = Column(String(500), nullable=True)
     user_key = Column(String(80), nullable=False, index=True)
+    profile_id = Column(String(60), nullable=True, index=True)
     created_at = Column(DateTime, default=utcnow)
 
     # 시리즈 관련 (v0.3)
@@ -186,6 +191,10 @@ class Character(Base):
     clothing = Column(JSON, nullable=False)
     personality_traits = Column(JSON, nullable=False)
     visual_style_notes = Column(String(200), nullable=True)
+    # 아동 사진/그림에서 파생된 캐릭터 여부 — 보호자 동의 게이트·철회 시 파기 대상 식별
+    from_photo = Column(Boolean, nullable=False, default=False)
+    # 원본 사진/그림 URL — 얼굴 보존 이미지 생성(gemini)의 레퍼런스로 사용
+    source_image_url = Column(String(500), nullable=True)
     user_key = Column(String(80), nullable=False, index=True)
     created_at = Column(DateTime, default=utcnow)
 
@@ -284,12 +293,256 @@ class ReadingLog(Base):
     __tablename__ = "reading_logs"
     __table_args__ = (
         Index("ix_reading_logs_user_date", "user_key", "read_date"),
+        Index("ix_reading_logs_user_profile_date", "user_key", "profile_id", "read_date"),
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_key = Column(String(80), nullable=False, index=True)
+    profile_id = Column(String(60), nullable=True, index=True)
     book_id = Column(String(60), ForeignKey("books.id"), nullable=False)
     read_date = Column(DateTime, nullable=False)  # 읽은 날짜
     reading_time = Column(Integer, default=0)  # 읽은 시간 (초)
     completed = Column(Boolean, default=False)  # 끝까지 읽었는지
+    created_at = Column(DateTime, default=utcnow)
+
+
+class IAPReceipt(Base):
+    """인앱 결제 영수증 저장"""
+
+    __tablename__ = "iap_receipts"
+    __table_args__ = (
+        UniqueConstraint(
+            "platform",
+            "transaction_id",
+            name="uq_iap_receipts_platform_transaction_id",
+        ),
+        Index("ix_iap_receipts_user_key", "user_key"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_key = Column(String(80), nullable=False)
+    platform = Column(String(20), nullable=False)  # apple, google
+    product_id = Column(String(120), nullable=False)
+    transaction_id = Column(String(200), nullable=False)
+    purchase_token = Column(String(500), nullable=True)
+    status = Column(String(40), nullable=False, default="verified")
+    payload = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class UserConsent(Base):
+    """부모 동의 이력"""
+
+    __tablename__ = "user_consents"
+    __table_args__ = (
+        Index("ix_user_consents_user_key", "user_key"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_key = Column(String(80), nullable=False)
+    consent_version = Column(String(20), nullable=False, default="v1")
+    privacy = Column(Boolean, nullable=False, default=False)
+    photos = Column(Boolean, nullable=False, default=False)
+    data_processing = Column(Boolean, nullable=False, default=False)
+    granted = Column(Boolean, nullable=False, default=False)
+    revoked_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class UserSettings(Base):
+    """사용자 설정"""
+
+    __tablename__ = "user_settings"
+
+    user_key = Column(String(80), primary_key=True)
+    language = Column(String(10), nullable=False, default="ko")
+    dark_mode = Column(Boolean, nullable=False, default=False)
+    bedtime_notification_enabled = Column(Boolean, nullable=False, default=False)
+    bedtime_notification_hour = Column(Integer, nullable=True)
+    bedtime_notification_minute = Column(Integer, nullable=True)
+    sleep_mode_default_minutes = Column(Integer, nullable=False, default=20)
+    allow_kakao_share = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class ChildProfile(Base):
+    """자녀 프로필"""
+
+    __tablename__ = "child_profiles"
+    __table_args__ = (
+        Index("ix_child_profiles_user_key", "user_key"),
+        UniqueConstraint("user_key", "name", name="uq_child_profiles_user_name"),
+    )
+
+    id = Column(String(60), primary_key=True)
+    user_key = Column(String(80), nullable=False)
+    name = Column(String(40), nullable=False)
+    # age_band은 NOT NULL 유지(점수/또래 코호트의 기준). 생년월(birth_year/month)이 있으면
+    # age_band를 거기서 *파생*해 저장한다(부모 임의선택 제거, 5/7세 경계중복 해소).
+    age_band = Column(String(10), nullable=False, default="5-7")
+    birth_year = Column(Integer, nullable=True)
+    birth_month = Column(Integer, nullable=True)
+    preferred_theme = Column(String(30), nullable=True)
+    avatar_url = Column(String(500), nullable=True)
+    is_default = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class ScreenTimeLimit(Base):
+    """화면 시간 제한"""
+
+    __tablename__ = "screen_time_limits"
+
+    user_key = Column(String(80), primary_key=True)
+    enabled = Column(Boolean, nullable=False, default=False)
+    daily_limit_minutes = Column(Integer, nullable=False, default=60)
+    used_minutes_today = Column(Integer, nullable=False, default=0)
+    usage_date = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class AdRewardLog(Base):
+    """리워드 광고 적립 로그"""
+
+    __tablename__ = "ad_reward_logs"
+    __table_args__ = (
+        Index("ix_ad_reward_logs_user_key_created", "user_key", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_key = Column(String(80), nullable=False)
+    reward_type = Column(String(40), nullable=False, default="credit")
+    reward_amount = Column(Integer, nullable=False, default=1)
+    ad_network = Column(String(40), nullable=True)
+    ad_unit_id = Column(String(120), nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+
+
+class PodOrder(Base):
+    """실물책 주문"""
+
+    __tablename__ = "pod_orders"
+    __table_args__ = (
+        Index("ix_pod_orders_user_key", "user_key"),
+    )
+
+    id = Column(String(60), primary_key=True)
+    user_key = Column(String(80), nullable=False)
+    book_id = Column(String(60), ForeignKey("books.id"), nullable=False)
+    provider = Column(String(40), nullable=False, default="printful")
+    status = Column(String(30), nullable=False, default="created")
+    quantity = Column(Integer, nullable=False, default=1)
+    unit_price = Column(Integer, nullable=False, default=0)
+    shipping_fee = Column(Integer, nullable=False, default=0)
+    total_price = Column(Integer, nullable=False, default=0)
+    currency = Column(String(10), nullable=False, default="KRW")
+    shipping_address = Column(JSON, nullable=False)
+    provider_order_id = Column(String(120), nullable=True)
+    tracking_number = Column(String(120), nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class VoiceProfile(Base):
+    """가족 음성 프로필"""
+
+    __tablename__ = "voice_profiles"
+    __table_args__ = (
+        Index("ix_voice_profiles_user_key", "user_key"),
+    )
+
+    id = Column(String(60), primary_key=True)
+    user_key = Column(String(80), nullable=False)
+    label = Column(String(40), nullable=False)
+    relationship = Column(String(30), nullable=True)
+    sample_audio_url = Column(String(500), nullable=False)
+    provider_voice_id = Column(String(120), nullable=True)
+    consented = Column(Boolean, nullable=False, default=False)
+    active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class BranchStoryNode(Base):
+    """분기형 스토리 노드"""
+
+    __tablename__ = "branch_story_nodes"
+    __table_args__ = (
+        Index("ix_branch_story_nodes_book_id", "book_id"),
+        UniqueConstraint("book_id", "node_key", name="uq_branch_story_nodes_book_node"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    book_id = Column(String(60), ForeignKey("books.id"), nullable=False)
+    node_key = Column(String(80), nullable=False)
+    page_number = Column(Integer, nullable=False)
+    text = Column(Text, nullable=False)
+    image_url = Column(String(500), nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class BranchStoryEdge(Base):
+    """분기형 스토리 선택지 연결"""
+
+    __tablename__ = "branch_story_edges"
+    __table_args__ = (
+        Index("ix_branch_story_edges_book_id", "book_id"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    book_id = Column(String(60), ForeignKey("books.id"), nullable=False)
+    from_node_key = Column(String(80), nullable=False)
+    to_node_key = Column(String(80), nullable=False)
+    option_text = Column(String(120), nullable=False)
+    created_at = Column(DateTime, default=utcnow)
+
+
+class PronunciationLog(Base):
+    """발음 평가 로그"""
+
+    __tablename__ = "pronunciation_logs"
+    __table_args__ = (
+        Index("ix_pronunciation_logs_user_key_created", "user_key", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_key = Column(String(80), nullable=False)
+    book_id = Column(String(60), ForeignKey("books.id"), nullable=True)
+    page_number = Column(Integer, nullable=True)
+    transcript = Column(Text, nullable=True)
+    expected_text = Column(Text, nullable=True)
+    score = Column(Float, nullable=False, default=0.0)
+    feedback = Column(Text, nullable=True)
+    audio_url = Column(String(500), nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+
+
+class QuizAnswer(Base):
+    """학습 퀴즈/어휘 응답 기록 — '읽기 성장' 측정의 근거 데이터.
+
+    Page.vocab/comprehension/quiz(JSON)는 생성되어 쌓이지만, 지금까지 아이의
+    '응답'을 저장하는 곳이 없어 학습 진척을 측정할 수 없었다. 이 테이블이 그 공백을 메운다.
+    """
+
+    __tablename__ = "quiz_answers"
+    __table_args__ = (
+        Index("ix_quiz_answers_user_created", "user_key", "created_at"),
+        Index("ix_quiz_answers_user_book", "user_key", "book_id"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_key = Column(String(80), nullable=False)
+    profile_id = Column(String(60), nullable=True, index=True)
+    book_id = Column(String(60), ForeignKey("books.id"), nullable=False)
+    page_number = Column(Integer, nullable=True)
+    quiz_type = Column(String(20), nullable=False)  # vocab | comprehension | quiz
+    question_index = Column(Integer, nullable=True)
+    term = Column(String(120), nullable=True)  # 어휘 단어/문항 키 (vocab 학습 추적)
+    user_answer = Column(Text, nullable=True)
+    correct = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, default=utcnow)

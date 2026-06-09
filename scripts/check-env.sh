@@ -3,192 +3,252 @@
 # check-env.sh - Environment Variable Validation Script
 # =============================================================================
 # Usage:
-#   ./scripts/check-env.sh          # Check local .env file
-#   ./scripts/check-env.sh --ci     # CI mode (check env vars are defined)
-#   ./scripts/check-env.sh --help   # Show help
+#   ./scripts/check-env.sh
+#   ./scripts/check-env.sh --mode production --env-file infra/.env
+#   ./scripts/check-env.sh --mode ci
 # =============================================================================
 
-set -e
+set -euo pipefail
 
-# Colors for output
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# Required environment variables for production
-REQUIRED_VARS=(
-    "DATABASE_URL"
-    "REDIS_URL"
-    "LLM_PROVIDER"
-    "IMAGE_PROVIDER"
-    "S3_ENDPOINT"
-    "S3_ACCESS_KEY"
-    "S3_SECRET_KEY"
-    "S3_BUCKET"
+MODE="local"
+ENV_FILE=""
+
+LOCAL_REQUIRED_VARS=(
+  "DATABASE_URL"
+  "REDIS_URL"
+  "LLM_PROVIDER"
+  "IMAGE_PROVIDER"
+  "S3_ENDPOINT"
+  "S3_ACCESS_KEY"
+  "S3_SECRET_KEY"
+  "S3_BUCKET"
 )
 
-# Optional but recommended variables
-OPTIONAL_VARS=(
-    "LLM_API_KEY"
-    "IMAGE_API_KEY"
-    "TTS_PROVIDER"
-    "CORS_ORIGINS"
-    "DEBUG"
+PRODUCTION_REQUIRED_VARS=(
+  "DB_USER"
+  "DB_PASSWORD"
+  "DB_NAME"
+  "LLM_PROVIDER"
+  "IMAGE_PROVIDER"
+  "S3_ENDPOINT"
+  "S3_ACCESS_KEY"
+  "S3_SECRET_KEY"
+  "S3_BUCKET"
+  "CORS_ORIGINS"
 )
 
-# Variables that should have API keys in production
-API_KEY_VARS=(
-    "LLM_API_KEY"
-    "IMAGE_API_KEY"
+LOCAL_OPTIONAL_VARS=(
+  "LLM_API_KEY"
+  "IMAGE_API_KEY"
+  "TTS_PROVIDER"
+  "ADMIN_API_KEY"
+)
+
+PRODUCTION_OPTIONAL_VARS=(
+  "LLM_API_KEY"
+  "IMAGE_API_KEY"
+  "TTS_PROVIDER"
+  "S3_PUBLIC_URL"
+  "ADMIN_API_KEY"
 )
 
 print_help() {
-    echo "Environment Variable Validation Script"
-    echo ""
-    echo "Usage:"
-    echo "  ./scripts/check-env.sh          Check local .env file"
-    echo "  ./scripts/check-env.sh --ci     CI mode (validates schema only)"
-    echo "  ./scripts/check-env.sh --help   Show this help"
-    echo ""
-    echo "Required variables:"
-    for var in "${REQUIRED_VARS[@]}"; do
-        echo "  - $var"
-    done
+  cat <<EOF
+Environment Variable Validation Script
+
+Usage:
+  ./scripts/check-env.sh [--mode local|production|ci] [--env-file PATH]
+  ./scripts/check-env.sh --ci
+
+Modes:
+  local       Validate API runtime variables (default)
+  production  Validate infra/docker-compose production variables
+  ci          Validate repository env examples/schemas
+EOF
+}
+
+log_ok() {
+  echo -e "${GREEN}OK${NC}: $1"
+}
+
+log_warn() {
+  echo -e "${YELLOW}WARN${NC}: $1"
+}
+
+log_fail() {
+  echo -e "${RED}FAIL${NC}: $1"
+}
+
+load_env_file() {
+  local file_path="$1"
+  if [ -z "$file_path" ]; then
+    return 0
+  fi
+  if [ ! -f "$file_path" ]; then
+    log_fail "Environment file not found: $file_path"
+    exit 1
+  fi
+  echo "Loading environment file: $file_path"
+  set -a
+  # shellcheck disable=SC1090
+  source "$file_path"
+  set +a
+}
+
+is_placeholder() {
+  local value="$1"
+  local lowered
+  lowered="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
+  [[ "$lowered" == *"your-"* ]] || [[ "$lowered" == *"change_me"* ]] || [[ "$lowered" == *"example"* ]]
 }
 
 check_var() {
-    local var_name=$1
-    local is_required=$2
+  local var_name="$1"
+  local required="$2"
+  local value="${!var_name:-}"
 
-    if [ -n "${!var_name}" ]; then
-        # Check if it's a placeholder value
-        if [[ "${!var_name}" == *"your-"* ]] || [[ "${!var_name}" == *"change_me"* ]] || [[ "${!var_name}" == *"EXAMPLE"* ]]; then
-            echo -e "${YELLOW}WARNING${NC}: $var_name appears to be a placeholder value"
-            return 1
-        fi
-        echo -e "${GREEN}OK${NC}: $var_name is set"
-        return 0
-    else
-        if [ "$is_required" = "true" ]; then
-            echo -e "${RED}MISSING${NC}: $var_name is required but not set"
-            return 1
-        else
-            echo -e "${YELLOW}OPTIONAL${NC}: $var_name is not set"
-            return 0
-        fi
+  if [ -n "$value" ]; then
+    if is_placeholder "$value"; then
+      log_warn "$var_name appears to use a placeholder value"
+      return 1
     fi
+    log_ok "$var_name is set"
+    return 0
+  fi
+
+  if [ "$required" = "true" ]; then
+    log_fail "$var_name is required but not set"
+    return 1
+  fi
+
+  log_warn "$var_name is not set"
+  return 0
 }
 
-main() {
-    local ci_mode=false
-    local has_errors=false
+run_ci_checks() {
+  local has_errors=false
 
-    # Parse arguments
-    while [[ $# -gt 0 ]]; do
-        case $1 in
-            --ci)
-                ci_mode=true
-                shift
-                ;;
-            --help|-h)
-                print_help
-                exit 0
-                ;;
-            *)
-                echo "Unknown option: $1"
-                print_help
-                exit 1
-                ;;
-        esac
-    done
+  echo "CI Mode: Validating repository env contracts..."
 
-    echo "========================================"
-    echo "Environment Variable Validation"
-    echo "========================================"
-    echo ""
+  if [ -f "$ROOT_DIR/env.schema.json" ]; then
+    log_ok "env.schema.json exists"
+  else
+    log_warn "env.schema.json not found (optional)"
+  fi
 
-    # In CI mode, we just verify the schema exists and is valid
-    if [ "$ci_mode" = true ]; then
-        echo "CI Mode: Validating environment schema..."
+  if [ -f "$ROOT_DIR/apps/api/.env.example" ]; then
+    log_ok "apps/api/.env.example exists"
+  else
+    log_fail "apps/api/.env.example not found"
+    has_errors=true
+  fi
 
-        # Check that env.schema.json exists
-        if [ -f "env.schema.json" ]; then
-            echo -e "${GREEN}OK${NC}: env.schema.json exists"
-        else
-            echo -e "${YELLOW}INFO${NC}: env.schema.json not found (optional)"
-        fi
+  if [ -f "$ROOT_DIR/infra/.env.example" ]; then
+    log_ok "infra/.env.example exists"
+  else
+    log_fail "infra/.env.example not found"
+    has_errors=true
+  fi
 
-        # Check that .env.example exists
-        if [ -f "apps/api/.env.example" ]; then
-            echo -e "${GREEN}OK${NC}: apps/api/.env.example exists"
-        else
-            echo -e "${RED}MISSING${NC}: apps/api/.env.example not found"
-            has_errors=true
-        fi
-
-        if [ -f "infra/.env.example" ]; then
-            echo -e "${GREEN}OK${NC}: infra/.env.example exists"
-        else
-            echo -e "${RED}MISSING${NC}: infra/.env.example not found"
-            has_errors=true
-        fi
-
-        echo ""
-        echo "CI validation complete."
-
-        if [ "$has_errors" = true ]; then
-            exit 1
-        fi
-        exit 0
-    fi
-
-    # Load .env file if it exists
-    if [ -f ".env" ]; then
-        echo "Loading .env file..."
-        set -a
-        source .env
-        set +a
-    elif [ -f "apps/api/.env" ]; then
-        echo "Loading apps/api/.env file..."
-        set -a
-        source apps/api/.env
-        set +a
-    else
-        echo -e "${YELLOW}WARNING${NC}: No .env file found"
-    fi
-
-    echo ""
-    echo "Checking required variables..."
-    echo "----------------------------------------"
-
-    for var in "${REQUIRED_VARS[@]}"; do
-        if ! check_var "$var" "true"; then
-            has_errors=true
-        fi
-    done
-
-    echo ""
-    echo "Checking optional variables..."
-    echo "----------------------------------------"
-
-    for var in "${OPTIONAL_VARS[@]}"; do
-        check_var "$var" "false"
-    done
-
-    echo ""
-    echo "========================================"
-
-    if [ "$has_errors" = true ]; then
-        echo -e "${RED}Validation FAILED${NC}"
-        echo ""
-        echo "Please set the missing required environment variables."
-        echo "See apps/api/.env.example for reference."
-        exit 1
-    else
-        echo -e "${GREEN}Validation PASSED${NC}"
-        exit 0
-    fi
+  if [ "$has_errors" = true ]; then
+    exit 1
+  fi
 }
 
-main "$@"
+run_runtime_checks() {
+  local required_vars_name="$1"
+  local optional_vars_name="$2"
+  local -n required_vars="$required_vars_name"
+  local -n optional_vars="$optional_vars_name"
+  local has_errors=false
+
+  echo "Checking required variables..."
+  echo "----------------------------------------"
+  for var_name in "${required_vars[@]}"; do
+    if ! check_var "$var_name" "true"; then
+      has_errors=true
+    fi
+  done
+
+  echo ""
+  echo "Checking optional variables..."
+  echo "----------------------------------------"
+  for var_name in "${optional_vars[@]}"; do
+    check_var "$var_name" "false" || true
+  done
+
+  if [ "$has_errors" = true ]; then
+    log_fail "Validation FAILED"
+    exit 1
+  fi
+  log_ok "Validation PASSED"
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --mode)
+      MODE="$2"
+      shift 2
+      ;;
+    --env-file)
+      ENV_FILE="$2"
+      shift 2
+      ;;
+    --ci)
+      MODE="ci"
+      shift
+      ;;
+    --help|-h)
+      print_help
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1"
+      print_help
+      exit 1
+      ;;
+  esac
+done
+
+echo "========================================"
+echo "Environment Variable Validation"
+echo "========================================"
+echo "Mode: $MODE"
+echo ""
+
+case "$MODE" in
+  ci)
+    run_ci_checks
+    ;;
+  local)
+    if [ -z "$ENV_FILE" ]; then
+      if [ -f "$ROOT_DIR/apps/api/.env" ]; then
+        ENV_FILE="$ROOT_DIR/apps/api/.env"
+      fi
+    fi
+    load_env_file "$ENV_FILE"
+    run_runtime_checks LOCAL_REQUIRED_VARS LOCAL_OPTIONAL_VARS
+    ;;
+  production)
+    if [ -z "$ENV_FILE" ]; then
+      if [ -f "$ROOT_DIR/infra/.env" ]; then
+        ENV_FILE="$ROOT_DIR/infra/.env"
+      elif [ -f "$ROOT_DIR/.env" ]; then
+        ENV_FILE="$ROOT_DIR/.env"
+      fi
+    fi
+    load_env_file "$ENV_FILE"
+    run_runtime_checks PRODUCTION_REQUIRED_VARS PRODUCTION_OPTIONAL_VARS
+    ;;
+  *)
+    log_fail "Unknown mode: $MODE"
+    exit 1
+    ;;
+esac

@@ -2,10 +2,17 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
+import '../core/photo_consent.dart';
 import '../models/models.dart';
 import '../providers/providers.dart';
 import '../utils/constants.dart';
+import '../widgets/app_shell.dart';
 import '../widgets/common_widgets.dart';
+
+enum _CharacterCreationMode {
+  photo,
+  drawing,
+}
 
 /// 캐릭터 목록 화면
 class CharactersScreen extends ConsumerStatefulWidget {
@@ -23,8 +30,8 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
   Widget build(BuildContext context) {
     final charactersAsync = ref.watch(charactersProvider);
 
-    return Scaffold(
-      backgroundColor: AppColors.background,
+    return AppShell(
+      currentIndex: 3,
       appBar: AppBar(
         backgroundColor: AppColors.background,
         elevation: 0,
@@ -88,6 +95,7 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
                 return _CharacterListItem(
                   character: character,
                   onTap: () => _showCharacterDetail(context, ref, character),
+                  onLongPress: () => _showDeleteCharacterDialog(character),
                 );
               },
             ),
@@ -117,7 +125,6 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
             : const Icon(Icons.camera_alt),
         label: Text(_isCreatingCharacter ? '생성 중...' : '사진으로 만들기'),
       ),
-      bottomNavigationBar: const _CharactersBottomNavBar(),
     );
   }
 
@@ -128,29 +135,12 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
       ),
-      builder: (context) => SafeArea(
+      builder: (context) => AdaptiveModalSheet(
+        title: '새 캐릭터 만들기',
+        subtitle: '캐릭터 생성 방식을 선택하세요',
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const SizedBox(height: AppSpacing.md),
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppColors.divider,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            const Text(
-              '새 캐릭터 만들기',
-              style: AppTextStyles.heading3,
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            const Text(
-              '캐릭터 생성 방식을 선택하세요',
-              style: TextStyle(color: AppColors.textSecondary),
-            ),
             const SizedBox(height: AppSpacing.lg),
             ListTile(
               leading: const Icon(Icons.edit_note, color: AppColors.primary),
@@ -172,13 +162,25 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
               },
             ),
             ListTile(
-              leading:
-                  const Icon(Icons.photo_library, color: AppColors.primary),
+              leading: const Icon(Icons.photo_library, color: AppColors.primary),
               title: const Text('갤러리에서 선택'),
               subtitle: const Text('기존 사진에서 캐릭터 생성'),
               onTap: () {
                 Navigator.pop(context);
                 _pickImage(ImageSource.gallery);
+              },
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.brush_outlined, color: AppColors.primary),
+              title: const Text('아이 그림에서 변환'),
+              subtitle: const Text('그림 사진을 캐릭터+시트로 변환'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickImage(
+                  ImageSource.gallery,
+                  creationMode: _CharacterCreationMode.drawing,
+                );
               },
             ),
             const SizedBox(height: AppSpacing.md),
@@ -240,7 +242,10 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
     }
   }
 
-  Future<void> _pickImage(ImageSource source) async {
+  Future<void> _pickImage(
+    ImageSource source, {
+    _CharacterCreationMode creationMode = _CharacterCreationMode.photo,
+  }) async {
     try {
       final XFile? image = await _picker.pickImage(
         source: source,
@@ -251,11 +256,26 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
 
       if (image == null) return;
 
+      // 사진/그림(아동 얼굴)은 사용 직전 JIT 보호자 동의 — 미동의 시 5요소 고지 후 받는다.
+      if (!mounted) return;
+      final api = ref.read(apiClientProvider);
+      if (!await ensurePhotoConsent(context, api)) {
+        // 동의 거부/취소 시 선택된 임시 이미지를 즉시 폐기(데이터 최소수집).
+        try {
+          await File(image.path).delete();
+        } catch (_) {}
+        return;
+      }
+
       // 이름 입력 다이얼로그
       final name = await _showNameDialog();
       if (name == null) return;
 
-      await _createCharacterFromPhoto(File(image.path), name);
+      await _createCharacterFromImage(
+        File(image.path),
+        name,
+        creationMode: creationMode,
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -267,8 +287,7 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
 
   Future<String?> _showNameDialog() async {
     final controller = TextEditingController();
-
-    return showDialog<String>(
+    final result = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('캐릭터 이름'),
@@ -293,22 +312,89 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
         ],
       ),
     );
+    controller.dispose();
+    return result;
   }
 
-  Future<void> _createCharacterFromPhoto(File photo, String? name) async {
+  Future<void> _showDeleteCharacterDialog(Character character) async {
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('캐릭터 삭제'),
+            content: Text('"${character.name}" 캐릭터를 삭제할까요?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('취소'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('삭제'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      final apiClient = ref.read(apiClientProvider);
+      await apiClient.deleteCharacter(character.id);
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('캐릭터가 삭제되었어요.')),
+      );
+      await ref.read(charactersProvider.notifier).refresh();
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('캐릭터 삭제에 실패했어요. 다시 시도해주세요.')),
+      );
+    }
+  }
+
+  Future<void> _createCharacterFromImage(
+    File photo,
+    String? name, {
+    _CharacterCreationMode creationMode = _CharacterCreationMode.photo,
+  }) async {
     setState(() => _isCreatingCharacter = true);
 
     try {
       final apiClient = ref.read(apiClientProvider);
-      final result = await apiClient.createCharacterFromPhoto(
-        photo,
-        name: name,
-        style: 'cartoon',
-      );
+      late final Map<String, dynamic> result;
+      if (creationMode == _CharacterCreationMode.drawing) {
+        result = await apiClient.createCharacterFromDrawing(
+          photo,
+          name: name,
+          style: 'storybook_crayon',
+          generateSheet: true,
+        );
+      } else {
+        result = await apiClient.createCharacterFromPhoto(
+          photo,
+          name: name,
+          style: 'cartoon',
+        );
+      }
 
       if (mounted) {
+        final characterName = result['name']?.toString() ?? '새 캐릭터';
+        final rawSheetUrls = result['character_sheet_urls'];
+        final sheetCount = rawSheetUrls is List ? rawSheetUrls.length : 0;
+        final message = creationMode == _CharacterCreationMode.drawing &&
+                sheetCount > 0
+            ? '$characterName 캐릭터와 시트 $sheetCount장을 만들었어요!'
+            : '$characterName 캐릭터가 생성되었어요!';
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${result['name']} 캐릭터가 생성되었어요!')),
+          SnackBar(content: Text(message)),
         );
         ref.read(charactersProvider.notifier).refresh();
       }
@@ -438,16 +524,19 @@ class _AddCharacterCard extends StatelessWidget {
 class _CharacterListItem extends StatelessWidget {
   final Character character;
   final VoidCallback onTap;
+  final VoidCallback onLongPress;
 
   const _CharacterListItem({
     required this.character,
     required this.onTap,
+    required this.onLongPress,
   });
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
+      onLongPress: onLongPress,
       child: Container(
         padding: const EdgeInsets.all(AppSpacing.md),
         decoration: BoxDecoration(
@@ -727,109 +816,6 @@ class _DetailRow extends StatelessWidget {
             child: Text(value, style: AppTextStyles.body),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _CharactersBottomNavBar extends StatelessWidget {
-  const _CharactersBottomNavBar();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        color: AppColors.surface,
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.blackOverlayLight,
-            blurRadius: 10,
-            offset: Offset(0, -4),
-          ),
-        ],
-      ),
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.lg,
-            vertical: AppSpacing.sm,
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _NavItem(
-                icon: Icons.home_rounded,
-                label: '홈',
-                isSelected: false,
-                onTap: () => Navigator.pushReplacementNamed(context, '/'),
-              ),
-              _NavItem(
-                icon: Icons.add_circle_rounded,
-                label: '만들기',
-                isSelected: false,
-                onTap: () => Navigator.pushNamed(context, '/create'),
-              ),
-              _NavItem(
-                icon: Icons.auto_stories_rounded,
-                label: '서재',
-                isSelected: false,
-                onTap: () =>
-                    Navigator.pushReplacementNamed(context, '/library'),
-              ),
-              _NavItem(
-                icon: Icons.people_rounded,
-                label: '캐릭터',
-                isSelected: true,
-                onTap: () {},
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _NavItem extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  const _NavItem({
-    required this.icon,
-    required this.label,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final color = isSelected ? AppColors.primary : AppColors.textHint;
-
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md,
-          vertical: AppSpacing.sm,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: color, size: 24),
-            const SizedBox(height: AppSpacing.xs),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                color: color,
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
