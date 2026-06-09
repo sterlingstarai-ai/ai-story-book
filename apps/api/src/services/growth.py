@@ -36,6 +36,10 @@ AGE_WEIGHTS = {
 }
 
 MIN_PEERS_FOR_REAL = 5
+# 또래 코호트 상한 — 같은 연령대 사용자가 폭증해도 IN 절·집계가 무한정 커지지 않게
+# DB 레벨(.limit)에서 표본 상한을 둔다(대표값은 중앙값이라 표본으로 충분). 대규모 시
+# 정밀 통계가 필요해지면 별도 페이지네이션/서브쿼리로 발전(현재 규모는 이 상한으로 충분).
+MAX_PEER_COHORT = 1000
 # 어휘 '습득'으로 인정하는 최소 정답 횟수(distinct term).
 # 4지선다 어휘 게임에서 정답 1회 = 한 번의 '인식' 신호로 인정한다(추정). 자유 탭이 아니라
 # 4지선다라 무지성 양성은 아니며, 1회로 둬야 단권 읽기에서도 '학습 어휘'가 실제로 쌓인다.
@@ -433,10 +437,12 @@ class GrowthService:
         # 같은 연령대·본인 제외 후보
         peer_keys = (
             await db.execute(
-                select(distinct(ChildProfile.user_key)).where(
+                select(distinct(ChildProfile.user_key))
+                .where(
                     ChildProfile.age_band == age_band,
                     ChildProfile.user_key != user_key,
                 )
+                .limit(MAX_PEER_COHORT)
             )
         ).scalars().all()
 
