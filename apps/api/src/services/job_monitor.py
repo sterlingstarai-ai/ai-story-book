@@ -176,11 +176,32 @@ class JobMonitor:
             )
 
     async def _mark_job_failed(self, session, job: Job, error_code: str, message: str):
-        """Mark a job as failed"""
+        """Mark a job as failed (크레딧을 소모한 잡이면 1 크레딧 환불 — silent 손실 방지)"""
         job.status = "failed"
         job.error_code = error_code
         job.error_message = message
         job.updated_at = _db_utcnow()
+
+        # 스턱 잡은 요청경로에서 이미 성공 응답을 받았으므로 환불 경로가 없었다 →
+        # 여기서 멱등 환불(과금된 잡만·1회만). 실패해도 잡 실패 처리는 막지 않는다.
+        try:
+            from src.services.credits import credits_service
+
+            refunded = await credits_service.refund_for_job(
+                session,
+                job.user_key,
+                job.id,
+                description="생성 실패 환불(자동)",
+                commit=False,
+            )
+            if refunded:
+                logger.info("Credit refunded for failed job", job_id=job.id)
+        except Exception as refund_error:  # pragma: no cover - 방어적
+            logger.warning(
+                "Credit refund on job failure failed",
+                job_id=job.id,
+                error=str(refund_error),
+            )
 
         logger.warning(
             "Job marked as failed by monitor",

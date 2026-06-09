@@ -215,6 +215,53 @@ class CreditsService:
             await db.rollback()
             raise
 
+    async def refund_for_job(
+        self,
+        db: AsyncSession,
+        user_key: str,
+        job_id: str,
+        description: str = "생성 실패 환불",
+        commit: bool = True,
+    ) -> bool:
+        """잡이 크레딧을 소모(usage)했고 아직 환불되지 않은 경우에만 1 크레딧 환불.
+
+        멱등(중복 호출·재스캔에도 1회만)하며 과금된 적 없는 잡(예: 재생성)은 환불하지 않는다.
+        job_monitor가 스턱 잡을 최종 실패 처리할 때의 silent 크레딧 손실을 막는다.
+        반환: 실제 환불 여부.
+        """
+        used = await db.execute(
+            select(CreditTransaction.id)
+            .where(
+                CreditTransaction.reference_id == job_id,
+                CreditTransaction.transaction_type == "usage",
+            )
+            .limit(1)
+        )
+        if used.first() is None:
+            return False  # 과금된 적 없음 → 환불 안 함
+
+        already = await db.execute(
+            select(CreditTransaction.id)
+            .where(
+                CreditTransaction.reference_id == job_id,
+                CreditTransaction.transaction_type == "refund",
+            )
+            .limit(1)
+        )
+        if already.first() is not None:
+            return False  # 이미 환불됨 → 이중환불 방지
+
+        await self.add_credits(
+            db,
+            user_key,
+            amount=1,
+            transaction_type="refund",
+            description=description,
+            reference_id=job_id,
+            commit=commit,
+        )
+        return True
+
     async def get_active_subscription(
         self,
         db: AsyncSession,
