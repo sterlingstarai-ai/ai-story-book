@@ -95,6 +95,9 @@ class Settings(BaseSettings):
     # Rate Limiting
     rate_limit_requests: int = 10
     rate_limit_window: int = 60  # seconds
+    # 테스트에선 시간 기반 리미터가 실행 속도에 따라 플래키하게 429를 내므로 기본 우회.
+    # 레이트리밋 자체를 검증하는 테스트만 이 플래그를 켠다(consent 게이트와 동일 패턴).
+    rate_limit_enforce_in_testing: bool = False
 
     # Job Settings
     job_max_retries: int = 3

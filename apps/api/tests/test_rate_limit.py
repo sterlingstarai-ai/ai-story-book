@@ -75,6 +75,7 @@ async def test_is_allowed_blocks_when_count_exceeds_limit(monkeypatch: pytest.Mo
 async def test_check_rate_limit_raises_429_when_limit_exceeded(
     monkeypatch: pytest.MonkeyPatch,
 ):
+    monkeypatch.setattr(settings, "rate_limit_enforce_in_testing", True)
     request = SimpleNamespace(
         headers={"X-User-Key": "test-user"},
         state=SimpleNamespace(),
@@ -94,6 +95,7 @@ async def test_check_rate_limit_raises_429_when_limit_exceeded(
 async def test_check_rate_limit_allows_when_within_limit(
     monkeypatch: pytest.MonkeyPatch,
 ):
+    monkeypatch.setattr(settings, "rate_limit_enforce_in_testing", True)
     request = SimpleNamespace(
         headers={"X-User-Key": "test-user"},
         state=SimpleNamespace(),

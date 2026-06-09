@@ -42,6 +42,7 @@ class TestRateLimiting:
         from src.core import rate_limit
         from src.core.config import settings
 
+        monkeypatch.setattr(settings, "rate_limit_enforce_in_testing", True)
         monkeypatch.setattr(
             rate_limit.rate_limiter,
             "is_allowed",
@@ -68,7 +69,9 @@ class TestRateLimiting:
     ):
         """Allowed requests should still include X-RateLimit headers."""
         from src.core import rate_limit
+        from src.core.config import settings
 
+        monkeypatch.setattr(settings, "rate_limit_enforce_in_testing", True)
         monkeypatch.setattr(
             rate_limit.rate_limiter,
             "is_allowed",
