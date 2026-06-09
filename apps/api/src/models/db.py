@@ -10,6 +10,7 @@ from sqlalchemy import (
     JSON,
     Index,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import relationship
 
@@ -22,6 +23,16 @@ class Job(Base):
     __table_args__ = (
         Index("ix_jobs_status_created", "status", "created_at"),
         Index("ix_jobs_user_profile_created", "user_key", "profile_id", "created_at"),
+        # 동일 (user_key, idempotency_key) 잡 중복 생성을 DB 레벨에서 차단(더블탭/재시도
+        # 동시요청의 크레딧 이중차감 방지). idempotency_key가 NULL인 잡은 제약 대상 아님.
+        Index(
+            "uq_jobs_user_idempotency",
+            "user_key",
+            "idempotency_key",
+            unique=True,
+            sqlite_where=text("idempotency_key IS NOT NULL"),
+            postgresql_where=text("idempotency_key IS NOT NULL"),
+        ),
     )
 
     id = Column(String(60), primary_key=True)
