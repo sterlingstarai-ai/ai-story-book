@@ -10,7 +10,6 @@ import '../services/api_client.dart';
 import '../services/iap_service.dart';
 import '../services/kakao_share_service.dart';
 import '../services/parental_control_service.dart';
-import '../services/rewarded_ad_service.dart';
 import '../services/review_service.dart';
 import '../services/notification_scheduler.dart';
 import '../services/reading_trend.dart';
@@ -48,11 +47,6 @@ final reviewServiceProvider = Provider<ReviewService>((ref) {
 /// Kakao Share Service Provider
 final kakaoShareServiceProvider = Provider<KakaoShareService>((ref) {
   return KakaoShareService();
-});
-
-/// Rewarded Ad Service Provider
-final rewardedAdServiceProvider = Provider<RewardedAdService>((ref) {
-  return const RewardedAdService();
 });
 
 /// API Base URL

@@ -5,7 +5,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'core/app_telemetry.dart';
 import 'l10n/app_localizations.dart';
@@ -46,20 +45,6 @@ void main() async {
 
   // SharedPreferences 초기화
   final prefs = await SharedPreferences.getInstance();
-
-  // 리워드 광고 초기화 (비모바일/미지원 환경에서는 무시)
-  try {
-    if (defaultTargetPlatform == TargetPlatform.android ||
-        defaultTargetPlatform == TargetPlatform.iOS) {
-      await MobileAds.instance.initialize();
-    }
-  } catch (error, stackTrace) {
-    AppTelemetry.recordError(
-      error,
-      stackTrace,
-      context: 'mobile_ads_init_failed',
-    );
-  }
 
   runApp(
     ProviderScope(
