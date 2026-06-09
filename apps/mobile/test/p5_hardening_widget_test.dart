@@ -566,6 +566,35 @@ void main() {
       expect(prefs.getString('active_profile_id_v1'), isNotEmpty);
     });
 
+    testWidgets('ProfilesScreen DOB 드롭다운이 연령대를 파생·노출한다', (tester) async {
+      final prefs = await _createPrefs();
+      final api = _InteractiveMockApiClient(profiles: const []);
+
+      await tester.pumpWidget(_buildHarness(
+        const ProfilesScreen(),
+        prefs: prefs,
+        overrides: [apiClientProvider.overrideWithValue(api)],
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('첫 프로필 만들기'));
+      await tester.pumpAndSettle();
+
+      // 출생연도=만 7~8세(→ 7-9), 월=6월 선택
+      final birthYear = DateTime.now().year - 8;
+      await tester.tap(find.byType(DropdownButtonFormField<int>).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('$birthYear년').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(DropdownButtonFormField<int>).last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('6월').last);
+      await tester.pumpAndSettle();
+
+      // 생년월 선택 시 연령대가 자동 파생되어 안내됨(부모 임의선택 제거)
+      expect(find.textContaining('연령대 자동'), findsOneWidget);
+      expect(find.textContaining('7-9'), findsWidgets);
+    });
+
     testWidgets('VoiceProfilesScreen creates a profile through the dialog',
         (tester) async {
       final prefs = await _createPrefs();

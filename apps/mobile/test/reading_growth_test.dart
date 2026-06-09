@@ -141,6 +141,37 @@ void main() {
     expect(find.text('12개'), findsOneWidget); // 학습 어휘
   });
 
+  testWidgets('ReadingGrowthScreen renders conversion CTA (share + create)',
+      (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          growthReportProvider.overrideWith((ref) async => _sample()),
+        ],
+        child: const MaterialApp(
+          locale: Locale('ko'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: ReadingGrowthScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    // 전환 CTA는 화면 최하단 → 스크롤해서 빌드
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('growth_cta_card')),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('growth_cta_card')), findsOneWidget);
+    expect(find.byKey(const Key('growth_share_btn')), findsOneWidget);
+    expect(find.byKey(const Key('growth_create_btn')), findsOneWidget);
+    expect(find.text('성장 공유'), findsOneWidget);
+    expect(find.text('새 책 만들기'), findsOneWidget);
+  });
+
   testWidgets('ReadingGrowthScreen localizes to English', (tester) async {
     await tester.pumpWidget(
       ProviderScope(
