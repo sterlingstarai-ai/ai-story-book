@@ -3,7 +3,6 @@ from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, or_
 from typing import Optional
-from datetime import timedelta
 import math
 import uuid
 import structlog
@@ -30,7 +29,7 @@ from src.services.pdf import pdf_service
 from src.services.tts import tts_service
 from src.services.storage import storage_service
 from src.services.credits import credits_service
-from src.core.utils import utcnow
+from src.core.utils import local_day_bounds_utc, local_month_bounds_utc, utcnow
 from src.core.errors import ErrorCode
 from src.core.exceptions import (
     AuthorizationError,
@@ -66,15 +65,6 @@ def _normalize_style(style: object) -> str:
     return str(value).strip().lower()
 
 
-def _month_window(reference):
-    start = reference.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    if start.month == 12:
-        end = start.replace(year=start.year + 1, month=1)
-    else:
-        end = start.replace(month=start.month + 1)
-    return start, end
-
-
 async def _resolve_effective_plan(db: AsyncSession, user_key: str) -> str:
     subscription = await credits_service.get_active_subscription(db, user_key)
     if not subscription or not isinstance(subscription.plan, str):
@@ -84,7 +74,8 @@ async def _resolve_effective_plan(db: AsyncSession, user_key: str) -> str:
 
 
 async def _count_monthly_book_creations(db: AsyncSession, user_key: str) -> int:
-    month_start, month_end = _month_window(utcnow())
+    # '이번 달'도 KST 로컬 기준(일일 한도·스트릭과 일관).
+    month_start, month_end = local_month_bounds_utc()
     result = await db.execute(
         select(func.count(Job.id)).where(
             Job.user_key == user_key,
@@ -430,18 +421,22 @@ async def check_guardrails(db: AsyncSession, user_key: str):
     Check system guardrails before creating a new job.
     Raises HTTPException if guardrails are violated.
     """
-    # Check daily job limit per user
+    # Check daily job limit per user — '하루' 경계는 KST 로컬 기준(스트릭/오늘읽음과 일관).
+    # UTC 자정으로 두면 한국 부모에게 한도가 오전 9시에 리셋되는 혼란이 생긴다.
     now = utcnow()
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start, next_day_start = local_day_bounds_utc(now)
     daily_jobs_result = await db.execute(
         select(func.count(Job.id)).where(
-            and_(Job.user_key == user_key, Job.created_at >= today_start)
+            and_(
+                Job.user_key == user_key,
+                Job.created_at >= today_start,
+                Job.created_at < next_day_start,
+            )
         )
     )
     daily_job_count = daily_jobs_result.scalar() or 0
 
     if daily_job_count >= settings.daily_job_limit_per_user:
-        next_day_start = today_start + timedelta(days=1)
         retry_after = max(1, math.ceil((next_day_start - now).total_seconds()))
         raise HTTPException(
             status_code=429,

@@ -4,7 +4,7 @@ Error response format tests
 """
 
 import pytest
-from datetime import datetime, timezone
+from datetime import datetime
 from httpx import AsyncClient
 from unittest.mock import AsyncMock
 from src.core.exceptions import _http_error_code, _normalize_http_detail
@@ -74,7 +74,9 @@ class TestErrorResponseFormat:
         from src.routers import books as books_router
 
         monkeypatch.setattr(books_router.settings, "daily_job_limit_per_user", 0)
-        fixed_now = datetime(2026, 2, 18, 12, 0, 0, 500_000, tzinfo=timezone.utc)
+        # naive UTC(프로젝트 컨벤션) — 일일 한도는 KST 윈도우(utils.utcnow, naive)로 계산되므로
+        # retry_after 계산이 naive-naive로 일관되게 한다(tz-aware로 두면 혼합 연산 오류).
+        fixed_now = datetime(2026, 2, 18, 12, 0, 0, 500_000)
         monkeypatch.setattr(books_router, "utcnow", lambda: fixed_now)
 
         response = await client.post(
@@ -93,8 +95,9 @@ class TestErrorResponseFormat:
         assert body["error"]["code"] == "daily_limit_exceeded"
         assert body["error"]["message"] == body["detail"]
         assert body["error"]["details"]["limit"] == 0
-        assert body["error"]["details"]["retry_after"] == 43_200
-        assert response.headers.get("Retry-After") == "43200"
+        # KST 자정까지 남은 시간: fixed_now=Feb18 12:00Z(=21:00 KST) → KST 자정까지 3시간.
+        assert body["error"]["details"]["retry_after"] == 10_800
+        assert response.headers.get("Retry-After") == "10800"
 
     @pytest.mark.asyncio
     async def test_http_exception_preserves_retry_after_header(

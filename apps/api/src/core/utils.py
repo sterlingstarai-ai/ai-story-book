@@ -40,6 +40,20 @@ def local_day_bounds_utc(dt=None) -> tuple:
     return start_utc, start_utc + timedelta(days=1)
 
 
+def local_month_bounds_utc(dt=None) -> tuple:
+    """현재(또는 dt) 시각이 속한 KST 로컬 '달'의 [시작, 끝) UTC 경계.
+
+    월간 책 생성 한도 등 '이번 달' 판정을 KST 기준으로(일일 한도·스트릭과 일관).
+    """
+    base_local = (dt if dt is not None else utcnow()) + LOCAL_TZ_OFFSET
+    start_local = datetime(base_local.year, base_local.month, 1)
+    if start_local.month == 12:
+        end_local = datetime(start_local.year + 1, 1, 1)
+    else:
+        end_local = datetime(start_local.year, start_local.month + 1, 1)
+    return start_local - LOCAL_TZ_OFFSET, end_local - LOCAL_TZ_OFFSET
+
+
 def derive_age_band(birth_year: int, birth_month: int, ref=None) -> str:
     """생년월 → 연령대(age_band). 부모 임의선택 대신 실제 나이로 1:1 결정.
 
