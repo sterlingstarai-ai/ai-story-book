@@ -273,6 +273,14 @@ jobs:
       - name: Run phase gate
         env:
           API_SMOKE_BASE_URL: http://127.0.0.1:8000
+          # phase-gate.sh가 in-process로 `pytest tests`를 돌리므로 API Tests 잡과 동일한
+          # 테스트 env가 필요(특히 TESTING=true — 미설정 시 레이트리미터가 켜져 429 대량 발생).
+          DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/test_db
+          REDIS_URL: redis://localhost:6379/0
+          TESTING: true
+          LLM_PROVIDER: mock
+          IMAGE_PROVIDER: mock
+          TTS_PROVIDER: mock
         run: ./scripts/phase-gate.sh --with-mobile-build --with-api-smoke
 
       - name: Upload phase gate logs on failure
