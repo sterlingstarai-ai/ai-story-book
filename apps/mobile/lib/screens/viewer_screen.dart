@@ -2341,12 +2341,16 @@ class _VocabGameCardState extends State<_VocabGameCard> {
     }
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-      child: InkWell(
-        onTap: answered ? null : () => _pick(choice),
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        child: Container(
-          width: double.infinity,
-          constraints: const BoxConstraints(minHeight: 48),
+      child: Semantics(
+        button: !answered,
+        selected: isPicked,
+        label: '보기: $choice',
+        child: InkWell(
+          onTap: answered ? null : () => _pick(choice),
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          child: Container(
+            width: double.infinity,
+            constraints: const BoxConstraints(minHeight: 48),
           padding: const EdgeInsets.symmetric(
               horizontal: AppSpacing.md, vertical: AppSpacing.sm),
           decoration: BoxDecoration(
@@ -2361,6 +2365,7 @@ class _VocabGameCardState extends State<_VocabGameCard> {
                 const Icon(Icons.check_circle,
                     color: AppColors.success, size: 20),
             ],
+          ),
           ),
         ),
       ),
