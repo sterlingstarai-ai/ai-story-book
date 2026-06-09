@@ -798,6 +798,21 @@ void main() {
       await tester.pump(const Duration(milliseconds: 200));
     });
 
+    testWidgets('exposes 구매 복원 button (Apple 3.1.1)', (tester) async {
+      // 구독/비소모성 상품 앱은 '구매 복원' UI 필수 — 없으면 자동 리젝. 회귀 가드.
+      await tester.pumpWidget(buildTestableWidget(
+        const CreditsScreen(),
+        overrides: [
+          apiClientProvider.overrideWithValue(_MockApiClient()),
+        ],
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(find.byKey(const Key('restore_purchases_btn')), findsOneWidget);
+      expect(find.text('구매 복원'), findsOneWidget);
+    });
+
     testWidgets('shows loading indicator initially', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CreditsScreen(),
