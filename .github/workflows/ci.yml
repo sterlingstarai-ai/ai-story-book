@@ -12,7 +12,9 @@ concurrency:
 
 env:
   PYTHON_VERSION: '3.11'
-  FLUTTER_VERSION: '3.27.1'
+  # 프로젝트는 Flutter 3.38.x를 타깃(initialValue·intl 0.20.x 등 3.38 API 사용).
+  # CI를 개발/검증 환경과 동일하게 맞춘다(3.27.1은 analyze에서 initialValue 미정의로 실패).
+  FLUTTER_VERSION: '3.38.7'
 
 permissions:
   contents: read
