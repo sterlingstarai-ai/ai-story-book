@@ -10,6 +10,7 @@ import '../core/photo_consent.dart';
 import '../providers/providers.dart';
 import '../services/api_client.dart';
 import '../utils/constants.dart';
+import 'age_gate_dialog.dart';
 
 /// DioException 으로 래핑된 ApiError 까지 추출(create_screen 패턴과 동일).
 ApiError? _extractApiError(Object error) {
@@ -98,6 +99,14 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
   Future<void> _usePhoto(ImageSource source) async {
     if (_busy) {
       return;
+    }
+    // 아동 얼굴 사진 업로드는 보호자 게이트 뒤에서만(세션 내 검증되어 있으면 통과).
+    // 게이트 통과 → 사진 선택 → JIT 동의(아래) 순으로 이중 보호.
+    final parental = ref.read(parentalControlServiceProvider);
+    if (!parental.isAgeGateVerifiedForSession) {
+      if (!await showAgeGateDialog(context, ref)) {
+        return; // 보호자 확인 실패/취소 → 사진 업로드 중단
+      }
     }
     try {
       final XFile? image = await _picker.pickImage(
@@ -190,7 +199,7 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
             ),
             const SizedBox(height: AppSpacing.md),
             Text(
-              '기본 캐릭터',
+              '사진 없이 시작 · 기본 캐릭터',
               style: AppTextStyles.caption.copyWith(color: AppColors.textHint),
             ),
             const SizedBox(height: AppSpacing.sm),
