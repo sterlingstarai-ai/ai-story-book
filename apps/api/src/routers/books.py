@@ -1176,7 +1176,6 @@ async def get_page_audio(
     if book.user_key != user_key:
         raise AuthorizationError()
     _assert_book_profile_scope(book, profile_id)
-    await _enforce_free_plan_feature_access(db, user_key, "audio")
 
     # Fetch page
     page_result = await db.execute(
@@ -1196,13 +1195,20 @@ async def get_page_audio(
     audio_url_ko = getattr(page, "audio_url_ko", None)
     audio_url_default = getattr(page, "audio_url", None)
 
-    # 이미 오디오가 있으면 반환
+    # 이미 생성된 오디오는 무료 플랜도 반환 — 글 못 읽는 아동에게 낭독은 유일한 소비
+    # 경로라, 기존 오디오까지 결제벽으로 막지 않는다(비독자 접근성).
     if language == "en" and audio_url_en:
         return {"audio_url": audio_url_en}
     if language == "ko" and audio_url_ko:
         return {"audio_url": audio_url_ko}
     if audio_url_default and language == "ko":
         return {"audio_url": audio_url_default}
+
+    # 신규 합성(비용 발생)은 유료 기능. 단, 비독자 저연령(3-5)은 오디오가 책을 소비하는
+    # 유일한 수단이므로 무료 플랜에서도 허용한다. 그 외 연령은 결제 게이트.
+    target_age = str(getattr(book, "target_age", "") or "").strip()
+    if target_age != "3-5":
+        await _enforce_free_plan_feature_access(db, user_key, "audio")
 
     # 없으면 즉시 생성
     try:

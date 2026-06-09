@@ -513,8 +513,9 @@ async def generate_learning_assets(story: StoryDraft) -> Optional[LearningAssets
     """G-2. 학습 자산 생성 (번역 + 어휘 + 질문 + 퀴즈) + 품질 게이트"""
     from src.services.llm import call_learning_assets
 
-    # 원본 언어에서 영어로 번역 (ko -> en)
-    # 영어 원본이면 한국어로 (en -> ko)
+    # translated_text(이중언어 읽기용)는 원본→타깃 번역(ko→en, en→ko). 단, vocab의
+    # meaning은 프롬프트에서 원어(source_language) 뜻풀이로 생성된다 — '한국어 읽기성장'
+    # 제품의 어휘 게임이 영어 번역 시험이 아니라 모국어 어휘 실력을 측정하게 하기 위함.
     source_lang = story.language
     if source_lang == Language.ko:
         target_lang = Language.en

@@ -861,6 +861,86 @@ async def test_free_plan_blocks_pdf_and_audio_features(
 
 
 @pytest.mark.asyncio
+async def test_free_plan_allows_page_audio_for_nonreader_3_5(
+    client: AsyncClient,
+    headers: dict,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    # 글 못 읽는 저연령(3-5)은 낭독이 유일한 소비 수단 → 무료 플랜도 신규 합성 허용.
+    monkeypatch.setattr(settings, "free_plan_enforcement_enabled", True)
+    monkeypatch.setattr(settings, "free_plan_enforce_in_testing", True)
+
+    async def _tts(*args, **kwargs):
+        return b"audio-bytes"
+
+    async def _upload(*args, **kwargs):
+        return "https://cdn.example.com/p1-ko.mp3"
+
+    monkeypatch.setattr("src.routers.books.tts_service.synthesize_page", _tts)
+    monkeypatch.setattr("src.routers.books.storage_service.upload_bytes", _upload)
+
+    job = Job(id="job-35-audio", status="done", user_key=headers["X-User-Key"])
+    db_session.add(job)
+    await db_session.flush()
+    book = Book(
+        id="book-35-audio", job_id=job.id, title="저연령", language="ko",
+        target_age="3-5", style="watercolor", user_key=headers["X-User-Key"],
+        cover_image_url="https://example.com/c.png",
+    )
+    db_session.add(book)
+    await db_session.flush()
+    db_session.add(
+        Page(book_id=book.id, page_number=1, text="첫 페이지",
+             image_url="https://example.com/p1.png", image_prompt="p")
+    )
+    await db_session.commit()
+
+    res = await client.get(
+        f"/v1/books/{book.id}/pages/1/audio",
+        params={"language": "ko"}, headers=headers,
+    )
+    assert res.status_code == 200, res.text  # 5-7과 달리 402 아님
+    assert res.json()["audio_url"].endswith(".mp3")
+
+
+@pytest.mark.asyncio
+async def test_free_plan_serves_cached_page_audio(
+    client: AsyncClient,
+    headers: dict,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    # 이미 생성된 오디오는 무료 플랜(5-7)도 반환 — 결제벽으로 기존 낭독까지 막지 않는다.
+    monkeypatch.setattr(settings, "free_plan_enforcement_enabled", True)
+    monkeypatch.setattr(settings, "free_plan_enforce_in_testing", True)
+
+    job = Job(id="job-cached-audio", status="done", user_key=headers["X-User-Key"])
+    db_session.add(job)
+    await db_session.flush()
+    book = Book(
+        id="book-cached-audio", job_id=job.id, title="캐시", language="ko",
+        target_age="5-7", style="watercolor", user_key=headers["X-User-Key"],
+        cover_image_url="https://example.com/c.png",
+    )
+    db_session.add(book)
+    await db_session.flush()
+    db_session.add(
+        Page(book_id=book.id, page_number=1, text="첫 페이지",
+             image_url="https://example.com/p1.png", image_prompt="p",
+             audio_url="https://cdn.example.com/cached-ko.mp3")
+    )
+    await db_session.commit()
+
+    res = await client.get(
+        f"/v1/books/{book.id}/pages/1/audio",
+        params={"language": "ko"}, headers=headers,
+    )
+    assert res.status_code == 200, res.text  # 캐시 → 차단 안 됨
+    assert res.json()["audio_url"] == "https://cdn.example.com/cached-ko.mp3"
+
+
+@pytest.mark.asyncio
 async def test_free_plan_blocks_series_non_supported_style(
     client: AsyncClient,
     headers: dict,
