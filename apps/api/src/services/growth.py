@@ -8,6 +8,7 @@
 연령층별로 정규화해 레벨/백분위를 낸다. 또래 비교도 단일축(읽은 책 수) 대신 복합 점수 기준.
 """
 
+from statistics import median
 from typing import Optional
 
 from sqlalchemy import case, distinct, func, select
@@ -500,11 +501,13 @@ class GrowthService:
         percentile = (below + 0.5 * ties) / peer_count * 100
         top_percent = max(1, min(99, round(100 - percentile)))
 
-        avg_books = sum(metrics[k]["books"] for k in cohort) / peer_count
-        avg_vocab = sum(metrics[k]["vocab"] for k in cohort) / peer_count
+        # 또래 '대표값'은 평균이 아니라 *중앙값* — 한 명의 헤비유저(예: 100권)가
+        # 또래 평균을 끌어올려 일반 아동을 부당하게 열세로 보이게 하는 이상치 왜곡을 막는다.
+        avg_books = median(metrics[k]["books"] for k in cohort)
+        avg_vocab = median(metrics[k]["vocab"] for k in cohort)
         accs = [metrics[k]["accuracy"] for k in cohort if metrics[k]["accuracy"] is not None]
-        avg_acc = sum(accs) / len(accs) if accs else 0.0
-        avg_score = sum(peer_scores) / peer_count
+        avg_acc = median(accs) if accs else 0.0
+        avg_score = median(peer_scores)
 
         return {
             "age_band": age_band,

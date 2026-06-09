@@ -270,6 +270,23 @@ async def test_peer_comparison_midrank_no_gold_for_median(db_session):
 
 
 @pytest.mark.asyncio
+async def test_peer_comparison_median_robust_to_outlier(db_session):
+    # 또래 books=[2,3,3,4,100] — 평균 22.4 vs 중앙값 3. 대표값은 중앙값이어야(이상치 내성).
+    db_session.add(_profile("self-med", "5-7", 0))
+    db_session.add_all(_reads("self-med", 3, completed=True))
+    for i, n in enumerate([2, 3, 3, 4]):
+        db_session.add(_profile(f"pn{i}", "5-7", 10 + i))
+        db_session.add_all(_reads(f"pn{i}", n, completed=True))
+    db_session.add(_profile("p-outlier", "5-7", 99))
+    db_session.add_all(_reads("p-outlier", 100, completed=True))
+    await db_session.commit()
+
+    res = await growth_service.get_peer_comparison(db_session, "self-med")
+    assert res["peer_count"] == 5
+    assert res["peer_avg"]["books_read"] == 3.0  # 중앙값(평균 22.4 아님)
+
+
+@pytest.mark.asyncio
 async def test_peer_comparison_excludes_self_and_inactive(db_session):
     db_session.add(_profile("ux", "5-7", 0))
     db_session.add_all(_reads("ux", 3, completed=True))
