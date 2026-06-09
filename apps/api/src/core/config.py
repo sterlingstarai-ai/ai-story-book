@@ -120,6 +120,12 @@ class Settings(BaseSettings):
     require_parental_consent_in_testing: bool = False
     consent_current_version: str = "v2"
 
+    # 결제/보안: 운영에선 검증된 IAP 영수증만으로 구독을 열어야 한다.
+    # False면 /v1/credits/subscribe의 유료플랜 직접 크레딧 지급을 차단(테스트는 우회).
+    allow_unverified_subscribe: bool = False
+    # 설정 시 IAP 웹훅에 ?token= 일치를 요구(미설정=무검증 — 운영에선 반드시 설정).
+    iap_webhook_secret: str = ""
+
     # Admin
     admin_api_key: str = ""  # MUST be set in production for /credits/add
 

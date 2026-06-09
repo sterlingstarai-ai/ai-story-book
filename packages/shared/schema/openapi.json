@@ -5406,6 +5406,18 @@
     "/v1/iap/webhook/apple": {
       "post": {
         "operationId": "apple_webhook_v1_iap_webhook_apple_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Token",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -5445,6 +5457,18 @@
     "/v1/iap/webhook/google": {
       "post": {
         "operationId": "google_webhook_v1_iap_webhook_google_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Token",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {

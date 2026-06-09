@@ -6,15 +6,16 @@ Apple/Google 영수증 검증 및 웹훅 처리
 from datetime import timedelta
 from typing import Optional, Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
+from src.core.config import settings
 from src.core.database import get_db
 from src.core.dependencies import get_user_key
-from src.core.exceptions import ValidationError
+from src.core.exceptions import AuthorizationError, ValidationError
 from src.core.utils import utcnow
 from src.models.db import IAPReceipt, Subscription
 from src.services.credits import credits_service
@@ -307,10 +308,23 @@ async def _apply_webhook_status(
     }
 
 
+async def _require_webhook_secret(token: str = Query(default="")):
+    """IAP 웹훅 인증: iap_webhook_secret이 설정되면 ?token=과 일치해야 한다.
+
+    Apple/Google이 호출하는 공개 엔드포인트가 무인증이면 알려진 transaction id로 구독
+    상태를 변조(취소성 공격)할 수 있다. 운영에선 시크릿을 설정하고 웹훅 URL에 토큰을 담는다.
+    미설정 시(dev/test)는 통과해 기존 동작을 유지하나, 운영 배포 시 필수.
+    """
+    secret = settings.iap_webhook_secret
+    if secret and token != secret:
+        raise AuthorizationError("유효하지 않은 웹훅 토큰입니다.")
+
+
 @router.post("/webhook/apple")
 async def apple_webhook(
     request: IAPWebhookRequest,
     db: AsyncSession = Depends(get_db),
+    _: None = Depends(_require_webhook_secret),
 ):
     return await _apply_webhook_status(request=request, platform="apple", db=db)
 
@@ -319,5 +333,6 @@ async def apple_webhook(
 async def google_webhook(
     request: IAPWebhookRequest,
     db: AsyncSession = Depends(get_db),
+    _: None = Depends(_require_webhook_secret),
 ):
     return await _apply_webhook_status(request=request, platform="google", db=db)
