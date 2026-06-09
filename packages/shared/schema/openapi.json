@@ -1,36 +1,6 @@
 {
   "components": {
     "schemas": {
-      "AdCompleteRequest": {
-        "properties": {
-          "ad_network": {
-            "anyOf": [
-              {
-                "maxLength": 40,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ad Network"
-          },
-          "ad_unit_id": {
-            "anyOf": [
-              {
-                "maxLength": 120,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ad Unit Id"
-          }
-        },
-        "title": "AdCompleteRequest",
-        "type": "object"
-      },
       "AddCreditsRequest": {
         "properties": {
           "amount": {
@@ -6218,59 +6188,6 @@
         "summary": "Evaluate Pronunciation Audio",
         "tags": [
           "Pronunciation"
-        ]
-      }
-    },
-    "/v1/rewards/ad-complete": {
-      "post": {
-        "description": "광고 시청 완료 보상.\n정책: 일일 최대 3회, 회당 1 크레딧.",
-        "operationId": "complete_ad_reward_v1_rewards_ad_complete_post",
-        "parameters": [
-          {
-            "description": "User identification key",
-            "in": "header",
-            "name": "x-user-key",
-            "required": true,
-            "schema": {
-              "description": "User identification key",
-              "title": "X-User-Key",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AdCompleteRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Complete Ad Reward",
-        "tags": [
-          "Rewards"
         ]
       }
     },

@@ -576,23 +576,6 @@ class ApiClient {
     return _asJsonMap(response.data, context: '/v1/iap/verify response');
   }
 
-  /// 리워드 광고 보상 완료 처리
-  Future<Map<String, dynamic>> completeRewardAd({
-    String adNetwork = 'admob',
-    String? adUnitId,
-  }) async {
-    final response = await _dio.post(
-      '/v1/rewards/ad-complete',
-      data: {
-        'ad_network': adNetwork,
-        if (adUnitId != null) 'ad_unit_id': adUnitId,
-      },
-      options: Options(headers: _headers),
-    );
-    return _asJsonMap(response.data,
-        context: '/v1/rewards/ad-complete response');
-  }
-
   // ==================== Credits ====================
 
   /// 크레딧 상태 조회

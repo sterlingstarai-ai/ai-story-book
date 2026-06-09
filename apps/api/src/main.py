@@ -21,7 +21,6 @@ from src.routers import (
     users,
     profiles,
     settings as user_settings,
-    rewards,
     pod,
     pronunciation,
     voice_profiles,
@@ -520,12 +519,6 @@ app.include_router(
     user_settings.router,
     prefix="/v1/settings",
     tags=["Settings"],
-    dependencies=[Depends(check_rate_limit)],
-)
-app.include_router(
-    rewards.router,
-    prefix="/v1/rewards",
-    tags=["Rewards"],
     dependencies=[Depends(check_rate_limit)],
 )
 app.include_router(

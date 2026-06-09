@@ -441,41 +441,6 @@ async def test_settings_get_and_patch(
 
 
 @pytest.mark.asyncio
-async def test_reward_ad_daily_cap(
-    client: AsyncClient,
-    headers: dict,
-):
-    before_balance_res = await client.get("/v1/credits/balance", headers=headers)
-    assert before_balance_res.status_code == 200
-    before_balance = before_balance_res.json()["credits"]
-
-    for idx in range(3):
-        reward_res = await client.post(
-            "/v1/rewards/ad-complete",
-            json={
-                "ad_network": "admob",
-                "ad_unit_id": f"test-unit-{idx}",
-            },
-            headers=headers,
-        )
-        assert reward_res.status_code == 200
-        data = reward_res.json()
-        assert data["status"] == "success"
-
-    fourth = await client.post(
-        "/v1/rewards/ad-complete",
-        json={"ad_network": "admob", "ad_unit_id": "test-unit-over"},
-        headers=headers,
-    )
-    assert fourth.status_code == 400
-
-    after_balance_res = await client.get("/v1/credits/balance", headers=headers)
-    assert after_balance_res.status_code == 200
-    after_balance = after_balance_res.json()["credits"]
-    assert after_balance == before_balance + 3
-
-
-@pytest.mark.asyncio
 async def test_delete_me_removes_profiles_and_characters(
     client: AsyncClient,
     headers: dict,

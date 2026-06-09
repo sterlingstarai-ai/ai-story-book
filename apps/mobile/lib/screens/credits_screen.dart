@@ -5,10 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 
-import '../core/api_error.dart';
 import '../providers/providers.dart';
 import '../services/analytics.dart';
-import '../services/rewarded_ad_service.dart';
 import '../utils/constants.dart';
 import '../widgets/age_gate_dialog.dart';
 import '../widgets/common_widgets.dart';
@@ -38,7 +36,6 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
   final GlobalKey _plansSectionKey = GlobalKey();
   StreamSubscription<List<PurchaseDetails>>? _purchaseSubscription;
   final Set<String> _verifyingTransactions = <String>{};
-  bool _isClaimingReward = false;
 
   @override
   void initState() {
@@ -146,8 +143,6 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
                     _buildPlansSection(),
                     const SizedBox(height: AppSpacing.lg),
                     _buildCreditPackSection(),
-                    const SizedBox(height: AppSpacing.lg),
-                    _buildRewardSection(),
                     const SizedBox(height: AppSpacing.lg),
                     _buildTransactionsSection(),
                   ],
@@ -542,54 +537,6 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
     );
   }
 
-  Widget _buildRewardSection() {
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        border: Border.all(color: AppColors.divider),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Row(
-            children: [
-              Icon(Icons.ondemand_video_outlined, color: AppColors.primary),
-              SizedBox(width: AppSpacing.sm),
-              Text('리워드 광고', style: AppTextStyles.heading3),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          const Text(
-            '광고 시청 완료 시 1크레딧을 지급합니다. (일 최대 3회)',
-            style: AppTextStyles.bodySmall,
-          ),
-          const SizedBox(height: AppSpacing.xs),
-          const Text(
-            '현재는 샌드박스 보상 경로로 동작하며, AdMob 키 연동 시 실제 광고가 표시됩니다.',
-            style: AppTextStyles.caption,
-          ),
-          const SizedBox(height: AppSpacing.md),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: _isClaimingReward ? null : _claimRewardAdCredit,
-              icon: _isClaimingReward
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.play_circle_outline),
-              label: Text(_isClaimingReward ? '처리 중...' : '시청 완료 처리'),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildCreditPackCard({
     required String productId,
     required int credits,
@@ -884,66 +831,6 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('구독에 실패했어요. 잠시 후 다시 시도해주세요.')),
         );
-      }
-    }
-  }
-
-  Future<void> _claimRewardAdCredit() async {
-    if (_isClaimingReward) {
-      return;
-    }
-    setState(() => _isClaimingReward = true);
-    try {
-      final rewardedAdService = ref.read(rewardedAdServiceProvider);
-      final rewardResult = await rewardedAdService.showRewardedAd();
-      if (!rewardResult.rewarded) {
-        if (mounted) {
-          final message = switch (rewardResult.status) {
-            RewardedAdStatus.dismissed => '광고를 끝까지 시청해야 보상이 지급돼요.',
-            RewardedAdStatus.misconfigured =>
-              rewardResult.reason ?? '광고 기능이 아직 설정되지 않았어요.',
-            RewardedAdStatus.unavailable =>
-              rewardResult.reason ?? '현재 기기에서 광고를 사용할 수 없어요.',
-            RewardedAdStatus.loadFailed =>
-              rewardResult.reason ?? '광고를 불러오지 못했어요. 잠시 후 다시 시도해주세요.',
-            RewardedAdStatus.rewarded => '광고를 끝까지 시청해야 보상이 지급돼요.',
-          };
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(message)),
-          );
-        }
-        return;
-      }
-
-      final apiClient = ref.read(apiClientProvider);
-      final result = await apiClient.completeRewardAd(
-        adNetwork: 'admob',
-        adUnitId: rewardResult.adUnitId,
-      );
-      await _loadCreditsStatus();
-
-      if (!mounted) {
-        return;
-      }
-      final reward = _parseAmount(result['reward']);
-      final used = _parseAmount(result['today_used']);
-      final limit = _parseAmount(result['today_limit']);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('보상 $reward크레딧 지급 완료 ($used/$limit)')),
-      );
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      final message = error is ApiError
-          ? error.userMessage
-          : '보상 처리에 실패했어요. 잠시 후 다시 시도해주세요.';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
-    } finally {
-      if (mounted) {
-        setState(() => _isClaimingReward = false);
       }
     }
   }
