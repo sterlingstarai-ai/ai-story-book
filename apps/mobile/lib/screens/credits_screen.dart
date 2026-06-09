@@ -120,6 +120,14 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
       appBar: AppBar(
         title: const Text('크레딧'),
         backgroundColor: AppColors.surface,
+        actions: [
+          // Apple 3.1.1: 구독/비소모성 상품 앱은 '구매 복원' 필수(기기 변경·재설치 대응).
+          TextButton(
+            key: const Key('restore_purchases_btn'),
+            onPressed: _restorePurchases,
+            child: const Text('구매 복원'),
+          ),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -698,6 +706,25 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
       curve: Curves.easeInOut,
       alignment: 0.1,
     );
+  }
+
+  Future<void> _restorePurchases() async {
+    // 복원된 구매는 기존 purchaseStream → _handlePurchaseUpdate(restored)로 검증·반영된다.
+    final iapService = ref.read(iapServiceProvider);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('구매 내역을 복원하고 있어요...')),
+      );
+    }
+    try {
+      await iapService.restorePurchases();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('복원에 실패했어요. 잠시 후 다시 시도해주세요.')),
+        );
+      }
+    }
   }
 
   Future<void> _handlePurchaseUpdate(PurchaseDetails purchase) async {
