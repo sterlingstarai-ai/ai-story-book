@@ -400,7 +400,17 @@ class GrowthService:
         """
         age_band = await self._resolve_age_band(db, user_key, profile_id)
         base = AGE_BASELINES.get(age_band, AGE_BASELINES["5-7"])
-        show_ranking = age_band not in ("3-5",)
+        # 실제 프로필이 있어야(연령대를 신뢰할 수 있어야) 등수를 노출한다 — 프로필 미생성 시
+        # age_band는 기본값('5-7')으로 폴백되므로, 그대로 등수를 켜면 어린 아이에게 등수가
+        # 샐 수 있다. 프로필 부재 시 자기성장만 노출(fail-safe).
+        has_profile = (
+            await db.execute(
+                select(ChildProfile.id)
+                .where(ChildProfile.user_key == user_key)
+                .limit(1)
+            )
+        ).scalar_one_or_none() is not None
+        show_ranking = has_profile and age_band not in ("3-5",)
 
         # 같은 연령대·본인 제외 후보
         peer_keys = (

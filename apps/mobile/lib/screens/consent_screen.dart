@@ -90,12 +90,19 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.lg),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(height: AppSpacing.md),
+        // 큰 글자 크기·작은 화면에서도 PIPA 법정 고지가 잘리지 않도록 스크롤 가능하게 하되,
+        // 공간이 충분하면 Spacer로 버튼을 하단에 배치(IntrinsicHeight + minHeight).
+        child: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: IntrinsicHeight(
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.lg),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: AppSpacing.md),
               const Text('부모 동의', style: AppTextStyles.heading1),
               const SizedBox(height: AppSpacing.sm),
               const Text(
@@ -161,15 +168,19 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
                 ),
               ),
               const SizedBox(height: AppSpacing.sm),
-              SizedBox(
-                width: double.infinity,
-                height: 64,
-                child: OutlinedButton(
-                  onPressed: _reject,
-                  child: const Text('동의하지 않음'),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 64,
+                        child: OutlinedButton(
+                          onPressed: _reject,
+                          child: const Text('동의하지 않음'),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ],
+            ),
           ),
         ),
       ),

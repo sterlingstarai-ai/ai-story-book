@@ -2264,8 +2264,15 @@ class _VocabGameCardState extends State<_VocabGameCard> {
     if (_selected != null) {
       return; // 한 번만 채점
     }
+    final isCorrect = meaning == widget.item.meaning;
+    // 즉각적·감각적 보상 — 아이의 반복 동기(정답 시 햅틱 + 별 튀어오름 애니).
+    if (isCorrect) {
+      HapticFeedback.mediumImpact();
+    } else {
+      HapticFeedback.selectionClick();
+    }
     setState(() => _selected = meaning);
-    widget.onAnswered?.call(meaning == widget.item.meaning);
+    widget.onAnswered?.call(isCorrect);
   }
 
   @override
@@ -2288,13 +2295,31 @@ class _VocabGameCardState extends State<_VocabGameCard> {
             for (final choice in _choices) _choiceTile(choice),
             if (answered) ...[
               const SizedBox(height: AppSpacing.sm),
-              Text(
-                correct ? '잘했어요! ⭐' : '다시 한 번 기억해요: ${widget.item.meaning}',
-                style: AppTextStyles.bodySmall.copyWith(
-                  color: correct ? AppColors.success : AppColors.textSecondary,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+              correct
+                  ? TweenAnimationBuilder<double>(
+                      tween: Tween(begin: 0.6, end: 1.0),
+                      duration: const Duration(milliseconds: 320),
+                      curve: Curves.elasticOut,
+                      builder: (context, scale, child) => Transform.scale(
+                        scale: scale,
+                        alignment: Alignment.centerLeft,
+                        child: child,
+                      ),
+                      child: Text(
+                        '잘했어요! ⭐',
+                        style: AppTextStyles.body.copyWith(
+                          color: AppColors.success,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    )
+                  : Text(
+                      '다시 한 번 기억해요: ${widget.item.meaning}',
+                      style: AppTextStyles.bodySmall.copyWith(
+                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
             ],
           ],
         ),

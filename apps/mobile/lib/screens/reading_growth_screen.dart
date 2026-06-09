@@ -109,8 +109,16 @@ class _LevelHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final progress = (report.scoreValue / 100).clamp(0.0, 1.0);
-    return Container(
-      key: const Key('growth_level_hero'),
+    // 보조기술(TalkBack/VoiceOver)에 핵심 지표를 하나의 명료한 문장으로 읽어준다
+    // (시각적 막대·분리된 텍스트 대신 통합 라벨).
+    return Semantics(
+      container: true,
+      excludeSemantics: true,
+      label: '추정 읽기 레벨 ${report.levelNumber}, ${report.levelLabel}. '
+          '읽은 책·어휘·정확도·완독 종합 점수 ${report.scoreValue}점 만점 100점. '
+          '신뢰도 ${_confidenceText(report.booksRead)}.',
+      child: Container(
+        key: const Key('growth_level_hero'),
       padding: const EdgeInsets.all(AppSpacing.lg),
       decoration: BoxDecoration(
         color: AppColors.primary,
@@ -169,6 +177,7 @@ class _LevelHero extends StatelessWidget {
             style: const TextStyle(color: Colors.white70, fontSize: 12),
           ),
         ],
+        ),
       ),
     );
   }
