@@ -405,6 +405,9 @@ async def delete_character(
     if character.user_key != user_key:
         raise AuthorizationError()
 
+    # 사진/그림 파생 여부를 행 삭제 전에 확보(삭제 후 원본 스토리지도 파기해야 함).
+    was_from_photo = bool(getattr(character, "from_photo", False))
+
     await db.delete(character)
     try:
         await db.commit()
@@ -425,6 +428,18 @@ async def delete_character(
         raise InternalServerError(
             "캐릭터 삭제에 실패했습니다. 잠시 후 다시 시도해주세요."
         ) from e
+
+    # 사진/그림 파생 캐릭터의 원본(아동 얼굴/그림)도 스토리지에서 파기 — 동의철회·계정삭제
+    # 경로와 동일하게 '삭제=원본 즉시 파기' 약속을 집행(고아 사진 영구 잔류 방지, PIPA).
+    if was_from_photo:
+        try:
+            await storage_service.delete_prefix(f"characters/{character_id}/")
+        except Exception as storage_error:
+            logger.warning(
+                "Character storage cleanup failed on delete",
+                character_id=character_id,
+                error=str(storage_error),
+            )
 
     return {"message": "Character deleted successfully"}
 

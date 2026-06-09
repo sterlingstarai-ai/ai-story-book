@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
+import '../core/photo_consent.dart';
 import '../models/models.dart';
 import '../providers/providers.dart';
 import '../utils/constants.dart';
@@ -254,6 +255,17 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
       );
 
       if (image == null) return;
+
+      // 사진/그림(아동 얼굴)은 사용 직전 JIT 보호자 동의 — 미동의 시 5요소 고지 후 받는다.
+      if (!mounted) return;
+      final api = ref.read(apiClientProvider);
+      if (!await ensurePhotoConsent(context, api)) {
+        // 동의 거부/취소 시 선택된 임시 이미지를 즉시 폐기(데이터 최소수집).
+        try {
+          await File(image.path).delete();
+        } catch (_) {}
+        return;
+      }
 
       // 이름 입력 다이얼로그
       final name = await _showNameDialog();

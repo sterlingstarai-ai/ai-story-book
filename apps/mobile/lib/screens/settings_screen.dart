@@ -195,6 +195,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _revokeConsent() async {
+    // 동의 철회는 파괴적 작업 — 아동이 직접 실행하지 못하게 부모 인증게이트 통과 필수.
+    if (!await _ensureParentalAuth()) {
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
     final confirmed = await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
@@ -251,6 +258,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _deleteAllData() async {
+    // 전체 데이터 삭제(되돌릴 수 없음)도 부모 인증게이트 통과 필수.
+    if (!await _ensureParentalAuth()) {
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
     final firstConfirm = await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
