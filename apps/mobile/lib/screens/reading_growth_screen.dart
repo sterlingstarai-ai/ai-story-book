@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../l10n/app_localizations.dart';
 import '../providers/providers.dart';
@@ -84,9 +85,81 @@ class _ReadingGrowthScreenState extends ConsumerState<ReadingGrowthScreen> {
               const _PeerComparison(),
               const SizedBox(height: AppSpacing.md),
               const _DisclaimerNote(),
+              // 전환: 성장을 자랑(공유)하고 → 더 읽어 성장을 잇는다(새 책 만들기).
+              const SizedBox(height: AppSpacing.md),
+              _GrowthCtaCard(report: report),
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// 성장 화면 하단 전환 카드 — (1) 성장 공유(자랑심리→바이럴), (2) 새 책 만들기.
+class _GrowthCtaCard extends StatelessWidget {
+  const _GrowthCtaCard({required this.report});
+
+  final GrowthReport report;
+
+  String _shareText() => '📚 우리 아이 읽기 성장 보고서\n\n'
+      '📖 읽은 책: ${report.booksRead}권\n'
+      '⭐ 읽기 레벨: Lv.${report.levelNumber} (${report.levelLabel})\n'
+      '📊 종합 점수: ${report.scoreValue}/100\n'
+      '🔤 학습 어휘: ${report.vocabLearned}개\n'
+      '🔥 연속 읽기: ${report.currentStreak}일\n\n'
+      'AI 동화책으로 매일 한 권씩 우리 아이 읽기 성장 📖';
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const Key('growth_cta_card'),
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: AppColors.divider),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('성장을 자랑하고, 이어가세요', style: AppTextStyles.heading3),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            '매일 한 권이 우리 아이 읽기 성장을 만들어요.',
+            style: AppTextStyles.caption.copyWith(color: AppColors.textHint),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Row(
+            children: [
+              Expanded(
+                child: Semantics(
+                  button: true,
+                  label: '우리 아이 읽기 성장 공유하기',
+                  child: OutlinedButton.icon(
+                    key: const Key('growth_share_btn'),
+                    onPressed: () => Share.share(_shareText()),
+                    icon: const Icon(Icons.ios_share, size: 18),
+                    label: const Text('성장 공유'),
+                  ),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Semantics(
+                  button: true,
+                  label: '새 동화책 만들기',
+                  child: ElevatedButton.icon(
+                    key: const Key('growth_create_btn'),
+                    onPressed: () => Navigator.pushNamed(context, '/create'),
+                    icon: const Icon(Icons.auto_stories, size: 18),
+                    label: const Text('새 책 만들기'),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
