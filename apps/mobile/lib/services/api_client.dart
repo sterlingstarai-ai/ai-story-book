@@ -398,6 +398,26 @@ class ApiClient {
     );
   }
 
+  /// 부모 전용 공개 공유 링크 생성(만료·철회 가능). 반환: {token, url, expires_at}.
+  Future<Map<String, dynamic>> createShareLink(String bookId,
+      {int expiresInDays = 0}) async {
+    final response = await _dio.post(
+      '/v1/books/$bookId/share',
+      data: {'expires_in_days': expiresInDays},
+      options: Options(headers: _headers),
+    );
+    return _asJsonMap(response.data,
+        context: '/v1/books/$bookId/share response');
+  }
+
+  /// 이 책의 활성 공유 링크를 모두 철회.
+  Future<void> revokeShareLink(String bookId) async {
+    await _dio.post(
+      '/v1/books/$bookId/share/revoke',
+      options: Options(headers: _headers),
+    );
+  }
+
   /// 책 상세 (서재에서 조회)
   Future<BookResult> getBook(String bookId) async {
     final response = await _dio.get(

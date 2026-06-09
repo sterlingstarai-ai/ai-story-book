@@ -54,6 +54,46 @@ void main() {
       await requestHandled.future.timeout(const Duration(seconds: 1));
     });
 
+    test('createShareLink posts to book share endpoint and parses url',
+        () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+
+      final requestHandled = Completer<void>();
+      server.listen((request) async {
+        if (request.method != 'POST' ||
+            request.uri.path != '/v1/books/book-1/share') {
+          request.response.statusCode = HttpStatus.notFound;
+          await request.response.close();
+          return;
+        }
+        expect(request.headers.value('x-user-key'), 'test-user');
+        final body = await utf8.decoder.bind(request).join();
+        final payload = jsonDecode(body) as Map<String, dynamic>;
+        expect(payload['expires_in_days'], 0);
+
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({
+          'token': 'tok123',
+          'url': 'https://share.x/share/tok123',
+          'expires_at': null,
+        }));
+        await request.response.close();
+        requestHandled.complete();
+      });
+
+      final client = ApiClient(
+        baseUrl: 'http://${server.address.host}:${server.port}',
+        userKey: 'test-user',
+        enableLogging: false,
+      );
+
+      final result = await client.createShareLink('book-1');
+      expect(result['token'], 'tok123');
+      expect(result['url'], 'https://share.x/share/tok123');
+      await requestHandled.future.timeout(const Duration(seconds: 1));
+    });
+
     test('getCreditsBalance parses numeric string payload', () async {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       addTearDown(() => server.close(force: true));

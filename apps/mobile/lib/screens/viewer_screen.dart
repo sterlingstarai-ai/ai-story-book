@@ -1452,6 +1452,14 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               runSpacing: AppSpacing.md,
               children: [
                 _ShareButton(
+                  icon: Icons.public,
+                  label: '공유 링크',
+                  onTap: () {
+                    Navigator.pop(context);
+                    _createAndShareLink(book);
+                  },
+                ),
+                _ShareButton(
                   icon: Icons.link,
                   label: 'URL 복사',
                   onTap: () {
@@ -1518,6 +1526,33 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('복사 완료')),
     );
+  }
+
+  /// 부모 전용 공개 공유 링크 생성 후 공유(누구나 열어볼 수 있는 동화 페이지).
+  Future<void> _createAndShareLink(BookResult book) async {
+    // 공유 시트 위치는 await 전에 캡처(async gap 후 context 사용 회피).
+    final box = context.findRenderObject() as RenderBox?;
+    final origin = box != null
+        ? box.localToGlobal(Offset.zero) & box.size
+        : const Rect.fromLTWH(0, 0, 100, 100);
+    try {
+      final api = ref.read(apiClientProvider);
+      final result = await api.createShareLink(book.bookId);
+      final url = (result['url'] as String?) ?? '';
+      if (url.isEmpty) {
+        throw Exception('빈 공유 URL');
+      }
+      await Share.share(
+        '우리 아이가 주인공인 동화책 "${book.title}" 📖\n$url\n\nAistorybook에서 만들었어요',
+        sharePositionOrigin: origin,
+      );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('공유 링크 생성에 실패했어요. 잠시 후 다시 시도해주세요.')),
+        );
+      }
+    }
   }
 
   void _shareText(BookResult book) {

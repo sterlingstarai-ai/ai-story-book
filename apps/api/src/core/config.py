@@ -126,6 +126,11 @@ class Settings(BaseSettings):
     # 설정 시 IAP 웹훅에 ?token= 일치를 요구(미설정=무검증 — 운영에선 반드시 설정).
     iap_webhook_secret: str = ""
 
+    # 공유 링크 기본 도메인(예: https://share.aistorybook.app). 미설정 시 요청 호스트에서 구성.
+    share_base_url: str = ""
+    # 공유 링크 기본 유효기간(일). 부모가 만든 공개 링크는 만료·철회 가능.
+    share_default_expiry_days: int = 30
+
     # Admin
     admin_api_key: str = ""  # MUST be set in production for /credits/add
 

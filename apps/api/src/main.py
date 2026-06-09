@@ -25,6 +25,7 @@ from src.routers import (
     pronunciation,
     voice_profiles,
     consent,
+    shares,
 )
 from src.core.database import get_db  # noqa: F401
 from src.core.rate_limit import check_rate_limit, rate_limiter
@@ -66,8 +67,15 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-XSS-Protection"] = "1; mode=block"
         # Referrer policy
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        # Content Security Policy
-        response.headers["Content-Security-Policy"] = "default-src 'self'"
+        # Content Security Policy — 공개 공유 페이지(/share)는 외부 이미지(S3/CDN)와 인라인
+        # 스타일을 쓰므로 img/style만 완화. 그 외 API 응답은 엄격한 default-src 'self' 유지.
+        if request.url.path.startswith("/share"):
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; img-src 'self' https: data:; "
+                "style-src 'self' 'unsafe-inline'"
+            )
+        else:
+            response.headers["Content-Security-Policy"] = "default-src 'self'"
         # Remove server header for security
         if "server" in response.headers:
             del response.headers["server"]
@@ -467,6 +475,14 @@ app.include_router(
     tags=["Books"],
     dependencies=[Depends(check_rate_limit)],
 )
+app.include_router(
+    shares.router,
+    prefix="/v1/books",
+    tags=["Share"],
+    dependencies=[Depends(check_rate_limit)],
+)
+# 공개 공유 페이지(인증·rate-limit 없음, /share/{token})
+app.include_router(shares.public_router, tags=["Share"])
 app.include_router(
     characters.router,
     prefix="/v1/characters",
