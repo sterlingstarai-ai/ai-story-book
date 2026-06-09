@@ -83,27 +83,31 @@ def _top_percent_vs_ref(mine: float, ref: float) -> int:
 def composite_reading_score(
     books_read: float,
     vocab_learned: float,
-    quiz_accuracy: float,
-    completion: float,
+    quiz_accuracy: Optional[float],
+    completion: Optional[float],
     age_band: str,
 ) -> dict:
     """다축 복합 읽기 점수(0~100) + 레벨(1~10). 연령층별 가중·정규화.
 
     단일 지표(읽은 책 수)가 아니라 읽은 책·어휘·정확도·완독을 종합한다.
     공인 척도가 아닌 *추정*임을 estimated=True 로 명시.
+
+    accuracy·completion은 '비율'이라 데이터가 없으면(None) 0점이 아니라 *해당 축을
+    빼고 가중치를 남은 축에 재분배*한다(missing≠zero): 퀴즈를 안 푼 다독 아동이
+    정확도 0.0으로 30% 부당 감점되는 측정 오류를 막는다. books·vocab은 카운트라
+    데이터가 없으면 0이 정상.
     """
     base = AGE_BASELINES.get(age_band, AGE_BASELINES["5-7"])
     w = AGE_WEIGHTS.get(age_band, AGE_WEIGHTS["5-7"])
     n_books = _clamp01(books_read / (base["books_read"] * 1.5)) if base["books_read"] else 0.0
     n_vocab = _clamp01(vocab_learned / (base["vocab_learned"] * 1.5)) if base["vocab_learned"] else 0.0
-    n_acc = _clamp01(quiz_accuracy)
-    n_comp = _clamp01(completion)
-    raw = _clamp01(
-        w["books"] * n_books
-        + w["vocab"] * n_vocab
-        + w["accuracy"] * n_acc
-        + w["completion"] * n_comp
-    )
+    axes = [(w["books"], n_books), (w["vocab"], n_vocab)]
+    if quiz_accuracy is not None:
+        axes.append((w["accuracy"], _clamp01(quiz_accuracy)))
+    if completion is not None:
+        axes.append((w["completion"], _clamp01(completion)))
+    total_w = sum(wt for wt, _ in axes)
+    raw = _clamp01(sum(wt * v for wt, v in axes) / total_w) if total_w > 0 else 0.0
     level = max(1, min(10, int(round(1 + raw * 9))))
     return {
         "level": level,
@@ -224,24 +228,32 @@ class GrowthService:
         qa_where = [QuizAnswer.user_key == user_key]
         if profile_id:
             qa_where.append(QuizAnswer.profile_id == profile_id)
+        # 정확도(quiz_accuracy)는 '독해' 신호만 — 4지선다 어휘게임(vocab)은 소거가 쉬워
+        # 추측 정답이 정확도를 부풀린다. vocab은 vocab_learned로만 집계하고 정확도에서 분리.
+        qa_quiz_where = [*qa_where, QuizAnswer.quiz_type != "vocab"]
         quiz_total = (
-            await db.execute(select(func.count(QuizAnswer.id)).where(*qa_where))
+            await db.execute(select(func.count(QuizAnswer.id)).where(*qa_quiz_where))
         ).scalar() or 0
         quiz_correct = (
             await db.execute(
                 select(func.count(QuizAnswer.id)).where(
-                    *qa_where, QuizAnswer.correct.is_(True)
+                    *qa_quiz_where, QuizAnswer.correct.is_(True)
                 )
             )
         ).scalar() or 0
         quiz_accuracy = round(quiz_correct / quiz_total, 3) if quiz_total else 0.0
 
-        # 학습 어휘 = '습득'(정답 ≥2회) distinct term (1회 정답 거짓양성 차단)
+        # 학습 어휘 = 정답 ≥ VOCAB_MASTERY_MIN_CORRECT 인 distinct term
         vocab_learned = await self._tiered_vocab_count(db, qa_where)
 
         age_band = await self._resolve_age_band(db, user_key, profile_id)
+        # 데이터 없는 비율 축은 None으로 — 점수에서 0점 처벌 대신 가중 재분배(missing≠zero).
         reading_level = composite_reading_score(
-            int(books_read), int(vocab_learned), quiz_accuracy, completion, age_band
+            int(books_read),
+            int(vocab_learned),
+            quiz_accuracy if quiz_total else None,
+            completion if rl_total else None,
+            age_band,
         )
 
         return {
@@ -301,6 +313,7 @@ class GrowthService:
             for k, t, c in comp_rows
         }
 
+        # 정확도는 vocab 제외(독해 신호만) — 어휘게임 추측 정답의 정확도 오염 방지.
         acc_rows = (
             await db.execute(
                 select(
@@ -308,15 +321,29 @@ class GrowthService:
                     func.count(QuizAnswer.id),
                     func.sum(case((QuizAnswer.correct.is_(True), 1), else_=0)),
                 )
-                .where(QuizAnswer.user_key.in_(user_keys))
+                .where(
+                    QuizAnswer.user_key.in_(user_keys),
+                    QuizAnswer.quiz_type != "vocab",
+                )
                 .group_by(QuizAnswer.user_key)
             )
         ).all()
+        # 데이터 없는 user_key는 dict에 없음 → 점수 계산에서 None(축 제외)로 처리.
         accuracy = {
-            k: (int(c or 0) / int(t)) if int(t or 0) > 0 else 0.0
+            k: (int(c or 0) / int(t))
             for k, t, c in acc_rows
+            if int(t or 0) > 0
         }
-        quiz_users = {k for k, _t, _c in acc_rows}
+        # '활성'은 읽기/모든 퀴즈(vocab 포함) 활동 — 코호트 포함 판정용.
+        quiz_users = set(
+            (
+                await db.execute(
+                    select(distinct(QuizAnswer.user_key)).where(
+                        QuizAnswer.user_key.in_(user_keys)
+                    )
+                )
+            ).scalars().all()
+        )
 
         vsub = (
             select(QuizAnswer.user_key.label("uk"))
@@ -343,8 +370,8 @@ class GrowthService:
             metrics[uk] = {
                 "books": books.get(uk, 0),
                 "vocab": vocab.get(uk, 0),
-                "accuracy": accuracy.get(uk, 0.0),
-                "completion": completion.get(uk, 0.0),
+                "accuracy": accuracy.get(uk),  # None=데이터 없음(점수에서 축 제외)
+                "completion": completion.get(uk),  # None=읽기 없음
             }
         return {"metrics": metrics, "active": active}
 
@@ -379,18 +406,20 @@ class GrowthService:
         metrics = bulk["metrics"]
         active = bulk["active"]
 
+        _empty = {"books": 0, "vocab": 0, "accuracy": None, "completion": None}
+
         def score_of(uk: str) -> int:
-            m = metrics.get(uk, {"books": 0, "vocab": 0, "accuracy": 0.0, "completion": 0.0})
+            m = metrics.get(uk, _empty)
             return composite_reading_score(
                 m["books"], m["vocab"], m["accuracy"], m["completion"], age_band
             )["score"]
 
-        my_m = metrics.get(user_key, {"books": 0, "vocab": 0, "accuracy": 0.0, "completion": 0.0})
+        my_m = metrics.get(user_key, _empty)
         my_score = score_of(user_key)
         my_metrics = {
             "books_read": my_m["books"],
             "vocab_learned": my_m["vocab"],
-            "quiz_accuracy": round(my_m["accuracy"], 3),
+            "quiz_accuracy": round(my_m["accuracy"], 3) if my_m["accuracy"] is not None else 0.0,
             "score": my_score,
         }
 
@@ -430,7 +459,8 @@ class GrowthService:
 
         avg_books = sum(metrics[k]["books"] for k in cohort) / peer_count
         avg_vocab = sum(metrics[k]["vocab"] for k in cohort) / peer_count
-        avg_acc = sum(metrics[k]["accuracy"] for k in cohort) / peer_count
+        accs = [metrics[k]["accuracy"] for k in cohort if metrics[k]["accuracy"] is not None]
+        avg_acc = sum(accs) / len(accs) if accs else 0.0
         avg_score = sum(peer_scores) / peer_count
 
         return {

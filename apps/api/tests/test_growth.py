@@ -77,8 +77,9 @@ async def test_record_answers_and_vocab_count(client):
         assert r.status_code == 200, r.text
 
     data = (await client.get("/v1/growth", headers=H)).json()
-    assert data["quiz_total"] == 4
-    assert data["quiz_correct"] == 2
+    # 정확도(quiz_total/correct)는 vocab 제외 = 독해 1건만. vocab은 vocab_learned로만 집계.
+    assert data["quiz_total"] == 1
+    assert data["quiz_correct"] == 0
     assert data["vocab_learned"] == 2  # 사과·바나나(포도는 정답 0회 → 제외)
     assert data["reading_level"]["level"] >= 1
 
@@ -102,6 +103,17 @@ def test_estimate_reading_level_monotonic():
     low = estimate_reading_level(0, 0.0, 0)["level"]
     high = estimate_reading_level(60, 1.0, 200)["level"]
     assert low == 1 and high == 10 and high > low
+
+
+def test_composite_score_missing_axis_not_penalized():
+    # 퀴즈/완독 데이터가 없으면(None) 0점 처벌이 아니라 축을 빼고 재분배(missing≠zero).
+    # 같은 책·어휘인데 정확도를 0.0으로 받은 아동보다 '미응시(None)' 아동이 더 높아야 한다.
+    none_acc = composite_reading_score(8, 40, None, 1.0, "5-7")["score"]
+    zero_acc = composite_reading_score(8, 40, 0.0, 1.0, "5-7")["score"]
+    assert none_acc > zero_acc
+    # 모든 비율 축이 None이어도 books·vocab만으로 산출되어야 한다(크래시 없음).
+    only_counts = composite_reading_score(8, 40, None, None, "5-7")
+    assert 0 <= only_counts["score"] <= 100
 
 
 def test_composite_score_is_multiaxis_and_monotonic():

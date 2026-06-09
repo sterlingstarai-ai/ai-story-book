@@ -42,6 +42,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   bool _isPlaying = false;
   bool _isLoadingAudio = false;
   bool _completionHandled = false;
+  // 완독률을 '진짜 변별되는' 측정치로 만들기 위해: 본문에 진입(표지 이후)했는데 마지막
+  // 페이지까지 안 가고 이탈하면 completed:false 로 1회 기록한다(이탈도 표본에 포함).
+  int _maxPageReached = 0;
+  bool _exitReadRecorded = false;
   bool _progressRestored = false;
   // 같은 세션에서 학습 시트 재오픈 시 동일 퀴즈 중복 기록 방지(성장 집계 왜곡 방지)
   final Set<String> _recordedQuiz = {};
@@ -108,6 +112,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
 
   @override
   void dispose() {
+    _recordAbandonedReadIfNeeded();
     // Cancel subscription to prevent memory leak
     _playerStateSubscription?.cancel();
     _positionSubscription?.cancel();
@@ -116,6 +121,27 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     _pageController.dispose();
     _audioPlayer.dispose();
     super.dispose();
+  }
+
+  /// 본문에 진입했으나 완독 없이 화면을 떠날 때 미완독(completed:false)으로 1회 기록.
+  /// 완독은 _handleBookCompleted가 별도로 completed:true를 남기므로 세션당 로그는 1개.
+  void _recordAbandonedReadIfNeeded() {
+    if (_completionHandled || _exitReadRecorded || _maxPageReached < 1) {
+      return;
+    }
+    _exitReadRecorded = true;
+    final seconds = DateTime.now().difference(_viewStartedAt).inSeconds;
+    final api = ref.read(apiClientProvider);
+    // fire-and-forget: 화면은 사라지지만 ApiClient(Dio)는 provider에 살아있어 전송 완료됨.
+    unawaited(
+      api
+          .recordReading(
+            bookId: widget.bookId,
+            readingTime: seconds < 0 ? 0 : seconds,
+            completed: false,
+          )
+          .catchError((_) => <String, dynamic>{}),
+    );
   }
 
   void _toggleControls() {
@@ -196,6 +222,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                 _audioProgress = 0;
                 _audioProgressPage = index;
               });
+              if (index > _maxPageReached) {
+                _maxPageReached = index;
+              }
               unawaited(_saveReadingProgress(index, totalPages));
               if (_sleepModeEnabled && index > 0) {
                 await _playPageAudio(book, restart: true);
