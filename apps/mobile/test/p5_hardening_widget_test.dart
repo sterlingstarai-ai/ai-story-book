@@ -455,10 +455,18 @@ void main() {
       );
       expect(continueButton.onPressed, isNull);
 
-      await tester.tap(find.text('개인정보 수집 및 이용에 동의 (필수)'));
-      await tester.tap(find.text('사진으로 우리 아이 주인공 만들기 (선택)'));
-      await tester.tap(find.text('데이터 처리 및 저장 정책에 동의 (필수)'));
-      await tester.pumpAndSettle();
+      // 동의 항목은 스크롤 영역 안에 있어 화면 밖일 수 있으므로 보이게 한 뒤 탭
+      // (고지 문구 길이에 무관하게 견고).
+      for (final label in const [
+        '개인정보 수집 및 이용에 동의 (필수)',
+        '사진으로 우리 아이 주인공 만들기 (선택)',
+        '데이터 처리 및 저장 정책에 동의 (필수)',
+      ]) {
+        final checkbox = find.text(label);
+        await tester.ensureVisible(checkbox);
+        await tester.tap(checkbox);
+        await tester.pumpAndSettle();
+      }
 
       await tester.tap(find.text('동의하고 시작하기'));
       await tester.pumpAndSettle();

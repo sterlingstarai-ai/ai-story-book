@@ -64,6 +64,11 @@ void main() {
     expect(find.textContaining('받는 곳'), findsOneWidget);
     expect(find.textContaining('보유·이용기간'), findsOneWidget);
     expect(find.textContaining('거부권'), findsOneWidget);
+    // 고지-코드 정합성: 원본은 캐릭터 일관성 위해 보관·재사용되므로 '즉시 파기'는 거짓 고지였다.
+    // 진실(보관 + 철회·삭제 시 파기)을 고지하고, 과거 거짓 문구가 되살아나지 않게 가드.
+    expect(find.textContaining('서비스 이용 기간 동안 보관'), findsOneWidget);
+    expect(find.textContaining('철회·삭제 요청 시 즉시 파기'), findsOneWidget);
+    expect(find.textContaining('처리 후 원본 즉시 파기'), findsNothing);
 
     // 동의 → grantConsent(photos:true, 기존 privacy/data를 echo)
     await tester.tap(find.text('동의'));
