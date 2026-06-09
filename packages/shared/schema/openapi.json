@@ -1224,6 +1224,19 @@
         "title": "CreateCharacterRequest",
         "type": "object"
       },
+      "CreateShareRequest": {
+        "properties": {
+          "expires_in_days": {
+            "default": 0,
+            "maximum": 365.0,
+            "minimum": 0.0,
+            "title": "Expires In Days",
+            "type": "integer"
+          }
+        },
+        "title": "CreateShareRequest",
+        "type": "object"
+      },
       "CreditsResponse": {
         "properties": {
           "credits": {
@@ -3345,6 +3358,49 @@
         "summary": "Ready Health Check"
       }
     },
+    "/share/{token}": {
+      "get": {
+        "description": "공개 공유 페이지 — 검색 비노출, 아이 PII 비공개(표지·본문·제목만), 앱 CTA.",
+        "operationId": "public_share_share__token__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "title": "Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Public Share",
+        "tags": [
+          "Share"
+        ]
+      }
+    },
     "/v1/books": {
       "post": {
         "description": "새 동화책 생성 요청\n\n- 비동기로 처리되며 job_id 반환\n- GET /v1/books/{job_id}로 상태 조회\n- 크레딧 1개 필요",
@@ -3804,6 +3860,120 @@
         "summary": "Export Book Pdf",
         "tags": [
           "Books"
+        ]
+      }
+    },
+    "/v1/books/{book_id}/share": {
+      "post": {
+        "description": "공유 링크 생성(소유자만). 만료일 미지정 시 서버 기본값.",
+        "operationId": "create_share_v1_books__book_id__share_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateShareRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Share",
+        "tags": [
+          "Share"
+        ]
+      }
+    },
+    "/v1/books/{book_id}/share/revoke": {
+      "post": {
+        "description": "이 책의 활성 공유 링크를 모두 철회(소유자만).",
+        "operationId": "revoke_share_v1_books__book_id__share_revoke_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revoke Share",
+        "tags": [
+          "Share"
         ]
       }
     },

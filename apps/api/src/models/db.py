@@ -213,6 +213,20 @@ class Character(Base):
     books = relationship("Book", back_populates="character")
 
 
+class BookShare(Base):
+    """부모가 만든 책 공개 공유 링크(만료·철회 가능, 검색 비노출, PII 비공개)."""
+
+    __tablename__ = "book_shares"
+    __table_args__ = (Index("ix_book_shares_book", "book_id"),)
+
+    id = Column(String(60), primary_key=True)  # 공유 토큰(uuid hex)
+    book_id = Column(String(60), ForeignKey("books.id"), nullable=False)
+    user_key = Column(String(80), nullable=False, index=True)  # 소유자(부모)
+    created_at = Column(DateTime, default=utcnow)
+    expires_at = Column(DateTime, nullable=True)  # 만료 시각(NULL=무기한)
+    revoked_at = Column(DateTime, nullable=True)  # 철회 시각(NULL=활성)
+
+
 class RateLimit(Base):
     __tablename__ = "rate_limits"
 
