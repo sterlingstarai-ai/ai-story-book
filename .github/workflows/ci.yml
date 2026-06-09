@@ -100,6 +100,13 @@ jobs:
           pytest tests/ -v --cov=src --cov-report=xml 2>&1 | tee test-output.log
           coverage report --fail-under=40
 
+      - name: Live E2E journey (full generation pipeline)
+        # TESTING=false 실서버로 전체 생성 파이프라인(create→done)+성장·또래·오디오게이트·
+        # IDOR·동의철회를 검증. SQLite+mock providers라 키·Postgres·Redis·S3 불필요.
+        env:
+          APP_VERSION: "0.3.2"
+        run: bash scripts/run_live_e2e.sh
+
       - name: Upload API logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -139,6 +146,12 @@ jobs:
       - name: Run tests with coverage
         working-directory: apps/mobile
         run: flutter test --coverage 2>&1 | tee test-output.log
+
+      - name: Run integration tests (headless flutter_tester)
+        # 멀티화면 라우팅 여정(StartupGate→동의→온보딩→홈, 홈→읽기성장)을 디바이스 없이
+        # flutter_tester로 구동. 연결된 디바이스가 없으면 헤드리스로 실행된다.
+        working-directory: apps/mobile
+        run: flutter test integration_test/ 2>&1 | tee integration-output.log
 
       - name: Check Flutter coverage threshold
         run: |

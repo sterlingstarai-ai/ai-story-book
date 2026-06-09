@@ -9,7 +9,9 @@ Widget _host(VocabGameCard card) => MaterialApp(home: Scaffold(body: card));
 
 void main() {
   final item = VocabItem(word: '용감', meaning: '겁이 없고 씩씩함');
-  const all = ['겁이 없고 씩씩함', '아주 큼', '빠르게 달림', '슬프고 외로움', '맛이 달콤함'];
+  // 정답 1 + 오답 3(총 4) — take(3)이 오답 3개를 모두 포함하므로 셔플과 무관하게
+  // '아주 큼'이 항상 보기에 등장한다(오답 탭 테스트의 비결정성 제거).
+  const all = ['겁이 없고 씩씩함', '아주 큼', '빠르게 달림', '슬프고 외로움'];
 
   testWidgets('질문과 4지선다(정답 포함)를 렌더한다', (tester) async {
     await tester.pumpWidget(_host(
