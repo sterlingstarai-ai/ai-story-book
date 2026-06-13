@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 
+import '../l10n/app_localizations.dart';
 import '../providers/providers.dart';
 import '../services/analytics.dart';
 import '../utils/constants.dart';
@@ -103,9 +104,10 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
       }
     } catch (e) {
       if (mounted) {
+        final l = AppLocalizations.of(context);
         setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('크레딧 정보를 불러오지 못했어요. 잠시 후 다시 시도해주세요.')),
+          SnackBar(content: Text(l.creditsLoadError)),
         );
       }
     }
@@ -113,16 +115,17 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('크레딧'),
+        title: Text(l.creditsTitle),
         backgroundColor: AppColors.surface,
         actions: [
           // Apple 3.1.1: 구독/비소모성 상품 앱은 '구매 복원' 필수(기기 변경·재설치 대응).
           TextButton(
             key: const Key('restore_purchases_btn'),
             onPressed: _restorePurchases,
-            child: const Text('구매 복원'),
+            child: Text(l.creditsRestorePurchases),
           ),
         ],
       ),
@@ -153,6 +156,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
   }
 
   Widget _buildCreditsCard() {
+    final l = AppLocalizations.of(context);
     final credits = _asMap(_creditsStatus?['credits']);
     final currentCredits = _parseAmount(credits['credits']);
     final totalUsed = _parseAmount(credits['total_used']);
@@ -173,9 +177,9 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
-                '내 크레딧',
-                style: TextStyle(
+              Text(
+                l.creditsMyCredits,
+                style: const TextStyle(
                   color: Colors.white70,
                   fontSize: 14,
                 ),
@@ -190,7 +194,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
-                  '총 $totalUsed권 생성',
+                  l.creditsTotalCreated(totalUsed),
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 12,
@@ -211,11 +215,11 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              const Padding(
-                padding: EdgeInsets.only(bottom: 8, left: 4),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8, left: 4),
                 child: Text(
-                  '크레딧',
-                  style: TextStyle(
+                  l.creditsUnit,
+                  style: const TextStyle(
                     color: Colors.white70,
                     fontSize: 16,
                   ),
@@ -233,7 +237,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
                     foregroundColor: Colors.white,
                     side: const BorderSide(color: Colors.white70),
                   ),
-                  child: const Text('크레딧 구매'),
+                  child: Text(l.creditsBuyCredits),
                 ),
               ),
             ],
@@ -244,6 +248,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
   }
 
   Widget _buildSubscriptionCard() {
+    final l = AppLocalizations.of(context);
     final subscription = _asMap(_creditsStatus?['subscription']);
     final subscriptionStatus =
         (_coerceText(subscription['status']) ?? 'active').toLowerCase();
@@ -251,7 +256,8 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
     final badgeColor = isCancelled ? AppColors.warning : AppColors.success;
     final badgeBackground =
         isCancelled ? AppColors.warningLight : AppColors.successLight;
-    final badgeText = isCancelled ? '해지 예정' : '활성';
+    final badgeText =
+        isCancelled ? l.creditsBadgeCancelScheduled : l.creditsBadgeActive;
 
     if (subscription.isEmpty) {
       return Container(
@@ -264,24 +270,24 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Row(
+            Row(
               children: [
-                Icon(Icons.card_membership, color: AppColors.textSecondary),
-                SizedBox(width: AppSpacing.sm),
+                const Icon(Icons.card_membership, color: AppColors.textSecondary),
+                const SizedBox(width: AppSpacing.sm),
                 Text(
-                  '구독 정보',
+                  l.creditsSubscriptionInfo,
                   style: AppTextStyles.heading3,
                 ),
               ],
             ),
             const SizedBox(height: AppSpacing.md),
-            const Text(
-              '현재 구독 중인 플랜이 없습니다.',
-              style: TextStyle(color: AppColors.textSecondary),
+            Text(
+              l.creditsNoActivePlan,
+              style: const TextStyle(color: AppColors.textSecondary),
             ),
             const SizedBox(height: AppSpacing.md),
             PrimaryButton(
-              text: '구독 시작하기',
+              text: l.creditsStartSubscription,
               onPressed: () => _scrollToPlans(),
             ),
           ],
@@ -307,7 +313,9 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
                   const Icon(Icons.card_membership, color: AppColors.primary),
                   const SizedBox(width: AppSpacing.sm),
                   Text(
-                    '${_coerceText(subscription['plan_name']) ?? '기본'} 구독',
+                    l.creditsPlanSubscriptionLabel(
+                        _coerceText(subscription['plan_name']) ??
+                            l.creditsDefaultPlanName),
                     style: AppTextStyles.heading3,
                   ),
                 ],
@@ -333,12 +341,13 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
           Row(
             children: [
               _buildSubscriptionInfo(
-                '월간 크레딧',
-                '${_parseAmount(subscription['credits_per_month'])}개',
+                l.creditsMonthlyCredits,
+                l.creditsCreditCount(
+                    _parseAmount(subscription['credits_per_month'])),
               ),
               const SizedBox(width: AppSpacing.lg),
               _buildSubscriptionInfo(
-                '다음 갱신일',
+                l.creditsNextRenewal,
                 _formatDate(subscription['current_period_end']),
               ),
             ],
@@ -357,17 +366,17 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
           ),
           if (isCancelled) ...[
             const SizedBox(height: AppSpacing.md),
-            const Text(
-              '현재 결제 주기가 끝나면 무료 플랜으로 전환됩니다.',
+            Text(
+              l.creditsCancelNotice,
               style: AppTextStyles.caption,
             ),
           ] else ...[
             const SizedBox(height: AppSpacing.md),
             TextButton(
               onPressed: () => _showCancelSubscriptionDialog(),
-              child: const Text(
-                '구독 취소',
-                style: TextStyle(color: AppColors.error),
+              child: Text(
+                l.creditsCancelSubscription,
+                style: const TextStyle(color: AppColors.error),
               ),
             ),
           ],
@@ -400,6 +409,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
   }
 
   Widget _buildPlansSection() {
+    final l = AppLocalizations.of(context);
     final plans = _asList(_creditsStatus?['available_plans']);
     final planMaps =
         plans.map(_asMap).where((plan) => plan.isNotEmpty).toList();
@@ -408,15 +418,15 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
       key: _plansSectionKey,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          '구독 플랜',
+        Text(
+          l.creditsPlansTitle,
           style: AppTextStyles.heading2,
         ),
         const SizedBox(height: AppSpacing.md),
         if (planMaps.isEmpty)
-          const Text(
-            '현재 이용 가능한 구독 플랜이 없습니다.',
-            style: TextStyle(color: AppColors.textSecondary),
+          Text(
+            l.creditsNoAvailablePlans,
+            style: const TextStyle(color: AppColors.textSecondary),
           )
         else
           ...planMaps.map(_buildPlanCard),
@@ -425,8 +435,9 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
   }
 
   Widget _buildPlanCard(Map<String, dynamic> plan) {
+    final l = AppLocalizations.of(context);
     final planId = _coerceText(plan['id']) ?? '';
-    final planName = _coerceText(plan['name']) ?? '플랜';
+    final planName = _coerceText(plan['name']) ?? l.creditsPlanFallbackName;
     final price = _parseAmount(plan['price']);
     final creditsPerMonth = _parseAmount(plan['credits_per_month']);
     final features = _asList(plan['features']);
@@ -462,9 +473,9 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
                     color: AppColors.primary,
                     borderRadius: BorderRadius.circular(4),
                   ),
-                  child: const Text(
-                    '현재 플랜',
-                    style: TextStyle(
+                  child: Text(
+                    l.creditsCurrentPlan,
+                    style: const TextStyle(
                       color: Colors.white,
                       fontSize: 12,
                     ),
@@ -474,7 +485,9 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            price == 0 ? '무료' : '₩${_formatNumber(price)}/월',
+            price == 0
+                ? l.creditsFree
+                : l.creditsPricePerMonth(_formatNumber(price)),
             style: const TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.bold,
@@ -483,7 +496,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            '월 $creditsPerMonth권 생성 가능',
+            l.creditsMonthlyCreatable(creditsPerMonth),
             style: const TextStyle(color: AppColors.textSecondary),
           ),
           const SizedBox(height: AppSpacing.md),
@@ -509,7 +522,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
           if (!isCurrentPlan && planId != 'free' && planId.isNotEmpty) ...[
             const SizedBox(height: AppSpacing.md),
             PrimaryButton(
-              text: '구독하기',
+              text: l.creditsSubscribe,
               onPressed: () => _subscribe(planId),
             ),
           ],
@@ -519,11 +532,12 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
   }
 
   Widget _buildCreditPackSection() {
+    final l = AppLocalizations.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          '크레딧 팩',
+        Text(
+          l.creditsPackTitle,
           style: AppTextStyles.heading2,
         ),
         const SizedBox(height: AppSpacing.md),
@@ -541,6 +555,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
     required String productId,
     required int credits,
   }) {
+    final l = AppLocalizations.of(context);
     return Container(
       margin: const EdgeInsets.only(bottom: AppSpacing.md),
       padding: const EdgeInsets.all(AppSpacing.md),
@@ -565,9 +580,9 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('$credits 크레딧 팩', style: AppTextStyles.heading3),
+                Text(l.creditsPackName(credits), style: AppTextStyles.heading3),
                 Text(
-                  '필요할 때 즉시 충전',
+                  l.creditsPackSubtitle,
                   style: AppTextStyles.caption.copyWith(
                     color: AppColors.textSecondary,
                   ),
@@ -579,7 +594,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
             width: 120,
             child: OutlinedButton(
               onPressed: () => _buyCreditPack(productId),
-              child: const Text('구매'),
+              child: Text(l.creditsBuy),
             ),
           ),
         ],
@@ -588,6 +603,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
   }
 
   Widget _buildTransactionsSection() {
+    final l = AppLocalizations.of(context);
     if (_transactions.isEmpty) {
       return const SizedBox.shrink();
     }
@@ -595,8 +611,8 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          '거래 내역',
+        Text(
+          l.creditsTransactionsTitle,
           style: AppTextStyles.heading2,
         ),
         const SizedBox(height: AppSpacing.md),
@@ -617,7 +633,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
               final isPositive = amount > 0;
               final description = _coerceText(tx['description']) ??
                   _coerceText(tx['transaction_type']) ??
-                  '거래';
+                  l.creditsTransactionFallback;
 
               return ListTile(
                 leading: Icon(
@@ -659,16 +675,18 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
     // 복원된 구매는 기존 purchaseStream → _handlePurchaseUpdate(restored)로 검증·반영된다.
     final iapService = ref.read(iapServiceProvider);
     if (mounted) {
+      final l = AppLocalizations.of(context);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('구매 내역을 복원하고 있어요...')),
+        SnackBar(content: Text(l.creditsRestoring)),
       );
     }
     try {
       await iapService.restorePurchases();
     } catch (_) {
       if (mounted) {
+        final l = AppLocalizations.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('복원에 실패했어요. 잠시 후 다시 시도해주세요.')),
+          SnackBar(content: Text(l.creditsRestoreFailed)),
         );
       }
     }
@@ -684,8 +702,9 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
     if (purchase.status == PurchaseStatus.error) {
       await iapService.completePurchase(purchase);
       if (mounted) {
+        final l = AppLocalizations.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('결제가 취소되었거나 실패했어요.')),
+          SnackBar(content: Text(l.creditsPaymentCancelledOrFailed)),
         );
       }
       return;
@@ -728,11 +747,12 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
       await _loadCreditsStatus();
 
       if (mounted) {
+        final l = AppLocalizations.of(context);
         final status = _coerceText(result['status']) ?? 'verified';
         final message = switch (status) {
-          'already_processed' => '이미 처리된 결제입니다.',
-          'already_subscribed' => '이미 같은 플랜을 이용 중입니다.',
-          _ => '결제가 확인되어 크레딧이 반영되었어요.',
+          'already_processed' => l.creditsAlreadyProcessed,
+          'already_subscribed' => l.creditsAlreadySubscribed,
+          _ => l.creditsVerifiedReflected,
         };
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(message)),
@@ -740,8 +760,9 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
       }
     } catch (_) {
       if (mounted) {
+        final l = AppLocalizations.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('결제 검증에 실패했어요. 잠시 후 다시 시도해주세요.')),
+          SnackBar(content: Text(l.creditsVerifyFailed)),
         );
       }
     } finally {
@@ -759,10 +780,11 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
       final availability = await iapService.checkAvailability();
       if (!availability.isAvailable) {
         if (mounted) {
+          final l = AppLocalizations.of(context);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                availability.unavailableReason ?? '스토어 결제를 사용할 수 없어요.',
+                availability.unavailableReason ?? l.creditsStoreUnavailable,
               ),
             ),
           );
@@ -784,8 +806,9 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
 
       await iapService.buyProduct(target, consumable: consumable);
       if (mounted) {
+        final l = AppLocalizations.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('스토어 결제를 진행해주세요.')),
+          SnackBar(content: Text(l.creditsProceedStorePayment)),
         );
       }
       return true;
@@ -797,8 +820,9 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
   Future<void> _buyCreditPack(String productId) async {
     final started = await _startStorePurchase(productId, consumable: true);
     if (!started && mounted) {
+      final l = AppLocalizations.of(context);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('스토어 구매를 시작할 수 없어요.')),
+        SnackBar(content: Text(l.creditsCannotStartStorePurchase)),
       );
     }
   }
@@ -822,36 +846,40 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
       await _loadCreditsStatus();
 
       if (mounted) {
+        final l = AppLocalizations.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('구독이 시작되었습니다!')),
+          SnackBar(content: Text(l.creditsSubscriptionStarted)),
         );
       }
     } catch (e) {
       if (mounted) {
+        final l = AppLocalizations.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('구독에 실패했어요. 잠시 후 다시 시도해주세요.')),
+          SnackBar(content: Text(l.creditsSubscribeFailed)),
         );
       }
     }
   }
 
   void _showCancelSubscriptionDialog() {
+    final l = AppLocalizations.of(context);
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('구독 취소'),
-        content: const Text('정말 구독을 취소하시겠어요? 현재 기간이 끝날 때까지는 계속 사용할 수 있어요.'),
+        title: Text(l.creditsCancelSubscription),
+        content: Text(l.creditsCancelConfirmContent),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('아니오'),
+            child: Text(l.creditsNo),
           ),
           TextButton(
             onPressed: () {
               Navigator.pop(context);
               _cancelSubscription();
             },
-            child: const Text('취소하기', style: TextStyle(color: AppColors.error)),
+            child: Text(l.creditsConfirmCancel,
+                style: const TextStyle(color: AppColors.error)),
           ),
         ],
       ),
@@ -865,14 +893,16 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
       await _loadCreditsStatus();
 
       if (mounted) {
+        final l = AppLocalizations.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('구독이 취소되었습니다.')),
+          SnackBar(content: Text(l.creditsSubscriptionCancelled)),
         );
       }
     } catch (e) {
       if (mounted) {
+        final l = AppLocalizations.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('구독 취소에 실패했어요. 잠시 후 다시 시도해주세요.')),
+          SnackBar(content: Text(l.creditsCancelFailed)),
         );
       }
     }

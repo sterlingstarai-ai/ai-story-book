@@ -1102,4 +1102,980 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get parentDashboardDailyChartTitle => 'Daily reading time';
+
+  @override
+  String get settingsLoadError => 'Couldn\'t load settings.';
+
+  @override
+  String get settingsSaved => 'Settings saved.';
+
+  @override
+  String get settingsSaveError =>
+      'Failed to save settings. Please try again shortly.';
+
+  @override
+  String get settingsBedtimeNotificationTitle =>
+      'It\'s time to read today\'s storybook';
+
+  @override
+  String get settingsBedtimeNotificationBody =>
+      'Let\'s read today\'s storybook together before bed';
+
+  @override
+  String get settingsRevokeConsentTitle => 'Revoke consent';
+
+  @override
+  String get settingsRevokeConsentContent =>
+      'If you revoke consent, app usage will be restricted and you can proceed with data deletion.';
+
+  @override
+  String get settingsCancel => 'Cancel';
+
+  @override
+  String get settingsRevoke => 'Revoke';
+
+  @override
+  String get settingsRevokeConsentError =>
+      'Failed to process the revocation. Please check your network and try again.';
+
+  @override
+  String get settingsConsentRevoked => 'Consent has been revoked.';
+
+  @override
+  String get settingsDeleteAllTitle => 'Delete all my data';
+
+  @override
+  String get settingsDeleteAllContent =>
+      'This action cannot be undone. Do you want to continue?';
+
+  @override
+  String get settingsContinue => 'Continue';
+
+  @override
+  String get settingsFinalConfirmTitle => 'Final confirmation';
+
+  @override
+  String get settingsFinalConfirmPrompt =>
+      'To proceed with deletion, type \"삭제\" below.';
+
+  @override
+  String get settingsDeleteKeyword => 'Delete';
+
+  @override
+  String get settingsDeleteKeywordMismatch =>
+      'The confirmation text does not match.';
+
+  @override
+  String get settingsDeleteError =>
+      'Failed to delete data. Please try again shortly.';
+
+  @override
+  String get settingsLinkCopied => 'Link copied.';
+
+  @override
+  String get settingsTitle => 'Settings';
+
+  @override
+  String get settingsSave => 'Save';
+
+  @override
+  String get settingsSectionAccount => 'Account';
+
+  @override
+  String get settingsChildProfile => 'Child profile';
+
+  @override
+  String get settingsParentDashboard => 'Parent dashboard';
+
+  @override
+  String get settingsParentDashboardSubtitle => 'Weekly/monthly reading report';
+
+  @override
+  String get settingsFamilyVoice => 'Family voice';
+
+  @override
+  String get settingsFamilyVoiceSubtitle =>
+      'Manage recording samples and consent status';
+
+  @override
+  String get settingsCreditsSubscription => 'Credits/Subscription';
+
+  @override
+  String get settingsSectionApp => 'App settings';
+
+  @override
+  String get settingsLanguage => 'Language';
+
+  @override
+  String get settingsLanguageKorean => '한국어';
+
+  @override
+  String get settingsLanguageEnglish => 'English';
+
+  @override
+  String get settingsDarkMode => 'Dark mode';
+
+  @override
+  String get settingsDarkModeSubtitle =>
+      'Changes the entire app theme to dark.';
+
+  @override
+  String get settingsKakaoShare => 'KakaoTalk card sharing';
+
+  @override
+  String get settingsKakaoShareSubtitle =>
+      'Shows KakaoTalk sharing in the share menu.';
+
+  @override
+  String get settingsSectionSleep => 'Sleep mode';
+
+  @override
+  String get settingsBedtimeNotification => 'Bedtime notification';
+
+  @override
+  String get settingsBedtime => 'Bedtime';
+
+  @override
+  String settingsSleepTimer(Object minutes) {
+    return 'Default sleep timer: $minutes min';
+  }
+
+  @override
+  String settingsMinutes(Object minutes) {
+    return '$minutes min';
+  }
+
+  @override
+  String get settingsSectionScreenTime => 'Screen time limit';
+
+  @override
+  String get settingsScreenTimeEnabled => 'Enable screen time limit';
+
+  @override
+  String settingsDailyLimit(Object minutes) {
+    return 'Daily limit: $minutes min';
+  }
+
+  @override
+  String get settingsSectionAppInfo => 'App info';
+
+  @override
+  String get settingsAppVersion => 'App version';
+
+  @override
+  String get settingsPrivacyPolicy => 'Privacy policy';
+
+  @override
+  String get settingsTermsOfService => 'Terms of service';
+
+  @override
+  String get settingsSectionPrivacy => 'Privacy';
+
+  @override
+  String get settingsRevokeParentalConsent => 'Revoke parental consent';
+
+  @override
+  String get settingsDeleteAllData => 'Delete all my data';
+
+  @override
+  String get settingsDeleteAllDataSubtitle =>
+      'All data including storybooks, characters, and reading records will be deleted.';
+
+  @override
+  String get creditsTitle => 'Credits';
+
+  @override
+  String get creditsRestorePurchases => 'Restore Purchases';
+
+  @override
+  String get creditsLoadError =>
+      'Couldn\'t load credit info. Please try again in a moment.';
+
+  @override
+  String get creditsMyCredits => 'My Credits';
+
+  @override
+  String creditsTotalCreated(Object count) {
+    return '$count created in total';
+  }
+
+  @override
+  String get creditsUnit => 'credits';
+
+  @override
+  String get creditsBuyCredits => 'Buy Credits';
+
+  @override
+  String get creditsBadgeCancelScheduled => 'Cancellation scheduled';
+
+  @override
+  String get creditsBadgeActive => 'Active';
+
+  @override
+  String get creditsSubscriptionInfo => 'Subscription Info';
+
+  @override
+  String get creditsNoActivePlan => 'You have no active subscription plan.';
+
+  @override
+  String get creditsStartSubscription => 'Start Subscription';
+
+  @override
+  String creditsPlanSubscriptionLabel(Object planName) {
+    return '$planName subscription';
+  }
+
+  @override
+  String get creditsDefaultPlanName => 'Basic';
+
+  @override
+  String get creditsMonthlyCredits => 'Monthly Credits';
+
+  @override
+  String creditsCreditCount(Object count) {
+    return '$count';
+  }
+
+  @override
+  String get creditsNextRenewal => 'Next Renewal';
+
+  @override
+  String get creditsCancelNotice =>
+      'When the current billing cycle ends, you\'ll switch to the free plan.';
+
+  @override
+  String get creditsCancelSubscription => 'Cancel Subscription';
+
+  @override
+  String get creditsPlansTitle => 'Subscription Plans';
+
+  @override
+  String get creditsNoAvailablePlans =>
+      'No subscription plans are currently available.';
+
+  @override
+  String get creditsPlanFallbackName => 'Plan';
+
+  @override
+  String get creditsCurrentPlan => 'Current Plan';
+
+  @override
+  String get creditsFree => 'Free';
+
+  @override
+  String creditsPricePerMonth(Object price) {
+    return '₩$price/month';
+  }
+
+  @override
+  String creditsMonthlyCreatable(Object count) {
+    return 'Create up to $count per month';
+  }
+
+  @override
+  String get creditsSubscribe => 'Subscribe';
+
+  @override
+  String get creditsPackTitle => 'Credit Packs';
+
+  @override
+  String creditsPackName(Object count) {
+    return '$count Credit Pack';
+  }
+
+  @override
+  String get creditsPackSubtitle => 'Top up instantly when you need it';
+
+  @override
+  String get creditsBuy => 'Buy';
+
+  @override
+  String get creditsTransactionsTitle => 'Transaction History';
+
+  @override
+  String get creditsTransactionFallback => 'Transaction';
+
+  @override
+  String get creditsRestoring => 'Restoring your purchases...';
+
+  @override
+  String get creditsRestoreFailed =>
+      'Restore failed. Please try again in a moment.';
+
+  @override
+  String get creditsPaymentCancelledOrFailed =>
+      'The payment was cancelled or failed.';
+
+  @override
+  String get creditsAlreadyProcessed =>
+      'This payment has already been processed.';
+
+  @override
+  String get creditsAlreadySubscribed => 'You\'re already on the same plan.';
+
+  @override
+  String get creditsVerifiedReflected =>
+      'Payment confirmed and credits have been applied.';
+
+  @override
+  String get creditsVerifyFailed =>
+      'Payment verification failed. Please try again in a moment.';
+
+  @override
+  String get creditsStoreUnavailable => 'Store payments are unavailable.';
+
+  @override
+  String get creditsProceedStorePayment =>
+      'Please proceed with the store payment.';
+
+  @override
+  String get creditsCannotStartStorePurchase =>
+      'Couldn\'t start the store purchase.';
+
+  @override
+  String get creditsSubscriptionStarted => 'Subscription started!';
+
+  @override
+  String get creditsSubscribeFailed =>
+      'Subscription failed. Please try again in a moment.';
+
+  @override
+  String get creditsCancelConfirmContent =>
+      'Are you sure you want to cancel your subscription? You can keep using it until the current period ends.';
+
+  @override
+  String get creditsNo => 'No';
+
+  @override
+  String get creditsConfirmCancel => 'Cancel';
+
+  @override
+  String get creditsSubscriptionCancelled =>
+      'Your subscription has been cancelled.';
+
+  @override
+  String get creditsCancelFailed =>
+      'Failed to cancel the subscription. Please try again in a moment.';
+
+  @override
+  String get charactersTitle => 'My Characters';
+
+  @override
+  String get charactersAddTooltip => 'Add character';
+
+  @override
+  String get charactersRefreshTooltip => 'Refresh';
+
+  @override
+  String get charactersEmptyTitle => 'No characters yet';
+
+  @override
+  String get charactersEmptySubtitle => 'Make a character from a photo!';
+
+  @override
+  String get charactersEmptyCreateButton => 'Make a character from a photo';
+
+  @override
+  String get charactersLoadErrorTitle => 'Couldn\'t load characters';
+
+  @override
+  String get charactersRetry => 'Retry';
+
+  @override
+  String get charactersFabCreating => 'Creating...';
+
+  @override
+  String get charactersFabCreate => 'Make from photo';
+
+  @override
+  String get charactersOptionsTitle => 'Make a new character';
+
+  @override
+  String get charactersOptionsSubtitle => 'Choose how to create the character';
+
+  @override
+  String get charactersOptionTextTitle => 'Enter manually';
+
+  @override
+  String get charactersOptionTextSubtitle => 'Enter just name, age, and traits';
+
+  @override
+  String get charactersOptionCameraTitle => 'Take a photo';
+
+  @override
+  String get charactersOptionCameraSubtitle =>
+      'Analyze a photo to create a character';
+
+  @override
+  String get charactersOptionGalleryTitle => 'Choose from gallery';
+
+  @override
+  String get charactersOptionGallerySubtitle =>
+      'Create a character from an existing photo';
+
+  @override
+  String get charactersOptionDrawingTitle => 'Convert from a child\'s drawing';
+
+  @override
+  String get charactersOptionDrawingSubtitle =>
+      'Turn a drawing photo into a character and sheet';
+
+  @override
+  String charactersCreatedSnack(Object name) {
+    return 'Character $name has been created!';
+  }
+
+  @override
+  String charactersCreatedWithSheetsSnack(Object name, Object count) {
+    return 'Made character $name with $count sheets!';
+  }
+
+  @override
+  String get charactersCreateFailed =>
+      'Failed to create the character. Please try again in a moment.';
+
+  @override
+  String get charactersImagePickFailed =>
+      'Couldn\'t select the image. Please try again.';
+
+  @override
+  String get charactersNameDialogTitle => 'Character name';
+
+  @override
+  String get charactersNameDialogHint => 'Enter a character name (optional)';
+
+  @override
+  String get charactersCancel => 'Cancel';
+
+  @override
+  String get charactersConfirm => 'OK';
+
+  @override
+  String get charactersDeleteDialogTitle => 'Delete character';
+
+  @override
+  String charactersDeleteDialogContent(Object name) {
+    return 'Delete the character \"$name\"?';
+  }
+
+  @override
+  String get charactersDelete => 'Delete';
+
+  @override
+  String get charactersDeletedSnack => 'The character has been deleted.';
+
+  @override
+  String get charactersDeleteFailed =>
+      'Failed to delete the character. Please try again.';
+
+  @override
+  String get charactersDefaultName => 'New character';
+
+  @override
+  String get charactersAddCardLoading => 'Creating character...';
+
+  @override
+  String get charactersAddCardTitle => 'Add a new character';
+
+  @override
+  String get charactersAddCardSubtitle =>
+      'Make your own character from a photo';
+
+  @override
+  String get charactersDetailDescription => 'Description';
+
+  @override
+  String get charactersDetailPersonality => 'Personality';
+
+  @override
+  String get charactersDetailAppearance => 'Appearance';
+
+  @override
+  String get charactersDetailAge => 'Age';
+
+  @override
+  String get charactersDetailFace => 'Face';
+
+  @override
+  String get charactersDetailHair => 'Hair';
+
+  @override
+  String get charactersDetailSkin => 'Skin';
+
+  @override
+  String get charactersDetailBody => 'Body';
+
+  @override
+  String get charactersDetailClothing => 'Clothing';
+
+  @override
+  String get charactersDetailTop => 'Top';
+
+  @override
+  String get charactersDetailBottom => 'Bottom';
+
+  @override
+  String get charactersDetailShoes => 'Shoes';
+
+  @override
+  String get charactersDetailAccessories => 'Accessories';
+
+  @override
+  String get charactersDetailStyleNotes => 'Style notes';
+
+  @override
+  String get charactersDetailCreateBookButton =>
+      'Make a new storybook with this character';
+
+  @override
+  String charactersCreatedDate(Object year, Object month, Object day) {
+    return 'Created on $year-$month-$day';
+  }
+
+  @override
+  String get charactersRoleChild => 'Child';
+
+  @override
+  String get charactersRoleBrother => 'Older brother';
+
+  @override
+  String get charactersRoleSister => 'Older sister';
+
+  @override
+  String get charactersRoleMom => 'Mom';
+
+  @override
+  String get charactersRoleDad => 'Dad';
+
+  @override
+  String get charactersRoleGrandma => 'Grandma';
+
+  @override
+  String get charactersRoleGrandpa => 'Grandpa';
+
+  @override
+  String get charactersRoleFriend => 'Friend';
+
+  @override
+  String get charactersRoleTeacher => 'Teacher';
+
+  @override
+  String get charactersRolePet => 'Pet';
+
+  @override
+  String get charactersFormTitle => 'Make a new character';
+
+  @override
+  String get charactersFormRoleLabel => 'Who is it?';
+
+  @override
+  String get charactersFormCustomRole => 'Enter manually';
+
+  @override
+  String get charactersFormCustomRoleHint =>
+      'e.g. uncle, aunt, wizard, fairy...';
+
+  @override
+  String get charactersFormNameLabel => 'Name';
+
+  @override
+  String get charactersFormNameHint => 'Enter a character name';
+
+  @override
+  String get charactersFormTraitsLabel => 'Personality / Traits';
+
+  @override
+  String get charactersFormTraitsHelper => 'You can select multiple';
+
+  @override
+  String get charactersFormTraitsExtraHint =>
+      'Enter additional traits (optional)';
+
+  @override
+  String get charactersFormSubmit => 'Make character';
+
+  @override
+  String get charactersFormRoleRequired => 'Please enter a role';
+
+  @override
+  String get charactersFormRoleSelect => 'Please select a role';
+
+  @override
+  String get charactersFormNameRequired => 'Please enter a name';
+
+  @override
+  String get charactersFormTraitsRequired =>
+      'Please select personality / traits';
+
+  @override
+  String get viewerBookLoadError => 'Couldn\'t load the storybook';
+
+  @override
+  String get viewerGoBack => 'Go back';
+
+  @override
+  String viewerSleepRemaining(Object time) {
+    return 'Sleep $time';
+  }
+
+  @override
+  String get viewerCompletionTitle => 'Congrats on finishing!';
+
+  @override
+  String viewerCompletionStreak(Object streak) {
+    return '🔥 $streak-day reading streak achieved! Amazing.';
+  }
+
+  @override
+  String get viewerCompletionMessage =>
+      'You read to the last page. Shall we start the next storybook?';
+
+  @override
+  String get viewerCreateNextStory => 'Make the next storybook';
+
+  @override
+  String get viewerGoToLibrary => 'Go to library';
+
+  @override
+  String get viewerCover => 'Cover';
+
+  @override
+  String viewerPageIndicator(Object current, Object total) {
+    return '$current / $total';
+  }
+
+  @override
+  String viewerLearningWordCount(Object count) {
+    return 'Words $count';
+  }
+
+  @override
+  String viewerLearningQuizCount(Object count) {
+    return 'Quiz $count';
+  }
+
+  @override
+  String viewerLearningQuestionCount(Object count) {
+    return 'Questions $count';
+  }
+
+  @override
+  String viewerLearningBar(Object parts) {
+    return 'Learning mode · $parts';
+  }
+
+  @override
+  String get viewerCloseTooltip => 'Close';
+
+  @override
+  String get viewerMoreOptionsTooltip => 'More options';
+
+  @override
+  String get viewerPreviousPageTooltip => 'Previous page';
+
+  @override
+  String get viewerNextPageTooltip => 'Next page';
+
+  @override
+  String get viewerPlanUpgradeNeeded => 'You need to upgrade your plan';
+
+  @override
+  String get viewerCreditShortage => 'You don\'t have enough credits';
+
+  @override
+  String get viewerAudioPlayFailed =>
+      'Audio playback failed. Please try again in a moment.';
+
+  @override
+  String get viewerSleepModeEnded => 'Sleep mode time has ended.';
+
+  @override
+  String get viewerFollowReadingOff => 'Turn off follow-along reading';
+
+  @override
+  String get viewerFollowReadingOn => 'Turn on follow-along reading';
+
+  @override
+  String get viewerFollowReadingSubtitle =>
+      'Highlights sentences as the audio plays';
+
+  @override
+  String get viewerDualLanguageOff => 'Turn off dual-language display';
+
+  @override
+  String get viewerDualLanguageOn => 'Show both languages at once';
+
+  @override
+  String get viewerDualLanguageSubtitle =>
+      'View Korean and English on one screen';
+
+  @override
+  String get viewerBranchStoryTitle => 'Branching story mode';
+
+  @override
+  String get viewerBranchStorySubtitle =>
+      'The ending changes based on your choices';
+
+  @override
+  String get viewerLearningModeTitle => 'Learning mode';
+
+  @override
+  String get viewerLearningModeSubtitle => 'Words, questions, quiz';
+
+  @override
+  String get viewerParentGuideTitle => 'Parent guide';
+
+  @override
+  String get viewerParentGuideSubtitle => 'Discussion topics, activity ideas';
+
+  @override
+  String get viewerPronunciationTitle => 'Pronunciation practice';
+
+  @override
+  String get viewerPronunciationSubtitle =>
+      'Evaluate your pronunciation with the current page\'s sentences';
+
+  @override
+  String get viewerRegeneratePageTitle => 'Remake this page';
+
+  @override
+  String get viewerSameCharacterNewStory => 'New story with the same character';
+
+  @override
+  String get viewerExportPdf => 'Export as PDF';
+
+  @override
+  String get viewerOrderPhysicalBook => 'Order a physical book';
+
+  @override
+  String get viewerOrderPhysicalBookSubtitle =>
+      'Receive a printed copy via print-on-demand';
+
+  @override
+  String get viewerSleepModeStop => 'Exit sleep mode';
+
+  @override
+  String get viewerSleepModeStart => 'Start sleep mode';
+
+  @override
+  String viewerSleepModeRemaining(Object time) {
+    return 'Time remaining $time';
+  }
+
+  @override
+  String get viewerSleepModeDescription =>
+      'Dim screen + auto audio playback + auto page turn';
+
+  @override
+  String get viewerPrint => 'Print';
+
+  @override
+  String get viewerShare => 'Share';
+
+  @override
+  String get viewerRegenerateDialogTitle => 'Remake page';
+
+  @override
+  String get viewerRegenerateDialogContent => 'Which part should we remake?';
+
+  @override
+  String get viewerCancel => 'Cancel';
+
+  @override
+  String get viewerRegenerateTextOnly => 'Text only';
+
+  @override
+  String get viewerRegenerateImageOnly => 'Image only';
+
+  @override
+  String get viewerRegenerateAll => 'All';
+
+  @override
+  String get viewerRegenerateNotSupported =>
+      'This storybook doesn\'t support page regeneration';
+
+  @override
+  String get viewerRegenerating => 'Remaking the page...';
+
+  @override
+  String get viewerRegenerateStarted =>
+      'Page regeneration has started. Please wait a moment.';
+
+  @override
+  String get viewerRegenerateFailed =>
+      'Regeneration failed. Please try again in a moment.';
+
+  @override
+  String get viewerPdfGenerating => 'Generating PDF...';
+
+  @override
+  String viewerPdfSaved(Object fileName) {
+    return 'PDF saved: $fileName';
+  }
+
+  @override
+  String get viewerPdfDownloadFailed =>
+      'PDF download failed. Please try again in a moment.';
+
+  @override
+  String get viewerShareLink => 'Share link';
+
+  @override
+  String get viewerShareCopyUrl => 'Copy URL';
+
+  @override
+  String get viewerShareMessage => 'Message';
+
+  @override
+  String get viewerShareKakao => 'KakaoTalk';
+
+  @override
+  String get viewerShareCover => 'Share cover';
+
+  @override
+  String get viewerSharePdf => 'Share PDF';
+
+  @override
+  String get viewerShareMore => 'More';
+
+  @override
+  String viewerShareTextSimple(Object title) {
+    return '$title\n\nA storybook made with AI Story Book!';
+  }
+
+  @override
+  String get viewerCopyDone => 'Copied';
+
+  @override
+  String viewerShareLinkText(Object title, Object url) {
+    return 'A storybook starring our child \"$title\" 📖\n$url\n\nMade with Aistorybook';
+  }
+
+  @override
+  String get viewerShareLinkFailed =>
+      'Failed to create the share link. Please try again in a moment.';
+
+  @override
+  String viewerShareFullText(Object title) {
+    return '📚 $title\n\nA storybook made with AI Story Book!\nGift your child a special story ✨';
+  }
+
+  @override
+  String get viewerKakaoDescription => 'A storybook made with AI Story Book';
+
+  @override
+  String viewerKakaoShareText(
+      Object title, Object deepLink, Object fallbackUrl) {
+    return '📚 $title\n\nShare the storybook via KakaoTalk!\n$deepLink\n$fallbackUrl';
+  }
+
+  @override
+  String viewerKakaoShareSubject(Object title) {
+    return 'AI Story Book - $title';
+  }
+
+  @override
+  String get viewerPrintFailed =>
+      'Printing failed. Please try again in a moment.';
+
+  @override
+  String viewerShareCoverText(Object title) {
+    return '$title - Cover image';
+  }
+
+  @override
+  String get viewerShareCoverFailed =>
+      'Failed to share the cover. Please try again in a moment.';
+
+  @override
+  String viewerSharePdfText(Object title) {
+    return '$title - A storybook made with AI Story Book';
+  }
+
+  @override
+  String get viewerSharePdfFailed =>
+      'Failed to share the PDF. Please try again in a moment.';
+
+  @override
+  String viewerCoverImageSemantics(Object title) {
+    return 'Storybook cover: $title';
+  }
+
+  @override
+  String viewerPageImageSemantics(Object page) {
+    return 'Page $page illustration';
+  }
+
+  @override
+  String get viewerLearn => 'Learn';
+
+  @override
+  String get viewerPlayAudioTooltip => 'Play audio';
+
+  @override
+  String get viewerPauseAudioTooltip => 'Pause audio';
+
+  @override
+  String get viewerLanguageToggleTooltip => 'Switch language';
+
+  @override
+  String get viewerLanguageKo => '한';
+
+  @override
+  String get viewerLanguageEn => 'EN';
+
+  @override
+  String get viewerTabWord => 'Words';
+
+  @override
+  String get viewerTabQuestion => 'Questions';
+
+  @override
+  String get viewerTabQuiz => 'Quiz';
+
+  @override
+  String get viewerNoVocab => 'There\'s no word study on this page';
+
+  @override
+  String get viewerNoComprehension =>
+      'There are no comprehension questions on this page';
+
+  @override
+  String get viewerNoQuiz => 'There\'s no quiz on this page';
+
+  @override
+  String viewerComprehensionQuestion(Object index, Object question) {
+    return 'Q$index. $question';
+  }
+
+  @override
+  String viewerComprehensionAnswer(Object answer) {
+    return 'A. $answer';
+  }
+
+  @override
+  String get viewerShowAnswer => 'Show answer';
+
+  @override
+  String viewerQuizQuestion(Object index, Object question) {
+    return 'Q$index. $question';
+  }
+
+  @override
+  String get viewerCheckAnswer => 'Check answer';
+
+  @override
+  String get viewerQuizCorrect => 'Correct!';
+
+  @override
+  String get viewerQuizIncorrect => 'Think again';
+
+  @override
+  String get viewerGuideSummaryTitle => 'Story summary';
+
+  @override
+  String get viewerGuideDiscussionTitle => 'Talk together';
+
+  @override
+  String get viewerGuideActivitiesTitle => 'Try together';
 }

@@ -1063,4 +1063,927 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get parentDashboardDailyChartTitle => '일별 읽기 시간';
+
+  @override
+  String get settingsLoadError => '설정을 불러오지 못했어요.';
+
+  @override
+  String get settingsSaved => '설정이 저장되었습니다.';
+
+  @override
+  String get settingsSaveError => '설정 저장에 실패했어요. 잠시 후 다시 시도해주세요.';
+
+  @override
+  String get settingsBedtimeNotificationTitle => '오늘의 동화 읽을 시간이에요';
+
+  @override
+  String get settingsBedtimeNotificationBody => '잠들기 전 오늘의 동화를 함께 읽어요';
+
+  @override
+  String get settingsRevokeConsentTitle => '동의 철회';
+
+  @override
+  String get settingsRevokeConsentContent =>
+      '동의를 철회하면 앱 이용이 제한되며, 데이터 삭제를 진행할 수 있습니다.';
+
+  @override
+  String get settingsCancel => '취소';
+
+  @override
+  String get settingsRevoke => '철회';
+
+  @override
+  String get settingsRevokeConsentError => '철회 처리에 실패했어요. 네트워크 확인 후 다시 시도해주세요.';
+
+  @override
+  String get settingsConsentRevoked => '동의가 철회되었습니다.';
+
+  @override
+  String get settingsDeleteAllTitle => '내 데이터 모두 삭제';
+
+  @override
+  String get settingsDeleteAllContent => '이 작업은 되돌릴 수 없습니다. 계속할까요?';
+
+  @override
+  String get settingsContinue => '계속';
+
+  @override
+  String get settingsFinalConfirmTitle => '최종 확인';
+
+  @override
+  String get settingsFinalConfirmPrompt => '삭제를 진행하려면 아래에 \"삭제\"를 입력하세요.';
+
+  @override
+  String get settingsDeleteKeyword => '삭제';
+
+  @override
+  String get settingsDeleteKeywordMismatch => '확인 텍스트가 일치하지 않습니다.';
+
+  @override
+  String get settingsDeleteError => '데이터 삭제에 실패했어요. 잠시 후 다시 시도해주세요.';
+
+  @override
+  String get settingsLinkCopied => '링크를 복사했어요.';
+
+  @override
+  String get settingsTitle => '설정';
+
+  @override
+  String get settingsSave => '저장';
+
+  @override
+  String get settingsSectionAccount => '계정';
+
+  @override
+  String get settingsChildProfile => '아이 프로필';
+
+  @override
+  String get settingsParentDashboard => '부모 대시보드';
+
+  @override
+  String get settingsParentDashboardSubtitle => '주간/월간 읽기 리포트';
+
+  @override
+  String get settingsFamilyVoice => '가족 목소리';
+
+  @override
+  String get settingsFamilyVoiceSubtitle => '녹음 샘플과 동의 상태 관리';
+
+  @override
+  String get settingsCreditsSubscription => '크레딧/구독';
+
+  @override
+  String get settingsSectionApp => '앱 설정';
+
+  @override
+  String get settingsLanguage => '언어';
+
+  @override
+  String get settingsLanguageKorean => '한국어';
+
+  @override
+  String get settingsLanguageEnglish => 'English';
+
+  @override
+  String get settingsDarkMode => '다크 모드';
+
+  @override
+  String get settingsDarkModeSubtitle => '앱 전체 테마를 어둡게 변경합니다.';
+
+  @override
+  String get settingsKakaoShare => '카카오톡 카드 공유';
+
+  @override
+  String get settingsKakaoShareSubtitle => '공유 메뉴에서 카카오톡 공유를 표시합니다.';
+
+  @override
+  String get settingsSectionSleep => '수면 모드';
+
+  @override
+  String get settingsBedtimeNotification => '취침 알림';
+
+  @override
+  String get settingsBedtime => '취침 시간';
+
+  @override
+  String settingsSleepTimer(Object minutes) {
+    return '기본 수면 타이머: $minutes분';
+  }
+
+  @override
+  String settingsMinutes(Object minutes) {
+    return '$minutes분';
+  }
+
+  @override
+  String get settingsSectionScreenTime => '화면 시간 제한';
+
+  @override
+  String get settingsScreenTimeEnabled => '화면 시간 제한 사용';
+
+  @override
+  String settingsDailyLimit(Object minutes) {
+    return '일일 제한: $minutes분';
+  }
+
+  @override
+  String get settingsSectionAppInfo => '앱 정보';
+
+  @override
+  String get settingsAppVersion => '앱 버전';
+
+  @override
+  String get settingsPrivacyPolicy => '개인정보처리방침';
+
+  @override
+  String get settingsTermsOfService => '이용약관';
+
+  @override
+  String get settingsSectionPrivacy => '개인정보';
+
+  @override
+  String get settingsRevokeParentalConsent => '부모 동의 철회';
+
+  @override
+  String get settingsDeleteAllData => '내 데이터 모두 삭제';
+
+  @override
+  String get settingsDeleteAllDataSubtitle => '책, 캐릭터, 읽기 기록 등 모든 데이터가 삭제됩니다.';
+
+  @override
+  String get creditsTitle => '크레딧';
+
+  @override
+  String get creditsRestorePurchases => '구매 복원';
+
+  @override
+  String get creditsLoadError => '크레딧 정보를 불러오지 못했어요. 잠시 후 다시 시도해주세요.';
+
+  @override
+  String get creditsMyCredits => '내 크레딧';
+
+  @override
+  String creditsTotalCreated(Object count) {
+    return '총 $count권 생성';
+  }
+
+  @override
+  String get creditsUnit => '크레딧';
+
+  @override
+  String get creditsBuyCredits => '크레딧 구매';
+
+  @override
+  String get creditsBadgeCancelScheduled => '해지 예정';
+
+  @override
+  String get creditsBadgeActive => '활성';
+
+  @override
+  String get creditsSubscriptionInfo => '구독 정보';
+
+  @override
+  String get creditsNoActivePlan => '현재 구독 중인 플랜이 없습니다.';
+
+  @override
+  String get creditsStartSubscription => '구독 시작하기';
+
+  @override
+  String creditsPlanSubscriptionLabel(Object planName) {
+    return '$planName 구독';
+  }
+
+  @override
+  String get creditsDefaultPlanName => '기본';
+
+  @override
+  String get creditsMonthlyCredits => '월간 크레딧';
+
+  @override
+  String creditsCreditCount(Object count) {
+    return '$count개';
+  }
+
+  @override
+  String get creditsNextRenewal => '다음 갱신일';
+
+  @override
+  String get creditsCancelNotice => '현재 결제 주기가 끝나면 무료 플랜으로 전환됩니다.';
+
+  @override
+  String get creditsCancelSubscription => '구독 취소';
+
+  @override
+  String get creditsPlansTitle => '구독 플랜';
+
+  @override
+  String get creditsNoAvailablePlans => '현재 이용 가능한 구독 플랜이 없습니다.';
+
+  @override
+  String get creditsPlanFallbackName => '플랜';
+
+  @override
+  String get creditsCurrentPlan => '현재 플랜';
+
+  @override
+  String get creditsFree => '무료';
+
+  @override
+  String creditsPricePerMonth(Object price) {
+    return '₩$price/월';
+  }
+
+  @override
+  String creditsMonthlyCreatable(Object count) {
+    return '월 $count권 생성 가능';
+  }
+
+  @override
+  String get creditsSubscribe => '구독하기';
+
+  @override
+  String get creditsPackTitle => '크레딧 팩';
+
+  @override
+  String creditsPackName(Object count) {
+    return '$count 크레딧 팩';
+  }
+
+  @override
+  String get creditsPackSubtitle => '필요할 때 즉시 충전';
+
+  @override
+  String get creditsBuy => '구매';
+
+  @override
+  String get creditsTransactionsTitle => '거래 내역';
+
+  @override
+  String get creditsTransactionFallback => '거래';
+
+  @override
+  String get creditsRestoring => '구매 내역을 복원하고 있어요...';
+
+  @override
+  String get creditsRestoreFailed => '복원에 실패했어요. 잠시 후 다시 시도해주세요.';
+
+  @override
+  String get creditsPaymentCancelledOrFailed => '결제가 취소되었거나 실패했어요.';
+
+  @override
+  String get creditsAlreadyProcessed => '이미 처리된 결제입니다.';
+
+  @override
+  String get creditsAlreadySubscribed => '이미 같은 플랜을 이용 중입니다.';
+
+  @override
+  String get creditsVerifiedReflected => '결제가 확인되어 크레딧이 반영되었어요.';
+
+  @override
+  String get creditsVerifyFailed => '결제 검증에 실패했어요. 잠시 후 다시 시도해주세요.';
+
+  @override
+  String get creditsStoreUnavailable => '스토어 결제를 사용할 수 없어요.';
+
+  @override
+  String get creditsProceedStorePayment => '스토어 결제를 진행해주세요.';
+
+  @override
+  String get creditsCannotStartStorePurchase => '스토어 구매를 시작할 수 없어요.';
+
+  @override
+  String get creditsSubscriptionStarted => '구독이 시작되었습니다!';
+
+  @override
+  String get creditsSubscribeFailed => '구독에 실패했어요. 잠시 후 다시 시도해주세요.';
+
+  @override
+  String get creditsCancelConfirmContent =>
+      '정말 구독을 취소하시겠어요? 현재 기간이 끝날 때까지는 계속 사용할 수 있어요.';
+
+  @override
+  String get creditsNo => '아니오';
+
+  @override
+  String get creditsConfirmCancel => '취소하기';
+
+  @override
+  String get creditsSubscriptionCancelled => '구독이 취소되었습니다.';
+
+  @override
+  String get creditsCancelFailed => '구독 취소에 실패했어요. 잠시 후 다시 시도해주세요.';
+
+  @override
+  String get charactersTitle => '내 캐릭터';
+
+  @override
+  String get charactersAddTooltip => '캐릭터 추가';
+
+  @override
+  String get charactersRefreshTooltip => '새로고침';
+
+  @override
+  String get charactersEmptyTitle => '아직 캐릭터가 없어요';
+
+  @override
+  String get charactersEmptySubtitle => '사진으로 캐릭터를 만들어보세요!';
+
+  @override
+  String get charactersEmptyCreateButton => '사진으로 캐릭터 만들기';
+
+  @override
+  String get charactersLoadErrorTitle => '캐릭터를 불러올 수 없어요';
+
+  @override
+  String get charactersRetry => '다시 시도';
+
+  @override
+  String get charactersFabCreating => '생성 중...';
+
+  @override
+  String get charactersFabCreate => '사진으로 만들기';
+
+  @override
+  String get charactersOptionsTitle => '새 캐릭터 만들기';
+
+  @override
+  String get charactersOptionsSubtitle => '캐릭터 생성 방식을 선택하세요';
+
+  @override
+  String get charactersOptionTextTitle => '직접 입력하기';
+
+  @override
+  String get charactersOptionTextSubtitle => '이름, 나이, 특징만 입력';
+
+  @override
+  String get charactersOptionCameraTitle => '카메라로 촬영';
+
+  @override
+  String get charactersOptionCameraSubtitle => '사진을 분석해서 캐릭터 생성';
+
+  @override
+  String get charactersOptionGalleryTitle => '갤러리에서 선택';
+
+  @override
+  String get charactersOptionGallerySubtitle => '기존 사진에서 캐릭터 생성';
+
+  @override
+  String get charactersOptionDrawingTitle => '아이 그림에서 변환';
+
+  @override
+  String get charactersOptionDrawingSubtitle => '그림 사진을 캐릭터+시트로 변환';
+
+  @override
+  String charactersCreatedSnack(Object name) {
+    return '$name 캐릭터가 생성되었어요!';
+  }
+
+  @override
+  String charactersCreatedWithSheetsSnack(Object name, Object count) {
+    return '$name 캐릭터와 시트 $count장을 만들었어요!';
+  }
+
+  @override
+  String get charactersCreateFailed => '캐릭터 생성에 실패했어요. 잠시 후 다시 시도해주세요.';
+
+  @override
+  String get charactersImagePickFailed => '이미지를 선택할 수 없어요. 다시 시도해주세요.';
+
+  @override
+  String get charactersNameDialogTitle => '캐릭터 이름';
+
+  @override
+  String get charactersNameDialogHint => '캐릭터 이름을 입력하세요 (선택)';
+
+  @override
+  String get charactersCancel => '취소';
+
+  @override
+  String get charactersConfirm => '확인';
+
+  @override
+  String get charactersDeleteDialogTitle => '캐릭터 삭제';
+
+  @override
+  String charactersDeleteDialogContent(Object name) {
+    return '\"$name\" 캐릭터를 삭제할까요?';
+  }
+
+  @override
+  String get charactersDelete => '삭제';
+
+  @override
+  String get charactersDeletedSnack => '캐릭터가 삭제되었어요.';
+
+  @override
+  String get charactersDeleteFailed => '캐릭터 삭제에 실패했어요. 다시 시도해주세요.';
+
+  @override
+  String get charactersDefaultName => '새 캐릭터';
+
+  @override
+  String get charactersAddCardLoading => '캐릭터 생성 중...';
+
+  @override
+  String get charactersAddCardTitle => '새 캐릭터 추가';
+
+  @override
+  String get charactersAddCardSubtitle => '사진으로 나만의 캐릭터를 만들어보세요';
+
+  @override
+  String get charactersDetailDescription => '설명';
+
+  @override
+  String get charactersDetailPersonality => '성격';
+
+  @override
+  String get charactersDetailAppearance => '외형';
+
+  @override
+  String get charactersDetailAge => '나이';
+
+  @override
+  String get charactersDetailFace => '얼굴';
+
+  @override
+  String get charactersDetailHair => '머리';
+
+  @override
+  String get charactersDetailSkin => '피부';
+
+  @override
+  String get charactersDetailBody => '체형';
+
+  @override
+  String get charactersDetailClothing => '의상';
+
+  @override
+  String get charactersDetailTop => '상의';
+
+  @override
+  String get charactersDetailBottom => '하의';
+
+  @override
+  String get charactersDetailShoes => '신발';
+
+  @override
+  String get charactersDetailAccessories => '액세서리';
+
+  @override
+  String get charactersDetailStyleNotes => '스타일 노트';
+
+  @override
+  String get charactersDetailCreateBookButton => '이 캐릭터로 새 책 만들기';
+
+  @override
+  String charactersCreatedDate(Object year, Object month, Object day) {
+    return '$year년 $month월 $day일 생성';
+  }
+
+  @override
+  String get charactersRoleChild => '아이';
+
+  @override
+  String get charactersRoleBrother => '형/오빠';
+
+  @override
+  String get charactersRoleSister => '누나/언니';
+
+  @override
+  String get charactersRoleMom => '엄마';
+
+  @override
+  String get charactersRoleDad => '아빠';
+
+  @override
+  String get charactersRoleGrandma => '할머니';
+
+  @override
+  String get charactersRoleGrandpa => '할아버지';
+
+  @override
+  String get charactersRoleFriend => '친구';
+
+  @override
+  String get charactersRoleTeacher => '선생님';
+
+  @override
+  String get charactersRolePet => '반려동물';
+
+  @override
+  String get charactersFormTitle => '새 캐릭터 만들기';
+
+  @override
+  String get charactersFormRoleLabel => '누구인가요?';
+
+  @override
+  String get charactersFormCustomRole => '직접 입력';
+
+  @override
+  String get charactersFormCustomRoleHint => '예: 삼촌, 이모, 마법사, 요정...';
+
+  @override
+  String get charactersFormNameLabel => '이름';
+
+  @override
+  String get charactersFormNameHint => '캐릭터 이름을 입력하세요';
+
+  @override
+  String get charactersFormTraitsLabel => '성격/특징';
+
+  @override
+  String get charactersFormTraitsHelper => '여러 개 선택 가능';
+
+  @override
+  String get charactersFormTraitsExtraHint => '추가 특징 입력 (선택)';
+
+  @override
+  String get charactersFormSubmit => '캐릭터 만들기';
+
+  @override
+  String get charactersFormRoleRequired => '역할을 입력해주세요';
+
+  @override
+  String get charactersFormRoleSelect => '역할을 선택해주세요';
+
+  @override
+  String get charactersFormNameRequired => '이름을 입력해주세요';
+
+  @override
+  String get charactersFormTraitsRequired => '성격/특징을 선택해주세요';
+
+  @override
+  String get viewerBookLoadError => '책을 불러올 수 없어요';
+
+  @override
+  String get viewerGoBack => '돌아가기';
+
+  @override
+  String viewerSleepRemaining(Object time) {
+    return '수면 $time';
+  }
+
+  @override
+  String get viewerCompletionTitle => '완독 축하해요!';
+
+  @override
+  String viewerCompletionStreak(Object streak) {
+    return '🔥 $streak일 연속 읽기 달성! 정말 대단해요.';
+  }
+
+  @override
+  String get viewerCompletionMessage => '마지막 페이지까지 읽었어요. 다음 동화도 시작해볼까요?';
+
+  @override
+  String get viewerCreateNextStory => '다음 동화 만들기';
+
+  @override
+  String get viewerGoToLibrary => '서재로 가기';
+
+  @override
+  String get viewerCover => '표지';
+
+  @override
+  String viewerPageIndicator(Object current, Object total) {
+    return '$current / $total';
+  }
+
+  @override
+  String viewerLearningWordCount(Object count) {
+    return '단어 $count';
+  }
+
+  @override
+  String viewerLearningQuizCount(Object count) {
+    return '퀴즈 $count';
+  }
+
+  @override
+  String viewerLearningQuestionCount(Object count) {
+    return '질문 $count';
+  }
+
+  @override
+  String viewerLearningBar(Object parts) {
+    return '학습 모드 · $parts';
+  }
+
+  @override
+  String get viewerCloseTooltip => '닫기';
+
+  @override
+  String get viewerMoreOptionsTooltip => '더보기';
+
+  @override
+  String get viewerPreviousPageTooltip => '이전 페이지';
+
+  @override
+  String get viewerNextPageTooltip => '다음 페이지';
+
+  @override
+  String get viewerPlanUpgradeNeeded => '플랜 업그레이드가 필요해요';
+
+  @override
+  String get viewerCreditShortage => '크레딧이 부족해요';
+
+  @override
+  String get viewerAudioPlayFailed => '오디오 재생에 실패했어요. 잠시 후 다시 시도해주세요.';
+
+  @override
+  String get viewerSleepModeEnded => '수면 모드 시간이 종료되었어요.';
+
+  @override
+  String get viewerFollowReadingOff => '따라 읽기 모드 끄기';
+
+  @override
+  String get viewerFollowReadingOn => '따라 읽기 모드 켜기';
+
+  @override
+  String get viewerFollowReadingSubtitle => '오디오 진행에 맞춰 문장을 강조해요';
+
+  @override
+  String get viewerDualLanguageOff => '이중언어 표시 끄기';
+
+  @override
+  String get viewerDualLanguageOn => '이중언어 동시 표시';
+
+  @override
+  String get viewerDualLanguageSubtitle => '한국어/영어를 한 화면에서 볼 수 있어요';
+
+  @override
+  String get viewerBranchStoryTitle => '분기형 스토리 모드';
+
+  @override
+  String get viewerBranchStorySubtitle => '선택지에 따라 결말이 달라지는 모드';
+
+  @override
+  String get viewerLearningModeTitle => '학습 모드';
+
+  @override
+  String get viewerLearningModeSubtitle => '단어, 질문, 퀴즈';
+
+  @override
+  String get viewerParentGuideTitle => '부모 가이드';
+
+  @override
+  String get viewerParentGuideSubtitle => '토론 주제, 활동 아이디어';
+
+  @override
+  String get viewerPronunciationTitle => '발음 연습';
+
+  @override
+  String get viewerPronunciationSubtitle => '현재 페이지 문장으로 발음을 평가해요';
+
+  @override
+  String get viewerRegeneratePageTitle => '이 페이지 다시 만들기';
+
+  @override
+  String get viewerSameCharacterNewStory => '같은 캐릭터로 새 이야기';
+
+  @override
+  String get viewerExportPdf => 'PDF로 내보내기';
+
+  @override
+  String get viewerOrderPhysicalBook => '실물책 주문';
+
+  @override
+  String get viewerOrderPhysicalBookSubtitle => 'POD 주문으로 인쇄본을 받아볼 수 있어요';
+
+  @override
+  String get viewerSleepModeStop => '수면 모드 종료';
+
+  @override
+  String get viewerSleepModeStart => '수면 모드 시작';
+
+  @override
+  String viewerSleepModeRemaining(Object time) {
+    return '남은 시간 $time';
+  }
+
+  @override
+  String get viewerSleepModeDescription => '화면 어둡게 + 오디오 자동재생 + 페이지 자동넘김';
+
+  @override
+  String get viewerPrint => '인쇄하기';
+
+  @override
+  String get viewerShare => '공유하기';
+
+  @override
+  String get viewerRegenerateDialogTitle => '페이지 다시 만들기';
+
+  @override
+  String get viewerRegenerateDialogContent => '어떤 부분을 다시 만들까요?';
+
+  @override
+  String get viewerCancel => '취소';
+
+  @override
+  String get viewerRegenerateTextOnly => '텍스트만';
+
+  @override
+  String get viewerRegenerateImageOnly => '그림만';
+
+  @override
+  String get viewerRegenerateAll => '모두';
+
+  @override
+  String get viewerRegenerateNotSupported => '이 책은 페이지 재생성을 지원하지 않아요';
+
+  @override
+  String get viewerRegenerating => '페이지를 다시 만들고 있어요...';
+
+  @override
+  String get viewerRegenerateStarted => '페이지 재생성이 시작되었어요. 잠시만 기다려주세요.';
+
+  @override
+  String get viewerRegenerateFailed => '재생성에 실패했어요. 잠시 후 다시 시도해주세요.';
+
+  @override
+  String get viewerPdfGenerating => 'PDF 생성 중...';
+
+  @override
+  String viewerPdfSaved(Object fileName) {
+    return 'PDF 저장 완료: $fileName';
+  }
+
+  @override
+  String get viewerPdfDownloadFailed => 'PDF 다운로드에 실패했어요. 잠시 후 다시 시도해주세요.';
+
+  @override
+  String get viewerShareLink => '공유 링크';
+
+  @override
+  String get viewerShareCopyUrl => 'URL 복사';
+
+  @override
+  String get viewerShareMessage => '메시지';
+
+  @override
+  String get viewerShareKakao => '카카오톡';
+
+  @override
+  String get viewerShareCover => '표지 공유';
+
+  @override
+  String get viewerSharePdf => 'PDF 공유';
+
+  @override
+  String get viewerShareMore => '더보기';
+
+  @override
+  String viewerShareTextSimple(Object title) {
+    return '$title\n\nAI Story Book으로 만든 동화책이에요!';
+  }
+
+  @override
+  String get viewerCopyDone => '복사 완료';
+
+  @override
+  String viewerShareLinkText(Object title, Object url) {
+    return '우리 아이가 주인공인 동화책 \"$title\" 📖\n$url\n\nAistorybook에서 만들었어요';
+  }
+
+  @override
+  String get viewerShareLinkFailed => '공유 링크 생성에 실패했어요. 잠시 후 다시 시도해주세요.';
+
+  @override
+  String viewerShareFullText(Object title) {
+    return '📚 $title\n\nAI Story Book으로 만든 동화책이에요!\n아이에게 특별한 이야기를 선물하세요 ✨';
+  }
+
+  @override
+  String get viewerKakaoDescription => 'AI Story Book으로 만든 동화책';
+
+  @override
+  String viewerKakaoShareText(
+      Object title, Object deepLink, Object fallbackUrl) {
+    return '📚 $title\n\n카카오톡으로 동화책을 공유해요!\n$deepLink\n$fallbackUrl';
+  }
+
+  @override
+  String viewerKakaoShareSubject(Object title) {
+    return 'AI Story Book - $title';
+  }
+
+  @override
+  String get viewerPrintFailed => '인쇄에 실패했어요. 잠시 후 다시 시도해주세요.';
+
+  @override
+  String viewerShareCoverText(Object title) {
+    return '$title - 표지 이미지';
+  }
+
+  @override
+  String get viewerShareCoverFailed => '표지 공유에 실패했어요. 잠시 후 다시 시도해주세요.';
+
+  @override
+  String viewerSharePdfText(Object title) {
+    return '$title - AI Story Book으로 만든 동화책';
+  }
+
+  @override
+  String get viewerSharePdfFailed => 'PDF 공유에 실패했어요. 잠시 후 다시 시도해주세요.';
+
+  @override
+  String viewerCoverImageSemantics(Object title) {
+    return '동화책 표지: $title';
+  }
+
+  @override
+  String viewerPageImageSemantics(Object page) {
+    return '$page페이지 삽화';
+  }
+
+  @override
+  String get viewerLearn => '학습하기';
+
+  @override
+  String get viewerPlayAudioTooltip => '오디오 재생';
+
+  @override
+  String get viewerPauseAudioTooltip => '오디오 일시정지';
+
+  @override
+  String get viewerLanguageToggleTooltip => '언어 전환';
+
+  @override
+  String get viewerLanguageKo => '한';
+
+  @override
+  String get viewerLanguageEn => 'EN';
+
+  @override
+  String get viewerTabWord => '단어';
+
+  @override
+  String get viewerTabQuestion => '질문';
+
+  @override
+  String get viewerTabQuiz => '퀴즈';
+
+  @override
+  String get viewerNoVocab => '이 페이지에는 단어 학습이 없어요';
+
+  @override
+  String get viewerNoComprehension => '이 페이지에는 이해 질문이 없어요';
+
+  @override
+  String get viewerNoQuiz => '이 페이지에는 퀴즈가 없어요';
+
+  @override
+  String viewerComprehensionQuestion(Object index, Object question) {
+    return 'Q$index. $question';
+  }
+
+  @override
+  String viewerComprehensionAnswer(Object answer) {
+    return 'A. $answer';
+  }
+
+  @override
+  String get viewerShowAnswer => '정답 보기';
+
+  @override
+  String viewerQuizQuestion(Object index, Object question) {
+    return 'Q$index. $question';
+  }
+
+  @override
+  String get viewerCheckAnswer => '정답 확인';
+
+  @override
+  String get viewerQuizCorrect => '정답이에요!';
+
+  @override
+  String get viewerQuizIncorrect => '다시 생각해봐요';
+
+  @override
+  String get viewerGuideSummaryTitle => '이야기 요약';
+
+  @override
+  String get viewerGuideDiscussionTitle => '대화 나누기';
+
+  @override
+  String get viewerGuideActivitiesTitle => '함께 해보기';
 }

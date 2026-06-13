@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../l10n/app_localizations.dart';
 import '../providers/providers.dart';
 import '../utils/constants.dart';
 import '../widgets/age_gate_dialog.dart';
@@ -86,7 +87,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         return;
       }
       setState(() {
-        _errorMessage = '설정을 불러오지 못했어요.';
+        _errorMessage = AppLocalizations.of(context).settingsLoadError;
         _isLoading = false;
       });
     }
@@ -134,14 +135,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('설정이 저장되었습니다.')),
+        SnackBar(content: Text(AppLocalizations.of(context).settingsSaved)),
       );
     } catch (_) {
       if (!mounted) {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('설정 저장에 실패했어요. 잠시 후 다시 시도해주세요.')),
+        SnackBar(
+            content: Text(AppLocalizations.of(context).settingsSaveError)),
       );
     } finally {
       if (mounted) {
@@ -152,6 +154,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   /// 취침 알림 토글/시간을 실제 로컬 알림 스케줄에 반영한다(실패는 저장 흐름을 막지 않음).
   Future<void> _applyBedtimeSchedule() async {
+    final l = AppLocalizations.of(context);
     final scheduler = ref.read(notificationSchedulerProvider);
     try {
       if (_bedtimeNotificationEnabled) {
@@ -159,8 +162,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         await scheduler.scheduleDailyBedtime(
           hour: _bedtime.hour,
           minute: _bedtime.minute,
-          title: '오늘의 동화 읽을 시간이에요',
-          body: '잠들기 전 오늘의 동화를 함께 읽어요',
+          title: l.settingsBedtimeNotificationTitle,
+          body: l.settingsBedtimeNotificationBody,
         );
       } else {
         await scheduler.cancelBedtime();
@@ -202,19 +205,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (!mounted) {
       return;
     }
+    final l = AppLocalizations.of(context);
     final confirmed = await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
-            title: const Text('동의 철회'),
-            content: const Text('동의를 철회하면 앱 이용이 제한되며, 데이터 삭제를 진행할 수 있습니다.'),
+            title: Text(l.settingsRevokeConsentTitle),
+            content: Text(l.settingsRevokeConsentContent),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, false),
-                child: const Text('취소'),
+                child: Text(l.settingsCancel),
               ),
               TextButton(
                 onPressed: () => Navigator.pop(context, true),
-                child: const Text('철회'),
+                child: Text(l.settingsRevoke),
               ),
             ],
           ),
@@ -238,8 +242,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('철회 처리에 실패했어요. 네트워크 확인 후 다시 시도해주세요.'),
+        SnackBar(
+          content:
+              Text(AppLocalizations.of(context).settingsRevokeConsentError),
         ),
       );
       return;
@@ -252,7 +257,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('동의가 철회되었습니다.')),
+      SnackBar(
+          content:
+              Text(AppLocalizations.of(context).settingsConsentRevoked)),
     );
     Navigator.pushNamedAndRemoveUntil(context, '/consent', (_) => false);
   }
@@ -265,19 +272,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (!mounted) {
       return;
     }
+    final l = AppLocalizations.of(context);
     final firstConfirm = await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
-            title: const Text('내 데이터 모두 삭제'),
-            content: const Text('이 작업은 되돌릴 수 없습니다. 계속할까요?'),
+            title: Text(l.settingsDeleteAllTitle),
+            content: Text(l.settingsDeleteAllContent),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, false),
-                child: const Text('취소'),
+                child: Text(l.settingsCancel),
               ),
               TextButton(
                 onPressed: () => Navigator.pop(context, true),
-                child: const Text('계속'),
+                child: Text(l.settingsContinue),
               ),
             ],
           ),
@@ -292,28 +300,29 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final secondConfirm = await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
-            title: const Text('최종 확인'),
+            title: Text(l.settingsFinalConfirmTitle),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('삭제를 진행하려면 아래에 "삭제"를 입력하세요.'),
+                Text(l.settingsFinalConfirmPrompt),
                 const SizedBox(height: AppSpacing.sm),
                 TextField(
                   controller: textController,
-                  decoration: const InputDecoration(hintText: '삭제'),
+                  decoration:
+                      InputDecoration(hintText: l.settingsDeleteKeyword),
                 ),
               ],
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, false),
-                child: const Text('취소'),
+                child: Text(l.settingsCancel),
               ),
               TextButton(
                 onPressed: () =>
                     Navigator.pop(context, textController.text.trim() == '삭제'),
-                child: const Text('삭제'),
+                child: Text(l.settingsDeleteKeyword),
               ),
             ],
           ),
@@ -326,7 +335,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('확인 텍스트가 일치하지 않습니다.')),
+        SnackBar(
+            content:
+                Text(AppLocalizations.of(context).settingsDeleteKeywordMismatch)),
       );
       return;
     }
@@ -347,7 +358,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('데이터 삭제에 실패했어요. 잠시 후 다시 시도해주세요.')),
+        SnackBar(
+            content: Text(AppLocalizations.of(context).settingsDeleteError)),
       );
     } finally {
       if (mounted) {
@@ -368,22 +380,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       return;
     }
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('링크를 복사했어요.')),
+      SnackBar(content: Text(AppLocalizations.of(context).settingsLinkCopied)),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     if (_isLoading) {
       return Scaffold(
-        appBar: AppBar(title: const Text('설정')),
+        appBar: AppBar(title: Text(l.settingsTitle)),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('설정'),
+        title: Text(l.settingsTitle),
         actions: [
           TextButton(
             onPressed: _isSaving ? null : _saveSettings,
@@ -393,7 +406,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     height: 18,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Text('저장'),
+                : Text(l.settingsSave),
           ),
         ],
       ),
@@ -412,42 +425,44 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 style: AppTextStyles.caption.copyWith(color: AppColors.error),
               ),
             ),
-          const _SectionHeader('계정'),
+          _SectionHeader(l.settingsSectionAccount),
           ListTile(
             leading: const Icon(Icons.person_outline),
-            title: const Text('아이 프로필'),
+            title: Text(l.settingsChildProfile),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.pushNamed(context, '/profiles'),
           ),
           ListTile(
             leading: const Icon(Icons.analytics_outlined),
-            title: const Text('부모 대시보드'),
-            subtitle: const Text('주간/월간 읽기 리포트'),
+            title: Text(l.settingsParentDashboard),
+            subtitle: Text(l.settingsParentDashboardSubtitle),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.pushNamed(context, '/parent-dashboard'),
           ),
           ListTile(
             leading: const Icon(Icons.mic_outlined),
-            title: const Text('가족 목소리'),
-            subtitle: const Text('녹음 샘플과 동의 상태 관리'),
+            title: Text(l.settingsFamilyVoice),
+            subtitle: Text(l.settingsFamilyVoiceSubtitle),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.pushNamed(context, '/voice-profiles'),
           ),
           ListTile(
             leading: const Icon(Icons.credit_card),
-            title: const Text('크레딧/구독'),
+            title: Text(l.settingsCreditsSubscription),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.pushNamed(context, '/credits'),
           ),
           const Divider(height: 1),
-          const _SectionHeader('앱 설정'),
+          _SectionHeader(l.settingsSectionApp),
           ListTile(
-            title: const Text('언어'),
+            title: Text(l.settingsLanguage),
             trailing: DropdownButton<String>(
               value: _language,
-              items: const [
-                DropdownMenuItem(value: 'ko', child: Text('한국어')),
-                DropdownMenuItem(value: 'en', child: Text('English')),
+              items: [
+                DropdownMenuItem(
+                    value: 'ko', child: Text(l.settingsLanguageKorean)),
+                DropdownMenuItem(
+                    value: 'en', child: Text(l.settingsLanguageEnglish)),
               ],
               onChanged: (value) {
                 if (value == null) {
@@ -458,8 +473,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
           ),
           SwitchListTile(
-            title: const Text('다크 모드'),
-            subtitle: const Text('앱 전체 테마를 어둡게 변경합니다.'),
+            title: Text(l.settingsDarkMode),
+            subtitle: Text(l.settingsDarkModeSubtitle),
             value: _darkMode,
             onChanged: (value) async {
               setState(() => _darkMode = value);
@@ -467,41 +482,41 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             },
           ),
           SwitchListTile(
-            title: const Text('카카오톡 카드 공유'),
-            subtitle: const Text('공유 메뉴에서 카카오톡 공유를 표시합니다.'),
+            title: Text(l.settingsKakaoShare),
+            subtitle: Text(l.settingsKakaoShareSubtitle),
             value: _allowKakaoShare,
             onChanged: (value) => setState(() => _allowKakaoShare = value),
           ),
           const Divider(height: 1),
-          const _SectionHeader('수면 모드'),
+          _SectionHeader(l.settingsSectionSleep),
           SwitchListTile(
-            title: const Text('취침 알림'),
+            title: Text(l.settingsBedtimeNotification),
             value: _bedtimeNotificationEnabled,
             onChanged: (value) =>
                 setState(() => _bedtimeNotificationEnabled = value),
           ),
           if (_bedtimeNotificationEnabled)
             ListTile(
-              title: const Text('취침 시간'),
+              title: Text(l.settingsBedtime),
               subtitle: Text(_formatTimeOfDay(_bedtime)),
               trailing: const Icon(Icons.chevron_right),
               onTap: _pickBedtime,
             ),
           ListTile(
-            title: Text('기본 수면 타이머: ${_sleepModeMinutes.round()}분'),
+            title: Text(l.settingsSleepTimer(_sleepModeMinutes.round())),
             subtitle: Slider(
               min: 10,
               max: 60,
               divisions: 10,
-              label: '${_sleepModeMinutes.round()}분',
+              label: l.settingsMinutes(_sleepModeMinutes.round()),
               value: _sleepModeMinutes,
               onChanged: (value) => setState(() => _sleepModeMinutes = value),
             ),
           ),
           const Divider(height: 1),
-          const _SectionHeader('화면 시간 제한'),
+          _SectionHeader(l.settingsSectionScreenTime),
           SwitchListTile(
-            title: const Text('화면 시간 제한 사용'),
+            title: Text(l.settingsScreenTimeEnabled),
             value: _screenTimeEnabled,
             onChanged: (value) async {
               final ok = await _ensureParentalAuth();
@@ -513,47 +528,47 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           if (_screenTimeEnabled)
             ListTile(
-              title: Text('일일 제한: ${_dailyLimitMinutes.round()}분'),
+              title: Text(l.settingsDailyLimit(_dailyLimitMinutes.round())),
               subtitle: Slider(
                 min: 30,
                 max: 120,
                 divisions: 9,
-                label: '${_dailyLimitMinutes.round()}분',
+                label: l.settingsMinutes(_dailyLimitMinutes.round()),
                 value: _dailyLimitMinutes,
                 onChanged: (value) =>
                     setState(() => _dailyLimitMinutes = value),
               ),
             ),
           const Divider(height: 1),
-          const _SectionHeader('앱 정보'),
-          const ListTile(
-            leading: Icon(Icons.info_outline),
-            title: Text('앱 버전'),
-            subtitle: Text('v$_appVersion'),
+          _SectionHeader(l.settingsSectionAppInfo),
+          ListTile(
+            leading: const Icon(Icons.info_outline),
+            title: Text(l.settingsAppVersion),
+            subtitle: const Text('v$_appVersion'),
           ),
           ListTile(
             leading: const Icon(Icons.privacy_tip_outlined),
-            title: const Text('개인정보처리방침'),
+            title: Text(l.settingsPrivacyPolicy),
             subtitle: const Text(_privacyPolicyUrl),
             onTap: () => _copyUrl(_privacyPolicyUrl),
           ),
           ListTile(
             leading: const Icon(Icons.description_outlined),
-            title: const Text('이용약관'),
+            title: Text(l.settingsTermsOfService),
             subtitle: const Text(_termsOfServiceUrl),
             onTap: () => _copyUrl(_termsOfServiceUrl),
           ),
           const Divider(height: 1),
-          const _SectionHeader('개인정보'),
+          _SectionHeader(l.settingsSectionPrivacy),
           ListTile(
             leading: const Icon(Icons.privacy_tip_outlined),
-            title: const Text('부모 동의 철회'),
+            title: Text(l.settingsRevokeParentalConsent),
             onTap: _revokeConsent,
           ),
           ListTile(
             leading: const Icon(Icons.delete_forever, color: AppColors.error),
-            title: const Text('내 데이터 모두 삭제'),
-            subtitle: const Text('책, 캐릭터, 읽기 기록 등 모든 데이터가 삭제됩니다.'),
+            title: Text(l.settingsDeleteAllData),
+            subtitle: Text(l.settingsDeleteAllDataSubtitle),
             onTap: _isDeleting ? null : _deleteAllData,
           ),
           if (_isDeleting)

@@ -624,5 +624,554 @@
         "type": "Object"
       }
     }
+  },
+  "settingsLoadError": "Couldn't load settings.",
+  "settingsSaved": "Settings saved.",
+  "settingsSaveError": "Failed to save settings. Please try again shortly.",
+  "settingsBedtimeNotificationTitle": "It's time to read today's storybook",
+  "settingsBedtimeNotificationBody": "Let's read today's storybook together before bed",
+  "settingsRevokeConsentTitle": "Revoke consent",
+  "settingsRevokeConsentContent": "If you revoke consent, app usage will be restricted and you can proceed with data deletion.",
+  "settingsCancel": "Cancel",
+  "settingsRevoke": "Revoke",
+  "settingsRevokeConsentError": "Failed to process the revocation. Please check your network and try again.",
+  "settingsConsentRevoked": "Consent has been revoked.",
+  "settingsDeleteAllTitle": "Delete all my data",
+  "settingsDeleteAllContent": "This action cannot be undone. Do you want to continue?",
+  "settingsContinue": "Continue",
+  "settingsFinalConfirmTitle": "Final confirmation",
+  "settingsFinalConfirmPrompt": "To proceed with deletion, type \"삭제\" below.",
+  "settingsDeleteKeyword": "Delete",
+  "settingsDeleteKeywordMismatch": "The confirmation text does not match.",
+  "settingsDeleteError": "Failed to delete data. Please try again shortly.",
+  "settingsLinkCopied": "Link copied.",
+  "settingsTitle": "Settings",
+  "settingsSave": "Save",
+  "settingsSectionAccount": "Account",
+  "settingsChildProfile": "Child profile",
+  "settingsParentDashboard": "Parent dashboard",
+  "settingsParentDashboardSubtitle": "Weekly/monthly reading report",
+  "settingsFamilyVoice": "Family voice",
+  "settingsFamilyVoiceSubtitle": "Manage recording samples and consent status",
+  "settingsCreditsSubscription": "Credits/Subscription",
+  "settingsSectionApp": "App settings",
+  "settingsLanguage": "Language",
+  "settingsLanguageKorean": "한국어",
+  "settingsLanguageEnglish": "English",
+  "settingsDarkMode": "Dark mode",
+  "settingsDarkModeSubtitle": "Changes the entire app theme to dark.",
+  "settingsKakaoShare": "KakaoTalk card sharing",
+  "settingsKakaoShareSubtitle": "Shows KakaoTalk sharing in the share menu.",
+  "settingsSectionSleep": "Sleep mode",
+  "settingsBedtimeNotification": "Bedtime notification",
+  "settingsBedtime": "Bedtime",
+  "settingsSleepTimer": "Default sleep timer: {minutes} min",
+  "settingsMinutes": "{minutes} min",
+  "settingsSectionScreenTime": "Screen time limit",
+  "settingsScreenTimeEnabled": "Enable screen time limit",
+  "settingsDailyLimit": "Daily limit: {minutes} min",
+  "settingsSectionAppInfo": "App info",
+  "settingsAppVersion": "App version",
+  "settingsPrivacyPolicy": "Privacy policy",
+  "settingsTermsOfService": "Terms of service",
+  "settingsSectionPrivacy": "Privacy",
+  "settingsRevokeParentalConsent": "Revoke parental consent",
+  "settingsDeleteAllData": "Delete all my data",
+  "settingsDeleteAllDataSubtitle": "All data including storybooks, characters, and reading records will be deleted.",
+  "creditsTitle": "Credits",
+  "creditsRestorePurchases": "Restore Purchases",
+  "creditsLoadError": "Couldn't load credit info. Please try again in a moment.",
+  "creditsMyCredits": "My Credits",
+  "creditsTotalCreated": "{count} created in total",
+  "creditsUnit": "credits",
+  "creditsBuyCredits": "Buy Credits",
+  "creditsBadgeCancelScheduled": "Cancellation scheduled",
+  "creditsBadgeActive": "Active",
+  "creditsSubscriptionInfo": "Subscription Info",
+  "creditsNoActivePlan": "You have no active subscription plan.",
+  "creditsStartSubscription": "Start Subscription",
+  "creditsPlanSubscriptionLabel": "{planName} subscription",
+  "creditsDefaultPlanName": "Basic",
+  "creditsMonthlyCredits": "Monthly Credits",
+  "creditsCreditCount": "{count}",
+  "creditsNextRenewal": "Next Renewal",
+  "creditsCancelNotice": "When the current billing cycle ends, you'll switch to the free plan.",
+  "creditsCancelSubscription": "Cancel Subscription",
+  "creditsPlansTitle": "Subscription Plans",
+  "creditsNoAvailablePlans": "No subscription plans are currently available.",
+  "creditsPlanFallbackName": "Plan",
+  "creditsCurrentPlan": "Current Plan",
+  "creditsFree": "Free",
+  "creditsPricePerMonth": "₩{price}/month",
+  "creditsMonthlyCreatable": "Create up to {count} per month",
+  "creditsSubscribe": "Subscribe",
+  "creditsPackTitle": "Credit Packs",
+  "creditsPackName": "{count} Credit Pack",
+  "creditsPackSubtitle": "Top up instantly when you need it",
+  "creditsBuy": "Buy",
+  "creditsTransactionsTitle": "Transaction History",
+  "creditsTransactionFallback": "Transaction",
+  "creditsRestoring": "Restoring your purchases...",
+  "creditsRestoreFailed": "Restore failed. Please try again in a moment.",
+  "creditsPaymentCancelledOrFailed": "The payment was cancelled or failed.",
+  "creditsAlreadyProcessed": "This payment has already been processed.",
+  "creditsAlreadySubscribed": "You're already on the same plan.",
+  "creditsVerifiedReflected": "Payment confirmed and credits have been applied.",
+  "creditsVerifyFailed": "Payment verification failed. Please try again in a moment.",
+  "creditsStoreUnavailable": "Store payments are unavailable.",
+  "creditsProceedStorePayment": "Please proceed with the store payment.",
+  "creditsCannotStartStorePurchase": "Couldn't start the store purchase.",
+  "creditsSubscriptionStarted": "Subscription started!",
+  "creditsSubscribeFailed": "Subscription failed. Please try again in a moment.",
+  "creditsCancelConfirmContent": "Are you sure you want to cancel your subscription? You can keep using it until the current period ends.",
+  "creditsNo": "No",
+  "creditsConfirmCancel": "Cancel",
+  "creditsSubscriptionCancelled": "Your subscription has been cancelled.",
+  "creditsCancelFailed": "Failed to cancel the subscription. Please try again in a moment.",
+  "charactersTitle": "My Characters",
+  "charactersAddTooltip": "Add character",
+  "charactersRefreshTooltip": "Refresh",
+  "charactersEmptyTitle": "No characters yet",
+  "charactersEmptySubtitle": "Make a character from a photo!",
+  "charactersEmptyCreateButton": "Make a character from a photo",
+  "charactersLoadErrorTitle": "Couldn't load characters",
+  "charactersRetry": "Retry",
+  "charactersFabCreating": "Creating...",
+  "charactersFabCreate": "Make from photo",
+  "charactersOptionsTitle": "Make a new character",
+  "charactersOptionsSubtitle": "Choose how to create the character",
+  "charactersOptionTextTitle": "Enter manually",
+  "charactersOptionTextSubtitle": "Enter just name, age, and traits",
+  "charactersOptionCameraTitle": "Take a photo",
+  "charactersOptionCameraSubtitle": "Analyze a photo to create a character",
+  "charactersOptionGalleryTitle": "Choose from gallery",
+  "charactersOptionGallerySubtitle": "Create a character from an existing photo",
+  "charactersOptionDrawingTitle": "Convert from a child's drawing",
+  "charactersOptionDrawingSubtitle": "Turn a drawing photo into a character and sheet",
+  "charactersCreatedSnack": "Character {name} has been created!",
+  "charactersCreatedWithSheetsSnack": "Made character {name} with {count} sheets!",
+  "charactersCreateFailed": "Failed to create the character. Please try again in a moment.",
+  "charactersImagePickFailed": "Couldn't select the image. Please try again.",
+  "charactersNameDialogTitle": "Character name",
+  "charactersNameDialogHint": "Enter a character name (optional)",
+  "charactersCancel": "Cancel",
+  "charactersConfirm": "OK",
+  "charactersDeleteDialogTitle": "Delete character",
+  "charactersDeleteDialogContent": "Delete the character \"{name}\"?",
+  "charactersDelete": "Delete",
+  "charactersDeletedSnack": "The character has been deleted.",
+  "charactersDeleteFailed": "Failed to delete the character. Please try again.",
+  "charactersDefaultName": "New character",
+  "charactersAddCardLoading": "Creating character...",
+  "charactersAddCardTitle": "Add a new character",
+  "charactersAddCardSubtitle": "Make your own character from a photo",
+  "charactersDetailDescription": "Description",
+  "charactersDetailPersonality": "Personality",
+  "charactersDetailAppearance": "Appearance",
+  "charactersDetailAge": "Age",
+  "charactersDetailFace": "Face",
+  "charactersDetailHair": "Hair",
+  "charactersDetailSkin": "Skin",
+  "charactersDetailBody": "Body",
+  "charactersDetailClothing": "Clothing",
+  "charactersDetailTop": "Top",
+  "charactersDetailBottom": "Bottom",
+  "charactersDetailShoes": "Shoes",
+  "charactersDetailAccessories": "Accessories",
+  "charactersDetailStyleNotes": "Style notes",
+  "charactersDetailCreateBookButton": "Make a new storybook with this character",
+  "charactersCreatedDate": "Created on {year}-{month}-{day}",
+  "charactersRoleChild": "Child",
+  "charactersRoleBrother": "Older brother",
+  "charactersRoleSister": "Older sister",
+  "charactersRoleMom": "Mom",
+  "charactersRoleDad": "Dad",
+  "charactersRoleGrandma": "Grandma",
+  "charactersRoleGrandpa": "Grandpa",
+  "charactersRoleFriend": "Friend",
+  "charactersRoleTeacher": "Teacher",
+  "charactersRolePet": "Pet",
+  "charactersFormTitle": "Make a new character",
+  "charactersFormRoleLabel": "Who is it?",
+  "charactersFormCustomRole": "Enter manually",
+  "charactersFormCustomRoleHint": "e.g. uncle, aunt, wizard, fairy...",
+  "charactersFormNameLabel": "Name",
+  "charactersFormNameHint": "Enter a character name",
+  "charactersFormTraitsLabel": "Personality / Traits",
+  "charactersFormTraitsHelper": "You can select multiple",
+  "charactersFormTraitsExtraHint": "Enter additional traits (optional)",
+  "charactersFormSubmit": "Make character",
+  "charactersFormRoleRequired": "Please enter a role",
+  "charactersFormRoleSelect": "Please select a role",
+  "charactersFormNameRequired": "Please enter a name",
+  "charactersFormTraitsRequired": "Please select personality / traits",
+  "viewerBookLoadError": "Couldn't load the storybook",
+  "viewerGoBack": "Go back",
+  "viewerSleepRemaining": "Sleep {time}",
+  "viewerCompletionTitle": "Congrats on finishing!",
+  "viewerCompletionStreak": "🔥 {streak}-day reading streak achieved! Amazing.",
+  "viewerCompletionMessage": "You read to the last page. Shall we start the next storybook?",
+  "viewerCreateNextStory": "Make the next storybook",
+  "viewerGoToLibrary": "Go to library",
+  "viewerCover": "Cover",
+  "viewerPageIndicator": "{current} / {total}",
+  "viewerLearningWordCount": "Words {count}",
+  "viewerLearningQuizCount": "Quiz {count}",
+  "viewerLearningQuestionCount": "Questions {count}",
+  "viewerLearningBar": "Learning mode · {parts}",
+  "viewerCloseTooltip": "Close",
+  "viewerMoreOptionsTooltip": "More options",
+  "viewerPreviousPageTooltip": "Previous page",
+  "viewerNextPageTooltip": "Next page",
+  "viewerPlanUpgradeNeeded": "You need to upgrade your plan",
+  "viewerCreditShortage": "You don't have enough credits",
+  "viewerAudioPlayFailed": "Audio playback failed. Please try again in a moment.",
+  "viewerSleepModeEnded": "Sleep mode time has ended.",
+  "viewerFollowReadingOff": "Turn off follow-along reading",
+  "viewerFollowReadingOn": "Turn on follow-along reading",
+  "viewerFollowReadingSubtitle": "Highlights sentences as the audio plays",
+  "viewerDualLanguageOff": "Turn off dual-language display",
+  "viewerDualLanguageOn": "Show both languages at once",
+  "viewerDualLanguageSubtitle": "View Korean and English on one screen",
+  "viewerBranchStoryTitle": "Branching story mode",
+  "viewerBranchStorySubtitle": "The ending changes based on your choices",
+  "viewerLearningModeTitle": "Learning mode",
+  "viewerLearningModeSubtitle": "Words, questions, quiz",
+  "viewerParentGuideTitle": "Parent guide",
+  "viewerParentGuideSubtitle": "Discussion topics, activity ideas",
+  "viewerPronunciationTitle": "Pronunciation practice",
+  "viewerPronunciationSubtitle": "Evaluate your pronunciation with the current page's sentences",
+  "viewerRegeneratePageTitle": "Remake this page",
+  "viewerSameCharacterNewStory": "New story with the same character",
+  "viewerExportPdf": "Export as PDF",
+  "viewerOrderPhysicalBook": "Order a physical book",
+  "viewerOrderPhysicalBookSubtitle": "Receive a printed copy via print-on-demand",
+  "viewerSleepModeStop": "Exit sleep mode",
+  "viewerSleepModeStart": "Start sleep mode",
+  "viewerSleepModeRemaining": "Time remaining {time}",
+  "viewerSleepModeDescription": "Dim screen + auto audio playback + auto page turn",
+  "viewerPrint": "Print",
+  "viewerShare": "Share",
+  "viewerRegenerateDialogTitle": "Remake page",
+  "viewerRegenerateDialogContent": "Which part should we remake?",
+  "viewerCancel": "Cancel",
+  "viewerRegenerateTextOnly": "Text only",
+  "viewerRegenerateImageOnly": "Image only",
+  "viewerRegenerateAll": "All",
+  "viewerRegenerateNotSupported": "This storybook doesn't support page regeneration",
+  "viewerRegenerating": "Remaking the page...",
+  "viewerRegenerateStarted": "Page regeneration has started. Please wait a moment.",
+  "viewerRegenerateFailed": "Regeneration failed. Please try again in a moment.",
+  "viewerPdfGenerating": "Generating PDF...",
+  "viewerPdfSaved": "PDF saved: {fileName}",
+  "viewerPdfDownloadFailed": "PDF download failed. Please try again in a moment.",
+  "viewerShareLink": "Share link",
+  "viewerShareCopyUrl": "Copy URL",
+  "viewerShareMessage": "Message",
+  "viewerShareKakao": "KakaoTalk",
+  "viewerShareCover": "Share cover",
+  "viewerSharePdf": "Share PDF",
+  "viewerShareMore": "More",
+  "viewerShareTextSimple": "{title}\n\nA storybook made with AI Story Book!",
+  "viewerCopyDone": "Copied",
+  "viewerShareLinkText": "A storybook starring our child \"{title}\" 📖\n{url}\n\nMade with Aistorybook",
+  "viewerShareLinkFailed": "Failed to create the share link. Please try again in a moment.",
+  "viewerShareFullText": "📚 {title}\n\nA storybook made with AI Story Book!\nGift your child a special story ✨",
+  "viewerKakaoDescription": "A storybook made with AI Story Book",
+  "viewerKakaoShareText": "📚 {title}\n\nShare the storybook via KakaoTalk!\n{deepLink}\n{fallbackUrl}",
+  "viewerKakaoShareSubject": "AI Story Book - {title}",
+  "viewerPrintFailed": "Printing failed. Please try again in a moment.",
+  "viewerShareCoverText": "{title} - Cover image",
+  "viewerShareCoverFailed": "Failed to share the cover. Please try again in a moment.",
+  "viewerSharePdfText": "{title} - A storybook made with AI Story Book",
+  "viewerSharePdfFailed": "Failed to share the PDF. Please try again in a moment.",
+  "viewerCoverImageSemantics": "Storybook cover: {title}",
+  "viewerPageImageSemantics": "Page {page} illustration",
+  "viewerLearn": "Learn",
+  "viewerPlayAudioTooltip": "Play audio",
+  "viewerPauseAudioTooltip": "Pause audio",
+  "viewerLanguageToggleTooltip": "Switch language",
+  "viewerLanguageKo": "한",
+  "viewerLanguageEn": "EN",
+  "viewerTabWord": "Words",
+  "viewerTabQuestion": "Questions",
+  "viewerTabQuiz": "Quiz",
+  "viewerNoVocab": "There's no word study on this page",
+  "viewerNoComprehension": "There are no comprehension questions on this page",
+  "viewerNoQuiz": "There's no quiz on this page",
+  "viewerComprehensionQuestion": "Q{index}. {question}",
+  "viewerComprehensionAnswer": "A. {answer}",
+  "viewerShowAnswer": "Show answer",
+  "viewerQuizQuestion": "Q{index}. {question}",
+  "viewerCheckAnswer": "Check answer",
+  "viewerQuizCorrect": "Correct!",
+  "viewerQuizIncorrect": "Think again",
+  "viewerGuideSummaryTitle": "Story summary",
+  "viewerGuideDiscussionTitle": "Talk together",
+  "viewerGuideActivitiesTitle": "Try together",
+  "@settingsSleepTimer": {
+    "placeholders": {
+      "minutes": {
+        "type": "Object"
+      }
+    }
+  },
+  "@settingsMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "Object"
+      }
+    }
+  },
+  "@settingsDailyLimit": {
+    "placeholders": {
+      "minutes": {
+        "type": "Object"
+      }
+    }
+  },
+  "@creditsTotalCreated": {
+    "placeholders": {
+      "count": {
+        "type": "Object"
+      }
+    }
+  },
+  "@creditsPlanSubscriptionLabel": {
+    "placeholders": {
+      "planName": {
+        "type": "Object"
+      }
+    }
+  },
+  "@creditsCreditCount": {
+    "placeholders": {
+      "count": {
+        "type": "Object"
+      }
+    }
+  },
+  "@creditsPricePerMonth": {
+    "placeholders": {
+      "price": {
+        "type": "Object"
+      }
+    }
+  },
+  "@creditsMonthlyCreatable": {
+    "placeholders": {
+      "count": {
+        "type": "Object"
+      }
+    }
+  },
+  "@creditsPackName": {
+    "placeholders": {
+      "count": {
+        "type": "Object"
+      }
+    }
+  },
+  "@charactersCreatedSnack": {
+    "placeholders": {
+      "name": {
+        "type": "Object"
+      }
+    }
+  },
+  "@charactersCreatedWithSheetsSnack": {
+    "placeholders": {
+      "name": {
+        "type": "Object"
+      },
+      "count": {
+        "type": "Object"
+      }
+    }
+  },
+  "@charactersDeleteDialogContent": {
+    "placeholders": {
+      "name": {
+        "type": "Object"
+      }
+    }
+  },
+  "@charactersCreatedDate": {
+    "placeholders": {
+      "year": {
+        "type": "Object"
+      },
+      "month": {
+        "type": "Object"
+      },
+      "day": {
+        "type": "Object"
+      }
+    }
+  },
+  "@viewerSleepRemaining": {
+    "placeholders": {
+      "time": {
+        "type": "Object"
+      }
+    }
+  },
+  "@viewerCompletionStreak": {
+    "placeholders": {
+      "streak": {
+        "type": "Object"
+      }
+    }
+  },
+  "@viewerPageIndicator": {
+    "placeholders": {
+      "current": {
+        "type": "Object"
+      },
+      "total": {
+        "type": "Object"
+      }
+    }
+  },
+  "@viewerLearningWordCount": {
+    "placeholders": {
+      "count": {
+        "type": "Object"
+      }
+    }
+  },
+  "@viewerLearningQuizCount": {
+    "placeholders": {
+      "count": {
+        "type": "Object"
+      }
+    }
+  },
+  "@viewerLearningQuestionCount": {
+    "placeholders": {
+      "count": {
+        "type": "Object"
+      }
+    }
+  },
+  "@viewerLearningBar": {
+    "placeholders": {
+      "parts": {
+        "type": "Object"
+      }
+    }
+  },
+  "@viewerSleepModeRemaining": {
+    "placeholders": {
+      "time": {
+        "type": "Object"
+      }
+    }
+  },
+  "@viewerPdfSaved": {
+    "placeholders": {
+      "fileName": {
+        "type": "Object"
+      }
+    }
+  },
+  "@viewerShareTextSimple": {
+    "placeholders": {
+      "title": {
+        "type": "Object"
+      }
+    }
+  },
+  "@viewerShareLinkText": {
+    "placeholders": {
+      "title": {
+        "type": "Object"
+      },
+      "url": {
+        "type": "Object"
+      }
+    }
+  },
+  "@viewerShareFullText": {
+    "placeholders": {
+      "title": {
+        "type": "Object"
+      }
+    }
+  },
+  "@viewerKakaoShareText": {
+    "placeholders": {
+      "title": {
+        "type": "Object"
+      },
+      "deepLink": {
+        "type": "Object"
+      },
+      "fallbackUrl": {
+        "type": "Object"
+      }
+    }
+  },
+  "@viewerKakaoShareSubject": {
+    "placeholders": {
+      "title": {
+        "type": "Object"
+      }
+    }
+  },
+  "@viewerShareCoverText": {
+    "placeholders": {
+      "title": {
+        "type": "Object"
+      }
+    }
+  },
+  "@viewerSharePdfText": {
+    "placeholders": {
+      "title": {
+        "type": "Object"
+      }
+    }
+  },
+  "@viewerCoverImageSemantics": {
+    "placeholders": {
+      "title": {
+        "type": "Object"
+      }
+    }
+  },
+  "@viewerPageImageSemantics": {
+    "placeholders": {
+      "page": {
+        "type": "Object"
+      }
+    }
+  },
+  "@viewerComprehensionQuestion": {
+    "placeholders": {
+      "index": {
+        "type": "Object"
+      },
+      "question": {
+        "type": "Object"
+      }
+    }
+  },
+  "@viewerComprehensionAnswer": {
+    "placeholders": {
+      "answer": {
+        "type": "Object"
+      }
+    }
+  },
+  "@viewerQuizQuestion": {
+    "placeholders": {
+      "index": {
+        "type": "Object"
+      },
+      "question": {
+        "type": "Object"
+      }
+    }
   }
 }

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import '../core/photo_consent.dart';
+import '../l10n/app_localizations.dart';
 import '../models/models.dart';
 import '../providers/providers.dart';
 import '../utils/constants.dart';
@@ -28,6 +29,7 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     final charactersAsync = ref.watch(charactersProvider);
 
     return AppShell(
@@ -35,7 +37,7 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
       appBar: AppBar(
         backgroundColor: AppColors.background,
         elevation: 0,
-        title: const Text('내 캐릭터', style: AppTextStyles.heading2),
+        title: Text(l.charactersTitle, style: AppTextStyles.heading2),
         centerTitle: false,
         actions: [
           IconButton(
@@ -43,11 +45,12 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
                 const Icon(Icons.add_circle_outline, color: AppColors.primary),
             onPressed:
                 _isCreatingCharacter ? null : () => _showCharacterOptions(),
-            tooltip: '캐릭터 추가',
+            tooltip: l.charactersAddTooltip,
           ),
           IconButton(
             icon: const Icon(Icons.refresh, color: AppColors.textPrimary),
             onPressed: () => ref.read(charactersProvider.notifier).refresh(),
+            tooltip: l.charactersRefreshTooltip,
           ),
         ],
       ),
@@ -58,14 +61,14 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const EmptyState(
+                  EmptyState(
                     icon: Icons.people_outline,
-                    title: '아직 캐릭터가 없어요',
-                    subtitle: '사진으로 캐릭터를 만들어보세요!',
+                    title: l.charactersEmptyTitle,
+                    subtitle: l.charactersEmptySubtitle,
                   ),
                   const SizedBox(height: AppSpacing.lg),
                   PrimaryButton(
-                    text: '사진으로 캐릭터 만들기',
+                    text: l.charactersEmptyCreateButton,
                     isFullWidth: false,
                     onPressed: () => _showCharacterOptions(),
                   ),
@@ -104,9 +107,9 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, _) => EmptyState(
           icon: Icons.error_outline,
-          title: '캐릭터를 불러올 수 없어요',
+          title: l.charactersLoadErrorTitle,
           subtitle: error.toString(),
-          buttonText: '다시 시도',
+          buttonText: l.charactersRetry,
           onButtonPressed: () => ref.invalidate(charactersProvider),
         ),
       ),
@@ -123,12 +126,15 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
                 ),
               )
             : const Icon(Icons.camera_alt),
-        label: Text(_isCreatingCharacter ? '생성 중...' : '사진으로 만들기'),
+        label: Text(_isCreatingCharacter
+            ? l.charactersFabCreating
+            : l.charactersFabCreate),
       ),
     );
   }
 
   void _showCharacterOptions() {
+    final l = AppLocalizations.of(context);
     showModalBottomSheet(
       context: context,
       backgroundColor: AppColors.surface,
@@ -136,16 +142,16 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
       ),
       builder: (context) => AdaptiveModalSheet(
-        title: '새 캐릭터 만들기',
-        subtitle: '캐릭터 생성 방식을 선택하세요',
+        title: l.charactersOptionsTitle,
+        subtitle: l.charactersOptionsSubtitle,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             const SizedBox(height: AppSpacing.lg),
             ListTile(
               leading: const Icon(Icons.edit_note, color: AppColors.primary),
-              title: const Text('직접 입력하기'),
-              subtitle: const Text('이름, 나이, 특징만 입력'),
+              title: Text(l.charactersOptionTextTitle),
+              subtitle: Text(l.charactersOptionTextSubtitle),
               onTap: () {
                 Navigator.pop(context);
                 _showTextInputForm();
@@ -154,8 +160,8 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
             const Divider(height: 1),
             ListTile(
               leading: const Icon(Icons.camera_alt, color: AppColors.primary),
-              title: const Text('카메라로 촬영'),
-              subtitle: const Text('사진을 분석해서 캐릭터 생성'),
+              title: Text(l.charactersOptionCameraTitle),
+              subtitle: Text(l.charactersOptionCameraSubtitle),
               onTap: () {
                 Navigator.pop(context);
                 _pickImage(ImageSource.camera);
@@ -163,8 +169,8 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.photo_library, color: AppColors.primary),
-              title: const Text('갤러리에서 선택'),
-              subtitle: const Text('기존 사진에서 캐릭터 생성'),
+              title: Text(l.charactersOptionGalleryTitle),
+              subtitle: Text(l.charactersOptionGallerySubtitle),
               onTap: () {
                 Navigator.pop(context);
                 _pickImage(ImageSource.gallery);
@@ -173,8 +179,8 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
             const Divider(height: 1),
             ListTile(
               leading: const Icon(Icons.brush_outlined, color: AppColors.primary),
-              title: const Text('아이 그림에서 변환'),
-              subtitle: const Text('그림 사진을 캐릭터+시트로 변환'),
+              title: Text(l.charactersOptionDrawingTitle),
+              subtitle: Text(l.charactersOptionDrawingSubtitle),
               onTap: () {
                 Navigator.pop(context);
                 _pickImage(
@@ -221,16 +227,20 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
       );
 
       if (mounted) {
+        final l = AppLocalizations.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${result['name']} 캐릭터가 생성되었어요!')),
+          SnackBar(
+              content: Text(l.charactersCreatedSnack(
+                  result['name']?.toString() ?? ''))),
         );
         ref.read(charactersProvider.notifier).refresh();
       }
     } catch (e) {
       if (mounted) {
+        final l = AppLocalizations.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('캐릭터 생성에 실패했어요. 잠시 후 다시 시도해주세요.'),
+          SnackBar(
+            content: Text(l.charactersCreateFailed),
             backgroundColor: AppColors.error,
           ),
         );
@@ -278,36 +288,38 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
       );
     } catch (e) {
       if (mounted) {
+        final l = AppLocalizations.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('이미지를 선택할 수 없어요. 다시 시도해주세요.')),
+          SnackBar(content: Text(l.charactersImagePickFailed)),
         );
       }
     }
   }
 
   Future<String?> _showNameDialog() async {
+    final l = AppLocalizations.of(context);
     final controller = TextEditingController();
     final result = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('캐릭터 이름'),
+        title: Text(l.charactersNameDialogTitle),
         content: TextField(
           controller: controller,
-          decoration: const InputDecoration(
-            hintText: '캐릭터 이름을 입력하세요 (선택)',
-            border: OutlineInputBorder(),
+          decoration: InputDecoration(
+            hintText: l.charactersNameDialogHint,
+            border: const OutlineInputBorder(),
           ),
           autofocus: true,
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('취소'),
+            child: Text(l.charactersCancel),
           ),
           TextButton(
             onPressed: () => Navigator.pop(
                 context, controller.text.isEmpty ? null : controller.text),
-            child: const Text('확인'),
+            child: Text(l.charactersConfirm),
           ),
         ],
       ),
@@ -317,19 +329,20 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
   }
 
   Future<void> _showDeleteCharacterDialog(Character character) async {
+    final l = AppLocalizations.of(context);
     final confirmed = await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
-            title: const Text('캐릭터 삭제'),
-            content: Text('"${character.name}" 캐릭터를 삭제할까요?'),
+            title: Text(l.charactersDeleteDialogTitle),
+            content: Text(l.charactersDeleteDialogContent(character.name)),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, false),
-                child: const Text('취소'),
+                child: Text(l.charactersCancel),
               ),
               TextButton(
                 onPressed: () => Navigator.pop(context, true),
-                child: const Text('삭제'),
+                child: Text(l.charactersDelete),
               ),
             ],
           ),
@@ -346,16 +359,18 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
       if (!mounted) {
         return;
       }
+      final l = AppLocalizations.of(context);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('캐릭터가 삭제되었어요.')),
+        SnackBar(content: Text(l.charactersDeletedSnack)),
       );
       await ref.read(charactersProvider.notifier).refresh();
     } catch (_) {
       if (!mounted) {
         return;
       }
+      final l = AppLocalizations.of(context);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('캐릭터 삭제에 실패했어요. 다시 시도해주세요.')),
+        SnackBar(content: Text(l.charactersDeleteFailed)),
       );
     }
   }
@@ -386,13 +401,15 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
       }
 
       if (mounted) {
-        final characterName = result['name']?.toString() ?? '새 캐릭터';
+        final l = AppLocalizations.of(context);
+        final characterName =
+            result['name']?.toString() ?? l.charactersDefaultName;
         final rawSheetUrls = result['character_sheet_urls'];
         final sheetCount = rawSheetUrls is List ? rawSheetUrls.length : 0;
         final message = creationMode == _CharacterCreationMode.drawing &&
                 sheetCount > 0
-            ? '$characterName 캐릭터와 시트 $sheetCount장을 만들었어요!'
-            : '$characterName 캐릭터가 생성되었어요!';
+            ? l.charactersCreatedWithSheetsSnack(characterName, sheetCount)
+            : l.charactersCreatedSnack(characterName);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(message)),
         );
@@ -400,9 +417,10 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
       }
     } catch (e) {
       if (mounted) {
+        final l = AppLocalizations.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('캐릭터 생성에 실패했어요. 잠시 후 다시 시도해주세요.'),
+          SnackBar(
+            content: Text(l.charactersCreateFailed),
             backgroundColor: AppColors.error,
           ),
         );
@@ -449,6 +467,7 @@ class _AddCharacterCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -494,14 +513,16 @@ class _AddCharacterCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    isLoading ? '캐릭터 생성 중...' : '새 캐릭터 추가',
+                    isLoading
+                        ? l.charactersAddCardLoading
+                        : l.charactersAddCardTitle,
                     style: AppTextStyles.heading3.copyWith(
                       color: AppColors.primary,
                     ),
                   ),
                   const SizedBox(height: AppSpacing.xs),
                   Text(
-                    '사진으로 나만의 캐릭터를 만들어보세요',
+                    l.charactersAddCardSubtitle,
                     style: AppTextStyles.bodySmall.copyWith(
                       color: AppColors.primary,
                     ),
@@ -637,6 +658,7 @@ class _CharacterDetailSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return Column(
       children: [
         const SizedBox(height: AppSpacing.md),
@@ -686,7 +708,7 @@ class _CharacterDetailSheet extends StatelessWidget {
                         Text(character.name, style: AppTextStyles.heading2),
                         const SizedBox(height: AppSpacing.xs),
                         Text(
-                          _formatDate(character.createdAt),
+                          _formatDate(l, character.createdAt),
                           style: AppTextStyles.caption,
                         ),
                       ],
@@ -698,13 +720,13 @@ class _CharacterDetailSheet extends StatelessWidget {
               const SizedBox(height: AppSpacing.lg),
 
               // 설명
-              const _SectionTitle('설명'),
+              _SectionTitle(l.charactersDetailDescription),
               Text(character.masterDescription, style: AppTextStyles.body),
 
               const SizedBox(height: AppSpacing.lg),
 
               // 성격
-              const _SectionTitle('성격'),
+              _SectionTitle(l.charactersDetailPersonality),
               Wrap(
                 spacing: AppSpacing.sm,
                 runSpacing: AppSpacing.sm,
@@ -731,25 +753,26 @@ class _CharacterDetailSheet extends StatelessWidget {
               const SizedBox(height: AppSpacing.lg),
 
               // 외형
-              const _SectionTitle('외형'),
-              _DetailRow('나이', character.appearance.ageVisual),
-              _DetailRow('얼굴', character.appearance.face),
-              _DetailRow('머리', character.appearance.hair),
-              _DetailRow('피부', character.appearance.skin),
-              _DetailRow('체형', character.appearance.body),
+              _SectionTitle(l.charactersDetailAppearance),
+              _DetailRow(l.charactersDetailAge, character.appearance.ageVisual),
+              _DetailRow(l.charactersDetailFace, character.appearance.face),
+              _DetailRow(l.charactersDetailHair, character.appearance.hair),
+              _DetailRow(l.charactersDetailSkin, character.appearance.skin),
+              _DetailRow(l.charactersDetailBody, character.appearance.body),
 
               const SizedBox(height: AppSpacing.lg),
 
               // 의상
-              const _SectionTitle('의상'),
-              _DetailRow('상의', character.clothing.top),
-              _DetailRow('하의', character.clothing.bottom),
-              _DetailRow('신발', character.clothing.shoes),
-              _DetailRow('액세서리', character.clothing.accessories),
+              _SectionTitle(l.charactersDetailClothing),
+              _DetailRow(l.charactersDetailTop, character.clothing.top),
+              _DetailRow(l.charactersDetailBottom, character.clothing.bottom),
+              _DetailRow(l.charactersDetailShoes, character.clothing.shoes),
+              _DetailRow(
+                  l.charactersDetailAccessories, character.clothing.accessories),
 
               if (character.visualStyleNotes != null) ...[
                 const SizedBox(height: AppSpacing.lg),
-                const _SectionTitle('스타일 노트'),
+                _SectionTitle(l.charactersDetailStyleNotes),
                 Text(character.visualStyleNotes!, style: AppTextStyles.body),
               ],
 
@@ -757,7 +780,7 @@ class _CharacterDetailSheet extends StatelessWidget {
 
               // 액션 버튼
               PrimaryButton(
-                text: '이 캐릭터로 새 책 만들기',
+                text: l.charactersDetailCreateBookButton,
                 onPressed: () {
                   Navigator.pop(context);
                   Navigator.pushNamed(
@@ -776,8 +799,8 @@ class _CharacterDetailSheet extends StatelessWidget {
     );
   }
 
-  String _formatDate(DateTime date) {
-    return '${date.year}년 ${date.month}월 ${date.day}일 생성';
+  String _formatDate(AppLocalizations l, DateTime date) {
+    return l.charactersCreatedDate(date.year, date.month, date.day);
   }
 }
 
@@ -823,25 +846,40 @@ class _DetailRow extends StatelessWidget {
 
 /// 캐릭터 역할 정의
 class _CharacterRole {
-  final String label;
   final String emoji;
   final String ageHint; // AI에게 전달할 나이 힌트
 
-  const _CharacterRole(this.label, this.emoji, this.ageHint);
+  const _CharacterRole(this.emoji, this.ageHint);
 }
 
+// label은 런타임에 AppLocalizations로 해석한다(아래 _characterRoleLabels).
+// emoji/ageHint는 UI 라벨이 아닌 데이터(ageHint는 AI에 전달되는 페이로드)라 그대로 둔다.
 const _characterRoles = [
-  _CharacterRole('아이', '👶', '5살 어린이'),
-  _CharacterRole('형/오빠', '👦', '10살 소년'),
-  _CharacterRole('누나/언니', '👧', '10살 소녀'),
-  _CharacterRole('엄마', '👩', '30대 여성'),
-  _CharacterRole('아빠', '👨', '30대 남성'),
-  _CharacterRole('할머니', '👵', '60대 할머니'),
-  _CharacterRole('할아버지', '👴', '60대 할아버지'),
-  _CharacterRole('친구', '🧒', '또래 친구'),
-  _CharacterRole('선생님', '👩‍🏫', '선생님'),
-  _CharacterRole('반려동물', '🐕', '귀여운 반려동물'),
+  _CharacterRole('👶', '5살 어린이'),
+  _CharacterRole('👦', '10살 소년'),
+  _CharacterRole('👧', '10살 소녀'),
+  _CharacterRole('👩', '30대 여성'),
+  _CharacterRole('👨', '30대 남성'),
+  _CharacterRole('👵', '60대 할머니'),
+  _CharacterRole('👴', '60대 할아버지'),
+  _CharacterRole('🧒', '또래 친구'),
+  _CharacterRole('👩‍🏫', '선생님'),
+  _CharacterRole('🐕', '귀여운 반려동물'),
 ];
+
+// _characterRoles와 동일 순서로 인덱스가 1:1 대응되는 표시용 라벨.
+List<String> _characterRoleLabels(AppLocalizations l) => [
+      l.charactersRoleChild,
+      l.charactersRoleBrother,
+      l.charactersRoleSister,
+      l.charactersRoleMom,
+      l.charactersRoleDad,
+      l.charactersRoleGrandma,
+      l.charactersRoleGrandpa,
+      l.charactersRoleFriend,
+      l.charactersRoleTeacher,
+      l.charactersRolePet,
+    ];
 
 /// 텍스트 기반 캐릭터 생성 폼
 class _TextCharacterForm extends StatefulWidget {
@@ -861,7 +899,7 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
   int? _selectedRoleIndex;
   bool _isCustomRole = false;
 
-  // 추천 성격 특성
+  // 추천 성격 특성 (선택 시 그대로 AI 페이로드(traits)로 전달되는 값이라 현지화하지 않음)
   final _suggestedTraits = [
     '호기심 많은',
     '활발한',
@@ -898,6 +936,8 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
+    final roleLabels = _characterRoleLabels(l);
     return Padding(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom,
@@ -921,13 +961,14 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
                 ),
               ),
               const SizedBox(height: AppSpacing.lg),
-              const Center(
-                child: Text('새 캐릭터 만들기', style: AppTextStyles.heading2),
+              Center(
+                child: Text(l.charactersFormTitle,
+                    style: AppTextStyles.heading2),
               ),
               const SizedBox(height: AppSpacing.xl),
 
               // 1. 역할 선택
-              const Text('누구인가요?', style: AppTextStyles.heading3),
+              Text(l.charactersFormRoleLabel, style: AppTextStyles.heading3),
               const SizedBox(height: AppSpacing.sm),
               Wrap(
                 spacing: AppSpacing.sm,
@@ -967,7 +1008,7 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
                                 style: const TextStyle(fontSize: 20)),
                             const SizedBox(width: AppSpacing.xs),
                             Text(
-                              role.label,
+                              roleLabels[index],
                               style: TextStyle(
                                 color: isSelected
                                     ? AppColors.primary
@@ -1011,7 +1052,7 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
                           const Text('✏️', style: TextStyle(fontSize: 20)),
                           const SizedBox(width: AppSpacing.xs),
                           Text(
-                            '직접 입력',
+                            l.charactersFormCustomRole,
                             style: TextStyle(
                               color: _isCustomRole
                                   ? AppColors.primary
@@ -1034,7 +1075,7 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
                 TextField(
                   controller: _customRoleController,
                   decoration: InputDecoration(
-                    hintText: '예: 삼촌, 이모, 마법사, 요정...',
+                    hintText: l.charactersFormCustomRoleHint,
                     filled: true,
                     fillColor: AppColors.background,
                     border: OutlineInputBorder(
@@ -1048,12 +1089,12 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
               const SizedBox(height: AppSpacing.lg),
 
               // 2. 이름 입력
-              const Text('이름', style: AppTextStyles.heading3),
+              Text(l.charactersFormNameLabel, style: AppTextStyles.heading3),
               const SizedBox(height: AppSpacing.sm),
               TextField(
                 controller: _nameController,
                 decoration: InputDecoration(
-                  hintText: '캐릭터 이름을 입력하세요',
+                  hintText: l.charactersFormNameHint,
                   filled: true,
                   fillColor: AppColors.background,
                   border: OutlineInputBorder(
@@ -1066,10 +1107,10 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
               const SizedBox(height: AppSpacing.lg),
 
               // 3. 성격/특징 선택
-              const Text('성격/특징', style: AppTextStyles.heading3),
+              Text(l.charactersFormTraitsLabel, style: AppTextStyles.heading3),
               const SizedBox(height: AppSpacing.xs),
               Text(
-                '여러 개 선택 가능',
+                l.charactersFormTraitsHelper,
                 style:
                     AppTextStyles.caption.copyWith(color: AppColors.textHint),
               ),
@@ -1119,7 +1160,7 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
               TextField(
                 controller: _traitsController,
                 decoration: InputDecoration(
-                  hintText: '추가 특징 입력 (선택)',
+                  hintText: l.charactersFormTraitsExtraHint,
                   hintStyle: AppTextStyles.caption,
                   filled: true,
                   fillColor: AppColors.background,
@@ -1138,7 +1179,7 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
 
               // 생성 버튼
               PrimaryButton(
-                text: '캐릭터 만들기',
+                text: l.charactersFormSubmit,
                 onPressed: () {
                   // 역할 확인
                   String role;
@@ -1146,7 +1187,7 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
                     role = _customRoleController.text.trim();
                     if (role.isEmpty) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('역할을 입력해주세요')),
+                        SnackBar(content: Text(l.charactersFormRoleRequired)),
                       );
                       return;
                     }
@@ -1154,7 +1195,7 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
                     role = _characterRoles[_selectedRoleIndex!].ageHint;
                   } else {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('역할을 선택해주세요')),
+                      SnackBar(content: Text(l.charactersFormRoleSelect)),
                     );
                     return;
                   }
@@ -1163,7 +1204,7 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
                   final name = _nameController.text.trim();
                   if (name.isEmpty) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('이름을 입력해주세요')),
+                      SnackBar(content: Text(l.charactersFormNameRequired)),
                     );
                     return;
                   }
@@ -1172,7 +1213,7 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
                   final traits = _buildTraitsString();
                   if (traits.isEmpty) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('성격/특징을 선택해주세요')),
+                      SnackBar(content: Text(l.charactersFormTraitsRequired)),
                     );
                     return;
                   }
