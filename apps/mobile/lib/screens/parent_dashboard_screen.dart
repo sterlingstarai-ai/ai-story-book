@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../l10n/app_localizations.dart';
 import '../providers/providers.dart';
 import '../utils/constants.dart';
 
@@ -45,7 +46,8 @@ class _ParentDashboardScreenState extends ConsumerState<ParentDashboardScreen> {
       if (!mounted) {
         return;
       }
-      setState(() => _errorMessage = '대시보드 데이터를 불러오지 못했어요.');
+      setState(() =>
+          _errorMessage = AppLocalizations.of(context).parentDashboardLoadError);
     } finally {
       if (mounted) {
         setState(() {
@@ -110,7 +112,10 @@ class _ParentDashboardScreenState extends ConsumerState<ParentDashboardScreen> {
   }
 
   String _periodLabel() {
-    return _period == 'monthly' ? '월간 리포트' : '주간 리포트';
+    final l = AppLocalizations.of(context);
+    return _period == 'monthly'
+        ? l.parentDashboardReportMonthly
+        : l.parentDashboardReportWeekly;
   }
 
   Future<void> _changePeriod(String next) async {
@@ -123,6 +128,7 @@ class _ParentDashboardScreenState extends ConsumerState<ParentDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     final totalBooks = _asInt(_report['total_books_read']);
     final totalMinutes = _asInt(_report['total_reading_minutes']);
     final avgMinutes = _asDouble(_report['average_reading_minutes']);
@@ -134,9 +140,10 @@ class _ParentDashboardScreenState extends ConsumerState<ParentDashboardScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('부모 대시보드'),
+        title: Text(l.parentDashboardTitle),
         actions: [
           IconButton(
+            tooltip: l.parentDashboardRefreshTooltip,
             onPressed:
                 _isRefreshing ? null : () => _loadReport(refreshing: true),
             icon: _isRefreshing
@@ -155,14 +162,14 @@ class _ParentDashboardScreenState extends ConsumerState<ParentDashboardScreen> {
               padding: const EdgeInsets.all(AppSpacing.md),
               children: [
                 SegmentedButton<String>(
-                  segments: const [
+                  segments: [
                     ButtonSegment<String>(
                       value: 'weekly',
-                      label: Text('주간'),
+                      label: Text(l.parentDashboardSegmentWeekly),
                     ),
                     ButtonSegment<String>(
                       value: 'monthly',
-                      label: Text('월간'),
+                      label: Text(l.parentDashboardSegmentMonthly),
                     ),
                   ],
                   selected: {_period},
@@ -183,8 +190,9 @@ class _ParentDashboardScreenState extends ConsumerState<ParentDashboardScreen> {
                     totalBooks: totalBooks,
                     totalMinutes: totalMinutes,
                     avgMinutes: avgMinutes,
-                    preferredTheme:
-                        preferredTheme.isEmpty ? '미지정' : preferredTheme,
+                    preferredTheme: preferredTheme.isEmpty
+                        ? l.parentDashboardThemeUnspecified
+                        : preferredTheme,
                   ),
                   const SizedBox(height: AppSpacing.md),
                   _LearningCard(
@@ -218,6 +226,7 @@ class _SummaryGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return GridView.count(
       crossAxisCount: 2,
       crossAxisSpacing: AppSpacing.sm,
@@ -227,22 +236,23 @@ class _SummaryGrid extends StatelessWidget {
       physics: const NeverScrollableScrollPhysics(),
       children: [
         _MetricCard(
-          title: '총 읽은 책',
-          value: '$totalBooks권',
+          title: l.parentDashboardMetricTotalBooksTitle,
+          value: l.parentDashboardMetricTotalBooksValue(totalBooks),
           icon: Icons.menu_book_outlined,
         ),
         _MetricCard(
-          title: '총 읽기 시간',
-          value: '$totalMinutes분',
+          title: l.parentDashboardMetricTotalMinutesTitle,
+          value: l.parentDashboardMetricTotalMinutesValue(totalMinutes),
           icon: Icons.timer_outlined,
         ),
         _MetricCard(
-          title: '평균 읽기 시간',
-          value: '${avgMinutes.toStringAsFixed(1)}분',
+          title: l.parentDashboardMetricAvgMinutesTitle,
+          value:
+              l.parentDashboardMetricAvgMinutesValue(avgMinutes.toStringAsFixed(1)),
           icon: Icons.schedule_outlined,
         ),
         _MetricCard(
-          title: '선호 테마',
+          title: l.parentDashboardMetricPreferredThemeTitle,
           value: preferredTheme,
           icon: Icons.favorite_outline,
         ),
@@ -306,6 +316,7 @@ class _LearningCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.md),
@@ -317,20 +328,21 @@ class _LearningCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('학습 현황', style: AppTextStyles.heading3),
+          Text(l.parentDashboardLearningTitle, style: AppTextStyles.heading3),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            '현재 스트릭 $currentStreak일 · 최고 $longestStreak일',
+            l.parentDashboardLearningStreakLine(currentStreak, longestStreak),
             style: AppTextStyles.bodySmall,
           ),
           const SizedBox(height: AppSpacing.xs),
           Text(
-            '완독 세션 $completedSessions / 전체 세션 $sessions',
+            l.parentDashboardLearningSessionLine(completedSessions, sessions),
             style: AppTextStyles.bodySmall,
           ),
           const SizedBox(height: AppSpacing.xs),
           Text(
-            '완료율 ${completionRate.toStringAsFixed(1)}%',
+            l.parentDashboardLearningCompletionLine(
+                completionRate.toStringAsFixed(1)),
             style: AppTextStyles.bodySmall,
           ),
         ],
@@ -359,6 +371,7 @@ class _DailyChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     final maxMinutes = daily.fold<int>(
       1,
       (maxValue, item) => _asInt(item['minutes']) > maxValue
@@ -377,7 +390,7 @@ class _DailyChart extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('일별 읽기 시간', style: AppTextStyles.heading3),
+          Text(l.parentDashboardDailyChartTitle, style: AppTextStyles.heading3),
           const SizedBox(height: AppSpacing.md),
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,

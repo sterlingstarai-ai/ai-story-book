@@ -4,6 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../l10n/app_localizations.dart';
 import '../providers/providers.dart';
 import '../utils/constants.dart';
 
@@ -69,8 +70,9 @@ class _BranchStoryScreenState extends ConsumerState<BranchStoryScreen> {
       if (!mounted) {
         return;
       }
+      final l = AppLocalizations.of(context);
       setState(() {
-        _errorMessage = '분기형 스토리 정보를 불러오지 못했어요.';
+        _errorMessage = l.branchStoryLoadError;
         _isLoading = false;
       });
     }
@@ -114,11 +116,12 @@ class _BranchStoryScreenState extends ConsumerState<BranchStoryScreen> {
     if (restoredNode == null || !mounted) {
       return;
     }
+    final l = AppLocalizations.of(context);
     final restoredKey = restoredNode['node_key']?.toString();
     setState(() {
       _currentNode = restoredNode;
       _currentOptions = _optionsFor(restoredKey);
-      _statusLabel = '이전 진행 지점에서 이어서 읽고 있어요.';
+      _statusLabel = l.branchStoryResumeStatus;
     });
   }
 
@@ -193,10 +196,14 @@ class _BranchStoryScreenState extends ConsumerState<BranchStoryScreen> {
         return;
       }
 
+      final l = AppLocalizations.of(context);
+
       if (nextNode is! Map) {
         setState(() {
           _currentOptions = const [];
-          _statusLabel = status == 'end' ? '이 분기의 엔딩에 도착했어요.' : '선택을 적용했어요.';
+          _statusLabel = status == 'end'
+              ? l.branchStoryEndingReached
+              : l.branchStoryChoiceApplied;
         });
         return;
       }
@@ -207,19 +214,20 @@ class _BranchStoryScreenState extends ConsumerState<BranchStoryScreen> {
         _currentNode = mappedNode;
         _currentOptions = nextOptions;
         _statusLabel = nextOptions.isEmpty
-            ? '엔딩 도착: ${selectedOption ?? ''}'.trim()
-            : '선택: ${selectedOption ?? ''}'.trim();
+            ? l.branchStoryEndingArrived(selectedOption ?? '').trim()
+            : l.branchStorySelected(selectedOption ?? '').trim();
       });
       await _saveProgressNode(mappedNode['node_key']?.toString());
     } catch (_) {
       if (!mounted) {
         return;
       }
+      final l = AppLocalizations.of(context);
       setState(() {
         if (_history.isNotEmpty) {
           _history.removeLast();
         }
-        _statusLabel = '선택 적용에 실패했어요. 다시 시도해주세요.';
+        _statusLabel = l.branchStoryChoiceFailed;
       });
     } finally {
       if (mounted) {
@@ -254,16 +262,20 @@ class _BranchStoryScreenState extends ConsumerState<BranchStoryScreen> {
     if (_isCreatingSample) {
       return;
     }
+    final l = AppLocalizations.of(context);
     setState(() => _isCreatingSample = true);
     try {
       final api = ref.read(apiClientProvider);
       final book = await api.getBook(widget.bookId);
-      final first =
-          book.pages.isNotEmpty ? book.pages[0].text : '토끼는 갈림길에 섰어요.';
-      final second =
-          book.pages.length > 1 ? book.pages[1].text : '왼쪽 길에서 새로운 친구를 만났어요.';
-      final third =
-          book.pages.length > 2 ? book.pages[2].text : '오른쪽 길에서 보물을 발견했어요.';
+      final first = book.pages.isNotEmpty
+          ? book.pages[0].text
+          : l.branchStorySampleText1;
+      final second = book.pages.length > 1
+          ? book.pages[1].text
+          : l.branchStorySampleText2;
+      final third = book.pages.length > 2
+          ? book.pages[2].text
+          : l.branchStorySampleText3;
 
       await api.initializeBranchStory(
         widget.bookId,
@@ -275,11 +287,11 @@ class _BranchStoryScreenState extends ConsumerState<BranchStoryScreen> {
             'text': first,
             'options': [
               {
-                'option_text': '왼쪽 길로 간다',
+                'option_text': l.branchStorySampleOptionLeft,
                 'to_node_key': 'left_end',
               },
               {
-                'option_text': '오른쪽 길로 간다',
+                'option_text': l.branchStorySampleOptionRight,
                 'to_node_key': 'right_end',
               },
             ],
@@ -304,14 +316,14 @@ class _BranchStoryScreenState extends ConsumerState<BranchStoryScreen> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('샘플 분기 스토리를 생성했어요.')),
+        SnackBar(content: Text(l.branchStorySampleCreated)),
       );
     } catch (_) {
       if (!mounted) {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('샘플 분기 생성에 실패했어요.')),
+        SnackBar(content: Text(l.branchStorySampleCreateFailed)),
       );
     } finally {
       if (mounted) {
@@ -322,6 +334,7 @@ class _BranchStoryScreenState extends ConsumerState<BranchStoryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     final node = _currentNode;
     final imageUrl = node?['image_url']?.toString() ?? '';
     final pageNumber = node?['page_number']?.toString() ?? '-';
@@ -330,11 +343,12 @@ class _BranchStoryScreenState extends ConsumerState<BranchStoryScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('분기형 스토리'),
+        title: Text(l.branchStoryTitle),
         actions: [
           IconButton(
             onPressed: _isLoading ? null : () => _loadGraph(showLoading: false),
             icon: const Icon(Icons.refresh),
+            tooltip: l.branchStoryRefreshTooltip,
           ),
         ],
       ),
@@ -376,12 +390,12 @@ class _BranchStoryScreenState extends ConsumerState<BranchStoryScreen> {
                             children: [
                               Expanded(
                                 child: Text(
-                                  '노드: $nodeKey',
+                                  l.branchStoryNodeLabel(nodeKey),
                                   style: AppTextStyles.heading3,
                                 ),
                               ),
                               Text(
-                                '페이지 $pageNumber',
+                                l.branchStoryPageLabel(pageNumber),
                                 style: AppTextStyles.caption,
                               ),
                             ],
@@ -393,14 +407,18 @@ class _BranchStoryScreenState extends ConsumerState<BranchStoryScreen> {
                             borderRadius: BorderRadius.circular(AppRadius.md),
                             child: AspectRatio(
                               aspectRatio: 4 / 3,
-                              child: CachedNetworkImage(
-                                imageUrl: imageUrl,
-                                fit: BoxFit.cover,
-                                placeholder: (_, __) => const Center(
-                                  child: CircularProgressIndicator(),
+                              child: Semantics(
+                                label: l.branchStoryImageSemantics,
+                                image: true,
+                                child: CachedNetworkImage(
+                                  imageUrl: imageUrl,
+                                  fit: BoxFit.cover,
+                                  placeholder: (_, __) => const Center(
+                                    child: CircularProgressIndicator(),
+                                  ),
+                                  errorWidget: (_, __, ___) =>
+                                      const Icon(Icons.broken_image),
                                 ),
-                                errorWidget: (_, __, ___) =>
-                                    const Icon(Icons.broken_image),
                               ),
                             ),
                           ),
@@ -420,11 +438,12 @@ class _BranchStoryScreenState extends ConsumerState<BranchStoryScreen> {
                           ),
                         ),
                         const SizedBox(height: AppSpacing.lg),
-                        const Text('선택지', style: AppTextStyles.heading3),
+                        Text(l.branchStoryOptionsHeading,
+                            style: AppTextStyles.heading3),
                         const SizedBox(height: AppSpacing.sm),
                         if (_currentOptions.isEmpty)
-                          const Text(
-                            '더 이상 선택지가 없어요. 이 분기의 엔딩입니다.',
+                          Text(
+                            l.branchStoryNoOptions,
                             style: AppTextStyles.bodySmall,
                           )
                         else
@@ -450,7 +469,7 @@ class _BranchStoryScreenState extends ConsumerState<BranchStoryScreen> {
                                 onPressed:
                                     _history.isEmpty ? null : _goBackStep,
                                 icon: const Icon(Icons.undo),
-                                label: const Text('이전 선택'),
+                                label: Text(l.branchStoryPreviousChoice),
                               ),
                             ),
                             const SizedBox(width: AppSpacing.sm),
@@ -458,7 +477,7 @@ class _BranchStoryScreenState extends ConsumerState<BranchStoryScreen> {
                               child: OutlinedButton.icon(
                                 onPressed: _restartFromStart,
                                 icon: const Icon(Icons.restart_alt),
-                                label: const Text('처음부터'),
+                                label: Text(l.branchStoryRestart),
                               ),
                             ),
                           ],
@@ -492,6 +511,7 @@ class _ErrorPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(AppSpacing.lg),
@@ -505,7 +525,7 @@ class _ErrorPanel extends StatelessWidget {
             const SizedBox(height: AppSpacing.md),
             FilledButton(
               onPressed: () => onRetry(showLoading: true),
-              child: const Text('다시 시도'),
+              child: Text(l.branchStoryRetry),
             ),
           ],
         ),
@@ -525,6 +545,7 @@ class _EmptyPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(AppSpacing.lg),
@@ -533,14 +554,14 @@ class _EmptyPanel extends StatelessWidget {
           children: [
             const Icon(Icons.alt_route, size: 40, color: AppColors.primary),
             const SizedBox(height: AppSpacing.sm),
-            const Text(
-              '아직 분기형 스토리가 없어요.',
+            Text(
+              l.branchStoryEmptyTitle,
               style: AppTextStyles.heading3,
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: AppSpacing.xs),
-            const Text(
-              '샘플 분기를 생성해서 인터랙티브 스토리를 바로 체험할 수 있어요.',
+            Text(
+              l.branchStoryEmptySubtitle,
               style: AppTextStyles.bodySmall,
               textAlign: TextAlign.center,
             ),
@@ -554,7 +575,9 @@ class _EmptyPanel extends StatelessWidget {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.auto_awesome),
-              label: Text(isCreatingSample ? '생성 중...' : '샘플 분기 생성'),
+              label: Text(isCreatingSample
+                  ? l.branchStorySampleCreating
+                  : l.branchStoryCreateSample),
             ),
           ],
         ),

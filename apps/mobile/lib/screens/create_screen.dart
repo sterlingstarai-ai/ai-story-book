@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import '../core/api_error.dart';
+import '../l10n/app_localizations.dart';
 import '../models/models.dart';
 import '../providers/providers.dart';
 import '../services/analytics.dart';
@@ -118,6 +119,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
       }
     } catch (e) {
       if (mounted) {
+        final l = AppLocalizations.of(context);
         final apiError = _extractApiError(e);
         if (apiError != null && apiError.code == 'PAYMENT_REQUIRED') {
           final message = apiError.message.trim();
@@ -126,8 +128,8 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
             params: const {'reason': 'payment_required'},
           );
           final title = message.contains('스타일') || message.contains('월 ')
-              ? '플랜 업그레이드가 필요해요'
-              : '크레딧이 부족해요';
+              ? l.createPlanUpgradeTitle
+              : l.createCreditShortageTitle;
           await showCreditShortageModal(
             context,
             title: title,
@@ -136,8 +138,8 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
           return;
         }
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('책 생성에 실패했어요. 잠시 후 다시 시도해주세요.'),
+          SnackBar(
+            content: Text(l.createFailedSnack),
             backgroundColor: AppColors.error,
           ),
         );
@@ -163,6 +165,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     final charactersAsync = ref.watch(charactersProvider);
 
     return Scaffold(
@@ -172,10 +175,11 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.close, color: AppColors.textPrimary),
+          tooltip: l.createCloseTooltip,
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text(
-          '새 동화책 만들기',
+        title: Text(
+          l.createTitle,
           style: AppTextStyles.heading3,
         ),
         centerTitle: true,
@@ -186,12 +190,12 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
           padding: const EdgeInsets.all(AppSpacing.lg),
           children: [
             // 주제 입력
-            const Text('어떤 이야기를 만들까요?', style: AppTextStyles.heading3),
+            Text(l.createTopicLabel, style: AppTextStyles.heading3),
             const SizedBox(height: AppSpacing.sm),
             TextFormField(
               controller: _topicController,
               decoration: InputDecoration(
-                hintText: '예: 토끼가 하늘을 나는 이야기',
+                hintText: l.createTopicHint,
                 hintStyle: AppTextStyles.bodySmall,
                 filled: true,
                 fillColor: AppColors.surface,
@@ -213,10 +217,10 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
               maxLength: 200,
               validator: (value) {
                 if (value == null || value.trim().isEmpty) {
-                  return '이야기 주제를 입력해주세요';
+                  return l.createTopicRequired;
                 }
                 if (value.trim().length < 5) {
-                  return '조금 더 자세히 입력해주세요';
+                  return l.createTopicTooShort;
                 }
                 return null;
               },
@@ -224,13 +228,13 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
 
             const SizedBox(height: AppSpacing.md),
 
-            const Text('우리 아이 이름 (선택)', style: AppTextStyles.heading3),
+            Text(l.createChildNameLabel, style: AppTextStyles.heading3),
             const SizedBox(height: AppSpacing.sm),
             TextField(
               controller: _protagonistController,
               maxLength: 40,
-              decoration: const InputDecoration(
-                hintText: '예: 민지',
+              decoration: InputDecoration(
+                hintText: l.createChildNameHint,
                 hintStyle: AppTextStyles.bodySmall,
               ),
             ),
@@ -238,7 +242,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
             const SizedBox(height: AppSpacing.lg),
 
             // 연령대 선택
-            const Text('아이 연령대', style: AppTextStyles.heading3),
+            Text(l.createAgeLabel, style: AppTextStyles.heading3),
             const SizedBox(height: AppSpacing.sm),
             Wrap(
               spacing: AppSpacing.sm,
@@ -270,7 +274,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
             const SizedBox(height: AppSpacing.lg),
 
             // 그림 스타일 선택
-            const Text('그림 스타일', style: AppTextStyles.heading3),
+            Text(l.createStyleLabel, style: AppTextStyles.heading3),
             const SizedBox(height: AppSpacing.sm),
             Wrap(
               spacing: AppSpacing.sm,
@@ -303,14 +307,14 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
             const SizedBox(height: AppSpacing.lg),
 
             // 테마 선택 (선택사항)
-            const Text('테마 (선택)', style: AppTextStyles.heading3),
+            Text(l.createThemeLabel, style: AppTextStyles.heading3),
             const SizedBox(height: AppSpacing.sm),
             Wrap(
               spacing: AppSpacing.sm,
               runSpacing: AppSpacing.sm,
               children: [
                 ChoiceChip(
-                  label: const Text('없음'),
+                  label: Text(l.createThemeNone),
                   selected: _selectedTheme == null,
                   materialTapTargetSize: MaterialTapTargetSize.padded,
                   labelPadding: const EdgeInsets.symmetric(
@@ -359,11 +363,11 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('주인공 캐릭터', style: AppTextStyles.heading3),
+                Text(l.createCharacterLabel, style: AppTextStyles.heading3),
                 TextButton.icon(
                   onPressed: () => Navigator.pushNamed(context, '/characters'),
                   icon: const Icon(Icons.add, size: 18),
-                  label: const Text('캐릭터 추가'),
+                  label: Text(l.createAddCharacter),
                   style: TextButton.styleFrom(
                     foregroundColor: AppColors.primary,
                   ),
@@ -372,7 +376,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
             ),
             const SizedBox(height: AppSpacing.xs),
             Text(
-              '기존 캐릭터를 선택하거나, AI가 새 캐릭터를 만들어요',
+              l.createCharacterHint,
               style: AppTextStyles.caption.copyWith(color: AppColors.textHint),
             ),
             const SizedBox(height: AppSpacing.sm),
@@ -385,8 +389,8 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                     _CharacterOption(
                       icon: Icons.auto_awesome,
                       iconColor: AppColors.secondary,
-                      title: 'AI가 새 캐릭터 생성',
-                      description: '이야기에 맞는 캐릭터를 자동으로 만들어요',
+                      title: l.createAiCharacterTitle,
+                      description: l.createAiCharacterDesc,
                       isSelected: _selectedCharacterIds.isEmpty,
                       onTap: () => setState(() => _selectedCharacterIds = []),
                     ),
@@ -394,8 +398,8 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                     _CharacterOption(
                       icon: Icons.face_retouching_natural,
                       iconColor: AppColors.primary,
-                      title: '우리 아이를 주인공으로',
-                      description: '사진 또는 기본 캐릭터로 주인공을 만들어요',
+                      title: l.createChildProtagonistTitle,
+                      description: l.createChildProtagonistDesc,
                       isSelected: false,
                       onTap: _selectChildProtagonist,
                     ),
@@ -409,7 +413,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                             padding: const EdgeInsets.symmetric(
                                 horizontal: AppSpacing.sm),
                             child: Text(
-                              '또는 기존 캐릭터 선택',
+                              l.createOrSelectExisting,
                               style: AppTextStyles.caption
                                   .copyWith(color: AppColors.textHint),
                             ),
@@ -430,7 +434,8 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                               borderRadius: BorderRadius.circular(AppRadius.sm),
                             ),
                             child: Text(
-                              '${_selectedCharacterIds.length}명 선택됨 (가족/친구 이야기 가능)',
+                              l.createSelectedCount(
+                                  _selectedCharacterIds.length),
                               style: AppTextStyles.caption
                                   .copyWith(color: AppColors.primary),
                             ),
@@ -474,7 +479,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                             const SizedBox(width: AppSpacing.sm),
                             Expanded(
                               child: Text(
-                                '캐릭터를 추가하면 같은 캐릭터로 시리즈를 만들 수 있어요!',
+                                l.createAddCharacterTip,
                                 style: AppTextStyles.caption
                                     .copyWith(color: AppColors.textSecondary),
                               ),
@@ -487,7 +492,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                 );
               },
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (_, __) => const Text('캐릭터를 불러올 수 없어요'),
+              error: (_, __) => Text(l.createCharacterLoadError),
             ),
 
             const SizedBox(height: AppSpacing.xxl),
@@ -508,7 +513,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
         ),
         child: SafeArea(
           child: PrimaryButton(
-            text: '동화책 만들기',
+            text: l.createMakeButton,
             isLoading: _isLoading,
             onPressed: _createBook,
           ),

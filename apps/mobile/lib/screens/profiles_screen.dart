@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../l10n/app_localizations.dart';
 import '../providers/providers.dart';
 import '../utils/constants.dart';
 
@@ -12,12 +13,21 @@ class ProfilesScreen extends ConsumerStatefulWidget {
 }
 
 class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
-  static const List<Map<String, String>> _ageBandOptions = [
-    {'value': '3-5', 'label': '3-5세'},
-    {'value': '5-7', 'label': '5-7세'},
-    {'value': '7-9', 'label': '7-9세'},
-    {'value': 'adult', 'label': '성인'},
-  ];
+  static const List<String> _ageBandValues = ['3-5', '5-7', '7-9', 'adult'];
+
+  static String _ageBandLabel(AppLocalizations l, String? value) {
+    switch (value) {
+      case '3-5':
+        return l.profilesAgeBand35;
+      case '5-7':
+        return l.profilesAgeBand57;
+      case '7-9':
+        return l.profilesAgeBand79;
+      case 'adult':
+        return l.profilesAgeBandAdult;
+    }
+    return value ?? '-';
+  }
 
   // 생년월을 입력하면 연령대를 실제 나이에서 파생(부모 임의선택 제거). 서버가 권위적으로
   // 재파생하지만, 클라에서도 같은 규칙으로 미리보기·잠금한다(반열린 구간).
@@ -87,7 +97,7 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
         return;
       }
       setState(() {
-        _errorMessage = '프로필 정보를 불러오지 못했어요.';
+        _errorMessage = AppLocalizations.of(context).profilesLoadError;
         _isLoading = false;
       });
     }
@@ -106,6 +116,7 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
   Future<Map<String, dynamic>?> _showProfileDialog({
     Map<String, dynamic>? initial,
   }) async {
+    final l = AppLocalizations.of(context);
     final formKey = GlobalKey<FormState>();
     final nameController = TextEditingController(
       text: initial?['name']?.toString() ?? '',
@@ -121,7 +132,9 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              title: Text(initial == null ? '프로필 추가' : '프로필 수정'),
+              title: Text(initial == null
+                  ? l.profilesDialogAddTitle
+                  : l.profilesDialogEditTitle),
               content: SingleChildScrollView(
                 child: Form(
                   key: formKey,
@@ -132,14 +145,14 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
                       TextFormField(
                         controller: nameController,
                         maxLength: 40,
-                        decoration: const InputDecoration(
-                          labelText: '이름',
-                          hintText: '예: 민지',
+                        decoration: InputDecoration(
+                          labelText: l.profilesNameLabel,
+                          hintText: l.profilesNameHint,
                         ),
                         validator: (value) {
                           final text = value?.trim() ?? '';
                           if (text.isEmpty) {
-                            return '이름을 입력해주세요.';
+                            return l.profilesNameRequired;
                           }
                           return null;
                         },
@@ -152,13 +165,13 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
                             child: DropdownButtonFormField<int>(
                               initialValue: selectedBirthYear,
                               isExpanded: true,
-                              decoration: const InputDecoration(
-                                labelText: '출생연도(선택)',
+                              decoration: InputDecoration(
+                                labelText: l.profilesBirthYearLabel,
                               ),
                               items: _birthYearOptions()
                                   .map((y) => DropdownMenuItem<int>(
                                         value: y,
-                                        child: Text('$y년'),
+                                        child: Text(l.profilesYearOption(y)),
                                       ))
                                   .toList(),
                               onChanged: (value) {
@@ -178,11 +191,12 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
                             child: DropdownButtonFormField<int>(
                               initialValue: selectedBirthMonth,
                               isExpanded: true,
-                              decoration: const InputDecoration(labelText: '월'),
+                              decoration: InputDecoration(
+                                  labelText: l.profilesBirthMonthLabel),
                               items: [for (var m = 1; m <= 12; m++) m]
                                   .map((m) => DropdownMenuItem<int>(
                                         value: m,
-                                        child: Text('$m월'),
+                                        child: Text(l.profilesMonthOption(m)),
                                       ))
                                   .toList(),
                               onChanged: (value) {
@@ -203,22 +217,21 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
                       Text(
                         (selectedBirthYear != null &&
                                 selectedBirthMonth != null)
-                            ? '연령대 자동: $selectedAgeBand세'
-                            : '출생연월을 입력하면 연령대가 자동 설정돼요(선택).',
+                            ? l.profilesAgeBandAuto(selectedAgeBand)
+                            : l.profilesBirthHint,
                         style: const TextStyle(fontSize: 12, color: Colors.grey),
                       ),
                       const SizedBox(height: AppSpacing.sm),
                       DropdownButtonFormField<String>(
                         initialValue: selectedAgeBand,
-                        decoration: const InputDecoration(
-                          labelText: '연령대',
+                        decoration: InputDecoration(
+                          labelText: l.profilesAgeBandLabel,
                         ),
-                        items: _ageBandOptions
+                        items: _ageBandValues
                             .map(
                               (option) => DropdownMenuItem<String>(
-                                value: option['value'],
-                                child:
-                                    Text(option['label'] ?? option['value']!),
+                                value: option,
+                                child: Text(_ageBandLabel(l, option)),
                               ),
                             )
                             .toList(),
@@ -236,7 +249,7 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
                       const SizedBox(height: AppSpacing.sm),
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
-                        title: const Text('기본 프로필로 설정'),
+                        title: Text(l.profilesSetAsDefaultSwitch),
                         value: isDefault,
                         onChanged: (value) {
                           setDialogState(() => isDefault = value);
@@ -249,7 +262,7 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: const Text('취소'),
+                  child: Text(l.profilesCancel),
                 ),
                 TextButton(
                   onPressed: () {
@@ -267,7 +280,8 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
                       },
                     );
                   },
-                  child: Text(initial == null ? '추가' : '저장'),
+                  child: Text(
+                      initial == null ? l.profilesAddAction : l.profilesSaveAction),
                 ),
               ],
             );
@@ -302,7 +316,8 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('프로필 생성에 실패했어요. 잠시 후 다시 시도해주세요.')),
+        SnackBar(
+            content: Text(AppLocalizations.of(context).profilesCreateFailed)),
       );
     } finally {
       if (mounted) {
@@ -334,7 +349,7 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('프로필 수정에 실패했어요.')),
+        SnackBar(content: Text(AppLocalizations.of(context).profilesEditFailed)),
       );
     } finally {
       if (mounted) {
@@ -355,7 +370,9 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('기본 프로필 설정에 실패했어요.')),
+        SnackBar(
+            content:
+                Text(AppLocalizations.of(context).profilesSetDefaultFailed)),
       );
     } finally {
       if (mounted) {
@@ -365,19 +382,20 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
   }
 
   Future<void> _deleteProfile(String profileId) async {
+    final l = AppLocalizations.of(context);
     final confirmed = await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
-            title: const Text('프로필 삭제'),
-            content: const Text('이 프로필을 삭제할까요?'),
+            title: Text(l.profilesDeleteTitle),
+            content: Text(l.profilesDeleteConfirm),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, false),
-                child: const Text('취소'),
+                child: Text(l.profilesCancel),
               ),
               TextButton(
                 onPressed: () => Navigator.pop(context, true),
-                child: const Text('삭제'),
+                child: Text(l.profilesDeleteAction),
               ),
             ],
           ),
@@ -397,22 +415,14 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('프로필 삭제에 실패했어요.')),
+        SnackBar(
+            content: Text(AppLocalizations.of(context).profilesDeleteFailed)),
       );
     } finally {
       if (mounted) {
         setState(() => _isSubmitting = false);
       }
     }
-  }
-
-  String _ageLabel(String? value) {
-    for (final option in _ageBandOptions) {
-      if (option['value'] == value) {
-        return option['label'] ?? value ?? '-';
-      }
-    }
-    return value ?? '-';
   }
 
   Future<void> _setActiveProfile(
@@ -445,13 +455,15 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('아이 프로필'),
+        title: Text(l.profilesTitle),
         actions: [
           IconButton(
             onPressed: _isSubmitting ? null : _createProfile,
             icon: const Icon(Icons.add),
+            tooltip: l.profilesAddTooltip,
           ),
         ],
       ),
@@ -470,9 +482,9 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
                           color: AppColors.textHint,
                         ),
                         const SizedBox(height: AppSpacing.md),
-                        const Center(
+                        Center(
                           child: Text(
-                            '등록된 프로필이 없어요',
+                            l.profilesEmpty,
                             style: AppTextStyles.body,
                           ),
                         ),
@@ -493,7 +505,7 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
                           ),
                           child: ElevatedButton(
                             onPressed: _isSubmitting ? null : _createProfile,
-                            child: const Text('첫 프로필 만들기'),
+                            child: Text(l.profilesCreateFirst),
                           ),
                         ),
                       ],
@@ -534,8 +546,8 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
                                     color: AppColors.primaryLight,
                                     borderRadius: BorderRadius.circular(999),
                                   ),
-                                  child: const Text(
-                                    '기본',
+                                  child: Text(
+                                    l.profilesDefaultBadge,
                                     style: AppTextStyles.caption,
                                   ),
                                 ),
@@ -550,8 +562,8 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
                                     color: AppColors.successLight,
                                     borderRadius: BorderRadius.circular(999),
                                   ),
-                                  child: const Text(
-                                    '현재',
+                                  child: Text(
+                                    l.profilesActiveBadge,
                                     style: AppTextStyles.caption,
                                   ),
                                 ),
@@ -559,7 +571,8 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
                             ],
                           ),
                           subtitle: Text(
-                            '연령대: ${_ageLabel(profile['age_band']?.toString())}',
+                            l.profilesAgeBandValue(
+                                _ageBandLabel(l, profile['age_band']?.toString())),
                           ),
                           trailing: PopupMenuButton<String>(
                             onSelected: (value) {
@@ -580,22 +593,22 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
                             },
                             itemBuilder: (context) => [
                               if (!isActive)
-                                const PopupMenuItem<String>(
+                                PopupMenuItem<String>(
                                   value: 'activate',
-                                  child: Text('현재 프로필로 사용'),
+                                  child: Text(l.profilesMenuActivate),
                                 ),
                               if (!isDefault)
-                                const PopupMenuItem<String>(
+                                PopupMenuItem<String>(
                                   value: 'default',
-                                  child: Text('기본 프로필로 설정'),
+                                  child: Text(l.profilesMenuSetDefault),
                                 ),
-                              const PopupMenuItem<String>(
+                              PopupMenuItem<String>(
                                 value: 'edit',
-                                child: Text('수정'),
+                                child: Text(l.profilesMenuEdit),
                               ),
-                              const PopupMenuItem<String>(
+                              PopupMenuItem<String>(
                                 value: 'delete',
-                                child: Text('삭제'),
+                                child: Text(l.profilesDeleteAction),
                               ),
                             ],
                           ),

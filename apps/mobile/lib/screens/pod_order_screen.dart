@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 
 import '../core/api_error.dart';
+import '../l10n/app_localizations.dart';
 import '../providers/providers.dart';
 import '../utils/constants.dart';
 
@@ -87,14 +88,15 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
         _orderDetail = detail;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('주문이 접수되었습니다.')),
+        SnackBar(content: Text(AppLocalizations.of(context).podOrderSubmitSuccess)),
       );
     } catch (error) {
       if (!mounted) {
         return;
       }
-      final message =
-          error is ApiError ? error.userMessage : '주문 접수에 실패했어요. 정보를 확인해주세요.';
+      final message = error is ApiError
+          ? error.userMessage
+          : AppLocalizations.of(context).podOrderSubmitError;
       setState(() => _errorMessage = message);
     } finally {
       if (mounted) {
@@ -121,8 +123,9 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
       if (!mounted) {
         return;
       }
-      final message =
-          error is ApiError ? error.userMessage : '주문 상태 조회에 실패했어요.';
+      final message = error is ApiError
+          ? error.userMessage
+          : AppLocalizations.of(context).podOrderStatusError;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message)),
       );
@@ -148,6 +151,7 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     final orderId = _createdOrder?['order_id']?.toString();
     final providerOrderId = _orderDetail?['provider_order_id']?.toString() ??
         _createdOrder?['provider_order_id']?.toString();
@@ -162,7 +166,7 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('실물책 주문'),
+        title: Text(l.podOrderTitle),
       ),
       body: ListView(
         padding: const EdgeInsets.all(AppSpacing.md),
@@ -177,7 +181,7 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('주문 도서', style: AppTextStyles.caption),
+                Text(l.podOrderBookLabel, style: AppTextStyles.caption),
                 const SizedBox(height: AppSpacing.xs),
                 Text(
                   widget.bookTitle.isEmpty ? widget.bookId : widget.bookTitle,
@@ -193,21 +197,21 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
               children: [
                 TextFormField(
                   controller: _nameController,
-                  decoration: const InputDecoration(
-                    labelText: '수령인 이름',
+                  decoration: InputDecoration(
+                    labelText: l.podOrderRecipientNameLabel,
                   ),
                   validator: (value) => (value?.trim().isEmpty ?? true)
-                      ? '수령인 이름을 입력해주세요.'
+                      ? l.podOrderRecipientNameError
                       : null,
                 ),
                 const SizedBox(height: AppSpacing.md),
                 TextFormField(
                   controller: _line1Controller,
-                  decoration: const InputDecoration(
-                    labelText: '주소',
+                  decoration: InputDecoration(
+                    labelText: l.podOrderAddressLabel,
                   ),
                   validator: (value) =>
-                      (value?.trim().isEmpty ?? true) ? '주소를 입력해주세요.' : null,
+                      (value?.trim().isEmpty ?? true) ? l.podOrderAddressError : null,
                 ),
                 const SizedBox(height: AppSpacing.md),
                 Row(
@@ -215,9 +219,9 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
                     Expanded(
                       child: TextFormField(
                         controller: _postalController,
-                        decoration: const InputDecoration(labelText: '우편번호'),
+                        decoration: InputDecoration(labelText: l.podOrderPostalLabel),
                         validator: (value) => (value?.trim().isEmpty ?? true)
-                            ? '우편번호를 입력해주세요.'
+                            ? l.podOrderPostalError
                             : null,
                       ),
                     ),
@@ -225,9 +229,9 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
                     Expanded(
                       child: TextFormField(
                         controller: _countryController,
-                        decoration: const InputDecoration(labelText: '국가코드'),
+                        decoration: InputDecoration(labelText: l.podOrderCountryLabel),
                         validator: (value) => (value?.trim().isEmpty ?? true)
-                            ? '국가코드를 입력해주세요.'
+                            ? l.podOrderCountryError
                             : null,
                       ),
                     ),
@@ -236,9 +240,9 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
                 const SizedBox(height: AppSpacing.md),
                 TextFormField(
                   controller: _phoneController,
-                  decoration: const InputDecoration(labelText: '연락처'),
+                  decoration: InputDecoration(labelText: l.podOrderPhoneLabel),
                   validator: (value) =>
-                      (value?.trim().isEmpty ?? true) ? '연락처를 입력해주세요.' : null,
+                      (value?.trim().isEmpty ?? true) ? l.podOrderPhoneError : null,
                 ),
               ],
             ),
@@ -254,18 +258,20 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('수량', style: AppTextStyles.caption),
+                Text(l.podOrderQuantityLabel, style: AppTextStyles.caption),
                 const SizedBox(height: AppSpacing.xs),
                 Row(
                   children: [
                     IconButton(
+                      tooltip: l.podOrderDecreaseQuantityTooltip,
                       onPressed: _quantity <= 1
                           ? null
                           : () => setState(() => _quantity -= 1),
                       icon: const Icon(Icons.remove_circle_outline),
                     ),
-                    Text('$_quantity권', style: AppTextStyles.heading3),
+                    Text(l.podOrderQuantityValue(_quantity), style: AppTextStyles.heading3),
                     IconButton(
+                      tooltip: l.podOrderIncreaseQuantityTooltip,
                       onPressed: _quantity >= 10
                           ? null
                           : () => setState(() => _quantity += 1),
@@ -273,7 +279,7 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
                     ),
                     const Spacer(),
                     Text(
-                      '예상 ${_estimatedTotal.toString()}원',
+                      l.podOrderEstimatedTotal(_estimatedTotal),
                       style: AppTextStyles.bodySmall,
                     ),
                   ],
@@ -291,7 +297,7 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.local_shipping_outlined),
-            label: Text(_isSubmitting ? '주문 처리 중...' : '주문하기'),
+            label: Text(_isSubmitting ? l.podOrderSubmitting : l.podOrderSubmitButton),
           ),
           if (_errorMessage != null) ...[
             const SizedBox(height: AppSpacing.sm),
@@ -312,43 +318,43 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('주문 상태', style: AppTextStyles.heading3),
+                  Text(l.podOrderStatusTitle, style: AppTextStyles.heading3),
                   const SizedBox(height: AppSpacing.sm),
-                  Text('주문번호: $orderId', style: AppTextStyles.bodySmall),
+                  Text(l.podOrderOrderNumber(orderId), style: AppTextStyles.bodySmall),
                   if (providerOrderId != null && providerOrderId.isNotEmpty)
                     Row(
                       children: [
                         Expanded(
                           child: Text(
-                            '공급사 주문번호: $providerOrderId',
+                            l.podOrderProviderOrderNumber(providerOrderId),
                             style: AppTextStyles.bodySmall,
                           ),
                         ),
                         IconButton(
-                          tooltip: '복사',
+                          tooltip: l.podOrderCopyTooltip,
                           onPressed: () async {
                             final messenger = ScaffoldMessenger.of(context);
                             await Clipboard.setData(
                               ClipboardData(text: providerOrderId),
                             );
                             messenger.showSnackBar(
-                              const SnackBar(content: Text('공급사 주문번호를 복사했어요.')),
+                              SnackBar(content: Text(l.podOrderProviderOrderCopied)),
                             );
                           },
                           icon: const Icon(Icons.copy, size: 18),
                         ),
                       ],
                     ),
-                  Text('상태: $orderStatus', style: AppTextStyles.bodySmall),
-                  Text('결제금액: ${totalPrice.toString()}원',
+                  Text(l.podOrderStatusValue(orderStatus), style: AppTextStyles.bodySmall),
+                  Text(l.podOrderPaymentAmount(totalPrice),
                       style: AppTextStyles.bodySmall),
-                  Text('동기화: $syncSource', style: AppTextStyles.bodySmall),
+                  Text(l.podOrderSyncValue(syncSource), style: AppTextStyles.bodySmall),
                   if ((_orderDetail?['tracking_number']
                           ?.toString()
                           .isNotEmpty ??
                       false))
                     Text(
-                      '운송장: ${_orderDetail!['tracking_number']}',
+                      l.podOrderTrackingNumber(_orderDetail!['tracking_number'].toString()),
                       style: AppTextStyles.bodySmall,
                     ),
                   const SizedBox(height: AppSpacing.sm),
@@ -361,7 +367,7 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.refresh),
-                    label: const Text('상태 새로고침'),
+                    label: Text(l.podOrderRefreshStatus),
                   ),
                 ],
               ),

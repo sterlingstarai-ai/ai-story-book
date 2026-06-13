@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../l10n/app_localizations.dart';
 import '../models/models.dart';
 import '../providers/providers.dart';
 import '../utils/constants.dart';
@@ -17,16 +18,17 @@ class LoadingScreen extends ConsumerStatefulWidget {
 
 class _LoadingScreenState extends ConsumerState<LoadingScreen> {
   bool _hasNavigated = false; // Prevent double navigation
-  late final String _selectedTip;
+  late final int _selectedTipIndex;
 
   @override
   void initState() {
     super.initState();
-    _selectedTip = _pickTip();
+    _selectedTipIndex = _pickTipIndex();
   }
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     final jobStatusAsync = ref.watch(jobPollingProvider(widget.jobId));
 
     return Scaffold(
@@ -51,7 +53,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
                     );
                   }
                 });
-                return _buildCompletedContent();
+                return _buildCompletedContent(l);
               }
 
               // 실패 시 에러 표시
@@ -60,14 +62,15 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
               }
 
               // 진행 중
-              return _buildProgressContent(status);
+              return _buildProgressContent(l, status);
             },
             loading: () => _buildProgressContent(
+              l,
               JobStatus(
                 jobId: widget.jobId,
                 status: JobState.queued,
                 progress: 0,
-                currentStep: '대기 중...',
+                currentStep: l.loadingStepWaiting,
               ),
             ),
             error: (error, _) => _buildErrorContent(
@@ -85,7 +88,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
     );
   }
 
-  Widget _buildProgressContent(JobStatus status) {
+  Widget _buildProgressContent(AppLocalizations l, JobStatus status) {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -95,8 +98,8 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
         const SizedBox(height: AppSpacing.xl),
 
         // 제목
-        const Text(
-          '동화책을 만들고 있어요',
+        Text(
+          l.loadingTitle,
           style: AppTextStyles.heading2,
           textAlign: TextAlign.center,
         ),
@@ -104,7 +107,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
         const SizedBox(height: AppSpacing.sm),
 
         Text(
-          _getStepDescription(status.currentStep),
+          _getStepDescription(l, status.currentStep),
           style: AppTextStyles.bodySmall,
           textAlign: TextAlign.center,
         ),
@@ -135,7 +138,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Text(
-                  _selectedTip,
+                  _selectedTip(l),
                   style: AppTextStyles.bodySmall.copyWith(
                     color: AppColors.primary,
                   ),
@@ -148,19 +151,19 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
     );
   }
 
-  Widget _buildCompletedContent() {
-    return const Center(
+  Widget _buildCompletedContent(AppLocalizations l) {
+    return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
+          const Icon(
             Icons.check_circle,
             size: 80,
             color: AppColors.success,
           ),
-          SizedBox(height: AppSpacing.lg),
+          const SizedBox(height: AppSpacing.lg),
           Text(
-            '완성되었어요!',
+            l.loadingCompleted,
             style: AppTextStyles.heading2,
           ),
         ],
@@ -169,6 +172,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
   }
 
   Widget _buildErrorContent(BuildContext context, JobStatus status) {
+    final l = AppLocalizations.of(context);
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -179,19 +183,19 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
             color: AppColors.error,
           ),
           const SizedBox(height: AppSpacing.lg),
-          const Text(
-            '문제가 발생했어요',
+          Text(
+            l.loadingErrorTitle,
             style: AppTextStyles.heading2,
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            status.errorMessage ?? '알 수 없는 오류',
+            status.errorMessage ?? l.loadingUnknownError,
             style: AppTextStyles.bodySmall,
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: AppSpacing.xl),
           PrimaryButton(
-            text: '다시 시도',
+            text: l.loadingRetryButton,
             isFullWidth: false,
             onPressed: () {
               Navigator.pushReplacementNamed(context, '/create');
@@ -200,44 +204,53 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
           const SizedBox(height: AppSpacing.sm),
           TextButton(
             onPressed: () => ref.invalidate(jobPollingProvider(widget.jobId)),
-            child: const Text('상태 다시 확인'),
+            child: Text(l.loadingCheckStatusButton),
           ),
           const SizedBox(height: AppSpacing.md),
           TextButton(
             onPressed: () => Navigator.pushReplacementNamed(context, '/'),
-            child: const Text('홈으로 돌아가기'),
+            child: Text(l.loadingBackToHomeButton),
           ),
         ],
       ),
     );
   }
 
-  String _getStepDescription(String? step) {
-    if (step == null) return '준비 중...';
+  String _getStepDescription(AppLocalizations l, String? step) {
+    if (step == null) return l.loadingStepPreparing;
 
     final descriptions = {
-      'normalize': '입력을 분석하고 있어요',
-      'moderate_input': '안전성을 검사하고 있어요',
-      'generate_story': '이야기를 만들고 있어요',
-      'generate_character_sheet': '캐릭터를 디자인하고 있어요',
-      'generate_image_prompts': '그림을 준비하고 있어요',
-      'generate_images': '그림을 그리고 있어요',
-      'moderate_output': '최종 검사 중이에요',
-      'package': '마무리하고 있어요',
+      'normalize': l.loadingStepNormalize,
+      'moderate_input': l.loadingStepModerateInput,
+      'generate_story': l.loadingStepGenerateStory,
+      'generate_character_sheet': l.loadingStepGenerateCharacterSheet,
+      'generate_image_prompts': l.loadingStepGenerateImagePrompts,
+      'generate_images': l.loadingStepGenerateImages,
+      'moderate_output': l.loadingStepModerateOutput,
+      'package': l.loadingStepPackage,
     };
 
     return descriptions[step] ?? step;
   }
 
-  String _pickTip() {
-    final tips = [
-      '아이에게 맞는 단어와 문장으로 이야기가 만들어져요',
-      '캐릭터가 일관되게 그려지도록 AI가 신경 쓰고 있어요',
-      '완성된 책은 서재에서 언제든지 다시 볼 수 있어요',
-      '마음에 들지 않는 페이지는 나중에 다시 생성할 수 있어요',
-      '같은 캐릭터로 시리즈 동화를 만들 수도 있어요',
+  List<String> _tips(AppLocalizations l) {
+    return [
+      l.loadingTip1,
+      l.loadingTip2,
+      l.loadingTip3,
+      l.loadingTip4,
+      l.loadingTip5,
     ];
-    return tips[DateTime.now().millisecond % tips.length];
+  }
+
+  String _selectedTip(AppLocalizations l) {
+    final tips = _tips(l);
+    return tips[_selectedTipIndex % tips.length];
+  }
+
+  int _pickTipIndex() {
+    const tipCount = 5;
+    return DateTime.now().millisecond % tipCount;
   }
 }
 

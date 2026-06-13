@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../core/api_error.dart';
+import '../l10n/app_localizations.dart';
 import '../models/models.dart';
 import '../providers/providers.dart';
 import '../utils/constants.dart';
@@ -23,28 +24,28 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   static const _scrollThreshold = 320.0;
   final ScrollController _scrollController = ScrollController();
 
-  static const Map<String, String> _sortLabels = {
-    'newest': '최신순',
-    'oldest': '오래된순',
-    'title': '제목순',
-  };
+  Map<String, String> _sortLabels(AppLocalizations l) => {
+        'newest': l.librarySortNewest,
+        'oldest': l.librarySortOldest,
+        'title': l.librarySortTitle,
+      };
 
-  static const Map<String, String> _styleLabels = {
-    'watercolor': '수채화',
-    'cartoon': '카툰',
-    '3d': '3D',
-    'pixel': '픽셀',
-    'oil_painting': '유화',
-    'claymation': '클레이',
-    'realistic': '실사',
-  };
+  Map<String, String> _styleLabels(AppLocalizations l) => {
+        'watercolor': l.libraryStyleWatercolor,
+        'cartoon': l.libraryStyleCartoon,
+        '3d': l.libraryStyle3d,
+        'pixel': l.libraryStylePixel,
+        'oil_painting': l.libraryStyleOilPainting,
+        'claymation': l.libraryStyleClaymation,
+        'realistic': l.libraryStyleRealistic,
+      };
 
-  static const Map<String, String> _ageLabels = {
-    '3-5': '3-5세',
-    '5-7': '5-7세',
-    '7-9': '7-9세',
-    'adult': '성인',
-  };
+  Map<String, String> _ageLabels(AppLocalizations l) => {
+        '3-5': l.libraryAge3to5,
+        '5-7': l.libraryAge5to7,
+        '7-9': l.libraryAge7to9,
+        'adult': l.libraryAgeAdult,
+      };
 
   @override
   void initState() {
@@ -71,29 +72,30 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   }
 
   Future<void> _showRenameDialog(LibraryBook book) async {
+    final l = AppLocalizations.of(context);
     final controller = TextEditingController(text: book.title);
     try {
       final result = await showDialog<String>(
         context: context,
         builder: (context) {
           return AlertDialog(
-            title: const Text('책 이름 바꾸기'),
+            title: Text(l.libraryRenameDialogTitle),
             content: TextField(
               controller: controller,
               maxLength: 80,
-              decoration: const InputDecoration(
-                labelText: '제목',
-                hintText: '책 제목을 입력해주세요',
+              decoration: InputDecoration(
+                labelText: l.libraryRenameFieldLabel,
+                hintText: l.libraryRenameFieldHint,
               ),
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text('취소'),
+                child: Text(l.libraryCancel),
               ),
               FilledButton(
                 onPressed: () => Navigator.pop(context, controller.text.trim()),
-                child: const Text('저장'),
+                child: Text(l.librarySave),
               ),
             ],
           );
@@ -114,7 +116,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('책 이름을 수정했어요.')),
+        SnackBar(content: Text(l.libraryRenameSuccess)),
       );
     } catch (error) {
       if (!mounted) {
@@ -129,24 +131,25 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   }
 
   Future<void> _confirmDelete(LibraryBook book) async {
+    final l = AppLocalizations.of(context);
     final confirmed = await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
-            title: const Text('책 삭제'),
+            title: Text(l.libraryDeleteDialogTitle),
             content: Text(
-              '"${book.title}"을(를) 삭제할까요?\n삭제한 책은 복구할 수 없어요.',
+              l.libraryDeleteDialogContent(book.title),
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, false),
-                child: const Text('취소'),
+                child: Text(l.libraryCancel),
               ),
               FilledButton(
                 onPressed: () => Navigator.pop(context, true),
                 style: FilledButton.styleFrom(
                   backgroundColor: Colors.red.shade600,
                 ),
-                child: const Text('삭제'),
+                child: Text(l.libraryDelete),
               ),
             ],
           ),
@@ -163,7 +166,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('책을 삭제했어요.')),
+        SnackBar(content: Text(l.libraryDeleteSuccess)),
       );
     } catch (error) {
       if (!mounted) {
@@ -176,6 +179,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   }
 
   String _friendlyErrorMessage(Object error) {
+    final l = AppLocalizations.of(context);
     if (error is ApiError) {
       return error.userMessage;
     }
@@ -183,9 +187,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     if (raw.contains('socketexception') ||
         raw.contains('network') ||
         raw.contains('connection')) {
-      return '인터넷 연결을 확인한 뒤 다시 시도해주세요.';
+      return l.libraryErrorNetwork;
     }
-    return '요청 처리 중 오류가 발생했어요. 잠시 후 다시 시도해주세요.';
+    return l.libraryErrorGeneric;
   }
 
   String _sanitizeFileName(String title) {
@@ -195,13 +199,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   }
 
   Future<void> _shareBook(LibraryBook book) async {
-    final message = '''
-📚 ${book.title}
-
-AI Story Book으로 만든 동화책이에요.
-아이에게 특별한 이야기를 들려주세요!
-'''
-        .trim();
+    final l = AppLocalizations.of(context);
+    final message = l.libraryShareMessage(book.title);
     final box = context.findRenderObject() as RenderBox?;
     final origin = box != null
         ? box.localToGlobal(Offset.zero) & box.size
@@ -241,8 +240,8 @@ AI Story Book으로 만든 동화책이에요.
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('공유에 실패했어요. 잠시 후 다시 시도해주세요.'),
+        SnackBar(
+          content: Text(l.libraryShareFailed),
           backgroundColor: AppColors.error,
         ),
       );
@@ -251,20 +250,25 @@ AI Story Book으로 만든 동화책이에요.
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     final libraryAsync = ref.watch(libraryBrowseProvider);
     final notifier = ref.read(libraryBrowseProvider.notifier);
+
+    final sortLabels = _sortLabels(l);
+    final styleLabels = _styleLabels(l);
+    final ageLabels = _ageLabels(l);
 
     return AppShell(
       currentIndex: 2,
       appBar: AppBar(
         backgroundColor: AppColors.background,
         elevation: 0,
-        title: const Text('내 서재', style: AppTextStyles.heading2),
+        title: Text(l.libraryTitle, style: AppTextStyles.heading2),
         centerTitle: false,
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh, color: AppColors.textPrimary),
-            tooltip: '새로고침',
+            tooltip: l.libraryRefresh,
             onPressed: () => notifier.refresh(),
           ),
         ],
@@ -280,9 +284,9 @@ AI Story Book으로 만든 동화책이에요.
                 sort: state.sort,
                 style: state.style,
                 targetAge: state.targetAge,
-                sortLabels: _sortLabels,
-                styleLabels: _styleLabels,
-                ageLabels: _ageLabels,
+                sortLabels: sortLabels,
+                styleLabels: styleLabels,
+                ageLabels: ageLabels,
                 onSortChanged: notifier.setSort,
                 onStyleChanged: notifier.setStyleFilter,
                 onAgeChanged: notifier.setTargetAgeFilter,
@@ -327,9 +331,9 @@ AI Story Book으로 만든 동화책이에요.
                               onDelete: () => _confirmDelete(book),
                               onShare: () => _shareBook(book),
                               ageLabel:
-                                  _ageLabels[book.targetAge] ?? book.targetAge,
+                                  ageLabels[book.targetAge] ?? book.targetAge,
                               styleLabel:
-                                  _styleLabels[book.style] ?? book.style,
+                                  styleLabels[book.style] ?? book.style,
                               dateLabel: _formatDate(book.createdAt),
                             );
                           },
@@ -339,11 +343,15 @@ AI Story Book으로 만든 동화책이에요.
                         icon: hasFilter
                             ? Icons.filter_alt_off_outlined
                             : Icons.auto_stories_outlined,
-                        title: hasFilter ? '조건에 맞는 책이 없어요' : '아직 만든 책이 없어요',
+                        title: hasFilter
+                            ? l.libraryEmptyFilterTitle
+                            : l.libraryEmptyTitle,
                         subtitle: hasFilter
-                            ? '필터를 해제하고 전체 서재를 확인해보세요.'
-                            : '첫 번째 동화책을 만들어보세요!',
-                        buttonText: hasFilter ? '필터 초기화' : '새 책 만들기',
+                            ? l.libraryEmptyFilterSubtitle
+                            : l.libraryEmptySubtitle,
+                        buttonText: hasFilter
+                            ? l.libraryResetFilters
+                            : l.libraryCreateNew,
                         onButtonPressed: hasFilter
                             ? notifier.clearFilters
                             : () => Navigator.pushNamed(context, '/create'),
@@ -355,9 +363,9 @@ AI Story Book으로 만든 동화책이에요.
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, _) => EmptyState(
           icon: Icons.wifi_off_rounded,
-          title: '서재를 불러올 수 없어요',
+          title: l.libraryLoadError,
           subtitle: _friendlyErrorMessage(error),
-          buttonText: '다시 시도',
+          buttonText: l.libraryRetry,
           onButtonPressed: () => ref.invalidate(libraryBrowseProvider),
         ),
       ),
@@ -365,19 +373,20 @@ AI Story Book으로 만든 동화책이에요.
   }
 
   String _formatDate(DateTime date) {
+    final l = AppLocalizations.of(context);
     final now = DateTime.now();
     final diff = now.difference(date);
 
     if (diff.inDays == 0) {
-      return '오늘';
+      return l.libraryDateToday;
     }
     if (diff.inDays == 1) {
-      return '어제';
+      return l.libraryDateYesterday;
     }
     if (diff.inDays < 7) {
-      return '${diff.inDays}일 전';
+      return l.libraryDateDaysAgo(diff.inDays);
     }
-    return '${date.month}월 ${date.day}일';
+    return l.libraryDateMonthDay(date.month, date.day);
   }
 }
 
@@ -408,6 +417,7 @@ class _LibraryFilterPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     final hasFilter = style != null || targetAge != null;
 
     return Container(
@@ -428,7 +438,7 @@ class _LibraryFilterPanel extends StatelessWidget {
             children: [
               Expanded(
                 child: _LabeledDropdown(
-                  label: '정렬',
+                  label: l.librarySortLabel,
                   value: sort,
                   entries: sortLabels.entries.toList(),
                   nullLabel: null,
@@ -442,10 +452,10 @@ class _LibraryFilterPanel extends StatelessWidget {
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: _LabeledDropdown(
-                  label: '스타일',
+                  label: l.libraryStyleLabel,
                   value: style,
                   entries: styleLabels.entries.toList(),
-                  nullLabel: '전체',
+                  nullLabel: l.libraryFilterAll,
                   onChanged: onStyleChanged,
                 ),
               ),
@@ -456,10 +466,10 @@ class _LibraryFilterPanel extends StatelessWidget {
             children: [
               Expanded(
                 child: _LabeledDropdown(
-                  label: '연령',
+                  label: l.libraryAgeLabel,
                   value: targetAge,
                   entries: ageLabels.entries.toList(),
-                  nullLabel: '전체',
+                  nullLabel: l.libraryFilterAll,
                   onChanged: onAgeChanged,
                 ),
               ),
@@ -469,7 +479,7 @@ class _LibraryFilterPanel extends StatelessWidget {
                 child: TextButton.icon(
                   onPressed: hasFilter ? onResetFilters : null,
                   icon: const Icon(Icons.filter_alt_off_outlined),
-                  label: const Text('필터 초기화'),
+                  label: Text(l.libraryResetFilters),
                 ),
               ),
             ],
@@ -541,6 +551,7 @@ class _OfflineBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(
@@ -552,16 +563,16 @@ class _OfflineBanner extends StatelessWidget {
         children: [
           const Icon(Icons.wifi_off_rounded, size: 18),
           const SizedBox(width: AppSpacing.sm),
-          const Expanded(
+          Expanded(
             child: Text(
-              '오프라인 상태예요. 최근 불러온 책을 보여주고 있어요.',
+              l.libraryOfflineBanner,
               style: AppTextStyles.caption,
             ),
           ),
           IconButton(
             onPressed: onClose,
             icon: const Icon(Icons.close, size: 18),
-            tooltip: '닫기',
+            tooltip: l.libraryClose,
           ),
         ],
       ),
@@ -592,6 +603,7 @@ class _LibraryBookCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return Stack(
       children: [
         Positioned.fill(
@@ -624,7 +636,7 @@ class _LibraryBookCard extends StatelessWidget {
             color: AppColors.blackOverlay,
             shape: const CircleBorder(),
             child: PopupMenuButton<_BookCardMenuAction>(
-              tooltip: '책 옵션',
+              tooltip: l.libraryBookOptions,
               icon: const Icon(Icons.more_horiz, color: Colors.white, size: 20),
               onSelected: (value) {
                 if (value == _BookCardMenuAction.rename) {
@@ -635,14 +647,14 @@ class _LibraryBookCard extends StatelessWidget {
                   onDelete();
                 }
               },
-              itemBuilder: (context) => const [
+              itemBuilder: (context) => [
                 PopupMenuItem(
                   value: _BookCardMenuAction.rename,
                   child: Row(
                     children: [
-                      Icon(Icons.drive_file_rename_outline, size: 20),
-                      SizedBox(width: AppSpacing.sm),
-                      Text('이름 바꾸기'),
+                      const Icon(Icons.drive_file_rename_outline, size: 20),
+                      const SizedBox(width: AppSpacing.sm),
+                      Text(l.libraryMenuRename),
                     ],
                   ),
                 ),
@@ -650,9 +662,9 @@ class _LibraryBookCard extends StatelessWidget {
                   value: _BookCardMenuAction.share,
                   child: Row(
                     children: [
-                      Icon(Icons.share_outlined, size: 20),
-                      SizedBox(width: AppSpacing.sm),
-                      Text('공유하기'),
+                      const Icon(Icons.share_outlined, size: 20),
+                      const SizedBox(width: AppSpacing.sm),
+                      Text(l.libraryMenuShare),
                     ],
                   ),
                 ),
@@ -660,9 +672,10 @@ class _LibraryBookCard extends StatelessWidget {
                   value: _BookCardMenuAction.delete,
                   child: Row(
                     children: [
-                      Icon(Icons.delete_outline, size: 20, color: Colors.red),
-                      SizedBox(width: AppSpacing.sm),
-                      Text('삭제'),
+                      const Icon(Icons.delete_outline,
+                          size: 20, color: Colors.red),
+                      const SizedBox(width: AppSpacing.sm),
+                      Text(l.libraryMenuDelete),
                     ],
                   ),
                 ),

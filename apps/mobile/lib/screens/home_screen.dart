@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../l10n/app_localizations.dart';
 import '../utils/constants.dart';
 import '../widgets/app_shell.dart';
 import '../widgets/common_widgets.dart';
@@ -45,14 +46,16 @@ class HomeScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l = AppLocalizations.of(context);
     final libraryAsync = ref.watch(libraryProvider);
     final streakAsync = ref.watch(homeStreakProvider);
     final growthAsync = ref.watch(growthReportProvider);
     final growthSubtitle = growthAsync.maybeWhen(
       data: (g) => (g.vocabLearned > 0 || g.quizTotal > 0)
-          ? '학습 어휘 ${g.vocabLearned}개 · 정확도 ${g.quizTotal > 0 ? (g.quizAccuracy * 100).round() : 0}%'
-          : '우리 아이의 읽기 실력이 쌓이는 과정',
-      orElse: () => '우리 아이의 읽기 실력이 쌓이는 과정',
+          ? l.homeGrowthSubtitleStats(g.vocabLearned,
+              g.quizTotal > 0 ? (g.quizAccuracy * 100).round() : 0)
+          : l.readingGrowthEntrySubtitle,
+      orElse: () => l.readingGrowthEntrySubtitle,
     );
 
     return AppShell(
@@ -69,20 +72,20 @@ class HomeScreen extends ConsumerWidget {
                   children: [
                     Row(
                       children: [
-                        const Expanded(
-                          child: Text('AI 동화책', style: AppTextStyles.heading1),
+                        Expanded(
+                          child: Text(l.homeTitle, style: AppTextStyles.heading1),
                         ),
                         IconButton(
                           onPressed: () =>
                               Navigator.pushNamed(context, '/settings'),
                           icon: const Icon(Icons.settings_outlined),
-                          tooltip: '설정',
+                          tooltip: l.homeSettingsTooltip,
                         ),
                       ],
                     ),
                     const SizedBox(height: AppSpacing.sm),
-                    const Text(
-                      '아이를 위한 맞춤 동화를 만들어보세요',
+                    Text(
+                      l.homeHeaderSubtitle,
                       style: AppTextStyles.bodySmall,
                     ),
                   ],
@@ -101,7 +104,7 @@ class HomeScreen extends ConsumerWidget {
             ),
 
             const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.xl)),
-            const _SectionLabel('오늘의 읽기'),
+            _SectionLabel(l.homeSectionTodayReading),
 
             SliverToBoxAdapter(
               child: Padding(
@@ -113,7 +116,7 @@ class HomeScreen extends ConsumerWidget {
                   ),
                   loading: () => const _StreakLoadingCard(),
                   error: (error, _) => _StreakErrorCard(
-                    message: '스트릭 정보를 불러오지 못했어요.',
+                    message: l.homeStreakLoadError,
                     onRetry: () => ref.invalidate(homeStreakProvider),
                   ),
                 ),
@@ -121,7 +124,7 @@ class HomeScreen extends ConsumerWidget {
             ),
 
             const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.lg)),
-            const _SectionLabel('부모님께'),
+            _SectionLabel(l.homeSectionForParents),
 
             // 읽기 성장 진입
             SliverToBoxAdapter(
@@ -145,11 +148,11 @@ class HomeScreen extends ConsumerWidget {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('최근 만든 책', style: AppTextStyles.heading3),
+                    Text(l.homeRecentBooksTitle, style: AppTextStyles.heading3),
                     TextButton(
                       onPressed: () => Navigator.pushNamed(context, '/library'),
                       child: Text(
-                        '전체 보기',
+                        l.homeViewAll,
                         style: AppTextStyles.bodySmall.copyWith(
                           color: AppColors.primary,
                         ),
@@ -164,13 +167,13 @@ class HomeScreen extends ConsumerWidget {
             libraryAsync.when(
               data: (books) {
                 if (books.isEmpty) {
-                  return const SliverToBoxAdapter(
+                  return SliverToBoxAdapter(
                     child: Padding(
-                      padding: EdgeInsets.all(AppSpacing.xl),
+                      padding: const EdgeInsets.all(AppSpacing.xl),
                       child: EmptyState(
                         icon: Icons.auto_stories_outlined,
-                        title: '아직 만든 책이 없어요',
-                        subtitle: '첫 번째 동화책을 만들어보세요!',
+                        title: l.homeEmptyTitle,
+                        subtitle: l.homeEmptySubtitle,
                       ),
                     ),
                   );
@@ -219,9 +222,9 @@ class HomeScreen extends ConsumerWidget {
                   padding: const EdgeInsets.all(AppSpacing.lg),
                   child: EmptyState(
                     icon: Icons.error_outline,
-                    title: '책을 불러올 수 없어요',
+                    title: l.homeLibraryErrorTitle,
                     subtitle: error.toString(),
-                    buttonText: '다시 시도',
+                    buttonText: l.retry,
                     onButtonPressed: () => ref.invalidate(libraryProvider),
                   ),
                 ),
@@ -242,6 +245,7 @@ class _CreateBookCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -263,22 +267,22 @@ class _CreateBookCard extends StatelessWidget {
         ),
         child: Row(
           children: [
-            const Expanded(
+            Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '새 동화책 만들기',
-                    style: TextStyle(
+                    l.homeCreateCardTitle,
+                    style: const TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
                       color: Colors.white,
                     ),
                   ),
-                  SizedBox(height: AppSpacing.sm),
+                  const SizedBox(height: AppSpacing.sm),
                   Text(
-                    '우리 아이가 주인공인\n맞춤 동화를 만들어요',
-                    style: TextStyle(
+                    l.homeCreateCardSubtitle,
+                    style: const TextStyle(
                       fontSize: 14,
                       color: AppColors.whiteOverlayStrong,
                     ),
@@ -317,7 +321,8 @@ class _StreakSummaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final recentDays = _recentDays(data.readDates);
+    final l = AppLocalizations.of(context);
+    final recentDays = _recentDays(context, data.readDates);
 
     return Container(
       width: double.infinity,
@@ -345,7 +350,7 @@ class _StreakSummaryCard extends StatelessWidget {
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Text(
-                  '${data.currentStreak}일 연속 읽기',
+                  l.homeStreakDaysLabel(data.currentStreak),
                   style: AppTextStyles.heading3,
                 ),
               ),
@@ -361,7 +366,7 @@ class _StreakSummaryCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
-                  data.readToday ? '오늘 읽음' : '오늘 미완료',
+                  data.readToday ? l.homeReadTodayBadge : l.homeNotReadTodayBadge,
                   style: AppTextStyles.caption.copyWith(
                     color: AppColors.textPrimary,
                   ),
@@ -371,7 +376,7 @@ class _StreakSummaryCard extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            '총 ${data.totalDays}일 읽었어요 · 최고 ${data.longestStreak}일',
+            l.homeStreakSummary(data.totalDays, data.longestStreak),
             style: AppTextStyles.bodySmall,
           ),
           const SizedBox(height: AppSpacing.md),
@@ -383,7 +388,7 @@ class _StreakSummaryCard extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.md),
           Text(
-            '최근 7일',
+            l.homeRecent7Days,
             style: AppTextStyles.caption.copyWith(
               color: AppColors.textSecondary,
             ),
@@ -403,7 +408,8 @@ class _StreakSummaryCard extends StatelessWidget {
     );
   }
 
-  List<_RecentDayEntry> _recentDays(Set<String> readDates) {
+  List<_RecentDayEntry> _recentDays(
+      BuildContext context, Set<String> readDates) {
     final now = DateTime.now();
     final entries = <_RecentDayEntry>[];
     for (var i = 6; i >= 0; i--) {
@@ -412,7 +418,7 @@ class _StreakSummaryCard extends StatelessWidget {
           '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
       entries.add(
         _RecentDayEntry(
-          label: _weekdayLabel(date.weekday),
+          label: _weekdayLabel(context, date.weekday),
           read: readDates.contains(key),
         ),
       );
@@ -420,24 +426,25 @@ class _StreakSummaryCard extends StatelessWidget {
     return entries;
   }
 
-  String _weekdayLabel(int weekday) {
+  String _weekdayLabel(BuildContext context, int weekday) {
+    final l = AppLocalizations.of(context);
     switch (weekday) {
       case DateTime.monday:
-        return '월';
+        return l.homeWeekdayMon;
       case DateTime.tuesday:
-        return '화';
+        return l.homeWeekdayTue;
       case DateTime.wednesday:
-        return '수';
+        return l.homeWeekdayWed;
       case DateTime.thursday:
-        return '목';
+        return l.homeWeekdayThu;
       case DateTime.friday:
-        return '금';
+        return l.homeWeekdayFri;
       case DateTime.saturday:
-        return '토';
+        return l.homeWeekdaySat;
       case DateTime.sunday:
-        return '일';
+        return l.homeWeekdaySun;
       default:
-        return '-';
+        return l.homeWeekdayUnknown;
     }
   }
 }
@@ -457,6 +464,7 @@ class _TodayStoryPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.md),
@@ -468,7 +476,7 @@ class _TodayStoryPanel extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '오늘의 동화 · $themeName',
+            l.homeTodayStoryLabel(themeName),
             style: AppTextStyles.caption.copyWith(
               color: AppColors.textSecondary,
             ),
@@ -480,7 +488,7 @@ class _TodayStoryPanel extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.sm),
           PrimaryButton(
-            text: hasTodayBook ? '이어 읽기' : '오늘 동화 만들기',
+            text: hasTodayBook ? l.homeContinueReading : l.homeMakeTodayStory,
             onPressed: onTap,
             isFullWidth: false,
           ),
@@ -526,6 +534,7 @@ class _StreakLoadingCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.lg),
@@ -534,15 +543,15 @@ class _StreakLoadingCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppRadius.lg),
         border: Border.all(color: AppColors.divider),
       ),
-      child: const Row(
+      child: Row(
         children: [
-          SizedBox(
+          const SizedBox(
             width: 20,
             height: 20,
             child: CircularProgressIndicator(strokeWidth: 2),
           ),
-          SizedBox(width: AppSpacing.sm),
-          Text('스트릭 정보를 불러오는 중...'),
+          const SizedBox(width: AppSpacing.sm),
+          Text(l.homeStreakLoading),
         ],
       ),
     );
@@ -560,6 +569,7 @@ class _StreakErrorCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.lg),
@@ -571,11 +581,11 @@ class _StreakErrorCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             children: [
-              Icon(Icons.error_outline, color: AppColors.error),
-              SizedBox(width: AppSpacing.sm),
-              Text('스트릭 카드 오류', style: AppTextStyles.heading3),
+              const Icon(Icons.error_outline, color: AppColors.error),
+              const SizedBox(width: AppSpacing.sm),
+              Text(l.homeStreakErrorTitle, style: AppTextStyles.heading3),
             ],
           ),
           const SizedBox(height: AppSpacing.sm),
@@ -583,7 +593,7 @@ class _StreakErrorCard extends StatelessWidget {
           const SizedBox(height: AppSpacing.sm),
           TextButton(
             onPressed: onRetry,
-            child: const Text('다시 시도'),
+            child: Text(l.retry),
           ),
         ],
       ),
@@ -610,6 +620,7 @@ class _GrowthEntryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(AppRadius.lg),
@@ -644,10 +655,10 @@ class _GrowthEntryCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('읽기 성장 보기', style: AppTextStyles.heading3),
+                  Text(l.homeGrowthEntryTitle, style: AppTextStyles.heading3),
                   const SizedBox(height: 2),
                   Text(
-                    subtitle ?? '우리 아이의 읽기 실력이 쌓이는 과정',
+                    subtitle ?? l.readingGrowthEntrySubtitle,
                     style: AppTextStyles.bodySmall,
                   ),
                 ],
