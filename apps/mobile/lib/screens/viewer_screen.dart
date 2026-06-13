@@ -13,6 +13,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:printing/printing.dart';
 import '../core/api_error.dart';
+import '../l10n/app_localizations.dart';
 import '../models/models.dart';
 import '../widgets/vocab_game_card.dart';
 import '../providers/providers.dart';
@@ -166,6 +167,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     final bookAsync = ref.watch(bookDetailProvider(widget.bookId));
 
     return Scaffold(
@@ -182,12 +184,12 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               const Icon(Icons.error, color: Colors.white, size: 48),
               const SizedBox(height: AppSpacing.md),
               Text(
-                '책을 불러올 수 없어요',
+                l.viewerBookLoadError,
                 style: AppTextStyles.body.copyWith(color: Colors.white),
               ),
               const SizedBox(height: AppSpacing.lg),
               PrimaryButton(
-                text: '돌아가기',
+                text: l.viewerGoBack,
                 isFullWidth: false,
                 onPressed: () => Navigator.pop(context),
               ),
@@ -199,6 +201,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   }
 
   Widget _buildViewer(BookResult book) {
+    final l = AppLocalizations.of(context);
     _activeBook = book;
     // 표지(0) + 페이지들
     final totalPages = book.pages.length + 1;
@@ -343,7 +346,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
-                  '수면 ${_sleepRemainingText()}',
+                  l.viewerSleepRemaining(_sleepRemainingText()),
                   style: AppTextStyles.caption.copyWith(color: Colors.white),
                 ),
               ),
@@ -420,6 +423,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   }
 
   Future<void> _showCompletionCelebration(int streak) async {
+    final l = AppLocalizations.of(context);
     _completionConfettiController
       ..stop()
       ..play();
@@ -488,22 +492,22 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                     ),
                   ),
                   const SizedBox(height: AppSpacing.lg),
-                  const Text(
-                    '완독 축하해요!',
+                  Text(
+                    l.viewerCompletionTitle,
                     style: AppTextStyles.heading2,
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: AppSpacing.sm),
                   Text(
                     streak >= 3
-                        ? '🔥 $streak일 연속 읽기 달성! 정말 대단해요.'
-                        : '마지막 페이지까지 읽었어요. 다음 동화도 시작해볼까요?',
+                        ? l.viewerCompletionStreak(streak)
+                        : l.viewerCompletionMessage,
                     style: AppTextStyles.bodySmall,
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: AppSpacing.xl),
                   PrimaryButton(
-                    text: '다음 동화 만들기',
+                    text: l.viewerCreateNextStory,
                     onPressed: () {
                       Navigator.pop(dialogContext);
                       Navigator.pushNamedAndRemoveUntil(
@@ -515,7 +519,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                   ),
                   const SizedBox(height: AppSpacing.md),
                   SecondaryButton(
-                    text: '서재로 가기',
+                    text: l.viewerGoToLibrary,
                     onPressed: () {
                       Navigator.pop(dialogContext);
                       Navigator.pushNamedAndRemoveUntil(
@@ -559,6 +563,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   }
 
   Widget _buildControls(BookResult book, int totalPages) {
+    final l = AppLocalizations.of(context);
     return Column(
       children: [
         // 상단 바
@@ -583,6 +588,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
             children: [
               IconButton(
                 icon: const Icon(Icons.close, color: Colors.white),
+                tooltip: l.viewerCloseTooltip,
                 onPressed: () => Navigator.pop(context),
               ),
               Expanded(
@@ -614,6 +620,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               ),
               IconButton(
                 icon: const Icon(Icons.more_vert, color: Colors.white),
+                tooltip: l.viewerMoreOptionsTooltip,
                 onPressed: () => _showOptionsMenu(book),
               ),
             ],
@@ -659,8 +666,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                     ),
                     child: Text(
                       _currentPage == 0
-                          ? '표지'
-                          : '$_currentPage / ${totalPages - 1}',
+                          ? l.viewerCover
+                          : l.viewerPageIndicator(_currentPage, totalPages - 1),
                       style:
                           AppTextStyles.caption.copyWith(color: Colors.white),
                     ),
@@ -676,6 +683,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                 children: [
                   _NavButton(
                     icon: Icons.chevron_left,
+                    tooltip: l.viewerPreviousPageTooltip,
                     enabled: _currentPage > 0,
                     onPressed: () {
                       _pageController.previousPage(
@@ -696,6 +704,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                   const SizedBox.shrink(),
                   _NavButton(
                     icon: Icons.chevron_right,
+                    tooltip: l.viewerNextPageTooltip,
                     enabled: _currentPage < totalPages - 1,
                     onPressed: () {
                       _pageController.nextPage(
@@ -716,6 +725,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   /// 학습 모드 상시 진입 바 — 현재 페이지에 학습 콘텐츠가 있을 때만 노출.
   /// (커버/콘텐츠 없으면 빈 위젯, 옵션 메뉴를 거치지 않고 한 번에 학습 모드로.)
   Widget _buildLearningBar(BookResult book) {
+    final l = AppLocalizations.of(context);
     if (_currentPage <= 0 || _currentPage > book.pages.length) {
       return const SizedBox.shrink();
     }
@@ -727,9 +737,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       return const SizedBox.shrink();
     }
     final parts = <String>[
-      if (vocab > 0) '단어 $vocab',
-      if (quiz > 0) '퀴즈 $quiz',
-      if (compr > 0) '질문 $compr',
+      if (vocab > 0) l.viewerLearningWordCount(vocab),
+      if (quiz > 0) l.viewerLearningQuizCount(quiz),
+      if (compr > 0) l.viewerLearningQuestionCount(compr),
     ];
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.md),
@@ -752,7 +762,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               const Icon(Icons.menu_book_rounded, color: Colors.white, size: 18),
               const SizedBox(width: AppSpacing.sm),
               Text(
-                '학습 모드 · ${parts.join(' · ')}',
+                l.viewerLearningBar(parts.join(' · ')),
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w700,
@@ -800,12 +810,13 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       return true;
     }
 
+    final l = AppLocalizations.of(context);
     final message = apiError.message.trim();
     final title = message.contains('PDF') ||
             message.contains('오디오') ||
             message.contains('플랜')
-        ? '플랜 업그레이드가 필요해요'
-        : '크레딧이 부족해요';
+        ? l.viewerPlanUpgradeNeeded
+        : l.viewerCreditShortage;
     await showCreditShortageModal(
       context,
       title: title,
@@ -853,8 +864,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('오디오 재생에 실패했어요. 잠시 후 다시 시도해주세요.'),
+          SnackBar(
+            content: Text(AppLocalizations.of(context).viewerAudioPlayFailed),
             backgroundColor: AppColors.error,
           ),
         );
@@ -960,7 +971,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     await _audioPlayer.stop();
     if (byTimer && wasEnabled && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('수면 모드 시간이 종료되었어요.')),
+        SnackBar(content: Text(AppLocalizations.of(context).viewerSleepModeEnded)),
       );
     }
   }
@@ -1014,6 +1025,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   }
 
   void _showOptionsMenu(BookResult book) {
+    final l = AppLocalizations.of(context);
     final hasBilingualText = book.pages.any(
       (page) =>
           (page.textKo?.isNotEmpty ?? false) &&
@@ -1038,9 +1050,11 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                       : Icons.hearing,
                 ),
                 title: Text(
-                  _followReadingEnabled ? '따라 읽기 모드 끄기' : '따라 읽기 모드 켜기',
+                  _followReadingEnabled
+                      ? l.viewerFollowReadingOff
+                      : l.viewerFollowReadingOn,
                 ),
-                subtitle: const Text('오디오 진행에 맞춰 문장을 강조해요'),
+                subtitle: Text(l.viewerFollowReadingSubtitle),
                 onTap: () {
                   Navigator.pop(context);
                   if (!mounted) {
@@ -1054,9 +1068,11 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               ListTile(
                 leading: const Icon(Icons.translate),
                 title: Text(
-                  _dualLanguageEnabled ? '이중언어 표시 끄기' : '이중언어 동시 표시',
+                  _dualLanguageEnabled
+                      ? l.viewerDualLanguageOff
+                      : l.viewerDualLanguageOn,
                 ),
-                subtitle: const Text('한국어/영어를 한 화면에서 볼 수 있어요'),
+                subtitle: Text(l.viewerDualLanguageSubtitle),
                 onTap: () {
                   Navigator.pop(context);
                   if (!mounted) {
@@ -1067,8 +1083,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               ),
             ListTile(
               leading: const Icon(Icons.alt_route),
-              title: const Text('분기형 스토리 모드'),
-              subtitle: const Text('선택지에 따라 결말이 달라지는 모드'),
+              title: Text(l.viewerBranchStoryTitle),
+              subtitle: Text(l.viewerBranchStorySubtitle),
               onTap: () {
                 Navigator.pop(context);
                 Navigator.pushNamed(
@@ -1085,8 +1101,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                 book.pages[_currentPage - 1].hasLearningContent)
               ListTile(
                 leading: const Icon(Icons.school),
-                title: const Text('학습 모드'),
-                subtitle: const Text('단어, 질문, 퀴즈'),
+                title: Text(l.viewerLearningModeTitle),
+                subtitle: Text(l.viewerLearningModeSubtitle),
                 onTap: () {
                   Navigator.pop(context);
                   _showLearningMode(book, book.pages[_currentPage - 1]);
@@ -1096,8 +1112,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
             if (book.learningAssets != null)
               ListTile(
                 leading: const Icon(Icons.family_restroom),
-                title: const Text('부모 가이드'),
-                subtitle: const Text('토론 주제, 활동 아이디어'),
+                title: Text(l.viewerParentGuideTitle),
+                subtitle: Text(l.viewerParentGuideSubtitle),
                 onTap: () {
                   Navigator.pop(context);
                   _showParentGuide(book);
@@ -1106,8 +1122,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
             if (_currentPage > 0)
               ListTile(
                 leading: const Icon(Icons.record_voice_over_outlined),
-                title: const Text('발음 연습'),
-                subtitle: const Text('현재 페이지 문장으로 발음을 평가해요'),
+                title: Text(l.viewerPronunciationTitle),
+                subtitle: Text(l.viewerPronunciationSubtitle),
                 onTap: () {
                   final page = book.pages[_currentPage - 1];
                   final expected = page.getText(_selectedLanguage);
@@ -1126,7 +1142,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
             if (_currentPage > 0)
               ListTile(
                 leading: const Icon(Icons.refresh),
-                title: const Text('이 페이지 다시 만들기'),
+                title: Text(l.viewerRegeneratePageTitle),
                 onTap: () {
                   Navigator.pop(context);
                   _showRegenerateOptions(book);
@@ -1135,7 +1151,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
             if (book.characterId != null)
               ListTile(
                 leading: const Icon(Icons.auto_stories),
-                title: const Text('같은 캐릭터로 새 이야기'),
+                title: Text(l.viewerSameCharacterNewStory),
                 onTap: () {
                   Navigator.pop(context);
                   Navigator.pushNamed(
@@ -1147,7 +1163,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               ),
             ListTile(
               leading: const Icon(Icons.picture_as_pdf),
-              title: const Text('PDF로 내보내기'),
+              title: Text(l.viewerExportPdf),
               onTap: () {
                 Navigator.pop(context);
                 _downloadPdf(book);
@@ -1155,8 +1171,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.local_shipping_outlined),
-              title: const Text('실물책 주문'),
-              subtitle: const Text('POD 주문으로 인쇄본을 받아볼 수 있어요'),
+              title: Text(l.viewerOrderPhysicalBook),
+              subtitle: Text(l.viewerOrderPhysicalBookSubtitle),
               onTap: () {
                 Navigator.pop(context);
                 Navigator.pushNamed(
@@ -1173,11 +1189,12 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               leading: Icon(
                 _sleepModeEnabled ? Icons.bedtime_off : Icons.bedtime,
               ),
-              title: Text(_sleepModeEnabled ? '수면 모드 종료' : '수면 모드 시작'),
+              title: Text(
+                  _sleepModeEnabled ? l.viewerSleepModeStop : l.viewerSleepModeStart),
               subtitle: Text(
                 _sleepModeEnabled
-                    ? '남은 시간 ${_sleepRemainingText()}'
-                    : '화면 어둡게 + 오디오 자동재생 + 페이지 자동넘김',
+                    ? l.viewerSleepModeRemaining(_sleepRemainingText())
+                    : l.viewerSleepModeDescription,
               ),
               onTap: () {
                 Navigator.pop(context);
@@ -1190,7 +1207,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.print_outlined),
-              title: const Text('인쇄하기'),
+              title: Text(l.viewerPrint),
               onTap: () {
                 Navigator.pop(context);
                 _printPdf(book);
@@ -1198,7 +1215,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.share),
-              title: const Text('공유하기'),
+              title: Text(l.viewerShare),
               onTap: () {
                 Navigator.pop(context);
                 _showShareOptions(book);
@@ -1315,39 +1332,40 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   }
 
   void _showRegenerateOptions(BookResult book) {
+    final l = AppLocalizations.of(context);
     final pageIndex = _currentPage - 1; // 표지 제외
     if (pageIndex < 0) return;
 
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('페이지 다시 만들기'),
-        content: const Text('어떤 부분을 다시 만들까요?'),
+        title: Text(l.viewerRegenerateDialogTitle),
+        content: Text(l.viewerRegenerateDialogContent),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('취소'),
+            child: Text(l.viewerCancel),
           ),
           TextButton(
             onPressed: () {
               Navigator.pop(context);
               _regeneratePage(book, pageIndex + 1, 'text');
             },
-            child: const Text('텍스트만'),
+            child: Text(l.viewerRegenerateTextOnly),
           ),
           TextButton(
             onPressed: () {
               Navigator.pop(context);
               _regeneratePage(book, pageIndex + 1, 'image');
             },
-            child: const Text('그림만'),
+            child: Text(l.viewerRegenerateImageOnly),
           ),
           TextButton(
             onPressed: () {
               Navigator.pop(context);
               _regeneratePage(book, pageIndex + 1, 'both');
             },
-            child: const Text('모두'),
+            child: Text(l.viewerRegenerateAll),
           ),
         ],
       ),
@@ -1356,15 +1374,16 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
 
   Future<void> _regeneratePage(
       BookResult book, int pageNumber, String target) async {
+    final l = AppLocalizations.of(context);
     if (book.jobId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('이 책은 페이지 재생성을 지원하지 않아요')),
+        SnackBar(content: Text(l.viewerRegenerateNotSupported)),
       );
       return;
     }
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('페이지를 다시 만들고 있어요...')),
+      SnackBar(content: Text(l.viewerRegenerating)),
     );
 
     try {
@@ -1374,7 +1393,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('페이지 재생성이 시작되었어요. 잠시만 기다려주세요.')),
+          SnackBar(content: Text(AppLocalizations.of(context).viewerRegenerateStarted)),
         );
         // 책 데이터 새로고침
         ref.invalidate(bookDetailProvider(widget.bookId));
@@ -1382,8 +1401,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('재생성에 실패했어요. 잠시 후 다시 시도해주세요.'),
+          SnackBar(
+            content: Text(AppLocalizations.of(context).viewerRegenerateFailed),
             backgroundColor: AppColors.error,
           ),
         );
@@ -1392,10 +1411,11 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   }
 
   Future<void> _downloadPdf(BookResult book) async {
+    final l = AppLocalizations.of(context);
     try {
       // 로딩 표시
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('PDF 생성 중...')),
+        SnackBar(content: Text(l.viewerPdfGenerating)),
       );
 
       // API 호출
@@ -1411,7 +1431,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('PDF 저장 완료: $fileName')),
+          SnackBar(content: Text(AppLocalizations.of(context).viewerPdfSaved(fileName))),
         );
       }
     } catch (e) {
@@ -1420,8 +1440,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('PDF 다운로드에 실패했어요. 잠시 후 다시 시도해주세요.'),
+          SnackBar(
+            content: Text(AppLocalizations.of(context).viewerPdfDownloadFailed),
             backgroundColor: AppColors.error,
           ),
         );
@@ -1430,6 +1450,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   }
 
   void _showShareOptions(BookResult book) {
+    final l = AppLocalizations.of(context);
     final kakaoShare = ref.read(kakaoShareServiceProvider);
     final canUseKakaoShare = _allowKakaoShare && kakaoShare.isConfigured;
 
@@ -1440,7 +1461,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
       ),
       builder: (context) => AdaptiveModalSheet(
-        title: '공유하기',
+        title: l.viewerShare,
         contentPadding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1453,7 +1474,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               children: [
                 _ShareButton(
                   icon: Icons.public,
-                  label: '공유 링크',
+                  label: l.viewerShareLink,
                   onTap: () {
                     Navigator.pop(context);
                     _createAndShareLink(book);
@@ -1461,7 +1482,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                 ),
                 _ShareButton(
                   icon: Icons.link,
-                  label: 'URL 복사',
+                  label: l.viewerShareCopyUrl,
                   onTap: () {
                     Navigator.pop(context);
                     _copyShareUrl(book);
@@ -1469,7 +1490,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                 ),
                 _ShareButton(
                   icon: Icons.chat_bubble,
-                  label: '메시지',
+                  label: l.viewerShareMessage,
                   onTap: () {
                     Navigator.pop(context);
                     _shareText(book);
@@ -1478,7 +1499,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                 if (canUseKakaoShare)
                   _ShareButton(
                     icon: Icons.sms_outlined,
-                    label: '카카오톡',
+                    label: l.viewerShareKakao,
                     onTap: () async {
                       Navigator.pop(context);
                       await _shareToKakao(book);
@@ -1486,7 +1507,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                   ),
                 _ShareButton(
                   icon: Icons.image_outlined,
-                  label: '표지 공유',
+                  label: l.viewerShareCover,
                   onTap: () {
                     Navigator.pop(context);
                     _shareCoverImage(book);
@@ -1494,7 +1515,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                 ),
                 _ShareButton(
                   icon: Icons.picture_as_pdf,
-                  label: 'PDF 공유',
+                  label: l.viewerSharePdf,
                   onTap: () {
                     Navigator.pop(context);
                     _sharePdf(book);
@@ -1502,7 +1523,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                 ),
                 _ShareButton(
                   icon: Icons.more_horiz,
-                  label: '더보기',
+                  label: l.viewerShareMore,
                   onTap: () async {
                     Navigator.pop(context);
                     // 약간의 딜레이 후 시스템 공유 다이얼로그 표시
@@ -1520,16 +1541,18 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   }
 
   void _copyShareUrl(BookResult book) {
+    final l = AppLocalizations.of(context);
     // 간단한 공유 텍스트 복사
-    final shareText = '${book.title}\n\nAI Story Book으로 만든 동화책이에요!';
+    final shareText = l.viewerShareTextSimple(book.title);
     Clipboard.setData(ClipboardData(text: shareText));
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('복사 완료')),
+      SnackBar(content: Text(l.viewerCopyDone)),
     );
   }
 
   /// 부모 전용 공개 공유 링크 생성 후 공유(누구나 열어볼 수 있는 동화 페이지).
   Future<void> _createAndShareLink(BookResult book) async {
+    final l = AppLocalizations.of(context);
     // 공유 시트 위치는 await 전에 캡처(async gap 후 context 사용 회피).
     final box = context.findRenderObject() as RenderBox?;
     final origin = box != null
@@ -1543,26 +1566,21 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
         throw Exception('빈 공유 URL');
       }
       await Share.share(
-        '우리 아이가 주인공인 동화책 "${book.title}" 📖\n$url\n\nAistorybook에서 만들었어요',
+        l.viewerShareLinkText(book.title, url),
         sharePositionOrigin: origin,
       );
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('공유 링크 생성에 실패했어요. 잠시 후 다시 시도해주세요.')),
+          SnackBar(content: Text(AppLocalizations.of(context).viewerShareLinkFailed)),
         );
       }
     }
   }
 
   void _shareText(BookResult book) {
-    final shareText = '''
-📚 ${book.title}
-
-AI Story Book으로 만든 동화책이에요!
-아이에게 특별한 이야기를 선물하세요 ✨
-    '''
-        .trim();
+    final l = AppLocalizations.of(context);
+    final shareText = l.viewerShareFullText(book.title).trim();
     final box = context.findRenderObject() as RenderBox?;
     Share.share(
       shareText,
@@ -1573,6 +1591,7 @@ AI Story Book으로 만든 동화책이에요!
   }
 
   Future<void> _shareToKakao(BookResult book) async {
+    final l = AppLocalizations.of(context);
     final box = context.findRenderObject() as RenderBox?;
     final shareOrigin = box != null
         ? box.localToGlobal(Offset.zero) & box.size
@@ -1583,7 +1602,7 @@ AI Story Book으로 만든 동화책이에요!
       bookId: book.bookId,
       title: book.title,
       coverImageUrl: book.coverImageUrl,
-      description: 'AI Story Book으로 만든 동화책',
+      description: l.viewerKakaoDescription,
     );
     if (result.shared) {
       return;
@@ -1596,17 +1615,11 @@ AI Story Book으로 만든 동화책이에요!
 
     final deepLink = 'ai-story-book://books/${book.bookId}';
     final fallbackUrl = 'https://aistorybook.app/books/${book.bookId}';
-    final shareText = '''
-📚 ${book.title}
-
-카카오톡으로 동화책을 공유해요!
-$deepLink
-$fallbackUrl
-    '''
-        .trim();
+    final shareText =
+        l.viewerKakaoShareText(book.title, deepLink, fallbackUrl).trim();
     await Share.share(
       shareText,
-      subject: 'AI Story Book - ${book.title}',
+      subject: l.viewerKakaoShareSubject(book.title),
       sharePositionOrigin: shareOrigin,
     );
   }
@@ -1626,8 +1639,8 @@ $fallbackUrl
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('인쇄에 실패했어요. 잠시 후 다시 시도해주세요.'),
+        SnackBar(
+          content: Text(AppLocalizations.of(context).viewerPrintFailed),
           backgroundColor: AppColors.error,
         ),
       );
@@ -1635,6 +1648,7 @@ $fallbackUrl
   }
 
   Future<void> _shareCoverImage(BookResult book) async {
+    final l = AppLocalizations.of(context);
     try {
       final request = await HttpClient().getUrl(Uri.parse(book.coverImageUrl));
       final response = await request.close();
@@ -1652,7 +1666,7 @@ $fallbackUrl
       final box = context.findRenderObject() as RenderBox?;
       await Share.shareXFiles(
         [XFile(file.path)],
-        text: '${book.title} - 표지 이미지',
+        text: l.viewerShareCoverText(book.title),
         sharePositionOrigin: box != null
             ? box.localToGlobal(Offset.zero) & box.size
             : const Rect.fromLTWH(0, 0, 100, 100),
@@ -1662,8 +1676,8 @@ $fallbackUrl
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('표지 공유에 실패했어요. 잠시 후 다시 시도해주세요.'),
+        SnackBar(
+          content: Text(AppLocalizations.of(context).viewerShareCoverFailed),
           backgroundColor: AppColors.error,
         ),
       );
@@ -1671,9 +1685,10 @@ $fallbackUrl
   }
 
   Future<void> _sharePdf(BookResult book) async {
+    final l = AppLocalizations.of(context);
     try {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('PDF 생성 중...')),
+        SnackBar(content: Text(l.viewerPdfGenerating)),
       );
 
       final apiClient = ref.read(apiClientProvider);
@@ -1689,7 +1704,7 @@ $fallbackUrl
       final box = context.findRenderObject() as RenderBox?;
       await Share.shareXFiles(
         [XFile(file.path)],
-        text: '${book.title} - AI Story Book으로 만든 동화책',
+        text: l.viewerSharePdfText(book.title),
         sharePositionOrigin: box != null
             ? box.localToGlobal(Offset.zero) & box.size
             : const Rect.fromLTWH(0, 0, 100, 100),
@@ -1700,8 +1715,8 @@ $fallbackUrl
       }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('PDF 공유에 실패했어요. 잠시 후 다시 시도해주세요.'),
+          SnackBar(
+            content: Text(AppLocalizations.of(context).viewerSharePdfFailed),
             backgroundColor: AppColors.error,
           ),
         );
@@ -1758,19 +1773,24 @@ class _CoverPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return Stack(
       fit: StackFit.expand,
       children: [
-        CachedNetworkImage(
-          imageUrl: imageUrl,
-          fit: BoxFit.cover,
-          placeholder: (context, url) => const Center(
-            child: CircularProgressIndicator(color: Colors.white),
-          ),
-          errorWidget: (context, url, error) => Container(
-            color: AppColors.primary,
-            child:
-                const Icon(Icons.broken_image, color: Colors.white, size: 64),
+        Semantics(
+          label: l.viewerCoverImageSemantics(title),
+          image: true,
+          child: CachedNetworkImage(
+            imageUrl: imageUrl,
+            fit: BoxFit.cover,
+            placeholder: (context, url) => const Center(
+              child: CircularProgressIndicator(color: Colors.white),
+            ),
+            errorWidget: (context, url, error) => Container(
+              color: AppColors.primary,
+              child:
+                  const Icon(Icons.broken_image, color: Colors.white, size: 64),
+            ),
           ),
         ),
         Container(
@@ -1837,6 +1857,7 @@ class _ContentPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     final hasLearning = page.hasLearningContent;
 
     return Container(
@@ -1846,17 +1867,21 @@ class _ContentPage extends StatelessWidget {
           // 이미지
           Expanded(
             flex: 3,
-            child: CachedNetworkImage(
-              imageUrl: imageUrl,
-              fit: BoxFit.cover,
-              width: double.infinity,
-              placeholder: (context, url) => Container(
-                color: AppColors.divider,
-                child: const Center(child: CircularProgressIndicator()),
-              ),
-              errorWidget: (context, url, error) => Container(
-                color: AppColors.divider,
-                child: const Icon(Icons.broken_image, size: 64),
+            child: Semantics(
+              label: l.viewerPageImageSemantics(pageNumber),
+              image: true,
+              child: CachedNetworkImage(
+                imageUrl: imageUrl,
+                fit: BoxFit.cover,
+                width: double.infinity,
+                placeholder: (context, url) => Container(
+                  color: AppColors.divider,
+                  child: const Center(child: CircularProgressIndicator()),
+                ),
+                errorWidget: (context, url, error) => Container(
+                  color: AppColors.divider,
+                  child: const Icon(Icons.broken_image, size: 64),
+                ),
               ),
             ),
           ),
@@ -1918,7 +1943,7 @@ class _ContentPage extends StatelessWidget {
                     TextButton.icon(
                       onPressed: onShowLearning,
                       icon: const Icon(Icons.school, size: 18),
-                      label: const Text('학습하기'),
+                      label: Text(l.viewerLearn),
                       style: TextButton.styleFrom(
                         foregroundColor: AppColors.primary,
                       ),
@@ -1998,28 +2023,35 @@ class _NavButton extends StatelessWidget {
   final IconData icon;
   final bool enabled;
   final VoidCallback onPressed;
+  final String tooltip;
 
   const _NavButton({
     required this.icon,
     required this.enabled,
     required this.onPressed,
+    required this.tooltip,
   });
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: enabled ? onPressed : null,
-      child: Container(
-        width: AppSizing.minTouchTarget,
-        height: AppSizing.minTouchTarget,
-        decoration: BoxDecoration(
-          color: enabled ? AppColors.whiteOverlay : Colors.transparent,
-          borderRadius: BorderRadius.circular(AppSizing.minTouchTarget / 2),
-        ),
-        child: Icon(
-          icon,
-          color: enabled ? Colors.white : AppColors.whiteOverlayLight,
-          size: 32,
+    return Semantics(
+      label: tooltip,
+      button: true,
+      enabled: enabled,
+      child: GestureDetector(
+        onTap: enabled ? onPressed : null,
+        child: Container(
+          width: AppSizing.minTouchTarget,
+          height: AppSizing.minTouchTarget,
+          decoration: BoxDecoration(
+            color: enabled ? AppColors.whiteOverlay : Colors.transparent,
+            borderRadius: BorderRadius.circular(AppSizing.minTouchTarget / 2),
+          ),
+          child: Icon(
+            icon,
+            color: enabled ? Colors.white : AppColors.whiteOverlayLight,
+            size: 32,
+          ),
         ),
       ),
     );
@@ -2040,28 +2072,33 @@ class _AudioButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: isLoading ? null : onPressed,
-      child: Container(
-        width: AppSizing.minTouchTarget,
-        height: AppSizing.minTouchTarget,
-        decoration: BoxDecoration(
-          color: isPlaying ? AppColors.primaryMuted : AppColors.whiteOverlay,
-          borderRadius: BorderRadius.circular(AppSizing.minTouchTarget / 2),
-        ),
-        child: isLoading
-            ? const Padding(
-                padding: EdgeInsets.all(12),
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
+    final l = AppLocalizations.of(context);
+    return Semantics(
+      label: isPlaying ? l.viewerPauseAudioTooltip : l.viewerPlayAudioTooltip,
+      button: true,
+      child: GestureDetector(
+        onTap: isLoading ? null : onPressed,
+        child: Container(
+          width: AppSizing.minTouchTarget,
+          height: AppSizing.minTouchTarget,
+          decoration: BoxDecoration(
+            color: isPlaying ? AppColors.primaryMuted : AppColors.whiteOverlay,
+            borderRadius: BorderRadius.circular(AppSizing.minTouchTarget / 2),
+          ),
+          child: isLoading
+              ? const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : Icon(
+                  isPlaying ? Icons.pause : Icons.volume_up,
                   color: Colors.white,
+                  size: 24,
                 ),
-              )
-            : Icon(
-                isPlaying ? Icons.pause : Icons.volume_up,
-                color: Colors.white,
-                size: 24,
-              ),
+        ),
       ),
     );
   }
@@ -2083,33 +2120,38 @@ class _LanguageToggle extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!hasTranslation) return const SizedBox.shrink();
 
-    return GestureDetector(
-      onTap: onToggle,
-      child: Container(
-        constraints: const BoxConstraints(
-          minWidth: AppSizing.minTouchTarget,
-          minHeight: AppSizing.minTouchTarget,
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: AppColors.whiteOverlay,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              selectedLanguage == 'ko' ? '한' : 'EN',
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 14,
+    final l = AppLocalizations.of(context);
+    return Semantics(
+      label: l.viewerLanguageToggleTooltip,
+      button: true,
+      child: GestureDetector(
+        onTap: onToggle,
+        child: Container(
+          constraints: const BoxConstraints(
+            minWidth: AppSizing.minTouchTarget,
+            minHeight: AppSizing.minTouchTarget,
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: AppColors.whiteOverlay,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                selectedLanguage == 'ko' ? l.viewerLanguageKo : l.viewerLanguageEn,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
               ),
-            ),
-            const SizedBox(width: 4),
-            const Icon(Icons.swap_horiz, color: Colors.white, size: 16),
-          ],
+              const SizedBox(width: 4),
+              const Icon(Icons.swap_horiz, color: Colors.white, size: 16),
+            ],
+          ),
         ),
       ),
     );
@@ -2152,6 +2194,7 @@ class _LearningModeSheetState extends State<_LearningModeSheet>
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return Column(
       children: [
         // 핸들
@@ -2167,7 +2210,7 @@ class _LearningModeSheetState extends State<_LearningModeSheet>
         const SizedBox(height: AppSpacing.md),
 
         // 제목
-        const Text('학습 모드', style: AppTextStyles.heading2),
+        Text(l.viewerLearningModeTitle, style: AppTextStyles.heading2),
         const SizedBox(height: AppSpacing.md),
 
         // 탭 바
@@ -2176,10 +2219,10 @@ class _LearningModeSheetState extends State<_LearningModeSheet>
           labelColor: AppColors.primary,
           unselectedLabelColor: AppColors.textSecondary,
           indicatorColor: AppColors.primary,
-          tabs: const [
-            Tab(icon: Icon(Icons.abc), text: '단어'),
-            Tab(icon: Icon(Icons.help_outline), text: '질문'),
-            Tab(icon: Icon(Icons.quiz), text: '퀴즈'),
+          tabs: [
+            Tab(icon: const Icon(Icons.abc), text: l.viewerTabWord),
+            Tab(icon: const Icon(Icons.help_outline), text: l.viewerTabQuestion),
+            Tab(icon: const Icon(Icons.quiz), text: l.viewerTabQuiz),
           ],
         ),
 
@@ -2216,8 +2259,9 @@ class _VocabTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     if (vocab.isEmpty) {
-      return const Center(child: Text('이 페이지에는 단어 학습이 없어요'));
+      return Center(child: Text(l.viewerNoVocab));
     }
     // 서로 다른 뜻이 3개 이상일 때만 게임(3지선다↑) — 2지선다 trivial 게임의 측정 오염 방지.
     final meanings = vocab.map((v) => v.meaning).toList();
@@ -2277,8 +2321,9 @@ class _ComprehensionTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     if (questions.isEmpty) {
-      return const Center(child: Text('이 페이지에는 이해 질문이 없어요'));
+      return Center(child: Text(l.viewerNoComprehension));
     }
 
     return ListView.builder(
@@ -2307,6 +2352,7 @@ class _ComprehensionCardState extends State<_ComprehensionCard> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return Card(
       margin: const EdgeInsets.only(bottom: AppSpacing.md),
       child: Padding(
@@ -2315,20 +2361,20 @@ class _ComprehensionCardState extends State<_ComprehensionCard> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Q${widget.index}. ${widget.question.question}',
+              l.viewerComprehensionQuestion(widget.index, widget.question.question),
               style: AppTextStyles.body.copyWith(fontWeight: FontWeight.bold),
             ),
             if (widget.question.answer != null) ...[
               const SizedBox(height: AppSpacing.sm),
               if (_showAnswer)
                 Text(
-                  'A. ${widget.question.answer}',
+                  l.viewerComprehensionAnswer(widget.question.answer!),
                   style: AppTextStyles.body.copyWith(color: AppColors.primary),
                 )
               else
                 TextButton(
                   onPressed: () => setState(() => _showAnswer = true),
-                  child: const Text('정답 보기'),
+                  child: Text(l.viewerShowAnswer),
                 ),
             ],
           ],
@@ -2347,8 +2393,9 @@ class _QuizTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     if (quiz.isEmpty) {
-      return const Center(child: Text('이 페이지에는 퀴즈가 없어요'));
+      return Center(child: Text(l.viewerNoQuiz));
     }
 
     return ListView.builder(
@@ -2379,6 +2426,7 @@ class _QuizCardState extends State<_QuizCard> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     final isCorrect = _selectedIndex == widget.quiz.answerIndex;
 
     return Card(
@@ -2389,7 +2437,7 @@ class _QuizCardState extends State<_QuizCard> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Q${widget.index}. ${widget.quiz.question}',
+              l.viewerQuizQuestion(widget.index, widget.quiz.question),
               style: AppTextStyles.body.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: AppSpacing.md),
@@ -2434,7 +2482,7 @@ class _QuizCardState extends State<_QuizCard> {
                   setState(() => _showResult = true);
                   widget.onAnswered?.call(correct, widget.index - 1);
                 },
-                child: const Text('정답 확인'),
+                child: Text(l.viewerCheckAnswer),
               ),
             if (_showResult) ...[
               const SizedBox(height: AppSpacing.sm),
@@ -2446,7 +2494,7 @@ class _QuizCardState extends State<_QuizCard> {
                   ),
                   const SizedBox(width: AppSpacing.sm),
                   Text(
-                    isCorrect ? '정답이에요!' : '다시 생각해봐요',
+                    isCorrect ? l.viewerQuizCorrect : l.viewerQuizIncorrect,
                     style: TextStyle(
                       color: isCorrect ? AppColors.success : AppColors.error,
                       fontWeight: FontWeight.bold,
@@ -2483,6 +2531,7 @@ class _ParentGuideSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return Column(
       children: [
         // 핸들
@@ -2498,12 +2547,12 @@ class _ParentGuideSheet extends StatelessWidget {
         const SizedBox(height: AppSpacing.md),
 
         // 제목
-        const Row(
+        Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.family_restroom, color: AppColors.primary),
-            SizedBox(width: AppSpacing.sm),
-            Text('부모 가이드', style: AppTextStyles.heading2),
+            const Icon(Icons.family_restroom, color: AppColors.primary),
+            const SizedBox(width: AppSpacing.sm),
+            Text(l.viewerParentGuideTitle, style: AppTextStyles.heading2),
           ],
         ),
         const SizedBox(height: AppSpacing.md),
@@ -2517,7 +2566,7 @@ class _ParentGuideSheet extends StatelessWidget {
               // 요약
               _GuideSection(
                 icon: Icons.summarize,
-                title: '이야기 요약',
+                title: l.viewerGuideSummaryTitle,
                 content: parentGuide.summary,
               ),
               const SizedBox(height: AppSpacing.lg),
@@ -2525,7 +2574,7 @@ class _ParentGuideSheet extends StatelessWidget {
               // 토론 주제
               _GuideSection(
                 icon: Icons.chat,
-                title: '대화 나누기',
+                title: l.viewerGuideDiscussionTitle,
                 items: parentGuide.discussionPrompts,
               ),
               const SizedBox(height: AppSpacing.lg),
@@ -2533,7 +2582,7 @@ class _ParentGuideSheet extends StatelessWidget {
               // 활동
               _GuideSection(
                 icon: Icons.sports_esports,
-                title: '함께 해보기',
+                title: l.viewerGuideActivitiesTitle,
                 items: parentGuide.activities,
               ),
             ],

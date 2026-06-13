@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/app_localizations.dart';
 import '../utils/constants.dart';
 
 Future<void> showCreditShortageModal(
@@ -29,11 +30,13 @@ class _CreditShortageSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final resolvedTitle =
-        title != null && title!.trim().isNotEmpty ? title!.trim() : '크레딧이 부족해요';
+    final l10n = AppLocalizations.of(context);
+    final resolvedTitle = title != null && title!.trim().isNotEmpty
+        ? title!.trim()
+        : l10n.creditShortageTitle;
     final resolvedMessage = message != null && message!.trim().isNotEmpty
         ? message!.trim()
-        : '아래 방법으로 크레딧을 충전하고 동화책 만들기를 이어갈 수 있어요.';
+        : l10n.creditShortageMessage;
 
     return Container(
       decoration: const BoxDecoration(
@@ -72,15 +75,15 @@ class _CreditShortageSheet extends StatelessWidget {
             const SizedBox(height: AppSpacing.lg),
             _ActionCard(
               icon: Icons.ondemand_video,
-              title: '무료 크레딧 받기',
-              subtitle: '광고 시청 또는 초대로 무료 크레딧',
+              title: l10n.creditShortageFreeTitle,
+              subtitle: l10n.creditShortageFreeSubtitle,
               onTap: () => Navigator.pop(context),
             ),
             const SizedBox(height: AppSpacing.sm),
             _ActionCard(
               icon: Icons.workspace_premium,
-              title: '구독하기',
-              subtitle: '월 구독으로 넉넉하게 이용하기',
+              title: l10n.creditShortageSubscribeTitle,
+              subtitle: l10n.creditShortageSubscribeSubtitle,
               onTap: () {
                 Navigator.pop(context);
                 Navigator.pushNamed(context, '/credits');
@@ -89,8 +92,8 @@ class _CreditShortageSheet extends StatelessWidget {
             const SizedBox(height: AppSpacing.sm),
             _ActionCard(
               icon: Icons.local_offer,
-              title: '크레딧 구매',
-              subtitle: '필요한 만큼 바로 충전하기',
+              title: l10n.creditShortagePurchaseTitle,
+              subtitle: l10n.creditShortagePurchaseSubtitle,
               onTap: () {
                 Navigator.pop(context);
                 Navigator.pushNamed(context, '/credits');
@@ -100,7 +103,7 @@ class _CreditShortageSheet extends StatelessWidget {
             Center(
               child: TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text('닫기'),
+                child: Text(l10n.creditShortageClose),
               ),
             ),
           ],

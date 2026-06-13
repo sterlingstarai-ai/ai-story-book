@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../l10n/app_localizations.dart';
 import '../providers/providers.dart';
 import '../utils/constants.dart';
 
@@ -48,11 +49,12 @@ class _PronunciationPracticeScreenState
   }
 
   Future<void> _evaluate() async {
+    final l = AppLocalizations.of(context);
     final expected = _expectedController.text.trim();
     final transcript = _transcriptController.text.trim();
 
     if (expected.isEmpty || transcript.isEmpty) {
-      setState(() => _errorMessage = '기준 문장과 읽은 문장을 모두 입력해주세요.');
+      setState(() => _errorMessage = l.pronunciationErrorBothRequired);
       return;
     }
 
@@ -86,7 +88,7 @@ class _PronunciationPracticeScreenState
       if (!mounted) {
         return;
       }
-      setState(() => _errorMessage = '발음 평가에 실패했어요. 잠시 후 다시 시도해주세요.');
+      setState(() => _errorMessage = l.pronunciationErrorEvaluateFailed);
     } finally {
       if (mounted) {
         setState(() => _isSubmitting = false);
@@ -95,9 +97,10 @@ class _PronunciationPracticeScreenState
   }
 
   Future<void> _evaluateFromAudio() async {
+    final l = AppLocalizations.of(context);
     final expected = _expectedController.text.trim();
     if (expected.isEmpty) {
-      setState(() => _errorMessage = '기준 문장을 먼저 입력해주세요.');
+      setState(() => _errorMessage = l.pronunciationErrorExpectedRequired);
       return;
     }
 
@@ -145,7 +148,7 @@ class _PronunciationPracticeScreenState
       if (!mounted) {
         return;
       }
-      setState(() => _errorMessage = '오디오 발음 평가에 실패했어요. 다시 시도해주세요.');
+      setState(() => _errorMessage = l.pronunciationErrorAudioEvaluateFailed);
     } finally {
       if (mounted) {
         setState(() => _isSubmitting = false);
@@ -155,11 +158,12 @@ class _PronunciationPracticeScreenState
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     final score = _score;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('발음 연습'),
+        title: Text(l.pronunciationTitle),
       ),
       body: ListView(
         padding: const EdgeInsets.all(AppSpacing.md),
@@ -172,7 +176,7 @@ class _PronunciationPracticeScreenState
               border: Border.all(color: AppColors.divider),
             ),
             child: Text(
-              '책 페이지 ${widget.pageNumber} 문장을 기준으로 발음을 평가합니다.',
+              l.pronunciationIntro(widget.pageNumber),
               style: AppTextStyles.bodySmall,
             ),
           ),
@@ -181,8 +185,8 @@ class _PronunciationPracticeScreenState
             controller: _expectedController,
             minLines: 2,
             maxLines: 4,
-            decoration: const InputDecoration(
-              labelText: '기준 문장',
+            decoration: InputDecoration(
+              labelText: l.pronunciationExpectedLabel,
               alignLabelWithHint: true,
             ),
           ),
@@ -191,9 +195,9 @@ class _PronunciationPracticeScreenState
             controller: _transcriptController,
             minLines: 3,
             maxLines: 6,
-            decoration: const InputDecoration(
-              labelText: '읽은 문장(텍스트 입력)',
-              hintText: '아이가 읽은 문장을 입력해주세요.',
+            decoration: InputDecoration(
+              labelText: l.pronunciationTranscriptLabel,
+              hintText: l.pronunciationTranscriptHint,
               alignLabelWithHint: true,
             ),
           ),
@@ -207,13 +211,15 @@ class _PronunciationPracticeScreenState
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.record_voice_over_outlined),
-            label: Text(_isSubmitting ? '평가 중...' : '발음 평가하기'),
+            label: Text(_isSubmitting
+                ? l.pronunciationEvaluating
+                : l.pronunciationEvaluateButton),
           ),
           const SizedBox(height: AppSpacing.sm),
           OutlinedButton.icon(
             onPressed: _isSubmitting ? null : _evaluateFromAudio,
             icon: const Icon(Icons.upload_file),
-            label: const Text('오디오 파일로 평가'),
+            label: Text(l.pronunciationEvaluateAudioButton),
           ),
           if (_errorMessage != null) ...[
             const SizedBox(height: AppSpacing.md),
@@ -235,7 +241,7 @@ class _PronunciationPracticeScreenState
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '발음 점수: ${score.toStringAsFixed(1)}점',
+                    l.pronunciationScore(score.toStringAsFixed(1)),
                     style: AppTextStyles.heading3,
                   ),
                   const SizedBox(height: AppSpacing.sm),
@@ -250,7 +256,7 @@ class _PronunciationPracticeScreenState
                   ),
                   const SizedBox(height: AppSpacing.sm),
                   Text(
-                    _feedback ?? '피드백이 없습니다.',
+                    _feedback ?? l.pronunciationNoFeedback,
                     style: AppTextStyles.bodySmall,
                   ),
                 ],

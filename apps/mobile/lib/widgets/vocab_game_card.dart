@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../l10n/app_localizations.dart';
 import '../models/models.dart';
 import '../utils/constants.dart';
 
@@ -54,6 +55,7 @@ class _VocabGameCardState extends State<VocabGameCard> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final answered = _selected != null;
     final correct = _selected == widget.item.meaning;
     return Card(
@@ -65,11 +67,11 @@ class _VocabGameCardState extends State<VocabGameCard> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '"${widget.item.word}"의 뜻은?',
+              l10n.vocabGameQuestion(widget.item.word),
               style: AppTextStyles.heading3,
             ),
             const SizedBox(height: AppSpacing.sm),
-            for (final choice in _choices) _choiceTile(choice),
+            for (final choice in _choices) _choiceTile(context, choice),
             if (answered) ...[
               const SizedBox(height: AppSpacing.sm),
               correct
@@ -83,7 +85,7 @@ class _VocabGameCardState extends State<VocabGameCard> {
                         child: child,
                       ),
                       child: Text(
-                        '잘했어요! ⭐',
+                        l10n.vocabGameCorrectFeedback,
                         style: AppTextStyles.body.copyWith(
                           color: AppColors.success,
                           fontWeight: FontWeight.w700,
@@ -91,7 +93,7 @@ class _VocabGameCardState extends State<VocabGameCard> {
                       ),
                     )
                   : Text(
-                      '다시 한 번 기억해요: ${widget.item.meaning}',
+                      l10n.vocabGameIncorrectFeedback(widget.item.meaning),
                       style: AppTextStyles.bodySmall.copyWith(
                         color: AppColors.textSecondary,
                         fontWeight: FontWeight.w700,
@@ -104,7 +106,8 @@ class _VocabGameCardState extends State<VocabGameCard> {
     );
   }
 
-  Widget _choiceTile(String choice) {
+  Widget _choiceTile(BuildContext context, String choice) {
+    final l10n = AppLocalizations.of(context);
     final answered = _selected != null;
     final isCorrect = choice == widget.item.meaning;
     final isPicked = choice == _selected;
@@ -121,7 +124,7 @@ class _VocabGameCardState extends State<VocabGameCard> {
       child: Semantics(
         button: !answered,
         selected: isPicked,
-        label: '보기: $choice',
+        label: l10n.vocabGameChoiceLabel(choice),
         child: InkWell(
           onTap: answered ? null : () => _pick(choice),
           borderRadius: BorderRadius.circular(AppRadius.md),

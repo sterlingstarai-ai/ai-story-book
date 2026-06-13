@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../l10n/app_localizations.dart';
 import '../providers/providers.dart';
 import '../utils/constants.dart';
 
@@ -16,13 +17,14 @@ Future<bool> showAgeGateDialog(BuildContext context, WidgetRef ref) async {
     builder: (dialogContext) {
       return StatefulBuilder(
         builder: (context, setState) {
+          final l10n = AppLocalizations.of(context);
           return AlertDialog(
-            title: const Text('부모 확인'),
+            title: Text(l10n.ageGateTitle),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('구매 화면 접근 전 부모 확인이 필요해요.'),
+                Text(l10n.ageGateDescription),
                 const SizedBox(height: AppSpacing.md),
                 Text(
                   challenge.prompt,
@@ -33,7 +35,7 @@ Future<bool> showAgeGateDialog(BuildContext context, WidgetRef ref) async {
                   controller: controller,
                   keyboardType: TextInputType.number,
                   decoration: InputDecoration(
-                    hintText: '정답 입력',
+                    hintText: l10n.ageGateAnswerHint,
                     errorText: errorText,
                   ),
                 ),
@@ -42,20 +44,20 @@ Future<bool> showAgeGateDialog(BuildContext context, WidgetRef ref) async {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(dialogContext, false),
-                child: const Text('취소'),
+                child: Text(l10n.ageGateCancel),
               ),
               ElevatedButton(
                 onPressed: () {
                   if (!parentalControl.verifyChallenge(
                       challenge, controller.text)) {
                     setState(() {
-                      errorText = '정답이 아니에요.';
+                      errorText = l10n.ageGateWrongAnswer;
                     });
                     return;
                   }
                   Navigator.pop(dialogContext, true);
                 },
-                child: const Text('확인'),
+                child: Text(l10n.ageGateConfirm),
               ),
             ],
           );

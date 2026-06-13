@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:ai_story_book/core/api_error.dart';
+import 'package:ai_story_book/l10n/app_localizations.dart';
 import 'package:ai_story_book/models/models.dart';
 import 'package:ai_story_book/providers/providers.dart';
 import 'package:ai_story_book/services/api_client.dart';
@@ -26,6 +27,9 @@ Widget buildTestableWidget(
   return ProviderScope(
     overrides: overrides,
     child: MaterialApp(
+      locale: const Locale('ko'),
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
       home: child,
       onGenerateRoute: (settings) {
         // Catch-all route handler to prevent navigation errors in tests

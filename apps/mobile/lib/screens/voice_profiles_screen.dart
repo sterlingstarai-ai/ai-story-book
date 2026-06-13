@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../l10n/app_localizations.dart';
 import '../providers/providers.dart';
 import '../utils/constants.dart';
 
@@ -57,7 +58,7 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
         return;
       }
       setState(() {
-        _errorMessage = '가족 목소리 정보를 불러오지 못했어요.';
+        _errorMessage = AppLocalizations.of(context).voiceProfilesLoadError;
         _isLoading = false;
       });
     }
@@ -66,6 +67,7 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
   Future<Map<String, dynamic>?> _showProfileDialog({
     Map<String, dynamic>? initial,
   }) async {
+    final l = AppLocalizations.of(context);
     final formKey = GlobalKey<FormState>();
     final labelController = TextEditingController(
       text: initial?['label']?.toString() ?? '',
@@ -86,7 +88,9 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              title: Text(initial == null ? '음성 프로필 추가' : '음성 프로필 수정'),
+              title: Text(initial == null
+                  ? l.voiceProfilesAddTitle
+                  : l.voiceProfilesEditTitle),
               content: Form(
                 key: formKey,
                 child: SingleChildScrollView(
@@ -97,14 +101,14 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
                       TextFormField(
                         controller: labelController,
                         maxLength: 40,
-                        decoration: const InputDecoration(
-                          labelText: '이름/라벨',
-                          hintText: '예: 엄마 목소리',
+                        decoration: InputDecoration(
+                          labelText: l.voiceProfilesLabelFieldLabel,
+                          hintText: l.voiceProfilesLabelFieldHint,
                         ),
                         validator: (value) {
                           final text = value?.trim() ?? '';
                           if (text.isEmpty) {
-                            return '라벨을 입력해주세요.';
+                            return l.voiceProfilesLabelRequired;
                           }
                           return null;
                         },
@@ -113,29 +117,29 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
                       TextFormField(
                         controller: relationshipController,
                         maxLength: 30,
-                        decoration: const InputDecoration(
-                          labelText: '관계',
-                          hintText: '예: mother, grandmother',
+                        decoration: InputDecoration(
+                          labelText: l.voiceProfilesRelationshipFieldLabel,
+                          hintText: l.voiceProfilesRelationshipFieldHint,
                         ),
                       ),
                       const SizedBox(height: AppSpacing.sm),
                       TextFormField(
                         controller: sampleUrlController,
                         maxLength: 500,
-                        decoration: const InputDecoration(
-                          labelText: '샘플 오디오 URL',
+                        decoration: InputDecoration(
+                          labelText: l.voiceProfilesSampleUrlFieldLabel,
                           hintText: 'https://...',
                         ),
                         validator: (value) {
                           final text = value?.trim() ?? '';
                           if (text.isEmpty) {
-                            return '샘플 오디오 URL을 입력해주세요.';
+                            return l.voiceProfilesSampleUrlRequired;
                           }
                           final uri = Uri.tryParse(text);
                           if (uri == null ||
                               !uri.hasScheme ||
                               !uri.hasAuthority) {
-                            return '유효한 URL을 입력해주세요.';
+                            return l.voiceProfilesSampleUrlInvalid;
                           }
                           return null;
                         },
@@ -183,8 +187,9 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
                                     if (mounted) {
                                       ScaffoldMessenger.of(this.context)
                                           .showSnackBar(
-                                        const SnackBar(
-                                          content: Text('음성 샘플 업로드가 완료되었어요.'),
+                                        SnackBar(
+                                          content: Text(
+                                              l.voiceProfilesSampleUploadSuccess),
                                         ),
                                       );
                                     }
@@ -192,9 +197,9 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
                                     if (mounted) {
                                       ScaffoldMessenger.of(this.context)
                                           .showSnackBar(
-                                        const SnackBar(
-                                          content:
-                                              Text('샘플 업로드에 실패했어요. 다시 시도해주세요.'),
+                                        SnackBar(
+                                          content: Text(
+                                              l.voiceProfilesSampleUploadError),
                                         ),
                                       );
                                     }
@@ -215,14 +220,16 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
                                 )
                               : const Icon(Icons.upload_file),
                           label: Text(
-                            isUploadingSample ? '업로드 중...' : '오디오 파일 업로드',
+                            isUploadingSample
+                                ? l.voiceProfilesUploading
+                                : l.voiceProfilesUploadAudioButton,
                           ),
                         ),
                       ),
                       const SizedBox(height: AppSpacing.sm),
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
-                        title: const Text('보호자 동의 완료'),
+                        title: Text(l.voiceProfilesConsentToggle),
                         value: consented,
                         onChanged: (value) {
                           setDialogState(() => consented = value);
@@ -231,7 +238,7 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
                       if (initial != null)
                         SwitchListTile(
                           contentPadding: EdgeInsets.zero,
-                          title: const Text('활성 상태'),
+                          title: Text(l.voiceProfilesActiveToggle),
                           value: active,
                           onChanged: (value) {
                             setDialogState(() => active = value);
@@ -244,7 +251,7 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: const Text('취소'),
+                  child: Text(l.voiceProfilesCancel),
                 ),
                 FilledButton(
                   onPressed: () {
@@ -262,7 +269,9 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
                       },
                     );
                   },
-                  child: Text(initial == null ? '추가' : '저장'),
+                  child: Text(initial == null
+                      ? l.voiceProfilesAdd
+                      : l.voiceProfilesSave),
                 ),
               ],
             );
@@ -299,7 +308,8 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('음성 프로필 생성에 실패했어요.')),
+        SnackBar(
+            content: Text(AppLocalizations.of(context).voiceProfilesCreateError)),
       );
     } finally {
       if (mounted) {
@@ -330,7 +340,8 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('음성 프로필 수정에 실패했어요.')),
+        SnackBar(
+            content: Text(AppLocalizations.of(context).voiceProfilesEditError)),
       );
     } finally {
       if (mounted) {
@@ -350,7 +361,9 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('동의 철회 처리에 실패했어요.')),
+        SnackBar(
+            content:
+                Text(AppLocalizations.of(context).voiceProfilesRevokeError)),
       );
     } finally {
       if (mounted) {
@@ -360,20 +373,21 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
   }
 
   Future<void> _deleteProfile(String profileId) async {
+    final l = AppLocalizations.of(context);
     final confirmed = await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
-            title: const Text('음성 프로필 삭제'),
-            content: const Text('이 음성 프로필을 삭제할까요?'),
+            title: Text(l.voiceProfilesDeleteTitle),
+            content: Text(l.voiceProfilesDeleteConfirm),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, false),
-                child: const Text('취소'),
+                child: Text(l.voiceProfilesCancel),
               ),
               FilledButton(
                 onPressed: () => Navigator.pop(context, true),
                 style: FilledButton.styleFrom(backgroundColor: AppColors.error),
-                child: const Text('삭제'),
+                child: Text(l.voiceProfilesDelete),
               ),
             ],
           ),
@@ -393,7 +407,9 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('음성 프로필 삭제에 실패했어요.')),
+        SnackBar(
+            content:
+                Text(AppLocalizations.of(context).voiceProfilesDeleteError)),
       );
     } finally {
       if (mounted) {
@@ -412,13 +428,15 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('가족 목소리'),
+        title: Text(l.voiceProfilesTitle),
         actions: [
           IconButton(
             onPressed: _isSubmitting ? null : _createProfile,
             icon: const Icon(Icons.add),
+            tooltip: l.voiceProfilesAddTooltip,
           ),
         ],
       ),
@@ -429,14 +447,14 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
               child: _profiles.isEmpty
                   ? ListView(
                       physics: const AlwaysScrollableScrollPhysics(),
-                      children: const [
-                        SizedBox(height: 120),
+                      children: [
+                        const SizedBox(height: 120),
                         Center(
                           child: Padding(
-                            padding:
-                                EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: AppSpacing.lg),
                             child: Text(
-                              '등록된 가족 목소리가 없어요.\n우측 상단 + 버튼으로 추가해보세요.',
+                              l.voiceProfilesEmpty,
                               textAlign: TextAlign.center,
                               style: AppTextStyles.bodySmall,
                             ),
@@ -449,7 +467,8 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
                       padding: const EdgeInsets.all(AppSpacing.md),
                       itemBuilder: (context, index) {
                         final profile = _profiles[index];
-                        final label = profile['label']?.toString() ?? '이름 없음';
+                        final label = profile['label']?.toString() ??
+                            l.voiceProfilesUnnamed;
                         final relationship =
                             profile['relationship']?.toString() ?? '-';
                         final consented = profile['consented'] == true;
@@ -475,6 +494,7 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
                                     ),
                                   ),
                                   PopupMenuButton<String>(
+                                    tooltip: l.voiceProfilesMenuTooltip,
                                     onSelected: (value) {
                                       if (value == 'edit') {
                                         _editProfile(profile);
@@ -488,36 +508,40 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
                                         _deleteProfile(profileId);
                                       }
                                     },
-                                    itemBuilder: (context) => const [
+                                    itemBuilder: (context) => [
                                       PopupMenuItem(
                                         value: 'edit',
-                                        child: Text('수정'),
+                                        child: Text(l.voiceProfilesMenuEdit),
                                       ),
                                       PopupMenuItem(
                                         value: 'revoke',
-                                        child: Text('동의 철회'),
+                                        child: Text(l.voiceProfilesMenuRevoke),
                                       ),
                                       PopupMenuItem(
                                         value: 'delete',
-                                        child: Text('삭제'),
+                                        child: Text(l.voiceProfilesMenuDelete),
                                       ),
                                     ],
                                   ),
                                 ],
                               ),
                               const SizedBox(height: AppSpacing.xs),
-                              Text('관계: $relationship',
+                              Text(l.voiceProfilesRelationshipPrefix(relationship),
                                   style: AppTextStyles.bodySmall),
                               const SizedBox(height: AppSpacing.xs),
                               Row(
                                 children: [
                                   _StateChip(
-                                    text: consented ? '동의 완료' : '동의 필요',
+                                    text: consented
+                                        ? l.voiceProfilesConsentDone
+                                        : l.voiceProfilesConsentNeeded,
                                     ok: consented,
                                   ),
                                   const SizedBox(width: AppSpacing.sm),
                                   _StateChip(
-                                    text: active ? '활성' : '비활성',
+                                    text: active
+                                        ? l.voiceProfilesActive
+                                        : l.voiceProfilesInactive,
                                     ok: active,
                                   ),
                                 ],
