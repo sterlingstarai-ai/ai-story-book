@@ -3772,6 +3772,198 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Try together'**
   String get viewerGuideActivitiesTitle;
+
+  /// No description provided for @navShellHome.
+  ///
+  /// In en, this message translates to:
+  /// **'Home'**
+  String get navShellHome;
+
+  /// No description provided for @navShellCreate.
+  ///
+  /// In en, this message translates to:
+  /// **'Create'**
+  String get navShellCreate;
+
+  /// No description provided for @navShellLibrary.
+  ///
+  /// In en, this message translates to:
+  /// **'Library'**
+  String get navShellLibrary;
+
+  /// No description provided for @navShellCharacters.
+  ///
+  /// In en, this message translates to:
+  /// **'Characters'**
+  String get navShellCharacters;
+
+  /// No description provided for @creditShortageTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'You\'re out of credits'**
+  String get creditShortageTitle;
+
+  /// No description provided for @creditShortageMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Top up your credits using the options below to keep making storybooks.'**
+  String get creditShortageMessage;
+
+  /// No description provided for @creditShortageFreeTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Get free credits'**
+  String get creditShortageFreeTitle;
+
+  /// No description provided for @creditShortageFreeSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Free credits by watching an ad or inviting friends'**
+  String get creditShortageFreeSubtitle;
+
+  /// No description provided for @creditShortageSubscribeTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Subscribe'**
+  String get creditShortageSubscribeTitle;
+
+  /// No description provided for @creditShortageSubscribeSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Use plenty with a monthly subscription'**
+  String get creditShortageSubscribeSubtitle;
+
+  /// No description provided for @creditShortagePurchaseTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Buy credits'**
+  String get creditShortagePurchaseTitle;
+
+  /// No description provided for @creditShortagePurchaseSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Top up exactly as much as you need'**
+  String get creditShortagePurchaseSubtitle;
+
+  /// No description provided for @creditShortageClose.
+  ///
+  /// In en, this message translates to:
+  /// **'Close'**
+  String get creditShortageClose;
+
+  /// No description provided for @vocabGameQuestion.
+  ///
+  /// In en, this message translates to:
+  /// **'What does \"{word}\" mean?'**
+  String vocabGameQuestion(Object word);
+
+  /// No description provided for @vocabGameCorrectFeedback.
+  ///
+  /// In en, this message translates to:
+  /// **'Well done! ⭐'**
+  String get vocabGameCorrectFeedback;
+
+  /// No description provided for @vocabGameIncorrectFeedback.
+  ///
+  /// In en, this message translates to:
+  /// **'Let\'s remember it again: {meaning}'**
+  String vocabGameIncorrectFeedback(Object meaning);
+
+  /// No description provided for @vocabGameChoiceLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Choice: {choice}'**
+  String vocabGameChoiceLabel(Object choice);
+
+  /// No description provided for @characterSourceTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Make your child the hero'**
+  String get characterSourceTitle;
+
+  /// No description provided for @characterSourceSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Create from a photo or pick a default character'**
+  String get characterSourceSubtitle;
+
+  /// No description provided for @characterSourcePhotoCamera.
+  ///
+  /// In en, this message translates to:
+  /// **'Take a photo'**
+  String get characterSourcePhotoCamera;
+
+  /// No description provided for @characterSourceGallery.
+  ///
+  /// In en, this message translates to:
+  /// **'Gallery'**
+  String get characterSourceGallery;
+
+  /// No description provided for @characterSourcePresetSectionLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Start without a photo · Default characters'**
+  String get characterSourcePresetSectionLabel;
+
+  /// No description provided for @characterSourcePresetLoadError.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t load the default characters.'**
+  String get characterSourcePresetLoadError;
+
+  /// No description provided for @characterSourceCreateFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t create the hero. Please try again in a moment.'**
+  String get characterSourceCreateFailed;
+
+  /// No description provided for @characterSourcePhotoMissingId.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t create the hero from the photo. Please try again in a moment.'**
+  String get characterSourcePhotoMissingId;
+
+  /// No description provided for @characterSourcePhotoFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t create the hero from the photo. Please check guardian consent and permissions.'**
+  String get characterSourcePhotoFailed;
+
+  /// No description provided for @ageGateTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Parent verification'**
+  String get ageGateTitle;
+
+  /// No description provided for @ageGateDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Parent verification is required before accessing the purchase screen.'**
+  String get ageGateDescription;
+
+  /// No description provided for @ageGateAnswerHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the correct answer'**
+  String get ageGateAnswerHint;
+
+  /// No description provided for @ageGateCancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get ageGateCancel;
+
+  /// No description provided for @ageGateWrongAnswer.
+  ///
+  /// In en, this message translates to:
+  /// **'That\'s not the correct answer.'**
+  String get ageGateWrongAnswer;
+
+  /// No description provided for @ageGateConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm'**
+  String get ageGateConfirm;
 }
 
 class _AppLocalizationsDelegate

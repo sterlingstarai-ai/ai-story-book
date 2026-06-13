@@ -2078,4 +2078,117 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get viewerGuideActivitiesTitle => 'Try together';
+
+  @override
+  String get navShellHome => 'Home';
+
+  @override
+  String get navShellCreate => 'Create';
+
+  @override
+  String get navShellLibrary => 'Library';
+
+  @override
+  String get navShellCharacters => 'Characters';
+
+  @override
+  String get creditShortageTitle => 'You\'re out of credits';
+
+  @override
+  String get creditShortageMessage =>
+      'Top up your credits using the options below to keep making storybooks.';
+
+  @override
+  String get creditShortageFreeTitle => 'Get free credits';
+
+  @override
+  String get creditShortageFreeSubtitle =>
+      'Free credits by watching an ad or inviting friends';
+
+  @override
+  String get creditShortageSubscribeTitle => 'Subscribe';
+
+  @override
+  String get creditShortageSubscribeSubtitle =>
+      'Use plenty with a monthly subscription';
+
+  @override
+  String get creditShortagePurchaseTitle => 'Buy credits';
+
+  @override
+  String get creditShortagePurchaseSubtitle =>
+      'Top up exactly as much as you need';
+
+  @override
+  String get creditShortageClose => 'Close';
+
+  @override
+  String vocabGameQuestion(Object word) {
+    return 'What does \"$word\" mean?';
+  }
+
+  @override
+  String get vocabGameCorrectFeedback => 'Well done! ⭐';
+
+  @override
+  String vocabGameIncorrectFeedback(Object meaning) {
+    return 'Let\'s remember it again: $meaning';
+  }
+
+  @override
+  String vocabGameChoiceLabel(Object choice) {
+    return 'Choice: $choice';
+  }
+
+  @override
+  String get characterSourceTitle => 'Make your child the hero';
+
+  @override
+  String get characterSourceSubtitle =>
+      'Create from a photo or pick a default character';
+
+  @override
+  String get characterSourcePhotoCamera => 'Take a photo';
+
+  @override
+  String get characterSourceGallery => 'Gallery';
+
+  @override
+  String get characterSourcePresetSectionLabel =>
+      'Start without a photo · Default characters';
+
+  @override
+  String get characterSourcePresetLoadError =>
+      'Couldn\'t load the default characters.';
+
+  @override
+  String get characterSourceCreateFailed =>
+      'Couldn\'t create the hero. Please try again in a moment.';
+
+  @override
+  String get characterSourcePhotoMissingId =>
+      'Couldn\'t create the hero from the photo. Please try again in a moment.';
+
+  @override
+  String get characterSourcePhotoFailed =>
+      'Couldn\'t create the hero from the photo. Please check guardian consent and permissions.';
+
+  @override
+  String get ageGateTitle => 'Parent verification';
+
+  @override
+  String get ageGateDescription =>
+      'Parent verification is required before accessing the purchase screen.';
+
+  @override
+  String get ageGateAnswerHint => 'Enter the correct answer';
+
+  @override
+  String get ageGateCancel => 'Cancel';
+
+  @override
+  String get ageGateWrongAnswer => 'That\'s not the correct answer.';
+
+  @override
+  String get ageGateConfirm => 'Confirm';
 }

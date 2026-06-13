@@ -1988,4 +1988,108 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get viewerGuideActivitiesTitle => '一緒にやってみる';
+
+  @override
+  String get navShellHome => 'ホーム';
+
+  @override
+  String get navShellCreate => 'つくる';
+
+  @override
+  String get navShellLibrary => '本棚';
+
+  @override
+  String get navShellCharacters => 'キャラクター';
+
+  @override
+  String get creditShortageTitle => 'クレジットが足りません';
+
+  @override
+  String get creditShortageMessage => '下の方法でクレジットをチャージして、絵本づくりを続けられます。';
+
+  @override
+  String get creditShortageFreeTitle => '無料クレジットを受け取る';
+
+  @override
+  String get creditShortageFreeSubtitle => '広告視聴や招待で無料クレジット';
+
+  @override
+  String get creditShortageSubscribeTitle => '定期購入する';
+
+  @override
+  String get creditShortageSubscribeSubtitle => '月額の定期購入でたっぷり使う';
+
+  @override
+  String get creditShortagePurchaseTitle => 'クレジットを購入';
+
+  @override
+  String get creditShortagePurchaseSubtitle => '必要な分だけすぐにチャージ';
+
+  @override
+  String get creditShortageClose => '閉じる';
+
+  @override
+  String vocabGameQuestion(Object word) {
+    return '「$word」の意味は?';
+  }
+
+  @override
+  String get vocabGameCorrectFeedback => 'よくできました! ⭐';
+
+  @override
+  String vocabGameIncorrectFeedback(Object meaning) {
+    return 'もう一度覚えましょう: $meaning';
+  }
+
+  @override
+  String vocabGameChoiceLabel(Object choice) {
+    return '選択肢: $choice';
+  }
+
+  @override
+  String get characterSourceTitle => 'わが子を主人公に';
+
+  @override
+  String get characterSourceSubtitle => '写真で作るか、デフォルトのキャラクターを選んでください';
+
+  @override
+  String get characterSourcePhotoCamera => '写真を撮る';
+
+  @override
+  String get characterSourceGallery => 'ギャラリー';
+
+  @override
+  String get characterSourcePresetSectionLabel => '写真なしで始める · デフォルトのキャラクター';
+
+  @override
+  String get characterSourcePresetLoadError => 'デフォルトのキャラクターを読み込めませんでした。';
+
+  @override
+  String get characterSourceCreateFailed => '主人公を作れませんでした。しばらくしてから再試行してください。';
+
+  @override
+  String get characterSourcePhotoMissingId =>
+      '写真から主人公を作れませんでした。しばらくしてから再試行してください。';
+
+  @override
+  String get characterSourcePhotoFailed =>
+      '写真から主人公を作れませんでした。保護者の同意・権限を確認してください。';
+
+  @override
+  String get ageGateTitle => '保護者の確認';
+
+  @override
+  String get ageGateDescription => '購入画面にアクセスする前に保護者の確認が必要です。';
+
+  @override
+  String get ageGateAnswerHint => '正解を入力';
+
+  @override
+  String get ageGateCancel => 'キャンセル';
+
+  @override
+  String get ageGateWrongAnswer => '正解ではありません。';
+
+  @override
+  String get ageGateConfirm => '確認';
 }

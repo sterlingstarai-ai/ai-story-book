@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/app_localizations.dart';
 import '../utils/constants.dart';
 
 class AppShell extends StatelessWidget {
@@ -37,6 +38,7 @@ class _BottomNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return Container(
       decoration: const BoxDecoration(
         color: AppColors.surface,
@@ -59,7 +61,7 @@ class _BottomNavBar extends StatelessWidget {
             children: [
               _NavItem(
                 icon: Icons.home_rounded,
-                label: '홈',
+                label: l10n.navShellHome,
                 isSelected: currentIndex == 0,
                 onTap: currentIndex == 0
                     ? () {}
@@ -67,13 +69,13 @@ class _BottomNavBar extends StatelessWidget {
               ),
               _NavItem(
                 icon: Icons.add_circle_rounded,
-                label: '만들기',
+                label: l10n.navShellCreate,
                 isSelected: currentIndex == 1,
                 onTap: () => Navigator.pushNamed(context, '/create'),
               ),
               _NavItem(
                 icon: Icons.auto_stories_rounded,
-                label: '서재',
+                label: l10n.navShellLibrary,
                 isSelected: currentIndex == 2,
                 onTap: currentIndex == 2
                     ? () {}
@@ -81,7 +83,7 @@ class _BottomNavBar extends StatelessWidget {
               ),
               _NavItem(
                 icon: Icons.people_rounded,
-                label: '캐릭터',
+                label: l10n.navShellCharacters,
                 isSelected: currentIndex == 3,
                 onTap: currentIndex == 3
                     ? () {}
@@ -113,28 +115,33 @@ class _NavItem extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = isSelected ? AppColors.primary : AppColors.textHint;
 
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md,
-          vertical: AppSpacing.sm,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: color, size: 24),
-            const SizedBox(height: AppSpacing.xs),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                color: color,
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+    return Semantics(
+      button: true,
+      selected: isSelected,
+      label: label,
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.sm,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, color: color, size: 24),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: color,
+                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

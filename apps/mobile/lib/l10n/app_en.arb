@@ -1173,5 +1173,58 @@
         "type": "Object"
       }
     }
+  },
+  "navShellHome": "Home",
+  "navShellCreate": "Create",
+  "navShellLibrary": "Library",
+  "navShellCharacters": "Characters",
+  "creditShortageTitle": "You're out of credits",
+  "creditShortageMessage": "Top up your credits using the options below to keep making storybooks.",
+  "creditShortageFreeTitle": "Get free credits",
+  "creditShortageFreeSubtitle": "Free credits by watching an ad or inviting friends",
+  "creditShortageSubscribeTitle": "Subscribe",
+  "creditShortageSubscribeSubtitle": "Use plenty with a monthly subscription",
+  "creditShortagePurchaseTitle": "Buy credits",
+  "creditShortagePurchaseSubtitle": "Top up exactly as much as you need",
+  "creditShortageClose": "Close",
+  "vocabGameQuestion": "What does \"{word}\" mean?",
+  "vocabGameCorrectFeedback": "Well done! ⭐",
+  "vocabGameIncorrectFeedback": "Let's remember it again: {meaning}",
+  "vocabGameChoiceLabel": "Choice: {choice}",
+  "characterSourceTitle": "Make your child the hero",
+  "characterSourceSubtitle": "Create from a photo or pick a default character",
+  "characterSourcePhotoCamera": "Take a photo",
+  "characterSourceGallery": "Gallery",
+  "characterSourcePresetSectionLabel": "Start without a photo · Default characters",
+  "characterSourcePresetLoadError": "Couldn't load the default characters.",
+  "characterSourceCreateFailed": "Couldn't create the hero. Please try again in a moment.",
+  "characterSourcePhotoMissingId": "Couldn't create the hero from the photo. Please try again in a moment.",
+  "characterSourcePhotoFailed": "Couldn't create the hero from the photo. Please check guardian consent and permissions.",
+  "ageGateTitle": "Parent verification",
+  "ageGateDescription": "Parent verification is required before accessing the purchase screen.",
+  "ageGateAnswerHint": "Enter the correct answer",
+  "ageGateCancel": "Cancel",
+  "ageGateWrongAnswer": "That's not the correct answer.",
+  "ageGateConfirm": "Confirm",
+  "@vocabGameQuestion": {
+    "placeholders": {
+      "word": {
+        "type": "Object"
+      }
+    }
+  },
+  "@vocabGameIncorrectFeedback": {
+    "placeholders": {
+      "meaning": {
+        "type": "Object"
+      }
+    }
+  },
+  "@vocabGameChoiceLabel": {
+    "placeholders": {
+      "choice": {
+        "type": "Object"
+      }
+    }
   }
 }

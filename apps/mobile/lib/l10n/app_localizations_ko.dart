@@ -1986,4 +1986,108 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get viewerGuideActivitiesTitle => '함께 해보기';
+
+  @override
+  String get navShellHome => '홈';
+
+  @override
+  String get navShellCreate => '만들기';
+
+  @override
+  String get navShellLibrary => '서재';
+
+  @override
+  String get navShellCharacters => '캐릭터';
+
+  @override
+  String get creditShortageTitle => '크레딧이 부족해요';
+
+  @override
+  String get creditShortageMessage => '아래 방법으로 크레딧을 충전하고 동화책 만들기를 이어갈 수 있어요.';
+
+  @override
+  String get creditShortageFreeTitle => '무료 크레딧 받기';
+
+  @override
+  String get creditShortageFreeSubtitle => '광고 시청 또는 초대로 무료 크레딧';
+
+  @override
+  String get creditShortageSubscribeTitle => '구독하기';
+
+  @override
+  String get creditShortageSubscribeSubtitle => '월 구독으로 넉넉하게 이용하기';
+
+  @override
+  String get creditShortagePurchaseTitle => '크레딧 구매';
+
+  @override
+  String get creditShortagePurchaseSubtitle => '필요한 만큼 바로 충전하기';
+
+  @override
+  String get creditShortageClose => '닫기';
+
+  @override
+  String vocabGameQuestion(Object word) {
+    return '\"$word\"의 뜻은?';
+  }
+
+  @override
+  String get vocabGameCorrectFeedback => '잘했어요! ⭐';
+
+  @override
+  String vocabGameIncorrectFeedback(Object meaning) {
+    return '다시 한 번 기억해요: $meaning';
+  }
+
+  @override
+  String vocabGameChoiceLabel(Object choice) {
+    return '보기: $choice';
+  }
+
+  @override
+  String get characterSourceTitle => '우리 아이를 주인공으로';
+
+  @override
+  String get characterSourceSubtitle => '사진으로 만들거나 기본 캐릭터를 골라보세요';
+
+  @override
+  String get characterSourcePhotoCamera => '사진 촬영';
+
+  @override
+  String get characterSourceGallery => '갤러리';
+
+  @override
+  String get characterSourcePresetSectionLabel => '사진 없이 시작 · 기본 캐릭터';
+
+  @override
+  String get characterSourcePresetLoadError => '기본 캐릭터를 불러오지 못했어요.';
+
+  @override
+  String get characterSourceCreateFailed => '주인공을 만들지 못했어요. 잠시 후 다시 시도해주세요.';
+
+  @override
+  String get characterSourcePhotoMissingId =>
+      '사진으로 주인공을 만들지 못했어요. 잠시 후 다시 시도해주세요.';
+
+  @override
+  String get characterSourcePhotoFailed =>
+      '사진으로 주인공을 만들지 못했어요. 보호자 동의/권한을 확인해주세요.';
+
+  @override
+  String get ageGateTitle => '부모 확인';
+
+  @override
+  String get ageGateDescription => '구매 화면 접근 전 부모 확인이 필요해요.';
+
+  @override
+  String get ageGateAnswerHint => '정답 입력';
+
+  @override
+  String get ageGateCancel => '취소';
+
+  @override
+  String get ageGateWrongAnswer => '정답이 아니에요.';
+
+  @override
+  String get ageGateConfirm => '확인';
 }

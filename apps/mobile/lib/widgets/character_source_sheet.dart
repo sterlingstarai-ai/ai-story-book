@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../core/api_error.dart';
 import '../core/photo_consent.dart';
+import '../l10n/app_localizations.dart';
 import '../providers/providers.dart';
 import '../services/api_client.dart';
 import '../utils/constants.dart';
@@ -81,6 +82,7 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
     if (_busy) {
       return;
     }
+    final l = AppLocalizations.of(context);
     setState(() => _busy = true);
     try {
       final id = await ref.read(apiClientProvider).createCharacterFromPreset(
@@ -92,7 +94,7 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
         Navigator.pop(context, id);
       }
     } catch (error) {
-      _showError(_errorMessage(error, '주인공을 만들지 못했어요. 잠시 후 다시 시도해주세요.'));
+      _showError(_errorMessage(error, l.characterSourceCreateFailed));
     }
   }
 
@@ -100,6 +102,7 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
     if (_busy) {
       return;
     }
+    final l = AppLocalizations.of(context);
     // 아동 얼굴 사진 업로드는 보호자 게이트 뒤에서만(세션 내 검증되어 있으면 통과).
     // 게이트 통과 → 사진 선택 → JIT 동의(아래) 순으로 이중 보호.
     final parental = ref.read(parentalControlServiceProvider);
@@ -140,12 +143,12 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
         Navigator.pop(context, id);
       } else {
         // 2xx인데 character_id 누락 — _busy를 풀어 시트 잠금을 방지
-        _showError('사진으로 주인공을 만들지 못했어요. 잠시 후 다시 시도해주세요.');
+        _showError(l.characterSourcePhotoMissingId);
       }
     } catch (error) {
       _showError(_errorMessage(
         error,
-        '사진으로 주인공을 만들지 못했어요. 보호자 동의/권한을 확인해주세요.',
+        l.characterSourcePhotoFailed,
       ));
     }
   }
@@ -161,6 +164,7 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     final presetsAsync = ref.watch(characterPresetsProvider);
     return SafeArea(
       child: Padding(
@@ -169,10 +173,10 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('우리 아이를 주인공으로', style: AppTextStyles.heading3),
+            Text(l.characterSourceTitle, style: AppTextStyles.heading3),
             const SizedBox(height: AppSpacing.xs),
             Text(
-              '사진으로 만들거나 기본 캐릭터를 골라보세요',
+              l.characterSourceSubtitle,
               style: AppTextStyles.caption.copyWith(color: AppColors.textHint),
             ),
             const SizedBox(height: AppSpacing.md),
@@ -183,7 +187,7 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
                     onPressed:
                         _busy ? null : () => _usePhoto(ImageSource.camera),
                     icon: const Icon(Icons.camera_alt_outlined),
-                    label: const Text('사진 촬영'),
+                    label: Text(l.characterSourcePhotoCamera),
                   ),
                 ),
                 const SizedBox(width: AppSpacing.sm),
@@ -192,14 +196,14 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
                     onPressed:
                         _busy ? null : () => _usePhoto(ImageSource.gallery),
                     icon: const Icon(Icons.photo_library_outlined),
-                    label: const Text('갤러리'),
+                    label: Text(l.characterSourceGallery),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: AppSpacing.md),
             Text(
-              '사진 없이 시작 · 기본 캐릭터',
+              l.characterSourcePresetSectionLabel,
               style: AppTextStyles.caption.copyWith(color: AppColors.textHint),
             ),
             const SizedBox(height: AppSpacing.sm),
@@ -208,7 +212,7 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
                 padding: EdgeInsets.all(AppSpacing.lg),
                 child: Center(child: CircularProgressIndicator()),
               ),
-              error: (_, __) => const Text('기본 캐릭터를 불러오지 못했어요.'),
+              error: (_, __) => Text(l.characterSourcePresetLoadError),
               data: (presets) => Wrap(
                 spacing: AppSpacing.sm,
                 runSpacing: AppSpacing.sm,

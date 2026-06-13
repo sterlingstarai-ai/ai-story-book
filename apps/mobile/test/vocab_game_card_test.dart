@@ -2,10 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:ai_story_book/l10n/app_localizations.dart';
 import 'package:ai_story_book/models/models.dart';
 import 'package:ai_story_book/widgets/vocab_game_card.dart';
 
-Widget _host(VocabGameCard card) => MaterialApp(home: Scaffold(body: card));
+Widget _host(VocabGameCard card) => MaterialApp(
+      locale: const Locale('ko'),
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      home: Scaffold(body: card),
+    );
 
 void main() {
   final item = VocabItem(word: '용감', meaning: '겁이 없고 씩씩함');
