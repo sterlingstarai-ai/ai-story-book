@@ -8,7 +8,7 @@ sqlalchemy==2.0.36
 greenlet>=3.1.1,<4
 alembic==1.14.0
 psycopg2-binary>=2.9.9
-asyncpg==0.30.0
+asyncpg==0.31.0
 
 # Celery
 celery[redis]==5.4.0
@@ -22,7 +22,7 @@ pydantic-settings==2.6.0
 boto3==1.35.0
 
 # HTTP Client
-httpx==0.28.0
+httpx==0.28.1
 aiohttp==3.11.0
 google-auth==2.40.0
 
@@ -30,7 +30,7 @@ google-auth==2.40.0
 jinja2==3.1.4
 
 # Utils
-python-dotenv==1.0.1
+python-dotenv==1.2.1
 structlog==24.4.0
 
 # PDF Generation

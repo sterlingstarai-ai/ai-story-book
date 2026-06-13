@@ -55,7 +55,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
@@ -117,7 +117,7 @@ jobs:
 
       - name: Upload API logs on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: api-test-logs
           path: apps/api/test-output.log
@@ -125,7 +125,7 @@ jobs:
 
       - name: Upload API coverage
         if: success()
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v5
         with:
           files: apps/api/coverage.xml
           flags: api
@@ -183,7 +183,7 @@ jobs:
 
       - name: Upload Flutter logs on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: flutter-test-logs
           path: |
@@ -193,7 +193,7 @@ jobs:
 
       - name: Upload Flutter coverage
         if: success()
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v5
         with:
           files: apps/mobile/coverage/lcov.info
           flags: flutter
@@ -231,7 +231,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
@@ -308,7 +308,7 @@ jobs:
 
       - name: Upload phase gate logs on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: phase-gate-logs
           path: |
@@ -367,7 +367,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push API image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: apps/api
           file: apps/api/Dockerfile
@@ -379,7 +379,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build and push Worker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: apps/api
           file: apps/api/Dockerfile.worker
@@ -415,7 +415,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Deploy to server
-        uses: appleboy/ssh-action@v1.0.0
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
