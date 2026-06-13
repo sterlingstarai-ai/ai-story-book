@@ -39,5 +39,27 @@
   "retry": "Retry",
   "@retry": {
     "description": "Generic retry button label"
+  },
+  "onboardingSkip": "Skip",
+  "@onboardingSkip": {
+    "description": "Onboarding: skip button"
+  },
+  "onboardingNext": "Next",
+  "onboardingStart": "Get started",
+  "onboardingSlide1Title": "AI custom stories",
+  "onboardingSlide1Subtitle": "AI creates stories tailored to your child.",
+  "onboardingSlide2Title": "Make characters from photos",
+  "onboardingSlide2Subtitle": "Turn your child's photo into the story's hero.",
+  "onboardingSlide3Title": "A daily reading habit",
+  "onboardingSlide3Subtitle": "Build a daily reading habit with streaks.",
+  "onboardingSlide4Title": "Start for free",
+  "onboardingSlide4Subtitle": "Make your first storybook with 3 starter credits.",
+  "onboardingPageIndicator": "Page {current} of {total}",
+  "@onboardingPageIndicator": {
+    "description": "Accessibility label for the onboarding page indicator",
+    "placeholders": {
+      "current": { "type": "int" },
+      "total": { "type": "int" }
+    }
   }
 }

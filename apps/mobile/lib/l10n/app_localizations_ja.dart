@@ -37,4 +37,42 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get retry => '再試行';
+
+  @override
+  String get onboardingSkip => 'スキップ';
+
+  @override
+  String get onboardingNext => '次へ';
+
+  @override
+  String get onboardingStart => 'はじめる';
+
+  @override
+  String get onboardingSlide1Title => 'AIオーダーメイド絵本';
+
+  @override
+  String get onboardingSlide1Subtitle => 'お子さまに合ったお話をAIが作ります。';
+
+  @override
+  String get onboardingSlide2Title => '写真からキャラクター作成';
+
+  @override
+  String get onboardingSlide2Subtitle => 'お子さまの写真を絵本の主人公にできます。';
+
+  @override
+  String get onboardingSlide3Title => '毎日の読書習慣';
+
+  @override
+  String get onboardingSlide3Subtitle => 'ストリークで毎日の読書習慣を育てます。';
+
+  @override
+  String get onboardingSlide4Title => '無料ではじめる';
+
+  @override
+  String get onboardingSlide4Subtitle => '初回3クレジットですぐに絵本を作れます。';
+
+  @override
+  String onboardingPageIndicator(int current, int total) {
+    return '$totalページ中$currentページ目';
+  }
 }

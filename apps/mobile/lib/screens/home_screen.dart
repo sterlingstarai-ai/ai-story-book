@@ -76,6 +76,7 @@ class HomeScreen extends ConsumerWidget {
                           onPressed: () =>
                               Navigator.pushNamed(context, '/settings'),
                           icon: const Icon(Icons.settings_outlined),
+                          tooltip: '설정',
                         ),
                       ],
                     ),
