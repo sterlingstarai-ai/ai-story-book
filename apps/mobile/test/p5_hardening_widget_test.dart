@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:ai_story_book/l10n/app_localizations.dart';
 import 'package:ai_story_book/providers/providers.dart';
 import 'package:ai_story_book/screens/branch_story_screen.dart';
 import 'package:ai_story_book/screens/consent_screen.dart';
@@ -34,6 +35,9 @@ Widget _buildHarness(
       ...overrides,
     ],
     child: MaterialApp(
+      locale: const Locale('ko'),
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
       initialRoute: '/__test__',
       onGenerateRoute: (settings) {
         switch (settings.name) {

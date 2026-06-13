@@ -9,5 +9,23 @@
   "currentStreakLabel": "연속 읽기",
   "vocabLearnedLabel": "학습 어휘",
   "quizAccuracyLabel": "퀴즈 정확도",
-  "retry": "다시 시도"
+  "retry": "다시 시도",
+  "onboardingSkip": "건너뛰기",
+  "onboardingNext": "다음",
+  "onboardingStart": "시작하기",
+  "onboardingSlide1Title": "AI 맞춤 동화",
+  "onboardingSlide1Subtitle": "아이에게 맞는 이야기를 AI가 만들어줘요.",
+  "onboardingSlide2Title": "사진으로 캐릭터 만들기",
+  "onboardingSlide2Subtitle": "아이 사진을 동화 속 주인공으로 변환할 수 있어요.",
+  "onboardingSlide3Title": "매일 읽기 습관",
+  "onboardingSlide3Subtitle": "스트릭으로 매일 독서 습관을 만들어요.",
+  "onboardingSlide4Title": "첫 책 무료 시작",
+  "onboardingSlide4Subtitle": "초기 3크레딧으로 바로 동화책을 만들어보세요.",
+  "onboardingPageIndicator": "총 {total}장 중 {current}장",
+  "@onboardingPageIndicator": {
+    "placeholders": {
+      "current": { "type": "int" },
+      "total": { "type": "int" }
+    }
+  }
 }

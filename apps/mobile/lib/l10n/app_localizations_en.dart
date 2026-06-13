@@ -38,4 +38,46 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get retry => 'Retry';
+
+  @override
+  String get onboardingSkip => 'Skip';
+
+  @override
+  String get onboardingNext => 'Next';
+
+  @override
+  String get onboardingStart => 'Get started';
+
+  @override
+  String get onboardingSlide1Title => 'AI custom stories';
+
+  @override
+  String get onboardingSlide1Subtitle =>
+      'AI creates stories tailored to your child.';
+
+  @override
+  String get onboardingSlide2Title => 'Make characters from photos';
+
+  @override
+  String get onboardingSlide2Subtitle =>
+      'Turn your child\'s photo into the story\'s hero.';
+
+  @override
+  String get onboardingSlide3Title => 'A daily reading habit';
+
+  @override
+  String get onboardingSlide3Subtitle =>
+      'Build a daily reading habit with streaks.';
+
+  @override
+  String get onboardingSlide4Title => 'Start for free';
+
+  @override
+  String get onboardingSlide4Subtitle =>
+      'Make your first storybook with 3 starter credits.';
+
+  @override
+  String onboardingPageIndicator(int current, int total) {
+    return 'Page $current of $total';
+  }
 }

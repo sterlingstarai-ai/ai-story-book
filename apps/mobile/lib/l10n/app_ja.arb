@@ -9,5 +9,23 @@
   "currentStreakLabel": "連続読書",
   "vocabLearnedLabel": "学んだ語彙",
   "quizAccuracyLabel": "クイズ正答率",
-  "retry": "再試行"
+  "retry": "再試行",
+  "onboardingSkip": "スキップ",
+  "onboardingNext": "次へ",
+  "onboardingStart": "はじめる",
+  "onboardingSlide1Title": "AIオーダーメイド絵本",
+  "onboardingSlide1Subtitle": "お子さまに合ったお話をAIが作ります。",
+  "onboardingSlide2Title": "写真からキャラクター作成",
+  "onboardingSlide2Subtitle": "お子さまの写真を絵本の主人公にできます。",
+  "onboardingSlide3Title": "毎日の読書習慣",
+  "onboardingSlide3Subtitle": "ストリークで毎日の読書習慣を育てます。",
+  "onboardingSlide4Title": "無料ではじめる",
+  "onboardingSlide4Subtitle": "初回3クレジットですぐに絵本を作れます。",
+  "onboardingPageIndicator": "{total}ページ中{current}ページ目",
+  "@onboardingPageIndicator": {
+    "placeholders": {
+      "current": { "type": "int" },
+      "total": { "type": "int" }
+    }
+  }
 }
