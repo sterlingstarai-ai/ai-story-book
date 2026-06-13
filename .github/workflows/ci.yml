@@ -107,6 +107,14 @@ jobs:
           APP_VERSION: "0.3.2"
         run: bash scripts/run_live_e2e.sh
 
+      - name: Golden prompts structural harness
+        # docs/qa/golden-prompts.json 을 실제 생성 파이프라인으로 통과시켜 출시 품질의
+        # 구조 계약(파이프라인 완주·페이지 정합·placeholder 없음·학습자산·퀴즈·warnings/
+        # asset_status)을 결정적으로 검증. mock·in-process·전용 sqlite라 키 불필요.
+        # (내용/의미 품질 실측은 실키 --live 모드 — 창업자 결정 단계.)
+        working-directory: apps/api
+        run: python scripts/golden_prompts_harness.py
+
       - name: Upload API logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
