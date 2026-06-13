@@ -16,7 +16,7 @@
     "id": "golden-ko-bedtime-002",
     "language": "ko",
     "target_age": "3-5",
-    "style": "storybook_crayon",
+    "style": "claymation",
     "theme": "생활습관",
     "topic": "잠들기 싫어하는 아이가 달님과 함께 편안한 잠자리 루틴을 배우는 이야기",
     "expected_signals": [
@@ -26,11 +26,24 @@
     ]
   },
   {
+    "id": "golden-ko-adventure-004",
+    "language": "ko",
+    "target_age": "7-9",
+    "style": "oil_painting",
+    "theme": "모험",
+    "topic": "오래된 등대를 고치러 떠난 남매가 폭풍우 속에서 서로를 도와 길을 찾는 이야기",
+    "expected_signals": [
+      "원인과 결과가 또렷한 서사로 7-9세 독해 수준에 맞을 것",
+      "접속사·감정 어휘가 풍부하게 사용될 것",
+      "퀴즈가 본문 내용에 근거(grounded)하고 채점 가능할 것"
+    ]
+  },
+  {
     "id": "golden-en-bilingual-003",
     "language": "en",
     "target_age": "7-9",
     "style": "cartoon",
-    "theme": "adventure",
+    "theme": "모험",
     "topic": "A child and her robot kite discover a hidden sky library above Seoul.",
     "expected_signals": [
       "English source text and Korean learning assets should align semantically",

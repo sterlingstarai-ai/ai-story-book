@@ -253,11 +253,24 @@ async def _call_mock(
         )
     elif "스토리" in system_prompt or "동화" in system_prompt:
         # Story generation
+        # 요청된 언어/연령을 user_prompt 에서 감지(mock 충실도). 프롬프트는
+        # "- language: en" / "- target_age: 7-9" 형태로 spec 을 그대로 담고 있어
+        # 골든 하니스가 spec→story 전파를 구조 단계에서 검증할 수 있게 한다.
+        _mock_language = "ko"
+        for _cand in ("en", "ja", "ko"):
+            if f"language: {_cand}" in user_prompt:
+                _mock_language = _cand
+                break
+        _mock_target_age = "5-7"
+        for _cand in ("3-5", "5-7", "7-9", "adult"):
+            if f"target_age: {_cand}" in user_prompt:
+                _mock_target_age = _cand
+                break
         return json.dumps(
             {
                 "title": "용감한 토끼의 숲속 모험",
-                "language": "ko",
-                "target_age": "5-7",
+                "language": _mock_language,
+                "target_age": _mock_target_age,
                 "theme": "감정코칭",
                 "moral": "용기를 내면 무엇이든 할 수 있어요. 두려움을 이겨내면 새로운 친구를 만날 수 있답니다.",
                 "characters": [
