@@ -370,6 +370,56 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     return book.generationWarnings.first;
   }
 
+  /// 마일스톤 달성 모달 — 첫 마일스톤을 축하하고 보상(보너스 크레딧)을 알린다.
+  /// (보상 크레딧은 서버의 읽기 기록 흐름에서 이미 지급됨.)
+  Future<void> _showMilestoneModal(List<dynamic> milestones) async {
+    final l = AppLocalizations.of(context);
+    final m = milestones.first;
+    if (m is! Map) {
+      return;
+    }
+    final title = m['title']?.toString() ?? '';
+    final description = m['description']?.toString() ?? '';
+    final hasReward = m['reward'] != null;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(description),
+            if (hasReward) ...[
+              const SizedBox(height: AppSpacing.md),
+              Container(
+                padding: const EdgeInsets.all(AppSpacing.sm),
+                decoration: BoxDecoration(
+                  color: AppColors.primaryLight,
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.card_giftcard,
+                        color: AppColors.primary, size: 20),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(child: Text(l.viewerMilestoneRewardEarned)),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(l.viewerMilestoneConfirm),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _handleBookCompleted(BookResult book) async {
     await _clearReadingProgress();
     final readingSeconds = DateTime.now().difference(_viewStartedAt).inSeconds;
@@ -377,11 +427,15 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     int streak = 0;
 
     try {
-      await api.recordReading(
+      final readResult = await api.recordReading(
         bookId: widget.bookId,
         readingTime: readingSeconds < 0 ? 0 : readingSeconds,
         completed: true,
       );
+      final milestones = readResult['milestones'];
+      if (milestones is List && milestones.isNotEmpty && mounted) {
+        await _showMilestoneModal(milestones);
+      }
       final streakInfo = await api.getStreakInfo();
       final currentStreak = streakInfo['current_streak'];
       if (currentStreak is int) {

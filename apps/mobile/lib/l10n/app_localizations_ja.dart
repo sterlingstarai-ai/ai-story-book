@@ -1862,6 +1862,12 @@ class AppLocalizationsJa extends AppLocalizations {
   String get viewerRetellFailed => '書き直しに失敗しました';
 
   @override
+  String get viewerMilestoneRewardEarned => 'ボーナスクレジットを獲得しました!';
+
+  @override
+  String get viewerMilestoneConfirm => 'やった!';
+
+  @override
   String get viewerLearningModeTitle => '学習モード';
 
   @override

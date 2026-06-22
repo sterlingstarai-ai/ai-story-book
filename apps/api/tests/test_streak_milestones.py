@@ -4,6 +4,9 @@
 (적대적 리뷰가 잡은 current_streak == days repeat-after-reset 버그를 보상에서 회피.)
 """
 
+import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from src.services.streak import streak_service
 
 
@@ -26,3 +29,29 @@ def test_streak_milestone_carries_no_reward():
     streak7 = [m for m in ms if m["type"] == "streak" and m["days"] == 7]
     assert len(streak7) == 1
     assert streak7[0]["reward"] is None
+
+
+@pytest.mark.asyncio
+async def test_grant_milestone_rewards_grants_credits(
+    db_session: AsyncSession,
+    headers: dict,
+):
+    granted = await streak_service._grant_milestone_rewards(
+        db_session,
+        headers["X-User-Key"],
+        [{"type": "total", "days": 10, "title": "10일 완독", "reward": "free_pdf"}],
+    )
+    assert granted == 1  # free_pdf -> 1 credit
+
+
+@pytest.mark.asyncio
+async def test_grant_milestone_rewards_skips_rewardless(
+    db_session: AsyncSession,
+    headers: dict,
+):
+    granted = await streak_service._grant_milestone_rewards(
+        db_session,
+        headers["X-User-Key"],
+        [{"type": "streak", "days": 7, "title": "7일", "reward": None}],
+    )
+    assert granted == 0

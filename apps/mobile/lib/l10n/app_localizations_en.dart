@@ -1954,6 +1954,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get viewerRetellFailed => 'Couldn\'t retell this book';
 
   @override
+  String get viewerMilestoneRewardEarned => 'You earned bonus credits!';
+
+  @override
+  String get viewerMilestoneConfirm => 'Awesome!';
+
+  @override
   String get viewerLearningModeTitle => 'Learning mode';
 
   @override

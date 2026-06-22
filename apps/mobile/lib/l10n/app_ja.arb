@@ -589,6 +589,8 @@
   "viewerRetellSubtitle": "同じ絵で、文章だけ新しい年齢に",
   "viewerRetellInProgress": "新しい年齢で書き直し中…",
   "viewerRetellFailed": "書き直しに失敗しました",
+  "viewerMilestoneRewardEarned": "ボーナスクレジットを獲得しました!",
+  "viewerMilestoneConfirm": "やった!",
   "viewerLearningModeTitle": "学習モード",
   "viewerLearningModeSubtitle": "単語・質問・クイズ",
   "viewerParentGuideTitle": "保護者ガイド",

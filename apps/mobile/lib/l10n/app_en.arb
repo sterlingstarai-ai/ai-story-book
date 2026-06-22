@@ -876,6 +876,8 @@
   "viewerRetellSubtitle": "Same pictures, text rewritten for a new age",
   "viewerRetellInProgress": "Retelling for the new age…",
   "viewerRetellFailed": "Couldn't retell this book",
+  "viewerMilestoneRewardEarned": "You earned bonus credits!",
+  "viewerMilestoneConfirm": "Awesome!",
   "viewerLearningModeTitle": "Learning mode",
   "viewerLearningModeSubtitle": "Words, questions, quiz",
   "viewerParentGuideTitle": "Parent guide",

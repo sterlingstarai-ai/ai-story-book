@@ -3574,6 +3574,18 @@ abstract class AppLocalizations {
   /// **'Couldn\'t retell this book'**
   String get viewerRetellFailed;
 
+  /// No description provided for @viewerMilestoneRewardEarned.
+  ///
+  /// In en, this message translates to:
+  /// **'You earned bonus credits!'**
+  String get viewerMilestoneRewardEarned;
+
+  /// No description provided for @viewerMilestoneConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Awesome!'**
+  String get viewerMilestoneConfirm;
+
   /// No description provided for @viewerLearningModeTitle.
   ///
   /// In en, this message translates to:

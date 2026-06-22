@@ -274,6 +274,8 @@ class StreakService:
                 if not already_read_today
                 else []
             )
+            if milestones:
+                await self._grant_milestone_rewards(db, user_key, milestones)
             return {
                 "current_streak": profile_streak["current_streak"],
                 "longest_streak": profile_streak["longest_streak"],
@@ -360,6 +362,8 @@ class StreakService:
             else []
         )
 
+        if milestones:
+            await self._grant_milestone_rewards(db, user_key, milestones)
         return {
             "current_streak": streak.current_streak,
             "longest_streak": streak.longest_streak,
@@ -367,6 +371,30 @@ class StreakService:
             "new_streak_day": not already_read_today,
             "milestones": milestones,
         }
+
+    # 보상 마일스톤별 지급 크레딧(누적 total_days 임계는 1회 발화라 지급도 1회·멱등)
+    _REWARD_CREDITS = {"free_pdf": 1, "free_print_credit": 2, "premium_pack": 3}
+
+    async def _grant_milestone_rewards(
+        self, db: AsyncSession, user_key: str, milestones: list[dict]
+    ) -> int:
+        """보상 토큰이 붙은 마일스톤에 크레딧을 지급. 지급한 총 크레딧 수를 반환."""
+        from src.services.credits import credits_service
+
+        granted = 0
+        for m in milestones:
+            amount = self._REWARD_CREDITS.get(m.get("reward") or "", 0)
+            if amount > 0:
+                await credits_service.add_credits(
+                    db,
+                    user_key,
+                    amount,
+                    transaction_type="bonus",
+                    description=f"마일스톤 보상: {m.get('title', '')}",
+                    reference_id=f"milestone_{m.get('type')}_{m.get('days')}",
+                )
+                granted += amount
+        return granted
 
     def _check_milestones(self, current_streak: int, total_days: int) -> list[dict]:
         """달성한 마일스톤 확인"""

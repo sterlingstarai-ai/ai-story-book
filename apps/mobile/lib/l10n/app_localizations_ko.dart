@@ -1861,6 +1861,12 @@ class AppLocalizationsKo extends AppLocalizations {
   String get viewerRetellFailed => '다시 쓰기에 실패했어요';
 
   @override
+  String get viewerMilestoneRewardEarned => '보너스 크레딧이 지급됐어요!';
+
+  @override
+  String get viewerMilestoneConfirm => '좋아요!';
+
+  @override
   String get viewerLearningModeTitle => '학습 모드';
 
   @override
