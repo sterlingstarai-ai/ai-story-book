@@ -25,6 +25,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
   final _formKey = GlobalKey<FormState>();
 
   TargetAge _selectedAge = TargetAge.age5to7;
+  String _selectedLanguage = 'ko'; // 이야기 생성 언어 (didChangeDependencies에서 로캘 기반 초기화)
   BookStyle _selectedStyle = BookStyle.watercolor;
   BookTheme? _selectedTheme;
   List<String> _selectedCharacterIds = []; // 다중 캐릭터 선택
@@ -66,6 +67,11 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
         });
       }
     }
+    // 이야기 언어 기본값을 현재 UI 로캘에서 추론(글로벌 — 지원 언어가 아니면 영어).
+    const supportedStoryLangs = {'ko', 'en', 'ja', 'zh', 'es'};
+    final localeCode = Localizations.localeOf(context).languageCode;
+    _selectedLanguage =
+        supportedStoryLangs.contains(localeCode) ? localeCode : 'en';
   }
 
   @override
@@ -109,6 +115,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
     try {
       final spec = BookSpec(
         topic: _topicController.text.trim(),
+        language: _selectedLanguage,
         targetAge: _selectedAge.value,
         style: _selectedStyle.value,
         theme: _selectedTheme?.value,
@@ -371,6 +378,47 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                 hintText: l.createChildNameHint,
                 hintStyle: AppTextStyles.bodySmall,
               ),
+            ),
+
+            const SizedBox(height: AppSpacing.lg),
+
+            // 이야기 언어 (글로벌 — 네이티브 표기, 기본값은 UI 로캘)
+            Text(l.createLanguageLabel, style: AppTextStyles.heading3),
+            const SizedBox(height: AppSpacing.sm),
+            Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.sm,
+              children: {
+                'ko': '한국어',
+                'en': 'English',
+                'ja': '日本語',
+                'zh': '中文',
+                'es': 'Español',
+              }.entries.map((e) {
+                final isSelected = _selectedLanguage == e.key;
+                return ChoiceChip(
+                  label: Text(e.value),
+                  selected: isSelected,
+                  materialTapTargetSize: MaterialTapTargetSize.padded,
+                  labelPadding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.sm,
+                    vertical: AppSpacing.md,
+                  ),
+                  onSelected: (selected) {
+                    if (selected) {
+                      setState(() => _selectedLanguage = e.key);
+                    }
+                  },
+                  selectedColor: AppColors.primaryMedium,
+                  labelStyle: TextStyle(
+                    color: isSelected
+                        ? AppColors.primary
+                        : AppColors.textSecondary,
+                    fontWeight:
+                        isSelected ? FontWeight.w600 : FontWeight.normal,
+                  ),
+                );
+              }).toList(),
             ),
 
             const SizedBox(height: AppSpacing.lg),

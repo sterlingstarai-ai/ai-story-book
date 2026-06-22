@@ -14,6 +14,8 @@ class Language(str, Enum):
     ko = "ko"
     en = "en"
     ja = "ja"
+    zh = "zh"
+    es = "es"
 
 
 class TargetAge(str, Enum):

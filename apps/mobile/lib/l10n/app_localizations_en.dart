@@ -242,6 +242,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get createAgeHelpAdult => 'No length limit, dense narrative';
 
   @override
+  String get createLanguageLabel => 'Story language';
+
+  @override
   String get createTemplateSectionLabel => 'Start from a suggestion';
 
   @override

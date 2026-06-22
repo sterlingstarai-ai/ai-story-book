@@ -232,6 +232,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get createAgeHelpAdult => '長さ制限なし、密度の高い物語';
 
   @override
+  String get createLanguageLabel => '物語の言語';
+
+  @override
   String get createTemplateSectionLabel => 'おすすめから始める';
 
   @override

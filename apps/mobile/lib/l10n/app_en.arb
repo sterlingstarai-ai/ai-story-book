@@ -115,6 +115,7 @@
   "createAgeHelp5to7": "Familiar words, 2-3 sentences, feelings and simple dialogue",
   "createAgeHelp7to9": "Richer words, 2-4 sentences, cause and effect",
   "createAgeHelpAdult": "No length limit, dense narrative",
+  "createLanguageLabel": "Story language",
   "createTemplateSectionLabel": "Start from a suggestion",
   "createTemplateAnimalLabel": "Animal friends",
   "createTemplateAnimalTopic": "A brave little animal makes new friends in the forest",

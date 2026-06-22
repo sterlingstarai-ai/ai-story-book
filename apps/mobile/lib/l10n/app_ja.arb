@@ -81,6 +81,7 @@
   "createAgeHelp5to7": "身近な言葉、2〜3文、感情と簡単な会話",
   "createAgeHelp7to9": "豊かな言葉、2〜4文、原因と結果",
   "createAgeHelpAdult": "長さ制限なし、密度の高い物語",
+  "createLanguageLabel": "物語の言語",
   "createTemplateSectionLabel": "おすすめから始める",
   "createTemplateAnimalLabel": "どうぶつの友だち",
   "createTemplateAnimalTopic": "勇敢な小さな動物が森で新しい友だちを作るお話",

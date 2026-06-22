@@ -188,6 +188,26 @@ void main() {
       expect(find.text('익숙한 단어, 2~3문장, 감정과 간단한 대화'), findsNothing);
     });
 
+    testWidgets('shows story language selector with native names',
+        (tester) async {
+      await tester.pumpWidget(buildTestableWidget(
+        const CreateScreen(),
+        overrides: createOverrides(),
+      ));
+      await tester.pumpAndSettle();
+
+      final listView = find.byType(ListView).first;
+      for (var i = 0;
+          i < 25 && find.text('이야기 언어').evaluate().isEmpty;
+          i++) {
+        await tester.drag(listView, const Offset(0, -250));
+        await tester.pumpAndSettle();
+      }
+      expect(find.text('이야기 언어'), findsOneWidget);
+      expect(find.text('Español', skipOffstage: false), findsOneWidget);
+      expect(find.text('中文', skipOffstage: false), findsOneWidget);
+    });
+
     testWidgets('tapping a quick-start template prefills topic and theme',
         (tester) async {
       await tester.pumpWidget(buildTestableWidget(

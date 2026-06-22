@@ -526,6 +526,12 @@ abstract class AppLocalizations {
   /// **'No length limit, dense narrative'**
   String get createAgeHelpAdult;
 
+  /// No description provided for @createLanguageLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Story language'**
+  String get createLanguageLabel;
+
   /// No description provided for @createTemplateSectionLabel.
   ///
   /// In en, this message translates to:

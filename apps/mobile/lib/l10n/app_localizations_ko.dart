@@ -232,6 +232,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get createAgeHelpAdult => '길이 제한 없음, 밀도 있는 서사';
 
   @override
+  String get createLanguageLabel => '이야기 언어';
+
+  @override
   String get createTemplateSectionLabel => '추천으로 시작하기';
 
   @override
