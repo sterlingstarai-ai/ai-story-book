@@ -116,6 +116,12 @@ class AppLocalizationsJa extends AppLocalizations {
   String get homeQuickStartTitle => 'キャラクターからすぐ作る';
 
   @override
+  String get homePhotoCharacterTitle => 'わが子で絵本を作る';
+
+  @override
+  String get homePhotoCharacterSubtitle => '写真そっくりの主人公に — 写真は安全に処理されます';
+
+  @override
   String homeStreakDaysLabel(Object days) {
     return '$days日連続の読書';
   }

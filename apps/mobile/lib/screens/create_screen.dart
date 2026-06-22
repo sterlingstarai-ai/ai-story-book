@@ -57,6 +57,14 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
           !_selectedCharacterIds.contains(characterId)) {
         _selectedCharacterIds = [..._selectedCharacterIds, characterId];
       }
+      // 홈의 '내 아이로 동화 만들기' 진입 → 사진/캐릭터 시트를 바로 연다.
+      if (args['startPhotoCharacter'] == true) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            _selectChildProtagonist();
+          }
+        });
+      }
     }
   }
 

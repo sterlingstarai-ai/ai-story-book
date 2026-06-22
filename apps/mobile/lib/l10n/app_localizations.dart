@@ -310,6 +310,18 @@ abstract class AppLocalizations {
   /// **'Start with my character'**
   String get homeQuickStartTitle;
 
+  /// No description provided for @homePhotoCharacterTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Make a story with my child'**
+  String get homePhotoCharacterTitle;
+
+  /// No description provided for @homePhotoCharacterSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'A hero who looks just like them — photos are handled safely'**
+  String get homePhotoCharacterSubtitle;
+
   /// No description provided for @homeStreakDaysLabel.
   ///
   /// In en, this message translates to:

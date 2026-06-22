@@ -45,6 +45,8 @@
   "homeCreateCardTitle": "새 동화책 만들기",
   "homeCreateCardSubtitle": "우리 아이가 주인공인\n맞춤 동화를 만들어요",
   "homeQuickStartTitle": "내 캐릭터로 바로 만들기",
+  "homePhotoCharacterTitle": "내 아이로 동화 만들기",
+  "homePhotoCharacterSubtitle": "사진 속 모습을 닮은 주인공으로 — 사진은 안전하게 처리돼요",
   "homeStreakDaysLabel": "{days}일 연속 읽기",
   "homeReadTodayBadge": "오늘 읽음",
   "homeNotReadTodayBadge": "오늘 미완료",

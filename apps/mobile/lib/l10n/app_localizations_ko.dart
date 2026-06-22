@@ -116,6 +116,12 @@ class AppLocalizationsKo extends AppLocalizations {
   String get homeQuickStartTitle => '내 캐릭터로 바로 만들기';
 
   @override
+  String get homePhotoCharacterTitle => '내 아이로 동화 만들기';
+
+  @override
+  String get homePhotoCharacterSubtitle => '사진 속 모습을 닮은 주인공으로 — 사진은 안전하게 처리돼요';
+
+  @override
   String homeStreakDaysLabel(Object days) {
     return '$days일 연속 읽기';
   }

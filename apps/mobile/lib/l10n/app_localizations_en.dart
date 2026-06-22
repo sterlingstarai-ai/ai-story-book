@@ -122,6 +122,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get homeQuickStartTitle => 'Start with my character';
 
   @override
+  String get homePhotoCharacterTitle => 'Make a story with my child';
+
+  @override
+  String get homePhotoCharacterSubtitle =>
+      'A hero who looks just like them — photos are handled safely';
+
+  @override
   String homeStreakDaysLabel(Object days) {
     return '$days-day reading streak';
   }

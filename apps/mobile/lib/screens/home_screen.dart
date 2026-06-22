@@ -105,6 +105,21 @@ class HomeScreen extends ConsumerWidget {
               ),
             ),
 
+            // 사진→캐릭터 진입 (프라이버시 신뢰 메시지 포함)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.lg, AppSpacing.md, AppSpacing.lg, 0),
+                child: _PhotoCharacterCard(
+                  onTap: () => Navigator.pushNamed(
+                    context,
+                    '/create',
+                    arguments: {'startPhotoCharacter': true},
+                  ),
+                ),
+              ),
+            ),
+
             // 캐릭터-퍼스트 진입: 저장된 캐릭터로 바로 새 책 만들기
             charactersAsync.maybeWhen(
               data: (characters) => characters.isEmpty
@@ -715,6 +730,57 @@ class _SectionLabel extends StatelessWidget {
             fontWeight: FontWeight.w700,
             color: AppColors.textHint,
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 사진→캐릭터 진입 카드 — 탭하면 생성 화면에서 사진/캐릭터 시트를 바로 연다.
+class _PhotoCharacterCard extends StatelessWidget {
+  const _PhotoCharacterCard({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppRadius.lg),
+      child: Container(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          border: Border.all(color: AppColors.divider),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(AppSpacing.sm),
+              decoration: BoxDecoration(
+                color: AppColors.secondaryLight,
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+              ),
+              child: const Icon(Icons.face_retouching_natural,
+                  color: AppColors.secondary, size: 22),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(l.homePhotoCharacterTitle,
+                      style: AppTextStyles.heading3),
+                  const SizedBox(height: 2),
+                  Text(l.homePhotoCharacterSubtitle,
+                      style: AppTextStyles.bodySmall),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right_rounded, color: AppColors.textHint),
+          ],
         ),
       ),
     );

@@ -503,6 +503,17 @@ void main() {
       expect(find.text('내 캐릭터로 바로 만들기'), findsOneWidget);
       expect(find.text('토리'), findsOneWidget);
     });
+
+    testWidgets('shows photo-to-character entry card', (tester) async {
+      await tester.pumpWidget(buildTestableWidget(
+        const HomeScreen(),
+        overrides: homeOverrides(books: const []),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(find.text('내 아이로 동화 만들기'), findsOneWidget);
+    });
   });
 
   // ==================== LibraryScreen Tests ====================

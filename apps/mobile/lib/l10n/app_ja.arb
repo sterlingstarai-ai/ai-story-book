@@ -45,6 +45,8 @@
   "homeCreateCardTitle": "新しい絵本を作る",
   "homeCreateCardSubtitle": "お子さまが主人公の\nオリジナル絵本を作ります",
   "homeQuickStartTitle": "キャラクターからすぐ作る",
+  "homePhotoCharacterTitle": "わが子で絵本を作る",
+  "homePhotoCharacterSubtitle": "写真そっくりの主人公に — 写真は安全に処理されます",
   "homeStreakDaysLabel": "{days}日連続の読書",
   "homeReadTodayBadge": "今日読みました",
   "homeNotReadTodayBadge": "今日は未完了",
