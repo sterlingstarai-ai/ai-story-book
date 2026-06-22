@@ -507,6 +507,19 @@
             "description": "기존 캐릭터 ID 목록 (다중 선택)",
             "title": "Character Ids"
           },
+          "character_relationship": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "다중 캐릭터 간 관계 (예: 남매, 친구, 가족) — 스토리 역학에 반영",
+            "title": "Character Relationship"
+          },
           "forbidden_elements": {
             "anyOf": [
               {
@@ -609,6 +622,17 @@
             "title": "Book Id",
             "type": "string"
           },
+          "character_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Character Id"
+          },
           "cover_image_url": {
             "title": "Cover Image Url",
             "type": "string"
@@ -617,6 +641,28 @@
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "series_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Series Id"
+          },
+          "series_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Series Index"
           },
           "style": {
             "title": "Style",
@@ -897,6 +943,20 @@
             "title": "Created At",
             "type": "string"
           },
+          "distinctive_features": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Distinctive Features"
+          },
           "master_description": {
             "title": "Master Description",
             "type": "string"
@@ -944,6 +1004,21 @@
           },
           "clothing": {
             "$ref": "#/components/schemas/CharacterClothing"
+          },
+          "distinctive_features": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 10,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Distinctive Features"
           },
           "master_description": {
             "maxLength": 400,
@@ -1184,6 +1259,21 @@
           },
           "clothing": {
             "$ref": "#/components/schemas/CharacterClothing"
+          },
+          "distinctive_features": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 10,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Distinctive Features"
           },
           "master_description": {
             "maxLength": 400,
@@ -1628,7 +1718,9 @@
         "enum": [
           "ko",
           "en",
-          "ja"
+          "ja",
+          "zh",
+          "es"
         ],
         "title": "Language",
         "type": "string"
@@ -2430,6 +2522,42 @@
           "status"
         ],
         "title": "RegeneratePageResponse",
+        "type": "object"
+      },
+      "RetellRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "target_age": {
+            "$ref": "#/components/schemas/TargetAge"
+          }
+        },
+        "required": [
+          "target_age"
+        ],
+        "title": "RetellRequest",
+        "type": "object"
+      },
+      "RetellResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "book_id": {
+            "title": "Book Id",
+            "type": "string"
+          },
+          "status": {
+            "default": "done",
+            "title": "Status",
+            "type": "string"
+          },
+          "target_age": {
+            "$ref": "#/components/schemas/TargetAge"
+          }
+        },
+        "required": [
+          "book_id",
+          "target_age"
+        ],
+        "title": "RetellResponse",
         "type": "object"
       },
       "SeriesNextRequest": {
@@ -3858,6 +3986,70 @@
           }
         },
         "summary": "Export Book Pdf",
+        "tags": [
+          "Books"
+        ]
+      }
+    },
+    "/v1/books/{book_id}/retell": {
+      "post": {
+        "description": "'아이와 함께 자라는' 리텔 — 같은 책을 다른 연령대 본문으로 다시 써서 새 책으로 저장한다.\n삽화(표지·페이지 이미지)는 그대로 재사용하므로 이미지 생성/크레딧 소모가 없다.",
+        "operationId": "retell_book_v1_books__book_id__retell_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetellRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetellResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Retell Book",
         "tags": [
           "Books"
         ]
