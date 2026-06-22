@@ -265,9 +265,14 @@ class StreakService:
             await db.commit()
 
             profile_streak = await self._get_profile_streak_info(db, user_key, profile_id)
-            milestones = self._check_milestones(
-                profile_streak["current_streak"],
-                profile_streak["total_days"],
+            # 마일스톤은 '하루 첫 읽기'에서만 계산(같은 날 중복·보상 중복 방지)
+            milestones = (
+                self._check_milestones(
+                    profile_streak["current_streak"],
+                    profile_streak["total_days"],
+                )
+                if not already_read_today
+                else []
             )
             return {
                 "current_streak": profile_streak["current_streak"],
@@ -348,7 +353,12 @@ class StreakService:
         await db.commit()
 
         # 달성한 마일스톤 확인
-        milestones = self._check_milestones(streak.current_streak, streak.total_days)
+        # 마일스톤은 '하루 첫 읽기'에서만 계산(같은 날 중복·보상 중복 방지)
+        milestones = (
+            self._check_milestones(streak.current_streak, streak.total_days)
+            if not already_read_today
+            else []
+        )
 
         return {
             "current_streak": streak.current_streak,
@@ -362,6 +372,9 @@ class StreakService:
         """달성한 마일스톤 확인"""
         milestones = []
 
+        # 스트릭 마일스톤은 '축하'(보상 없음). current_streak == days는 스트릭이
+        # 깨졌다 재축적되면 재발화할 수 있으나 보상이 없어 악용 위험이 없다.
+        # (호출부가 '하루 첫 읽기'에서만 계산하므로 같은 날 중복도 차단된다.)
         streak_milestones = [
             (3, "🔥 3일 연속!", "3일 연속으로 동화를 읽었어요!"),
             (7, "🌟 일주일 달성!", "7일 연속으로 동화를 읽었어요!"),
@@ -378,16 +391,20 @@ class StreakService:
                         "days": days,
                         "title": title,
                         "description": description,
+                        "reward": None,
                     }
                 )
 
+        # 보상은 '누적 읽은 일수'(total_days)에 붙인다. total_days는 단조 증가라
+        # 스트릭을 깼다 다시 쌓아도 줄지 않아 임계값마다 정확히 한 번만 발화한다
+        # (보상 재지급 악용 불가). reward 토큰은 클라이언트 표시/후속 지급용.
         total_milestones = [
-            (10, "📚 10권 완독!", "총 10일 동화를 읽었어요!"),
-            (50, "📖 50권 완독!", "총 50일 동화를 읽었어요!"),
-            (100, "🎉 100권 완독!", "총 100일 동화를 읽었어요!"),
+            (10, "📚 10일 완독!", "총 10일 동화를 읽었어요!", "free_pdf"),
+            (50, "📖 50일 완독!", "총 50일 동화를 읽었어요!", "free_print_credit"),
+            (100, "🎉 100일 완독!", "총 100일 동화를 읽었어요!", "premium_pack"),
         ]
 
-        for days, title, description in total_milestones:
+        for days, title, description, reward in total_milestones:
             if total_days == days:
                 milestones.append(
                     {
@@ -395,6 +412,7 @@ class StreakService:
                         "days": days,
                         "title": title,
                         "description": description,
+                        "reward": reward,
                     }
                 )
 
