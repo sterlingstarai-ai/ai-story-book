@@ -219,6 +219,10 @@ class CharacterSheet(BaseModel):
     clothing: CharacterClothing
     personality_traits: List[str] = Field(min_length=1, max_length=10)
     visual_style_notes: str = Field(min_length=1, max_length=200)
+    # 식별 가능한 고유 특징(안경/주근깨/곱슬머리 등) — 페이지 간 일관성 강화용
+    distinctive_features: Optional[List[str]] = Field(
+        default=None, max_length=10
+    )
 
 
 # ==================== Image Prompt Models ====================
