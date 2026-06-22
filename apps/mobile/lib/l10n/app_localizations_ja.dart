@@ -312,6 +312,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get libraryTitle => 'マイライブラリ';
 
   @override
+  String get librarySeriesBadge => 'シリーズ';
+
+  @override
   String get libraryRefresh => '更新';
 
   @override

@@ -312,6 +312,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get libraryTitle => '내 서재';
 
   @override
+  String get librarySeriesBadge => '시리즈';
+
+  @override
   String get libraryRefresh => '새로고침';
 
   @override

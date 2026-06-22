@@ -542,6 +542,47 @@ async def test_library_patch_updates_title(
 
 
 @pytest.mark.asyncio
+async def test_library_returns_series_and_character_metadata(
+    client: AsyncClient,
+    headers: dict,
+    db_session: AsyncSession,
+):
+    """서재 응답이 시리즈/캐릭터 그룹핑 메타데이터를 포함하는지(P0-3)."""
+    for idx in (1, 2):
+        job = Job(
+            id=f"job-library-series-{idx}",
+            status="done",
+            user_key=headers["X-User-Key"],
+        )
+        db_session.add(job)
+        await db_session.flush()
+        db_session.add(
+            Book(
+                id=f"book-series-{idx}",
+                job_id=job.id,
+                title=f"또또의 모험 {idx}권",
+                language="ko",
+                target_age="5-7",
+                style="watercolor",
+                user_key=headers["X-User-Key"],
+                cover_image_url="https://example.com/cover.png",
+                series_id="series-lib-1",
+                series_index=idx,
+                character_id="char-lib-1",
+            )
+        )
+    await db_session.commit()
+
+    res = await client.get("/v1/library", headers=headers)
+    assert res.status_code == 200
+    books = {b["book_id"]: b for b in res.json()["books"]}
+    assert books["book-series-1"]["series_id"] == "series-lib-1"
+    assert books["book-series-1"]["series_index"] == 1
+    assert books["book-series-2"]["series_index"] == 2
+    assert books["book-series-1"]["character_id"] == "char-lib-1"
+
+
+@pytest.mark.asyncio
 async def test_free_plan_blocks_non_supported_style(
     client: AsyncClient,
     headers: dict,

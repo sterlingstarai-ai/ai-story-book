@@ -331,6 +331,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get libraryTitle => 'My Library';
 
   @override
+  String get librarySeriesBadge => 'Series';
+
+  @override
   String get libraryRefresh => 'Refresh';
 
   @override

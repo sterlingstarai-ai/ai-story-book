@@ -141,6 +141,7 @@
   "createCreditShortageTitle": "Not enough credits",
   "createFailedSnack": "Failed to create the storybook. Please try again in a moment.",
   "libraryTitle": "My Library",
+  "librarySeriesBadge": "Series",
   "libraryRefresh": "Refresh",
   "librarySortNewest": "Newest",
   "librarySortOldest": "Oldest",

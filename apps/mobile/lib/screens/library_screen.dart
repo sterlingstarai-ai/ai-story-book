@@ -621,7 +621,13 @@ class _LibraryBookCard extends StatelessWidget {
               const SizedBox(height: AppSpacing.xs),
               Wrap(
                 spacing: AppSpacing.xs,
+                runSpacing: AppSpacing.xs,
                 children: [
+                  if (book.seriesIndex != null)
+                    _MiniChip(
+                      label: '${l.librarySeriesBadge} ${book.seriesIndex}',
+                      highlighted: true,
+                    ),
                   _MiniChip(label: ageLabel),
                   _MiniChip(label: styleLabel),
                 ],
@@ -696,21 +702,26 @@ enum _BookCardMenuAction {
 
 class _MiniChip extends StatelessWidget {
   final String label;
+  final bool highlighted;
 
-  const _MiniChip({required this.label});
+  const _MiniChip({required this.label, this.highlighted = false});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: AppColors.surface,
-        border: Border.all(color: AppColors.divider),
+        color: highlighted ? AppColors.primaryMedium : AppColors.surface,
+        border: Border.all(
+          color: highlighted ? AppColors.primary : AppColors.divider,
+        ),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
         label,
-        style: AppTextStyles.caption,
+        style: AppTextStyles.caption.copyWith(
+          color: highlighted ? AppColors.primary : null,
+        ),
       ),
     );
   }

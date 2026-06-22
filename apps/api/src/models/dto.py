@@ -490,6 +490,10 @@ class BookSummary(BaseModel):
     target_age: TargetAge
     style: str
     created_at: datetime
+    # 시리즈/캐릭터 그룹핑용 메타데이터 (서재 책장 묶음에 사용)
+    series_id: Optional[str] = None
+    series_index: Optional[int] = None
+    character_id: Optional[str] = None
 
 
 class LibraryResponse(BaseModel):

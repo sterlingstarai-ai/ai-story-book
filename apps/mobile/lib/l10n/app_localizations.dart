@@ -682,6 +682,12 @@ abstract class AppLocalizations {
   /// **'My Library'**
   String get libraryTitle;
 
+  /// No description provided for @librarySeriesBadge.
+  ///
+  /// In en, this message translates to:
+  /// **'Series'**
+  String get librarySeriesBadge;
+
   /// No description provided for @libraryRefresh.
   ///
   /// In en, this message translates to:

@@ -107,6 +107,7 @@
   "createCreditShortageTitle": "クレジットが不足しています",
   "createFailedSnack": "絵本の作成に失敗しました。しばらくしてから再試行してください。",
   "libraryTitle": "マイライブラリ",
+  "librarySeriesBadge": "シリーズ",
   "libraryRefresh": "更新",
   "librarySortNewest": "新しい順",
   "librarySortOldest": "古い順",
