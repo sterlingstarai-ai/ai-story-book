@@ -44,6 +44,21 @@ class PodOrderCreateRequest(BaseModel):
 _COUNTRY_CODE_PATTERN = re.compile(r"^[A-Za-z]{2}$")
 
 
+# 지역별 POD 가격 폴백(provider가 가격 미제공 시). 배송 국가 기준으로 서버에서 산출
+# — 클라이언트가 보낸 가격을 신뢰하지 않는다. 값: (단가, 배송비, 통화)
+_POD_PRICING = {
+    "KR": (18000, 3000, "KRW"),
+    "US": (20, 5, "USD"),
+    "JP": (2500, 500, "JPY"),
+}
+_POD_PRICING_DEFAULT = (20, 8, "USD")
+
+
+def _pod_pricing_for(country: str) -> tuple:
+    """배송 국가 코드 → (단가, 배송비, 통화). 미지원 국가는 USD 기본."""
+    return _POD_PRICING.get((country or "").upper(), _POD_PRICING_DEFAULT)
+
+
 def _normalize_shipping_address(payload: ShippingAddressInput) -> dict:
     data = payload.model_dump(exclude_none=True)
     normalized: dict[str, str] = {}
@@ -85,8 +100,10 @@ async def create_pod_order(
 
     shipping_address = _normalize_shipping_address(request.shipping_address)
 
-    unit_price = 18000
-    shipping_fee = 3000
+    # 배송 국가 기준 지역 가격(서버 산출 — 클라이언트 가격 미신뢰)
+    unit_price, shipping_fee, region_currency = _pod_pricing_for(
+        shipping_address["country"]
+    )
     total_price = (unit_price * request.quantity) + shipping_fee
     order_id = f"pod_{utcnow().strftime('%Y%m%d')}_{uuid.uuid4().hex[:8]}"
 
@@ -96,7 +113,7 @@ async def create_pod_order(
         shipping_address=shipping_address,
     )
     effective_total = provider_result.total_price or total_price
-    effective_currency = provider_result.currency or "KRW"
+    effective_currency = provider_result.currency or region_currency
 
     order = PodOrder(
         id=order_id,
