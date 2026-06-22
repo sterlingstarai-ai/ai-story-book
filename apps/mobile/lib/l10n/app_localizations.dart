@@ -304,6 +304,12 @@ abstract class AppLocalizations {
   /// **'Make a custom storybook\nwith your child as the hero'**
   String get homeCreateCardSubtitle;
 
+  /// No description provided for @homeQuickStartTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Start with my character'**
+  String get homeQuickStartTitle;
+
   /// No description provided for @homeStreakDaysLabel.
   ///
   /// In en, this message translates to:

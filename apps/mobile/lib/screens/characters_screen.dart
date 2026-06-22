@@ -786,7 +786,9 @@ class _CharacterDetailSheet extends StatelessWidget {
                   Navigator.pushNamed(
                     context,
                     '/create',
-                    arguments: {'characterId': character.id},
+                    arguments: {
+                      'characterIds': [character.id],
+                    },
                   );
                 },
               ),

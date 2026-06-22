@@ -113,6 +113,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get homeCreateCardSubtitle => '우리 아이가 주인공인\n맞춤 동화를 만들어요';
 
   @override
+  String get homeQuickStartTitle => '내 캐릭터로 바로 만들기';
+
+  @override
   String homeStreakDaysLabel(Object days) {
     return '$days일 연속 읽기';
   }

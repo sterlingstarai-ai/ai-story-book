@@ -78,6 +78,7 @@
   "homeLibraryErrorTitle": "Couldn't load your storybooks",
   "homeCreateCardTitle": "Create a new storybook",
   "homeCreateCardSubtitle": "Make a custom storybook\nwith your child as the hero",
+  "homeQuickStartTitle": "Start with my character",
   "homeStreakDaysLabel": "{days}-day reading streak",
   "homeReadTodayBadge": "Read today",
   "homeNotReadTodayBadge": "Not done today",

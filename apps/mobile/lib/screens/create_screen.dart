@@ -40,9 +40,20 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
     _didHandleRouteArgs = true;
     final args = ModalRoute.of(context)?.settings.arguments;
     if (args is Map) {
+      // 신규: characterIds 배열 / 레거시: 단일 characterId — 둘 다 수용해 병합
+      final ids = args['characterIds'];
+      if (ids is List) {
+        final parsed =
+            ids.whereType<String>().where((s) => s.isNotEmpty).toList();
+        if (parsed.isNotEmpty) {
+          _selectedCharacterIds = parsed;
+        }
+      }
       final characterId = args['characterId'];
-      if (characterId is String && characterId.isNotEmpty) {
-        _selectedCharacterIds = [characterId];
+      if (characterId is String &&
+          characterId.isNotEmpty &&
+          !_selectedCharacterIds.contains(characterId)) {
+        _selectedCharacterIds = [..._selectedCharacterIds, characterId];
       }
     }
   }

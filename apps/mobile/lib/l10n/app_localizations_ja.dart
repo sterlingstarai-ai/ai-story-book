@@ -113,6 +113,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get homeCreateCardSubtitle => 'お子さまが主人公の\nオリジナル絵本を作ります';
 
   @override
+  String get homeQuickStartTitle => 'キャラクターからすぐ作る';
+
+  @override
   String homeStreakDaysLabel(Object days) {
     return '$days日連続の読書';
   }

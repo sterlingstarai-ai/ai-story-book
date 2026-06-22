@@ -44,6 +44,7 @@
   "homeLibraryErrorTitle": "絵本を読み込めませんでした",
   "homeCreateCardTitle": "新しい絵本を作る",
   "homeCreateCardSubtitle": "お子さまが主人公の\nオリジナル絵本を作ります",
+  "homeQuickStartTitle": "キャラクターからすぐ作る",
   "homeStreakDaysLabel": "{days}日連続の読書",
   "homeReadTodayBadge": "今日読みました",
   "homeNotReadTodayBadge": "今日は未完了",

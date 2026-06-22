@@ -119,6 +119,9 @@ class AppLocalizationsEn extends AppLocalizations {
       'Make a custom storybook\nwith your child as the hero';
 
   @override
+  String get homeQuickStartTitle => 'Start with my character';
+
+  @override
   String homeStreakDaysLabel(Object days) {
     return '$days-day reading streak';
   }

@@ -402,6 +402,23 @@ void main() {
       expect(find.text('스트릭 카드 오류'), findsOneWidget);
       expect(find.text('다시 시도'), findsOneWidget);
     });
+
+    testWidgets('shows character-first quick-start row when characters exist',
+        (tester) async {
+      await tester.pumpWidget(buildTestableWidget(
+        const HomeScreen(),
+        overrides: [
+          ...homeOverrides(books: const []),
+          charactersProvider.overrideWith(
+              () => _MockCharactersNotifier(_sampleCharacters)),
+        ],
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(find.text('내 캐릭터로 바로 만들기'), findsOneWidget);
+      expect(find.text('토리'), findsOneWidget);
+    });
   });
 
   // ==================== LibraryScreen Tests ====================
