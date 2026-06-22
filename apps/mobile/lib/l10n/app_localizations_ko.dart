@@ -211,6 +211,18 @@ class AppLocalizationsKo extends AppLocalizations {
   String get createAgeLabel => '아이 연령대';
 
   @override
+  String get createAgeHelp3to5 => '쉬운 단어, 1~2개의 짧은 문장, 반복과 의성어';
+
+  @override
+  String get createAgeHelp5to7 => '익숙한 단어, 2~3문장, 감정과 간단한 대화';
+
+  @override
+  String get createAgeHelp7to9 => '풍부한 단어, 2~4문장, 원인과 결과';
+
+  @override
+  String get createAgeHelpAdult => '길이 제한 없음, 밀도 있는 서사';
+
+  @override
   String get createStyleLabel => '그림 스타일';
 
   @override

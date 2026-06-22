@@ -170,6 +170,24 @@ void main() {
       }
     });
 
+    testWidgets('shows live per-band age helper that updates on selection',
+        (tester) async {
+      await tester.pumpWidget(buildTestableWidget(
+        const CreateScreen(),
+        overrides: createOverrides(),
+      ));
+      await tester.pumpAndSettle();
+
+      // 기본 연령(5-7세) 안내가 표시된다.
+      expect(find.text('익숙한 단어, 2~3문장, 감정과 간단한 대화'), findsOneWidget);
+
+      // 다른 연령대(3-5세)를 선택하면 안내가 라이브로 갱신된다.
+      await tester.tap(find.text('3-5세'));
+      await tester.pumpAndSettle();
+      expect(find.text('쉬운 단어, 1~2개의 짧은 문장, 반복과 의성어'), findsOneWidget);
+      expect(find.text('익숙한 단어, 2~3문장, 감정과 간단한 대화'), findsNothing);
+    });
+
     testWidgets('renders style selection chips', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CreateScreen(),

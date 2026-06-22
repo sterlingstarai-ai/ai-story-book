@@ -484,6 +484,30 @@ abstract class AppLocalizations {
   /// **'Child\'s age group'**
   String get createAgeLabel;
 
+  /// No description provided for @createAgeHelp3to5.
+  ///
+  /// In en, this message translates to:
+  /// **'Simple words, 1-2 short sentences, repetition and sound words'**
+  String get createAgeHelp3to5;
+
+  /// No description provided for @createAgeHelp5to7.
+  ///
+  /// In en, this message translates to:
+  /// **'Familiar words, 2-3 sentences, feelings and simple dialogue'**
+  String get createAgeHelp5to7;
+
+  /// No description provided for @createAgeHelp7to9.
+  ///
+  /// In en, this message translates to:
+  /// **'Richer words, 2-4 sentences, cause and effect'**
+  String get createAgeHelp7to9;
+
+  /// No description provided for @createAgeHelpAdult.
+  ///
+  /// In en, this message translates to:
+  /// **'No length limit, dense narrative'**
+  String get createAgeHelpAdult;
+
   /// No description provided for @createStyleLabel.
   ///
   /// In en, this message translates to:

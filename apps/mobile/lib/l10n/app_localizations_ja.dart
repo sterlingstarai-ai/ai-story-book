@@ -211,6 +211,18 @@ class AppLocalizationsJa extends AppLocalizations {
   String get createAgeLabel => 'お子さまの年齢層';
 
   @override
+  String get createAgeHelp3to5 => 'やさしい言葉、1〜2文の短い文、繰り返しと擬音語';
+
+  @override
+  String get createAgeHelp5to7 => '身近な言葉、2〜3文、感情と簡単な会話';
+
+  @override
+  String get createAgeHelp7to9 => '豊かな言葉、2〜4文、原因と結果';
+
+  @override
+  String get createAgeHelpAdult => '長さ制限なし、密度の高い物語';
+
+  @override
   String get createStyleLabel => 'イラストのスタイル';
 
   @override

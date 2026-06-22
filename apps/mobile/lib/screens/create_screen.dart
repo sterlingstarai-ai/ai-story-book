@@ -163,6 +163,20 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
     }
   }
 
+  /// 선택된 연령대에 맞는 문체·어휘 안내 문구 (언어 중립적 발달 단계 기준).
+  String _ageHelpText(AppLocalizations l) {
+    switch (_selectedAge) {
+      case TargetAge.age3to5:
+        return l.createAgeHelp3to5;
+      case TargetAge.age5to7:
+        return l.createAgeHelp5to7;
+      case TargetAge.age7to9:
+        return l.createAgeHelp7to9;
+      case TargetAge.adult:
+        return l.createAgeHelpAdult;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
@@ -189,6 +203,41 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
         child: ListView(
           padding: const EdgeInsets.all(AppSpacing.lg),
           children: [
+            // 연령대 선택 (가장 먼저 노출 — 연령별 문체·어휘가 이야기 생성에 직접 반영됨)
+            Text(l.createAgeLabel, style: AppTextStyles.heading3),
+            const SizedBox(height: AppSpacing.sm),
+            Wrap(
+              spacing: AppSpacing.sm,
+              children: TargetAge.values.map((age) {
+                final isSelected = _selectedAge == age;
+                return ChoiceChip(
+                  label: Text(age.label),
+                  selected: isSelected,
+                  materialTapTargetSize: MaterialTapTargetSize.padded,
+                  labelPadding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.sm,
+                    vertical: AppSpacing.md,
+                  ),
+                  onSelected: (selected) {
+                    if (selected) setState(() => _selectedAge = age);
+                  },
+                  selectedColor: AppColors.primaryMedium,
+                  labelStyle: TextStyle(
+                    color: isSelected
+                        ? AppColors.primary
+                        : AppColors.textSecondary,
+                    fontWeight:
+                        isSelected ? FontWeight.w600 : FontWeight.normal,
+                  ),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            // 연령별 문체 안내 (선택에 따라 라이브 업데이트)
+            _AgeHelpBanner(text: _ageHelpText(l)),
+
+            const SizedBox(height: AppSpacing.lg),
+
             // 주제 입력
             Text(l.createTopicLabel, style: AppTextStyles.heading3),
             const SizedBox(height: AppSpacing.sm),
@@ -237,38 +286,6 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                 hintText: l.createChildNameHint,
                 hintStyle: AppTextStyles.bodySmall,
               ),
-            ),
-
-            const SizedBox(height: AppSpacing.lg),
-
-            // 연령대 선택
-            Text(l.createAgeLabel, style: AppTextStyles.heading3),
-            const SizedBox(height: AppSpacing.sm),
-            Wrap(
-              spacing: AppSpacing.sm,
-              children: TargetAge.values.map((age) {
-                final isSelected = _selectedAge == age;
-                return ChoiceChip(
-                  label: Text(age.label),
-                  selected: isSelected,
-                  materialTapTargetSize: MaterialTapTargetSize.padded,
-                  labelPadding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.sm,
-                    vertical: AppSpacing.md,
-                  ),
-                  onSelected: (selected) {
-                    if (selected) setState(() => _selectedAge = age);
-                  },
-                  selectedColor: AppColors.primaryMedium,
-                  labelStyle: TextStyle(
-                    color: isSelected
-                        ? AppColors.primary
-                        : AppColors.textSecondary,
-                    fontWeight:
-                        isSelected ? FontWeight.w600 : FontWeight.normal,
-                  ),
-                );
-              }).toList(),
             ),
 
             const SizedBox(height: AppSpacing.lg),
@@ -595,6 +612,42 @@ class _CharacterOption extends StatelessWidget {
                   color: AppColors.secondary, size: 24),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// 연령대 선택 바로 아래에 표시되는 문체·어휘 안내 배너.
+/// 선택한 연령에 따라 문구가 라이브로 갱신된다.
+class _AgeHelpBanner extends StatelessWidget {
+  final String text;
+
+  const _AgeHelpBanner({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.secondaryLight,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.auto_stories, size: 18, color: AppColors.secondary),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Text(
+              text,
+              style: AppTextStyles.caption
+                  .copyWith(color: AppColors.textSecondary),
+            ),
+          ),
+        ],
       ),
     );
   }
