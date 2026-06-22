@@ -652,6 +652,30 @@ abstract class AppLocalizations {
   /// **'Couldn\'t load characters'**
   String get createCharacterLoadError;
 
+  /// No description provided for @createRelationshipLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Relationship (optional)'**
+  String get createRelationshipLabel;
+
+  /// No description provided for @createRelationshipFriends.
+  ///
+  /// In en, this message translates to:
+  /// **'Friends'**
+  String get createRelationshipFriends;
+
+  /// No description provided for @createRelationshipSiblings.
+  ///
+  /// In en, this message translates to:
+  /// **'Siblings'**
+  String get createRelationshipSiblings;
+
+  /// No description provided for @createRelationshipFamily.
+  ///
+  /// In en, this message translates to:
+  /// **'Family'**
+  String get createRelationshipFamily;
+
   /// No description provided for @createMakeButton.
   ///
   /// In en, this message translates to:

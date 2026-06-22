@@ -315,6 +315,18 @@ class AppLocalizationsEn extends AppLocalizations {
   String get createCharacterLoadError => 'Couldn\'t load characters';
 
   @override
+  String get createRelationshipLabel => 'Relationship (optional)';
+
+  @override
+  String get createRelationshipFriends => 'Friends';
+
+  @override
+  String get createRelationshipSiblings => 'Siblings';
+
+  @override
+  String get createRelationshipFamily => 'Family';
+
+  @override
   String get createMakeButton => 'Make Storybook';
 
   @override

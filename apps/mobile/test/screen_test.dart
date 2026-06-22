@@ -204,6 +204,43 @@ void main() {
           findsOneWidget);
     });
 
+    testWidgets('shows relationship selector when 2+ characters selected',
+        (tester) async {
+      await tester.pumpWidget(buildTestableWidget(
+        const CreateScreen(),
+        overrides: createOverrides(), // 샘플 캐릭터 2명(토리, 하나)
+      ));
+      await tester.pumpAndSettle();
+
+      // 관계 섹션은 처음엔 없다(캐릭터 미선택 = AI 자동).
+      expect(find.text('관계 (선택)'), findsNothing);
+
+      final listView = find.byType(ListView).first;
+      Future<void> scrollToText(String text) async {
+        for (var i = 0;
+            i < 25 && find.text(text).evaluate().isEmpty;
+            i++) {
+          await tester.drag(listView, const Offset(0, -250));
+          await tester.pumpAndSettle();
+        }
+        await tester.ensureVisible(find.text(text));
+        await tester.pumpAndSettle();
+      }
+
+      // 두 캐릭터를 선택한다.
+      await scrollToText('토리');
+      await tester.tap(find.text('토리'));
+      await tester.pump();
+      await scrollToText('하나');
+      await tester.tap(find.text('하나'));
+      await tester.pump();
+
+      // 관계 선택 섹션이 나타난다.
+      await scrollToText('관계 (선택)');
+      expect(find.text('관계 (선택)'), findsOneWidget);
+      expect(find.text('남매'), findsOneWidget);
+    });
+
     testWidgets('renders style selection chips', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CreateScreen(),

@@ -93,6 +93,11 @@ class BookSpec(BaseModel):
     character_ids: Optional[List[str]] = Field(
         default=None, max_length=10, description="기존 캐릭터 ID 목록 (다중 선택)"
     )
+    character_relationship: Optional[str] = Field(
+        default=None,
+        max_length=40,
+        description="다중 캐릭터 간 관계 (예: 남매, 친구, 가족) — 스토리 역학에 반영",
+    )
     forbidden_elements: Optional[List[str]] = Field(default=None, max_length=20)
     reference_image_base64: Optional[str] = Field(default=None, max_length=5_000_000)
     series_context: Optional[str] = Field(

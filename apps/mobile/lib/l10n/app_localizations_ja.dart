@@ -297,6 +297,18 @@ class AppLocalizationsJa extends AppLocalizations {
   String get createCharacterLoadError => 'キャラクターを読み込めませんでした';
 
   @override
+  String get createRelationshipLabel => '関係（任意）';
+
+  @override
+  String get createRelationshipFriends => '友だち';
+
+  @override
+  String get createRelationshipSiblings => 'きょうだい';
+
+  @override
+  String get createRelationshipFamily => '家族';
+
+  @override
   String get createMakeButton => '絵本を作る';
 
   @override

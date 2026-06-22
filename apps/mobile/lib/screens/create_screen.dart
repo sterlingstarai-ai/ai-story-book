@@ -28,6 +28,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
   BookStyle _selectedStyle = BookStyle.watercolor;
   BookTheme? _selectedTheme;
   List<String> _selectedCharacterIds = []; // 다중 캐릭터 선택
+  String? _selectedRelationship; // 다중 선택 시 캐릭터 관계 (남매/친구/가족)
   bool _isLoading = false;
   bool _didHandleRouteArgs = false;
 
@@ -107,6 +108,8 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
             : _protagonistController.text.trim(),
         characterIds:
             _selectedCharacterIds.isNotEmpty ? _selectedCharacterIds : null,
+        characterRelationship:
+            _selectedCharacterIds.length >= 2 ? _selectedRelationship : null,
       );
 
       final jobId =
@@ -582,6 +585,44 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (_, __) => Text(l.createCharacterLoadError),
             ),
+
+            // 캐릭터 2명 이상 선택 시 관계 선택 (남매/친구 스토리 역학에 반영)
+            if (_selectedCharacterIds.length >= 2) ...[
+              const SizedBox(height: AppSpacing.lg),
+              Text(l.createRelationshipLabel, style: AppTextStyles.heading3),
+              const SizedBox(height: AppSpacing.sm),
+              Wrap(
+                spacing: AppSpacing.sm,
+                children: [
+                  l.createRelationshipFriends,
+                  l.createRelationshipSiblings,
+                  l.createRelationshipFamily,
+                ].map((rel) {
+                  final isSelected = _selectedRelationship == rel;
+                  return ChoiceChip(
+                    label: Text(rel),
+                    selected: isSelected,
+                    materialTapTargetSize: MaterialTapTargetSize.padded,
+                    labelPadding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.sm,
+                      vertical: AppSpacing.md,
+                    ),
+                    onSelected: (selected) {
+                      setState(
+                          () => _selectedRelationship = selected ? rel : null);
+                    },
+                    selectedColor: AppColors.primaryMedium,
+                    labelStyle: TextStyle(
+                      color: isSelected
+                          ? AppColors.primary
+                          : AppColors.textSecondary,
+                      fontWeight:
+                          isSelected ? FontWeight.w600 : FontWeight.normal,
+                    ),
+                  );
+                }).toList(),
+              ),
+            ],
 
             const SizedBox(height: AppSpacing.xxl),
           ],

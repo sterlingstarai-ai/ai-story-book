@@ -491,6 +491,12 @@ async def call_story_generation(spec: BookSpec) -> StoryDraft:
         if len(all_character_specs) == 1
         else None,
         character_specs=all_character_specs if len(all_character_specs) > 1 else None,
+        # 다중 캐릭터일 때만 관계 힌트를 전달(남매/친구 등 역학 반영)
+        character_relationship=(
+            spec.character_relationship
+            if len(all_character_specs) > 1
+            else None
+        ),
         forbidden_elements=spec.forbidden_elements or [],
     )
 

@@ -297,6 +297,18 @@ class AppLocalizationsKo extends AppLocalizations {
   String get createCharacterLoadError => '캐릭터를 불러올 수 없어요';
 
   @override
+  String get createRelationshipLabel => '관계 (선택)';
+
+  @override
+  String get createRelationshipFriends => '친구';
+
+  @override
+  String get createRelationshipSiblings => '남매';
+
+  @override
+  String get createRelationshipFamily => '가족';
+
+  @override
   String get createMakeButton => '동화책 만들기';
 
   @override
