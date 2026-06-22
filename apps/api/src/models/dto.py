@@ -239,6 +239,9 @@ class ImagePrompt(BaseModel):
     seed: int = Field(ge=1, le=2_147_483_647)
     aspect_ratio: Literal["1:1", "3:4", "4:3", "9:16"] = "3:4"
     guidance_notes: Optional[str] = Field(default=None, max_length=200)
+    # 인페인트(부분 재생성)용 — 둘 다 있으면 mask 영역만 재생성, 나머지는 base 유지
+    base_image_url: Optional[str] = Field(default=None, max_length=500)
+    mask_url: Optional[str] = Field(default=None, max_length=500)
 
 
 class ImagePrompts(BaseModel):

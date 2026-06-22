@@ -293,6 +293,28 @@
         "title": "Body_evaluate_pronunciation_audio_v1_pronunciation_evaluate_audio_post",
         "type": "object"
       },
+      "Body_inpaint_book_page_v1_books__job_id__pages__page_number__inpaint_post": {
+        "properties": {
+          "mask": {
+            "description": "마스크 PNG(흰색=재생성할 영역)",
+            "format": "binary",
+            "title": "Mask",
+            "type": "string"
+          },
+          "region_prompt": {
+            "description": "이 영역을 어떻게 바꿀지",
+            "maxLength": 200,
+            "title": "Region Prompt",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mask",
+          "region_prompt"
+        ],
+        "title": "Body_inpaint_book_page_v1_books__job_id__pages__page_number__inpaint_post",
+        "type": "object"
+      },
       "Body_upload_voice_sample_v1_voice_profiles_upload_sample_post": {
         "properties": {
           "sample": {
@@ -4241,6 +4263,97 @@
         ]
       }
     },
+    "/v1/books/{job_id}/pages/{page_number}/inpaint": {
+      "post": {
+        "description": "페이지 부분 재생성(인페인트) — 마스크 영역만 다시 그린다.\nimage_provider가 replicate/fal일 때만 동작(아니면 409 → 클라이언트는 전체 재생성 폴백).",
+        "operationId": "inpaint_book_page_v1_books__job_id__pages__page_number__inpaint_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "page_number",
+            "required": true,
+            "schema": {
+              "title": "Page Number",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional active child profile id",
+            "in": "header",
+            "name": "x-profile-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional active child profile id",
+              "title": "X-Profile-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_inpaint_book_page_v1_books__job_id__pages__page_number__inpaint_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegeneratePageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Inpaint Book Page",
+        "tags": [
+          "Books"
+        ]
+      }
+    },
     "/v1/books/{job_id}/pages/{page_number}/regenerate": {
       "post": {
         "description": "특정 페이지 재생성\n\n- mode: text (텍스트만), image (이미지만), both (둘 다)\n- feedback: 재생성 시 반영할 피드백",
@@ -4963,6 +5076,29 @@
         "summary": "Get Character",
         "tags": [
           "Characters"
+        ]
+      }
+    },
+    "/v1/config/capabilities": {
+      "get": {
+        "description": "배포 환경 기능 가용성. 클라이언트 UI 게이팅용(예: 부분 재생성 메뉴 노출 여부).",
+        "operationId": "get_capabilities_v1_config_capabilities_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Get Capabilities V1 Config Capabilities Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Capabilities",
+        "tags": [
+          "Config"
         ]
       }
     },
