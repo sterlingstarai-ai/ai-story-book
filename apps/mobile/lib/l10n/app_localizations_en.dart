@@ -334,6 +334,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get librarySeriesBadge => 'Series';
 
   @override
+  String get librarySeriesAddVolume => 'Add next volume';
+
+  @override
   String get libraryRefresh => 'Refresh';
 
   @override

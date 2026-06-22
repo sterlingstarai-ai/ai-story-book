@@ -315,6 +315,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get librarySeriesBadge => '시리즈';
 
   @override
+  String get librarySeriesAddVolume => '다음 권 만들기';
+
+  @override
   String get libraryRefresh => '새로고침';
 
   @override

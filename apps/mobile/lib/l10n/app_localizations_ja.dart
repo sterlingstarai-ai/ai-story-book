@@ -315,6 +315,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get librarySeriesBadge => 'シリーズ';
 
   @override
+  String get librarySeriesAddVolume => '次の巻を作る';
+
+  @override
   String get libraryRefresh => '更新';
 
   @override

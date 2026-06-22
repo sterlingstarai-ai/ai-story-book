@@ -495,9 +495,47 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
-      expect(find.byType(GridView), findsOneWidget);
+      // 본문이 CustomScrollView(SliverGrid)로 바뀜 — 단권 책들은 그리드에 렌더된다.
+      expect(find.byType(CustomScrollView), findsOneWidget);
       expect(find.text('토끼의 모험'), findsOneWidget);
       expect(find.text('하나의 여행'), findsOneWidget);
+    });
+
+    testWidgets('groups series books into a shelf with an add-volume tile',
+        (tester) async {
+      final seriesBook = LibraryBook.fromJson({
+        'book_id': 'sbook-1',
+        'title': '시리즈 1권',
+        'cover_image_url': 'https://example.com/s1.jpg',
+        'target_age': '5-7',
+        'style': 'watercolor',
+        'created_at': '2026-01-01T00:00:00Z',
+        'series_id': 'series-x',
+        'series_index': 1,
+        'character_id': 'char-x',
+      });
+      await tester.pumpWidget(buildTestableWidget(
+        const LibraryScreen(),
+        overrides: libraryOverrides(
+          LibraryBrowseState(
+            books: [seriesBook],
+            total: 1,
+            nextCursor: null,
+            hasMore: false,
+            isLoadingMore: false,
+            isOffline: false,
+            sort: 'newest',
+            style: null,
+            targetAge: null,
+          ),
+        ),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 시리즈 책장 헤더 + '다음 권 만들기' 타일이 렌더된다.
+      expect(find.text('시리즈 · 1'), findsOneWidget);
+      expect(find.text('다음 권 만들기'), findsOneWidget);
     });
 
     testWidgets('shows empty state when no books', (tester) async {

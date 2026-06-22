@@ -108,6 +108,7 @@
   "createFailedSnack": "絵本の作成に失敗しました。しばらくしてから再試行してください。",
   "libraryTitle": "マイライブラリ",
   "librarySeriesBadge": "シリーズ",
+  "librarySeriesAddVolume": "次の巻を作る",
   "libraryRefresh": "更新",
   "librarySortNewest": "新しい順",
   "librarySortOldest": "古い順",

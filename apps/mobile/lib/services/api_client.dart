@@ -146,6 +146,8 @@ class ApiClient {
     required String characterId,
     required String topic,
     String? theme,
+    String? seriesId,
+    String? previousBookId,
   }) async {
     final response = await _dio.post(
       '/v1/books/series',
@@ -153,6 +155,9 @@ class ApiClient {
         'character_id': characterId,
         'topic': topic,
         if (theme != null) 'theme': theme,
+        // 기존 시리즈 연결(없으면 백엔드가 새 시리즈 생성)
+        if (seriesId != null) 'series_id': seriesId,
+        if (previousBookId != null) 'previous_book_id': previousBookId,
       },
       options: Options(headers: _headers),
     );

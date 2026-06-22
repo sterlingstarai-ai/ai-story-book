@@ -108,6 +108,7 @@
   "createFailedSnack": "책 생성에 실패했어요. 잠시 후 다시 시도해주세요.",
   "libraryTitle": "내 서재",
   "librarySeriesBadge": "시리즈",
+  "librarySeriesAddVolume": "다음 권 만들기",
   "libraryRefresh": "새로고침",
   "librarySortNewest": "최신순",
   "librarySortOldest": "오래된순",

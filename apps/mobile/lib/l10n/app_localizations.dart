@@ -688,6 +688,12 @@ abstract class AppLocalizations {
   /// **'Series'**
   String get librarySeriesBadge;
 
+  /// No description provided for @librarySeriesAddVolume.
+  ///
+  /// In en, this message translates to:
+  /// **'Add next volume'**
+  String get librarySeriesAddVolume;
+
   /// No description provided for @libraryRefresh.
   ///
   /// In en, this message translates to:

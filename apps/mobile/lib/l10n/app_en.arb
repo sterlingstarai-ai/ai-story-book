@@ -142,6 +142,7 @@
   "createFailedSnack": "Failed to create the storybook. Please try again in a moment.",
   "libraryTitle": "My Library",
   "librarySeriesBadge": "Series",
+  "librarySeriesAddVolume": "Add next volume",
   "libraryRefresh": "Refresh",
   "librarySortNewest": "Newest",
   "librarySortOldest": "Oldest",
