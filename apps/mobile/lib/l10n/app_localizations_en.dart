@@ -220,13 +220,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get createAgeLabel => 'Child\'s age group';
 
   @override
-  String get createAgeHelp3to5 => 'Simple words, 1-2 short sentences, repetition and sound words';
+  String get createAgeHelp3to5 =>
+      'Simple words, 1-2 short sentences, repetition and sound words';
 
   @override
-  String get createAgeHelp5to7 => 'Familiar words, 2-3 sentences, feelings and simple dialogue';
+  String get createAgeHelp5to7 =>
+      'Familiar words, 2-3 sentences, feelings and simple dialogue';
 
   @override
-  String get createAgeHelp7to9 => 'Richer words, 2-4 sentences, cause and effect';
+  String get createAgeHelp7to9 =>
+      'Richer words, 2-4 sentences, cause and effect';
 
   @override
   String get createAgeHelpAdult => 'No length limit, dense narrative';
