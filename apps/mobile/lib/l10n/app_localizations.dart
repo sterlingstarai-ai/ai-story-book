@@ -2404,6 +2404,54 @@ abstract class AppLocalizations {
   /// **'Credits/Subscription'**
   String get settingsCreditsSubscription;
 
+  /// No description provided for @settingsPoliciesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Policies'**
+  String get settingsPoliciesTitle;
+
+  /// No description provided for @settingsPoliciesSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Credit rollover, access after cancel, print refunds'**
+  String get settingsPoliciesSubtitle;
+
+  /// No description provided for @policyCreditRolloverTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Credit rollover'**
+  String get policyCreditRolloverTitle;
+
+  /// No description provided for @policyCreditRolloverBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Unused credits roll over to the next month while your subscription is active.'**
+  String get policyCreditRolloverBody;
+
+  /// No description provided for @policyBookAccessTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Books after cancellation'**
+  String get policyBookAccessTitle;
+
+  /// No description provided for @policyBookAccessBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Even if you cancel, the books you\'ve already made stay readable and downloadable.'**
+  String get policyBookAccessBody;
+
+  /// No description provided for @policyRefundTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Print refund & reprint'**
+  String get policyRefundTitle;
+
+  /// No description provided for @policyRefundBody.
+  ///
+  /// In en, this message translates to:
+  /// **'If a printed book is defective or damaged in transit, we\'ll reprint it free or refund you.'**
+  String get policyRefundBody;
+
   /// No description provided for @settingsSectionApp.
   ///
   /// In en, this message translates to:

@@ -1234,6 +1234,31 @@ class AppLocalizationsKo extends AppLocalizations {
   String get settingsCreditsSubscription => '크레딧/구독';
 
   @override
+  String get settingsPoliciesTitle => '정책 안내';
+
+  @override
+  String get settingsPoliciesSubtitle => '크레딧 이월·해지 후 보관·인쇄 환불';
+
+  @override
+  String get policyCreditRolloverTitle => '크레딧 이월';
+
+  @override
+  String get policyCreditRolloverBody =>
+      '사용하지 않은 크레딧은 구독이 유지되는 동안 다음 달로 이월됩니다.';
+
+  @override
+  String get policyBookAccessTitle => '해지 후 책 보관';
+
+  @override
+  String get policyBookAccessBody => '구독을 해지해도 이미 만든 책은 계속 열람하고 내려받을 수 있습니다.';
+
+  @override
+  String get policyRefundTitle => '인쇄 환불·재인쇄';
+
+  @override
+  String get policyRefundBody => '인쇄본이 불량이거나 배송 중 손상된 경우 무료로 재인쇄하거나 환불해 드립니다.';
+
+  @override
   String get settingsSectionApp => '앱 설정';
 
   @override

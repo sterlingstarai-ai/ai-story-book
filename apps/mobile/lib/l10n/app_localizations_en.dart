@@ -1290,6 +1290,34 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsCreditsSubscription => 'Credits/Subscription';
 
   @override
+  String get settingsPoliciesTitle => 'Policies';
+
+  @override
+  String get settingsPoliciesSubtitle =>
+      'Credit rollover, access after cancel, print refunds';
+
+  @override
+  String get policyCreditRolloverTitle => 'Credit rollover';
+
+  @override
+  String get policyCreditRolloverBody =>
+      'Unused credits roll over to the next month while your subscription is active.';
+
+  @override
+  String get policyBookAccessTitle => 'Books after cancellation';
+
+  @override
+  String get policyBookAccessBody =>
+      'Even if you cancel, the books you\'ve already made stay readable and downloadable.';
+
+  @override
+  String get policyRefundTitle => 'Print refund & reprint';
+
+  @override
+  String get policyRefundBody =>
+      'If a printed book is defective or damaged in transit, we\'ll reprint it free or refund you.';
+
+  @override
   String get settingsSectionApp => 'App settings';
 
   @override

@@ -1236,6 +1236,30 @@ class AppLocalizationsJa extends AppLocalizations {
   String get settingsCreditsSubscription => 'クレジット／サブスクリプション';
 
   @override
+  String get settingsPoliciesTitle => 'ポリシー';
+
+  @override
+  String get settingsPoliciesSubtitle => 'クレジット繰り越し・解約後の保管・印刷返金';
+
+  @override
+  String get policyCreditRolloverTitle => 'クレジットの繰り越し';
+
+  @override
+  String get policyCreditRolloverBody => '未使用のクレジットは、定期購読が有効な間、翌月へ繰り越されます。';
+
+  @override
+  String get policyBookAccessTitle => '解約後の絵本';
+
+  @override
+  String get policyBookAccessBody => '解約しても、すでに作成した絵本はそのまま閲覧・ダウンロードできます。';
+
+  @override
+  String get policyRefundTitle => '印刷の返金・再印刷';
+
+  @override
+  String get policyRefundBody => '印刷物に不良や配送中の破損があった場合、無料で再印刷または返金します。';
+
+  @override
   String get settingsSectionApp => 'アプリ設定';
 
   @override

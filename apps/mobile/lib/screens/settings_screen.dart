@@ -452,6 +452,52 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.pushNamed(context, '/credits'),
           ),
+          ListTile(
+            leading: const Icon(Icons.verified_user_outlined),
+            title: Text(l.settingsPoliciesTitle),
+            subtitle: Text(l.settingsPoliciesSubtitle),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => showDialog<void>(
+              context: context,
+              builder: (context) {
+                final dl = AppLocalizations.of(context);
+                Widget item(String title, String body) => Padding(
+                      padding: const EdgeInsets.only(bottom: 14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(title,
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w600)),
+                          const SizedBox(height: 2),
+                          Text(body),
+                        ],
+                      ),
+                    );
+                return AlertDialog(
+                  title: Text(dl.settingsPoliciesTitle),
+                  content: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        item(dl.policyCreditRolloverTitle,
+                            dl.policyCreditRolloverBody),
+                        item(dl.policyBookAccessTitle, dl.policyBookAccessBody),
+                        item(dl.policyRefundTitle, dl.policyRefundBody),
+                      ],
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: Text(dl.libraryClose),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
           const Divider(height: 1),
           _SectionHeader(l.settingsSectionApp),
           ListTile(
