@@ -19,6 +19,7 @@ from src.models.dto import (
     ModerationResult,
     LearningAssets,
     Language,
+    RetoldStory,
 )
 
 logger = structlog.get_logger()
@@ -572,6 +573,30 @@ async def call_text_rewrite(
         system_prompt, user_prompt, max_tokens=1000, temperature=0.7
     )
     return json.loads(response)
+
+
+async def call_story_retext(
+    title: str,
+    pages_text: list[str],
+    target_age: str,
+    language: str,
+) -> RetoldStory:
+    """같은 이야기를 다른 연령대 본문으로 다시 쓴다(장면·삽화 재사용, 텍스트만 변경)."""
+    system_prompt = render_prompt(
+        "rewrite_story_for_age.system.jinja2",
+        language_name=language_display_name(language),
+    )
+    user_prompt = render_prompt(
+        "rewrite_story_for_age.user.jinja2",
+        target_age=target_age,
+        language=language,
+        title=title,
+        pages=pages_text,
+    )
+    response = await call_llm(
+        system_prompt, user_prompt, max_tokens=3000, temperature=0.7
+    )
+    return parse_json_response(response, RetoldStory)
 
 
 async def call_learning_assets(

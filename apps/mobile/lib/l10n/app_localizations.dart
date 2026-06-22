@@ -3544,6 +3544,30 @@ abstract class AppLocalizations {
   /// **'The ending changes based on your choices'**
   String get viewerBranchStorySubtitle;
 
+  /// No description provided for @viewerRetellTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Retell at another age'**
+  String get viewerRetellTitle;
+
+  /// No description provided for @viewerRetellSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Same pictures, text rewritten for a new age'**
+  String get viewerRetellSubtitle;
+
+  /// No description provided for @viewerRetellInProgress.
+  ///
+  /// In en, this message translates to:
+  /// **'Retelling for the new age…'**
+  String get viewerRetellInProgress;
+
+  /// No description provided for @viewerRetellFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t retell this book'**
+  String get viewerRetellFailed;
+
   /// No description provided for @viewerLearningModeTitle.
   ///
   /// In en, this message translates to:

@@ -167,6 +167,25 @@ class ApiClient {
     );
   }
 
+  /// '아이와 함께 자라는' 리텔 — 같은 책을 다른 연령대 본문으로 다시 써 새 책 생성.
+  /// 삽화를 재사용하므로 크레딧을 소모하지 않는다. 새 book_id를 반환.
+  Future<String> retellBook(String bookId, String targetAge) async {
+    final response = await _dio.post(
+      '/v1/books/$bookId/retell',
+      data: {'target_age': targetAge},
+      options: Options(headers: _headers),
+    );
+    final map = _asJsonMap(
+      response.data,
+      context: '/v1/books/{id}/retell response',
+    );
+    final newBookId = map['book_id'];
+    if (newBookId is! String || newBookId.isEmpty) {
+      throw StateError('retell response missing book_id');
+    }
+    return newBookId;
+  }
+
   // ==================== Characters ====================
 
   /// 캐릭터 저장

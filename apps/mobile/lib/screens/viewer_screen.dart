@@ -1024,6 +1024,55 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     await prefs.remove(_progressKey);
   }
 
+  /// 다른 연령대로 본문만 다시 써서 새 책으로 연다(삽화 재사용, 크레딧 0).
+  Future<void> _showRetellAgePicker(BookResult book) async {
+    final l = AppLocalizations.of(context);
+    final targetAge = await showDialog<String>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: Text(l.viewerRetellTitle),
+        children: [
+          for (final entry in {
+            '3-5': l.libraryAge3to5,
+            '5-7': l.libraryAge5to7,
+            '7-9': l.libraryAge7to9,
+          }.entries)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(context, entry.key),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+                child: Text(entry.value),
+              ),
+            ),
+        ],
+      ),
+    );
+    if (targetAge == null || !mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(l.viewerRetellInProgress)),
+    );
+    try {
+      final newBookId =
+          await ref.read(apiClientProvider).retellBook(book.bookId, targetAge);
+      if (!mounted) {
+        return;
+      }
+      Navigator.pushReplacementNamed(context, '/viewer', arguments: newBookId);
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(l.viewerRetellFailed),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
   void _showOptionsMenu(BookResult book) {
     final l = AppLocalizations.of(context);
     final hasBilingualText = book.pages.any(
@@ -1094,6 +1143,16 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                     'bookId': book.bookId,
                   },
                 );
+              },
+            ),
+            // 아이와 함께 자라는 리텔 — 같은 그림으로 다른 연령대 본문
+            ListTile(
+              leading: const Icon(Icons.auto_stories),
+              title: Text(l.viewerRetellTitle),
+              subtitle: Text(l.viewerRetellSubtitle),
+              onTap: () {
+                Navigator.pop(context);
+                _showRetellAgePicker(book);
               },
             ),
             // 학습 모드 (페이지에서만)

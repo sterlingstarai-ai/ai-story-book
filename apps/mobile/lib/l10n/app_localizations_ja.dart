@@ -1847,6 +1847,18 @@ class AppLocalizationsJa extends AppLocalizations {
   String get viewerBranchStorySubtitle => '選択肢によって結末が変わるモード';
 
   @override
+  String get viewerRetellTitle => '別の年齢で書き直す';
+
+  @override
+  String get viewerRetellSubtitle => '同じ絵で、文章だけ新しい年齢に';
+
+  @override
+  String get viewerRetellInProgress => '新しい年齢で書き直し中…';
+
+  @override
+  String get viewerRetellFailed => '書き直しに失敗しました';
+
+  @override
   String get viewerLearningModeTitle => '学習モード';
 
   @override

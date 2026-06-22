@@ -492,6 +492,29 @@ class CharacterListResponse(BaseModel):
 # ==================== Library Models ====================
 
 
+class RetoldStory(BaseModel):
+    """연령 리텔 결과 — 같은 이야기를 다른 연령대 본문으로 다시 쓴 것."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    title: str = Field(min_length=1, max_length=80)
+    pages: List[str] = Field(min_length=1, max_length=12)
+
+
+class RetellRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    target_age: TargetAge
+
+
+class RetellResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    book_id: str
+    target_age: TargetAge
+    status: str = "done"
+
+
 class BookSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

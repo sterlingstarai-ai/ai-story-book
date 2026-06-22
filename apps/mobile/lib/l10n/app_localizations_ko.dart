@@ -1846,6 +1846,18 @@ class AppLocalizationsKo extends AppLocalizations {
   String get viewerBranchStorySubtitle => '선택지에 따라 결말이 달라지는 모드';
 
   @override
+  String get viewerRetellTitle => '다른 연령으로 다시 쓰기';
+
+  @override
+  String get viewerRetellSubtitle => '같은 그림으로 글만 새 연령대에 맞춰요';
+
+  @override
+  String get viewerRetellInProgress => '새 연령대로 다시 쓰는 중…';
+
+  @override
+  String get viewerRetellFailed => '다시 쓰기에 실패했어요';
+
+  @override
   String get viewerLearningModeTitle => '학습 모드';
 
   @override

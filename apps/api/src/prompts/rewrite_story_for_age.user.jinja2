@@ -1,0 +1,9 @@
+입력:
+- target_age: {{ target_age }}
+- language: {{ language }}
+- original_title: {{ title }}
+- original_pages: {{ pages | tojson }}
+
+요청:
+원본 페이지 순서를 그대로 유지하면서, 각 페이지 본문을 target_age에 맞춰 다시 써라.
+pages 배열의 길이는 original_pages와 정확히 같아야 한다.

@@ -22,6 +22,8 @@ from src.models.dto import (
     SeriesNextRequest,
     BookResult,
     PageResult,
+    RetellRequest,
+    RetellResponse,
 )
 from src.models.db import ChildProfile, Job, Book, Page, Character
 from src.services.orchestrator import start_book_generation, regenerate_page
@@ -882,6 +884,88 @@ async def create_series_next(
     return CreateBookResponse(
         job_id=job_id, status=JobState.queued, estimated_time_seconds=120
     )
+
+
+@router.post("/{book_id}/retell", response_model=RetellResponse)
+async def retell_book(
+    book_id: str,
+    request: RetellRequest,
+    db: AsyncSession = Depends(get_db),
+    user_key: str = Depends(get_user_key),
+):
+    """
+    '아이와 함께 자라는' 리텔 — 같은 책을 다른 연령대 본문으로 다시 써서 새 책으로 저장한다.
+    삽화(표지·페이지 이미지)는 그대로 재사용하므로 이미지 생성/크레딧 소모가 없다.
+    """
+    # 원본 책 로드 + 소유권 검증
+    source = (
+        await db.execute(select(Book).where(Book.id == book_id))
+    ).scalar_one_or_none()
+    if not source:
+        raise NotFoundError("Book", book_id)
+    if source.user_key != user_key:
+        raise AuthorizationError()
+
+    source_pages = (
+        await db.execute(
+            select(Page).where(Page.book_id == book_id).order_by(Page.page_number)
+        )
+    ).scalars().all()
+    if not source_pages:
+        raise NotFoundError("Pages", book_id)
+
+    # 본문만 새 연령대로 다시 쓰기 (텍스트 전용 LLM 호출)
+    from src.services.llm import call_story_retext
+
+    retold = await call_story_retext(
+        title=source.title,
+        pages_text=[p.text for p in source_pages],
+        target_age=request.target_age.value,
+        language=source.language,
+    )
+
+    # 새 잡(크레딧 미소모) + 새 책 + 페이지(이미지 재사용)
+    new_job_id = f"retell_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    db.add(Job(id=new_job_id, status="done", user_key=user_key))
+    await db.flush()
+
+    new_book_id = f"book_{uuid.uuid4().hex[:16]}"
+    new_book = Book(
+        id=new_book_id,
+        job_id=new_job_id,
+        title=(retold.title or source.title)[:80],
+        language=source.language,
+        target_age=request.target_age.value,
+        style=source.style,
+        theme=source.theme,
+        character_id=source.character_id,
+        character_ids=source.character_ids,
+        cover_image_url=source.cover_image_url,
+        user_key=user_key,
+        profile_id=source.profile_id,
+    )
+    db.add(new_book)
+
+    for idx, src_page in enumerate(source_pages):
+        text = retold.pages[idx] if idx < len(retold.pages) else src_page.text
+        db.add(
+            Page(
+                book_id=new_book_id,
+                page_number=src_page.page_number,
+                text=text,
+                image_url=src_page.image_url,
+                image_prompt=src_page.image_prompt,
+            )
+        )
+
+    await db.commit()
+    logger.info(
+        "Book retold for new age",
+        source_book=book_id,
+        new_book=new_book_id,
+        target_age=request.target_age.value,
+    )
+    return RetellResponse(book_id=new_book_id, target_age=request.target_age)
 
 
 @router.get("/{book_id}/pdf")

@@ -1937,6 +1937,19 @@ class AppLocalizationsEn extends AppLocalizations {
       'The ending changes based on your choices';
 
   @override
+  String get viewerRetellTitle => 'Retell at another age';
+
+  @override
+  String get viewerRetellSubtitle =>
+      'Same pictures, text rewritten for a new age';
+
+  @override
+  String get viewerRetellInProgress => 'Retelling for the new age…';
+
+  @override
+  String get viewerRetellFailed => 'Couldn\'t retell this book';
+
+  @override
   String get viewerLearningModeTitle => 'Learning mode';
 
   @override
