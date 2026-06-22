@@ -378,13 +378,15 @@ JSON 형식으로 응답해주세요:
         "accessories": "악세서리"
     }},
     "personality_traits": ["성격1", "성격2", "성격3"],
-    "visual_style_notes": "스타일 노트"
+    "visual_style_notes": "스타일 노트",
+    "distinctive_features": ["고유 특징1", "고유 특징2"]
 }}
 
 주의:
 - 나이와 성격에 맞는 외모를 상상해서 구체적으로 묘사
 - master_description은 영어로, 나머지는 한국어로
 - 동화책에 어울리는 귀엽고 친근한 캐릭터로
+- distinctive_features: 안경·주근깨·곱슬머리·점 등 모든 그림에서 동일하게 유지할 식별 특징 2~3개
 """
 
         try:
@@ -479,6 +481,7 @@ JSON 형식으로 응답해주세요:
             if traits
             else ["친절한", "용감한", "호기심 많은"],
             "visual_style_notes": f"{style} style illustration",
+            "distinctive_features": ["둥근 안경", "주근깨"],
         }
 
 

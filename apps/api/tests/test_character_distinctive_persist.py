@@ -73,3 +73,24 @@ async def test_load_characters_returns_distinctive_features(
     loaded = await load_characters_from_db(["char-df-1"])
     assert loaded
     assert loaded[0]["distinctive_features"] == ["곱슬머리", "보조개"]
+
+
+@pytest.mark.asyncio
+async def test_from_text_auto_populates_distinctive_features(
+    client: AsyncClient,
+    headers: dict,
+):
+    """텍스트 생성 캐릭터는 distinctive_features를 자동으로 채운다(mock 제공자)."""
+    res = await client.post(
+        "/v1/characters/from-text",
+        data={
+            "name": "토리",
+            "age": "5살",
+            "traits": "용감한,호기심",
+            "style": "watercolor",
+        },
+        headers=headers,
+    )
+    assert res.status_code in (200, 201)
+    df = res.json()["distinctive_features"]
+    assert isinstance(df, list) and len(df) >= 1
