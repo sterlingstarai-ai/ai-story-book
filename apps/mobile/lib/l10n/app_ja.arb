@@ -528,6 +528,7 @@
   "charactersDetailShoes": "靴",
   "charactersDetailAccessories": "アクセサリー",
   "charactersDetailStyleNotes": "スタイルノート",
+  "charactersDetailIdentityLock": "🔒 一貫性を保つ特徴",
   "charactersDetailCreateBookButton": "このキャラクターで新しい絵本を作る",
   "charactersCreatedDate": "{year}年{month}月{day}日 作成",
   "charactersRoleChild": "子ども",

@@ -3208,6 +3208,12 @@ abstract class AppLocalizations {
   /// **'Style notes'**
   String get charactersDetailStyleNotes;
 
+  /// No description provided for @charactersDetailIdentityLock.
+  ///
+  /// In en, this message translates to:
+  /// **'🔒 Locked features (kept consistent)'**
+  String get charactersDetailIdentityLock;
+
   /// No description provided for @charactersDetailCreateBookButton.
   ///
   /// In en, this message translates to:

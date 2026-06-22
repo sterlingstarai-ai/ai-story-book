@@ -207,6 +207,7 @@ async def create_character(
         clothing=request.clothing.model_dump(),
         personality_traits=request.personality_traits,
         visual_style_notes=request.visual_style_notes,
+        distinctive_features=request.distinctive_features,
         user_key=user_key,
     )
 
@@ -238,6 +239,7 @@ async def create_character(
         clothing=CharacterClothing(**character.clothing),
         personality_traits=character.personality_traits,
         visual_style_notes=character.visual_style_notes,
+        distinctive_features=character.distinctive_features,
         created_at=character.created_at,
     )
 
@@ -298,6 +300,7 @@ async def create_character_from_preset(
         clothing=CharacterClothing(**character.clothing),
         personality_traits=character.personality_traits,
         visual_style_notes=character.visual_style_notes,
+        distinctive_features=character.distinctive_features,
         created_at=character.created_at,
     )
 
@@ -383,6 +386,7 @@ async def get_character(
         clothing=CharacterClothing(**character.clothing),
         personality_traits=character.personality_traits,
         visual_style_notes=character.visual_style_notes,
+        distinctive_features=character.distinctive_features,
         created_at=character.created_at,
     )
 
@@ -484,6 +488,7 @@ async def create_character_from_text(
                 "personality_traits", personality_traits
             ),
             visual_style_notes=character_data.get("visual_style_notes", ""),
+            distinctive_features=character_data.get("distinctive_features"),
             user_key=user_key,
         )
 
@@ -506,6 +511,7 @@ async def create_character_from_text(
             ),
             personality_traits=character.personality_traits,
             visual_style_notes=character.visual_style_notes,
+            distinctive_features=character.distinctive_features,
             created_at=character.created_at,
         )
 

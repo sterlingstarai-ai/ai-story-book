@@ -528,6 +528,7 @@
   "charactersDetailShoes": "신발",
   "charactersDetailAccessories": "액세서리",
   "charactersDetailStyleNotes": "스타일 노트",
+  "charactersDetailIdentityLock": "🔒 일관성 고정 특징",
   "charactersDetailCreateBookButton": "이 캐릭터로 새 책 만들기",
   "charactersCreatedDate": "{year}년 {month}월 {day}일 생성",
   "charactersRoleChild": "아이",

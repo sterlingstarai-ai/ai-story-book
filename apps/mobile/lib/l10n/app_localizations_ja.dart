@@ -1663,6 +1663,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get charactersDetailStyleNotes => 'スタイルノート';
 
   @override
+  String get charactersDetailIdentityLock => '🔒 一貫性を保つ特徴';
+
+  @override
   String get charactersDetailCreateBookButton => 'このキャラクターで新しい絵本を作る';
 
   @override

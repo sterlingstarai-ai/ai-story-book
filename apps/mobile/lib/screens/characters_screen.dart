@@ -776,6 +776,33 @@ class _CharacterDetailSheet extends StatelessWidget {
                 Text(character.visualStyleNotes!, style: AppTextStyles.body),
               ],
 
+              // 고유 특징(일관성 고정) — 모든 책·페이지에서 동일하게 유지되는 식별 표식
+              if (character.distinctiveFeatures != null &&
+                  character.distinctiveFeatures!.isNotEmpty) ...[
+                const SizedBox(height: AppSpacing.lg),
+                _SectionTitle(l.charactersDetailIdentityLock),
+                const SizedBox(height: AppSpacing.xs),
+                Wrap(
+                  spacing: AppSpacing.sm,
+                  runSpacing: AppSpacing.sm,
+                  children: character.distinctiveFeatures!.map((f) {
+                    return Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: AppColors.primaryMedium,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        f,
+                        style: AppTextStyles.caption
+                            .copyWith(color: AppColors.primary),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ],
+
               const SizedBox(height: AppSpacing.xl),
 
               // 액션 버튼

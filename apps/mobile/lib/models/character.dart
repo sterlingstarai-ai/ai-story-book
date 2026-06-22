@@ -9,6 +9,9 @@ class Character {
   final Clothing clothing;
   final List<String> personalityTraits;
   final String? visualStyleNotes;
+
+  /// 식별 가능한 고유 특징(안경/주근깨 등) — 같은 캐릭터를 일관되게 유지
+  final List<String>? distinctiveFeatures;
   final DateTime createdAt;
 
   Character({
@@ -19,6 +22,7 @@ class Character {
     required this.clothing,
     required this.personalityTraits,
     this.visualStyleNotes,
+    this.distinctiveFeatures,
     required this.createdAt,
   });
 
@@ -50,6 +54,11 @@ class Character {
       personalityTraits: personalityTraits,
       visualStyleNotes:
           JsonParsing.asOptionalString(json['visual_style_notes']),
+      distinctiveFeatures: json['distinctive_features'] is List
+          ? (json['distinctive_features'] as List)
+              .whereType<String>()
+              .toList()
+          : null,
       createdAt: JsonParsing.asRequiredDateTime(json['created_at'],
           field: 'created_at'),
     );
@@ -63,6 +72,8 @@ class Character {
         'clothing': clothing.toJson(),
         'personality_traits': personalityTraits,
         if (visualStyleNotes != null) 'visual_style_notes': visualStyleNotes,
+        if (distinctiveFeatures != null && distinctiveFeatures!.isNotEmpty)
+          'distinctive_features': distinctiveFeatures,
       };
 }
 

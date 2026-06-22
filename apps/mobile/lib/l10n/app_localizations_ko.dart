@@ -1662,6 +1662,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get charactersDetailStyleNotes => '스타일 노트';
 
   @override
+  String get charactersDetailIdentityLock => '🔒 일관성 고정 특징';
+
+  @override
   String get charactersDetailCreateBookButton => '이 캐릭터로 새 책 만들기';
 
   @override

@@ -467,6 +467,7 @@ class CreateCharacterRequest(BaseModel):
     clothing: CharacterClothing
     personality_traits: List[str] = Field(min_length=1, max_length=10)
     visual_style_notes: str = Field(min_length=1, max_length=200)
+    distinctive_features: Optional[List[str]] = Field(default=None, max_length=10)
 
 
 class CharacterResponse(BaseModel):
@@ -479,6 +480,7 @@ class CharacterResponse(BaseModel):
     clothing: CharacterClothing
     personality_traits: List[str]
     visual_style_notes: str
+    distinctive_features: Optional[List[str]] = None
     created_at: datetime
 
 

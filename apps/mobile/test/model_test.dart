@@ -367,6 +367,34 @@ void main() {
       expect(character.appearance.face, equals('둥근 얼굴'));
       expect(character.clothing.top, equals('티셔츠'));
       expect(character.personalityTraits, contains('호기심'));
+      expect(character.distinctiveFeatures, isNull);
+    });
+
+    test('fromJson parses distinctive_features when present', () {
+      final character = Character.fromJson({
+        'id': 'char-df',
+        'name': '토리',
+        'master_description': '귀여운 토끼',
+        'appearance': {
+          'age_visual': '5세',
+          'face': '둥근 얼굴',
+          'hair': '없음',
+          'skin': '갈색 털',
+          'body': '통통함',
+        },
+        'clothing': {
+          'top': '티셔츠',
+          'bottom': '바지',
+          'shoes': '운동화',
+          'accessories': '빨간 안경',
+        },
+        'personality_traits': ['용감함'],
+        'visual_style_notes': '수채화',
+        'distinctive_features': ['빨간 안경', '주근깨'],
+        'created_at': '2024-01-01T00:00:00Z',
+      });
+
+      expect(character.distinctiveFeatures, equals(['빨간 안경', '주근깨']));
     });
 
     test('fromJson coerces mixed scalar types', () {

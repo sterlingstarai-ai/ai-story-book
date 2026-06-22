@@ -815,6 +815,7 @@
   "charactersDetailShoes": "Shoes",
   "charactersDetailAccessories": "Accessories",
   "charactersDetailStyleNotes": "Style notes",
+  "charactersDetailIdentityLock": "🔒 Locked features (kept consistent)",
   "charactersDetailCreateBookButton": "Make a new storybook with this character",
   "charactersCreatedDate": "Created on {year}-{month}-{day}",
   "charactersRoleChild": "Child",

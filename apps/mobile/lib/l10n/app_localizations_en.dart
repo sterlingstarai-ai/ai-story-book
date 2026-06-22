@@ -1744,6 +1744,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get charactersDetailStyleNotes => 'Style notes';
 
   @override
+  String get charactersDetailIdentityLock =>
+      '🔒 Locked features (kept consistent)';
+
+  @override
   String get charactersDetailCreateBookButton =>
       'Make a new storybook with this character';
 

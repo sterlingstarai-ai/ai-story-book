@@ -454,6 +454,8 @@ async def load_characters_from_db(character_ids: list[str]) -> list[dict]:
                 "name": c.name,
                 "appearance": c.master_description,
                 "personality": c.personality_traits,
+                # 영속된 고유 특징 — 같은 캐릭터를 날짜·책을 넘어 동일하게 유지
+                "distinctive_features": c.distinctive_features,
             }
             for c in characters
         ]
