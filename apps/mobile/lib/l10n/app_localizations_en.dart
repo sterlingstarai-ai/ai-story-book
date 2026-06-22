@@ -327,6 +327,21 @@ class AppLocalizationsEn extends AppLocalizations {
   String get createRelationshipFamily => 'Family';
 
   @override
+  String get createForbiddenLabel => 'Things to leave out (optional)';
+
+  @override
+  String get createForbiddenViolence => 'Violence';
+
+  @override
+  String get createForbiddenScary => 'Scary content';
+
+  @override
+  String get createForbiddenSad => 'Sad ending';
+
+  @override
+  String get createForbiddenRude => 'Rude language';
+
+  @override
   String get createMakeButton => 'Make Storybook';
 
   @override

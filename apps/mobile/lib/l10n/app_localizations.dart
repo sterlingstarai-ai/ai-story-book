@@ -676,6 +676,36 @@ abstract class AppLocalizations {
   /// **'Family'**
   String get createRelationshipFamily;
 
+  /// No description provided for @createForbiddenLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Things to leave out (optional)'**
+  String get createForbiddenLabel;
+
+  /// No description provided for @createForbiddenViolence.
+  ///
+  /// In en, this message translates to:
+  /// **'Violence'**
+  String get createForbiddenViolence;
+
+  /// No description provided for @createForbiddenScary.
+  ///
+  /// In en, this message translates to:
+  /// **'Scary content'**
+  String get createForbiddenScary;
+
+  /// No description provided for @createForbiddenSad.
+  ///
+  /// In en, this message translates to:
+  /// **'Sad ending'**
+  String get createForbiddenSad;
+
+  /// No description provided for @createForbiddenRude.
+  ///
+  /// In en, this message translates to:
+  /// **'Rude language'**
+  String get createForbiddenRude;
+
   /// No description provided for @createMakeButton.
   ///
   /// In en, this message translates to:

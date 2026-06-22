@@ -241,6 +241,32 @@ void main() {
       expect(find.text('남매'), findsOneWidget);
     });
 
+    testWidgets('shows forbidden-elements selector and toggles a chip',
+        (tester) async {
+      await tester.pumpWidget(buildTestableWidget(
+        const CreateScreen(),
+        overrides: createOverrides(),
+      ));
+      await tester.pumpAndSettle();
+
+      final listView = find.byType(ListView).first;
+      for (var i = 0;
+          i < 25 && find.text('빼고 싶은 요소 (선택)').evaluate().isEmpty;
+          i++) {
+        await tester.drag(listView, const Offset(0, -250));
+        await tester.pumpAndSettle();
+      }
+      expect(find.text('빼고 싶은 요소 (선택)'), findsOneWidget);
+      expect(find.text('폭력'), findsOneWidget);
+
+      await tester.ensureVisible(find.text('폭력'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('폭력'));
+      await tester.pump();
+      // 토글 후에도 예외 없이 유지된다.
+      expect(find.text('폭력'), findsOneWidget);
+    });
+
     testWidgets('renders style selection chips', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CreateScreen(),

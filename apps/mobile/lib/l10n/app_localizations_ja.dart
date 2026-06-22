@@ -309,6 +309,21 @@ class AppLocalizationsJa extends AppLocalizations {
   String get createRelationshipFamily => '家族';
 
   @override
+  String get createForbiddenLabel => '入れたくない要素（任意）';
+
+  @override
+  String get createForbiddenViolence => '暴力';
+
+  @override
+  String get createForbiddenScary => 'こわい内容';
+
+  @override
+  String get createForbiddenSad => '悲しい結末';
+
+  @override
+  String get createForbiddenRude => '乱暴な言葉';
+
+  @override
   String get createMakeButton => '絵本を作る';
 
   @override

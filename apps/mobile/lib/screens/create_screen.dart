@@ -29,6 +29,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
   BookTheme? _selectedTheme;
   List<String> _selectedCharacterIds = []; // 다중 캐릭터 선택
   String? _selectedRelationship; // 다중 선택 시 캐릭터 관계 (남매/친구/가족)
+  final Set<String> _forbiddenElements = {}; // 빼고 싶은 요소 (콘텐츠 안전)
   bool _isLoading = false;
   bool _didHandleRouteArgs = false;
 
@@ -110,6 +111,8 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
             _selectedCharacterIds.isNotEmpty ? _selectedCharacterIds : null,
         characterRelationship:
             _selectedCharacterIds.length >= 2 ? _selectedRelationship : null,
+        forbiddenElements:
+            _forbiddenElements.isNotEmpty ? _forbiddenElements.toList() : null,
       );
 
       final jobId =
@@ -623,6 +626,46 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                 }).toList(),
               ),
             ],
+
+            // 빼고 싶은 요소 (콘텐츠 안전) — 다중 선택, forbidden_elements로 전달
+            const SizedBox(height: AppSpacing.lg),
+            Text(l.createForbiddenLabel, style: AppTextStyles.heading3),
+            const SizedBox(height: AppSpacing.sm),
+            Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.sm,
+              children: [
+                l.createForbiddenViolence,
+                l.createForbiddenScary,
+                l.createForbiddenSad,
+                l.createForbiddenRude,
+              ].map((item) {
+                final isSelected = _forbiddenElements.contains(item);
+                return FilterChip(
+                  label: Text(item),
+                  selected: isSelected,
+                  materialTapTargetSize: MaterialTapTargetSize.padded,
+                  onSelected: (selected) {
+                    setState(() {
+                      if (selected) {
+                        _forbiddenElements.add(item);
+                      } else {
+                        _forbiddenElements.remove(item);
+                      }
+                    });
+                  },
+                  selectedColor: AppColors.primaryMedium,
+                  checkmarkColor: AppColors.primary,
+                  labelStyle: TextStyle(
+                    color: isSelected
+                        ? AppColors.primary
+                        : AppColors.textSecondary,
+                    fontWeight:
+                        isSelected ? FontWeight.w600 : FontWeight.normal,
+                  ),
+                );
+              }).toList(),
+            ),
 
             const SizedBox(height: AppSpacing.xxl),
           ],

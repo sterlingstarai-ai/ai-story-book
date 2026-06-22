@@ -309,6 +309,21 @@ class AppLocalizationsKo extends AppLocalizations {
   String get createRelationshipFamily => '가족';
 
   @override
+  String get createForbiddenLabel => '빼고 싶은 요소 (선택)';
+
+  @override
+  String get createForbiddenViolence => '폭력';
+
+  @override
+  String get createForbiddenScary => '무서운 내용';
+
+  @override
+  String get createForbiddenSad => '슬픈 결말';
+
+  @override
+  String get createForbiddenRude => '거친 말';
+
+  @override
   String get createMakeButton => '동화책 만들기';
 
   @override
