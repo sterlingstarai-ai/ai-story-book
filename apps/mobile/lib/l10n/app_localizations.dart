@@ -514,6 +514,60 @@ abstract class AppLocalizations {
   /// **'No length limit, dense narrative'**
   String get createAgeHelpAdult;
 
+  /// No description provided for @createTemplateSectionLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Start from a suggestion'**
+  String get createTemplateSectionLabel;
+
+  /// No description provided for @createTemplateAnimalLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Animal friends'**
+  String get createTemplateAnimalLabel;
+
+  /// No description provided for @createTemplateAnimalTopic.
+  ///
+  /// In en, this message translates to:
+  /// **'A brave little animal makes new friends in the forest'**
+  String get createTemplateAnimalTopic;
+
+  /// No description provided for @createTemplateFriendshipLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Friendship'**
+  String get createTemplateFriendshipLabel;
+
+  /// No description provided for @createTemplateFriendshipTopic.
+  ///
+  /// In en, this message translates to:
+  /// **'Helping a friend and solving a problem together'**
+  String get createTemplateFriendshipTopic;
+
+  /// No description provided for @createTemplateFeelingsLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Big feelings'**
+  String get createTemplateFeelingsLabel;
+
+  /// No description provided for @createTemplateFeelingsTopic.
+  ///
+  /// In en, this message translates to:
+  /// **'On a scary night, finding the courage to overcome fear'**
+  String get createTemplateFeelingsTopic;
+
+  /// No description provided for @createTemplateSpaceLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Space adventure'**
+  String get createTemplateSpaceLabel;
+
+  /// No description provided for @createTemplateSpaceTopic.
+  ///
+  /// In en, this message translates to:
+  /// **'Exploring stars and planets and discovering something amazing'**
+  String get createTemplateSpaceTopic;
+
   /// No description provided for @createStyleLabel.
   ///
   /// In en, this message translates to:

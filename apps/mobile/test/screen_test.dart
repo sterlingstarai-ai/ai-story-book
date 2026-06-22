@@ -188,6 +188,22 @@ void main() {
       expect(find.text('익숙한 단어, 2~3문장, 감정과 간단한 대화'), findsNothing);
     });
 
+    testWidgets('tapping a quick-start template prefills topic and theme',
+        (tester) async {
+      await tester.pumpWidget(buildTestableWidget(
+        const CreateScreen(),
+        overrides: createOverrides(),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('추천으로 시작하기'), findsOneWidget);
+
+      await tester.tap(find.text('동물 친구'));
+      await tester.pumpAndSettle();
+      expect(find.text('용감한 아기 동물이 숲에서 새 친구를 사귀는 이야기'),
+          findsOneWidget);
+    });
+
     testWidgets('renders style selection chips', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CreateScreen(),
@@ -211,7 +227,11 @@ void main() {
       ));
       await tester.pumpAndSettle();
 
-      // Theme section may be below the fold; use skipOffstage: false
+      // 템플릿 행이 추가되어 테마 섹션이 더 아래로 밀렸으므로, lazy ListView가
+      // 해당 위젯을 빌드하도록 먼저 스크롤한다(스타일 섹션 테스트와 동일한 패턴).
+      await tester.drag(find.byType(ListView).first, const Offset(0, -500));
+      await tester.pumpAndSettle();
+
       expect(find.text('테마 (선택)', skipOffstage: false), findsOneWidget);
       expect(find.text('없음', skipOffstage: false), findsOneWidget);
     });
@@ -343,11 +363,14 @@ void main() {
     List<Override> homeOverrides({
       HomeStreakSnapshot streak = _sampleStreak,
       List<LibraryBook>? books,
+      List<Character>? characters,
     }) =>
         [
           libraryProvider
               .overrideWith(() => _MockLibraryNotifier(books ?? _sampleBooks)),
           homeStreakProvider.overrideWith((ref) async => streak),
+          charactersProvider.overrideWith(
+              () => _MockCharactersNotifier(characters ?? const [])),
         ];
 
     testWidgets('renders streak card with current streak and today topic',
@@ -394,6 +417,8 @@ void main() {
           homeStreakProvider.overrideWith((ref) async {
             throw Exception('network');
           }),
+          charactersProvider
+              .overrideWith(() => _MockCharactersNotifier(const [])),
         ],
       ));
       await tester.pump();
@@ -407,11 +432,7 @@ void main() {
         (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const HomeScreen(),
-        overrides: [
-          ...homeOverrides(books: const []),
-          charactersProvider.overrideWith(
-              () => _MockCharactersNotifier(_sampleCharacters)),
-        ],
+        overrides: homeOverrides(books: const [], characters: _sampleCharacters),
       ));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 200));

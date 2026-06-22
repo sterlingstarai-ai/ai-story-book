@@ -226,6 +226,33 @@ class AppLocalizationsKo extends AppLocalizations {
   String get createAgeHelpAdult => '길이 제한 없음, 밀도 있는 서사';
 
   @override
+  String get createTemplateSectionLabel => '추천으로 시작하기';
+
+  @override
+  String get createTemplateAnimalLabel => '동물 친구';
+
+  @override
+  String get createTemplateAnimalTopic => '용감한 아기 동물이 숲에서 새 친구를 사귀는 이야기';
+
+  @override
+  String get createTemplateFriendshipLabel => '우정';
+
+  @override
+  String get createTemplateFriendshipTopic => '친구를 도와주며 함께 문제를 해결하는 이야기';
+
+  @override
+  String get createTemplateFeelingsLabel => '마음 다독이기';
+
+  @override
+  String get createTemplateFeelingsTopic => '무서운 밤, 용기를 내어 두려움을 이겨내는 이야기';
+
+  @override
+  String get createTemplateSpaceLabel => '우주 모험';
+
+  @override
+  String get createTemplateSpaceTopic => '별과 행성을 탐험하며 멋진 것을 발견하는 이야기';
+
+  @override
   String get createStyleLabel => '그림 스타일';
 
   @override

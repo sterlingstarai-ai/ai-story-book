@@ -226,6 +226,33 @@ class AppLocalizationsJa extends AppLocalizations {
   String get createAgeHelpAdult => '長さ制限なし、密度の高い物語';
 
   @override
+  String get createTemplateSectionLabel => 'おすすめから始める';
+
+  @override
+  String get createTemplateAnimalLabel => 'どうぶつの友だち';
+
+  @override
+  String get createTemplateAnimalTopic => '勇敢な小さな動物が森で新しい友だちを作るお話';
+
+  @override
+  String get createTemplateFriendshipLabel => '友情';
+
+  @override
+  String get createTemplateFriendshipTopic => '友だちを助けて、一緒に問題を解決するお話';
+
+  @override
+  String get createTemplateFeelingsLabel => 'きもちのケア';
+
+  @override
+  String get createTemplateFeelingsTopic => 'こわい夜に、勇気を出して恐れを乗りこえるお話';
+
+  @override
+  String get createTemplateSpaceLabel => '宇宙の冒険';
+
+  @override
+  String get createTemplateSpaceTopic => '星や惑星を探検して、すてきなものを見つけるお話';
+
+  @override
   String get createStyleLabel => 'イラストのスタイル';
 
   @override

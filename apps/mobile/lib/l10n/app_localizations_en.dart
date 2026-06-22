@@ -235,6 +235,37 @@ class AppLocalizationsEn extends AppLocalizations {
   String get createAgeHelpAdult => 'No length limit, dense narrative';
 
   @override
+  String get createTemplateSectionLabel => 'Start from a suggestion';
+
+  @override
+  String get createTemplateAnimalLabel => 'Animal friends';
+
+  @override
+  String get createTemplateAnimalTopic =>
+      'A brave little animal makes new friends in the forest';
+
+  @override
+  String get createTemplateFriendshipLabel => 'Friendship';
+
+  @override
+  String get createTemplateFriendshipTopic =>
+      'Helping a friend and solving a problem together';
+
+  @override
+  String get createTemplateFeelingsLabel => 'Big feelings';
+
+  @override
+  String get createTemplateFeelingsTopic =>
+      'On a scary night, finding the courage to overcome fear';
+
+  @override
+  String get createTemplateSpaceLabel => 'Space adventure';
+
+  @override
+  String get createTemplateSpaceTopic =>
+      'Exploring stars and planets and discovering something amazing';
+
+  @override
   String get createStyleLabel => 'Art style';
 
   @override

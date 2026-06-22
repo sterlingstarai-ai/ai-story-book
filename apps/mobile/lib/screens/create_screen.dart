@@ -193,6 +193,35 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
     final l = AppLocalizations.of(context);
     final charactersAsync = ref.watch(charactersProvider);
 
+    // 추천 빠른 시작 템플릿 — 보편 테마(글로벌). 탭하면 주제·테마를 채워준다.
+    final templates =
+        <({String label, String topic, BookTheme theme, IconData icon})>[
+      (
+        label: l.createTemplateAnimalLabel,
+        topic: l.createTemplateAnimalTopic,
+        theme: BookTheme.animal,
+        icon: Icons.pets,
+      ),
+      (
+        label: l.createTemplateFriendshipLabel,
+        topic: l.createTemplateFriendshipTopic,
+        theme: BookTheme.friendship,
+        icon: Icons.favorite,
+      ),
+      (
+        label: l.createTemplateFeelingsLabel,
+        topic: l.createTemplateFeelingsTopic,
+        theme: BookTheme.emotionalCoaching,
+        icon: Icons.sentiment_satisfied_alt,
+      ),
+      (
+        label: l.createTemplateSpaceLabel,
+        topic: l.createTemplateSpaceTopic,
+        theme: BookTheme.science,
+        icon: Icons.rocket_launch,
+      ),
+    ];
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -246,6 +275,37 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
             const SizedBox(height: AppSpacing.sm),
             // 연령별 문체 안내 (선택에 따라 라이브 업데이트)
             _AgeHelpBanner(text: _ageHelpText(l)),
+
+            const SizedBox(height: AppSpacing.lg),
+
+            // 추천 템플릿(빠른 시작) — 탭하면 주제·테마 자동 입력
+            Text(l.createTemplateSectionLabel, style: AppTextStyles.heading3),
+            const SizedBox(height: AppSpacing.sm),
+            SizedBox(
+              height: 40,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: templates.length,
+                separatorBuilder: (_, __) =>
+                    const SizedBox(width: AppSpacing.sm),
+                itemBuilder: (context, index) {
+                  final t = templates[index];
+                  return ActionChip(
+                    avatar: Icon(t.icon, size: 18, color: AppColors.primary),
+                    label: Text(t.label),
+                    onPressed: () => setState(() {
+                      _topicController.text = t.topic;
+                      _selectedTheme = t.theme;
+                    }),
+                    backgroundColor: AppColors.surface,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.md),
+                      side: const BorderSide(color: AppColors.divider),
+                    ),
+                  );
+                },
+              ),
+            ),
 
             const SizedBox(height: AppSpacing.lg),
 
