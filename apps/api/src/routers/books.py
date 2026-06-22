@@ -943,6 +943,8 @@ async def retell_book(
         cover_image_url=source.cover_image_url,
         user_key=user_key,
         profile_id=source.profile_id,
+        # 연령 변형 묶음 — 원본 책으로 역링크
+        retelling_source_book_id=book_id,
     )
     db.add(new_book)
 

@@ -81,6 +81,8 @@ async def test_retell_creates_new_book_reusing_images(
     assert new_book.target_age == "3-5"
     assert new_book.cover_image_url == "https://img/cover.png"
     assert new_book.title == "쉬운 동화"
+    # 연령 변형은 원본 책으로 역링크된다(grow-with-child 묶음)
+    assert new_book.retelling_source_book_id == "book-retell-src"
 
 
 @pytest.mark.asyncio
