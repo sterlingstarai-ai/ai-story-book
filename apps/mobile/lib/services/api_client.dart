@@ -6,6 +6,12 @@ import '../core/api_error.dart';
 import '../core/app_telemetry.dart';
 import '../models/models.dart';
 
+/// 현재 이미지 제공자가 부분 재생성(인페인트)을 지원하지 않을 때 던진다.
+/// 클라이언트는 이 신호로 전체 페이지 재생성으로 폴백한다.
+class InpaintUnsupportedException implements Exception {
+  const InpaintUnsupportedException();
+}
+
 /// API 클라이언트
 class ApiClient {
   static const Uuid _uuid = Uuid();
@@ -138,6 +144,56 @@ class ApiClient {
       '/v1/books/$jobId/pages/$pageNumber/regenerate',
       data: {'regenerate_target': regenerateTarget},
       options: Options(headers: _headers),
+    );
+  }
+
+  /// 부분 재생성(인페인트) — 마스크 PNG + 영역 설명을 보내고 잡 ID를 받는다.
+  /// 제공자 미지원(409)이면 [InpaintUnsupportedException]를 던진다(전체 재생성 폴백 신호).
+  Future<String> inpaintPage(
+    String jobId,
+    int pageNumber,
+    File maskFile,
+    String regionPrompt,
+  ) async {
+    final formData = FormData.fromMap({
+      'mask': await MultipartFile.fromFile(maskFile.path, filename: 'mask.png'),
+      'region_prompt': regionPrompt,
+    });
+    try {
+      final response = await _dio.post(
+        '/v1/books/$jobId/pages/$pageNumber/inpaint',
+        data: formData,
+        options: Options(
+          headers: _headers,
+          contentType: 'multipart/form-data',
+        ),
+      );
+      final map = _asJsonMap(
+        response.data,
+        context: '/v1/books/{id}/inpaint response',
+      );
+      final newJobId = map['job_id'];
+      if (newJobId is! String || newJobId.isEmpty) {
+        throw StateError('inpaint response missing job_id');
+      }
+      return newJobId;
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 409) {
+        throw const InpaintUnsupportedException();
+      }
+      rethrow;
+    }
+  }
+
+  /// 배포 환경 기능 가용성(예: inpaint_supported) — 클라이언트 UI 게이팅용.
+  Future<Map<String, dynamic>> getCapabilities() async {
+    final response = await _dio.get(
+      '/v1/config/capabilities',
+      options: Options(headers: _headers),
+    );
+    return _asJsonMap(
+      response.data,
+      context: '/v1/config/capabilities response',
     );
   }
 

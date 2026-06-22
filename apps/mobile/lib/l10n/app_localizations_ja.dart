@@ -1936,6 +1936,33 @@ class AppLocalizationsJa extends AppLocalizations {
   String get viewerRegenerateImageOnly => '画像のみ';
 
   @override
+  String get viewerRegenerateRegion => 'この部分だけ直す';
+
+  @override
+  String get inpaintTitle => '部分修正';
+
+  @override
+  String get inpaintInstructions => '直したい部分を指でなぞって、変更内容を入力してください。';
+
+  @override
+  String get inpaintRegionPromptLabel => 'どう変えますか？';
+
+  @override
+  String get inpaintRegionPromptHint => '例：空を夕焼けに';
+
+  @override
+  String get inpaintReset => '消す';
+
+  @override
+  String get inpaintApply => '適用';
+
+  @override
+  String get inpaintNeedRegionAndPrompt => '領域と変更内容の両方を入力してください。';
+
+  @override
+  String get inpaintFailed => '部分修正に失敗しました。';
+
+  @override
   String get viewerRegenerateAll => 'すべて';
 
   @override

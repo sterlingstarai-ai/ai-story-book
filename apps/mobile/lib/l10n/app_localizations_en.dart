@@ -2031,6 +2031,35 @@ class AppLocalizationsEn extends AppLocalizations {
   String get viewerRegenerateImageOnly => 'Image only';
 
   @override
+  String get viewerRegenerateRegion => 'Fix just this part';
+
+  @override
+  String get inpaintTitle => 'Fix a region';
+
+  @override
+  String get inpaintInstructions =>
+      'Paint the area to fix, then describe the change.';
+
+  @override
+  String get inpaintRegionPromptLabel => 'What should change?';
+
+  @override
+  String get inpaintRegionPromptHint => 'e.g. make the sky a sunset';
+
+  @override
+  String get inpaintReset => 'Clear';
+
+  @override
+  String get inpaintApply => 'Apply';
+
+  @override
+  String get inpaintNeedRegionAndPrompt =>
+      'Paint a region and describe the change.';
+
+  @override
+  String get inpaintFailed => 'Couldn\'t fix that region.';
+
+  @override
   String get viewerRegenerateAll => 'All';
 
   @override

@@ -1935,6 +1935,33 @@ class AppLocalizationsKo extends AppLocalizations {
   String get viewerRegenerateImageOnly => '그림만';
 
   @override
+  String get viewerRegenerateRegion => '이 부분만 고치기';
+
+  @override
+  String get inpaintTitle => '부분 수정';
+
+  @override
+  String get inpaintInstructions => '고칠 부분을 손가락으로 칠한 뒤, 어떻게 바꿀지 적어주세요.';
+
+  @override
+  String get inpaintRegionPromptLabel => '어떻게 바꿀까요?';
+
+  @override
+  String get inpaintRegionPromptHint => '예: 하늘을 노을빛으로';
+
+  @override
+  String get inpaintReset => '지우기';
+
+  @override
+  String get inpaintApply => '적용';
+
+  @override
+  String get inpaintNeedRegionAndPrompt => '고칠 영역과 설명을 모두 입력해주세요.';
+
+  @override
+  String get inpaintFailed => '부분 수정에 실패했어요.';
+
+  @override
   String get viewerRegenerateAll => '모두';
 
   @override

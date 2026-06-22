@@ -3718,6 +3718,60 @@ abstract class AppLocalizations {
   /// **'Image only'**
   String get viewerRegenerateImageOnly;
 
+  /// No description provided for @viewerRegenerateRegion.
+  ///
+  /// In en, this message translates to:
+  /// **'Fix just this part'**
+  String get viewerRegenerateRegion;
+
+  /// No description provided for @inpaintTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Fix a region'**
+  String get inpaintTitle;
+
+  /// No description provided for @inpaintInstructions.
+  ///
+  /// In en, this message translates to:
+  /// **'Paint the area to fix, then describe the change.'**
+  String get inpaintInstructions;
+
+  /// No description provided for @inpaintRegionPromptLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'What should change?'**
+  String get inpaintRegionPromptLabel;
+
+  /// No description provided for @inpaintRegionPromptHint.
+  ///
+  /// In en, this message translates to:
+  /// **'e.g. make the sky a sunset'**
+  String get inpaintRegionPromptHint;
+
+  /// No description provided for @inpaintReset.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear'**
+  String get inpaintReset;
+
+  /// No description provided for @inpaintApply.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply'**
+  String get inpaintApply;
+
+  /// No description provided for @inpaintNeedRegionAndPrompt.
+  ///
+  /// In en, this message translates to:
+  /// **'Paint a region and describe the change.'**
+  String get inpaintNeedRegionAndPrompt;
+
+  /// No description provided for @inpaintFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t fix that region.'**
+  String get inpaintFailed;
+
   /// No description provided for @viewerRegenerateAll.
   ///
   /// In en, this message translates to:

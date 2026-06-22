@@ -17,6 +17,7 @@ import '../l10n/app_localizations.dart';
 import '../models/models.dart';
 import '../widgets/vocab_game_card.dart';
 import '../providers/providers.dart';
+import 'inpaint_screen.dart';
 import '../services/analytics.dart';
 import '../utils/constants.dart';
 import '../widgets/common_widgets.dart';
@@ -1448,6 +1449,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     final l = AppLocalizations.of(context);
     final pageIndex = _currentPage - 1; // 표지 제외
     if (pageIndex < 0) return;
+    // 능력기반: 알려진 미지원이면 인페인트 옵션 숨김(미확정/지원은 노출, 409로 폴백).
+    final caps = ref.read(capabilitiesProvider).valueOrNull;
+    final inpaintOk = caps == null ? true : caps['inpaint_supported'] == true;
 
     showDialog(
       context: context,
@@ -1459,6 +1463,14 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
             onPressed: () => Navigator.pop(context),
             child: Text(l.viewerCancel),
           ),
+          if (inpaintOk && pageIndex < book.pages.length)
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _openInpaint(book, pageIndex);
+              },
+              child: Text(l.viewerRegenerateRegion),
+            ),
           TextButton(
             onPressed: () {
               Navigator.pop(context);
@@ -1483,6 +1495,33 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _openInpaint(BookResult book, int pageIndex) async {
+    final l = AppLocalizations.of(context);
+    if (book.jobId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l.viewerRegenerateNotSupported)),
+      );
+      return;
+    }
+    final page = book.pages[pageIndex];
+    final result = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => InpaintScreen(
+          jobId: book.jobId!,
+          bookId: widget.bookId,
+          pageNumber: pageIndex + 1,
+          imageUrl: page.imageUrl,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (result == false) {
+      // 제공자 미지원 → 전체 이미지 재생성으로 폴백
+      _regeneratePage(book, pageIndex + 1, 'image');
+    }
   }
 
   Future<void> _regeneratePage(

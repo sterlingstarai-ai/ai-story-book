@@ -15,6 +15,7 @@ import 'package:ai_story_book/screens/library_screen.dart';
 import 'package:ai_story_book/screens/loading_screen.dart';
 import 'package:ai_story_book/screens/credits_screen.dart';
 import 'package:ai_story_book/screens/characters_screen.dart';
+import 'package:ai_story_book/screens/inpaint_screen.dart';
 import 'package:ai_story_book/widgets/common_widgets.dart';
 
 // ==================== Helpers ====================
@@ -1174,6 +1175,25 @@ void main() {
       expect(find.text('해지 예정'), findsOneWidget);
       expect(find.text('현재 결제 주기가 끝나면 무료 플랜으로 전환됩니다.'), findsOneWidget);
       expect(find.text('구독 취소'), findsNothing);
+    });
+  });
+
+  group('InpaintScreen', () {
+    testWidgets('renders the region prompt field and apply button',
+        (tester) async {
+      await tester.pumpWidget(buildTestableWidget(
+        const InpaintScreen(
+          jobId: 'job-1',
+          bookId: 'book-1',
+          pageNumber: 1,
+          imageUrl: 'https://example.com/p1.png',
+        ),
+      ));
+      await tester.pump();
+
+      expect(find.text('부분 수정'), findsOneWidget); // 앱바 제목
+      expect(find.text('적용'), findsOneWidget); // 적용 버튼
+      expect(find.byType(TextField), findsOneWidget); // 영역 설명 입력
     });
   });
 }
