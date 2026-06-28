@@ -4,11 +4,13 @@ Apple/Google 영수증 검증 및 웹훅 처리
 """
 
 from datetime import timedelta
+import hmac
 from typing import Optional, Literal
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
@@ -114,24 +116,21 @@ async def verify_iap(
     credits_to_add, plan = _resolve_reward(product_id)
     resolved_is_subscription = plan is not None
 
-    existing_result = await db.execute(
-        select(IAPReceipt).where(
-            IAPReceipt.platform == request.platform,
-            IAPReceipt.transaction_id == transaction_id,
+    # 빠른 정직-재시도 dedup: 같은 사용자가 같은 transaction_id로 재전송하면 스토어
+    # 재호출 없이 즉시 already_processed. (정본 dedup은 아래 store_transaction_id 기준.)
+    existing_by_client = (
+        await db.execute(
+            select(IAPReceipt).where(
+                IAPReceipt.platform == request.platform,
+                IAPReceipt.transaction_id == transaction_id,
+            )
         )
-    )
-    existing = existing_result.scalar_one_or_none()
-    if existing:
-        logger.info(
-            "IAP receipt already processed",
-            platform=request.platform,
-            transaction_id=transaction_id,
-            product_id=existing.product_id,
-        )
+    ).scalar_one_or_none()
+    if existing_by_client and existing_by_client.user_key == user_key:
         return IAPVerifyResponse(
             status="already_processed",
-            transaction_id=existing.transaction_id,
-            product_id=existing.product_id,
+            transaction_id=existing_by_client.transaction_id,
+            product_id=existing_by_client.product_id,
             credits_added=0,
             plan=None,
         )
@@ -160,6 +159,67 @@ async def verify_iap(
             },
         )
 
+    # 리플레이 방지의 정본 키: 스토어가 검증해 돌려준 식별자. 클라이언트가 transaction_id를
+    # 바꿔가며 같은 영수증을 재제출해도 store_transaction_id는 동일하므로 차단된다.
+    store_txn = verification.store_transaction_id or transaction_id
+
+    def _build_payload(extra: Optional[dict] = None) -> dict:
+        base = {
+            "receipt_data": receipt_data,
+            "is_subscription": resolved_is_subscription,
+            "verified_at": utcnow().isoformat(),
+            "verification_source": verification.source,
+            "verification_environment": verification.environment,
+            "verification": verification.raw,
+            "client_transaction_id": transaction_id,
+        }
+        if extra:
+            base.update(extra)
+        return base
+
+    existing = (
+        await db.execute(
+            select(IAPReceipt).where(
+                IAPReceipt.platform == request.platform,
+                IAPReceipt.store_transaction_id == store_txn,
+            )
+        )
+    ).scalar_one_or_none()
+
+    if existing:
+        if existing.user_key == user_key:
+            return IAPVerifyResponse(
+                status="already_processed",
+                transaction_id=existing.transaction_id,
+                product_id=existing.product_id,
+                credits_added=0,
+                plan=None,
+            )
+        # F4 복원: 재설치/기기 변경으로 user_key가 새로 발급된 경우. 스토어가 이 영수증의
+        # 소유를 방금 검증했으므로(verified=True) 권한을 호출자에게 이전한다. 소비성
+        # 크레딧팩은 스토어가 복원해주지 않으므로 재지급하지 않는다(구독만 재활성).
+        existing.user_key = user_key
+        existing.status = "restored"
+        existing.payload = _build_payload({"restored_from_user_key": existing.user_key})
+        if plan:
+            await credits_service.create_subscription(db, user_key, plan, commit=False)
+        await db.commit()
+        logger.info(
+            "IAP entitlement restored to new user_key",
+            platform=request.platform,
+            store_transaction_id=store_txn,
+            plan=plan,
+        )
+        return IAPVerifyResponse(
+            status="restored",
+            transaction_id=transaction_id,
+            product_id=product_id,
+            credits_added=0,
+            plan=plan,
+            verification_source=verification.source,
+        )
+
+    # 이미 같은 플랜이 활성이면 보상 없이 영수증만 기록.
     if plan:
         active_subscription = await credits_service.get_active_subscription(db, user_key)
         if active_subscription and active_subscription.plan == plan:
@@ -168,26 +228,16 @@ async def verify_iap(
                 platform=request.platform,
                 product_id=product_id,
                 transaction_id=transaction_id,
+                store_transaction_id=store_txn,
                 purchase_token=purchase_token,
                 status="already_subscribed",
-                payload={
-                    "receipt_data": receipt_data,
-                    "is_subscription": resolved_is_subscription,
-                    "verified_at": utcnow().isoformat(),
-                    "verification_source": verification.source,
-                    "verification_environment": verification.environment,
-                    "verification": verification.raw,
-                },
+                payload=_build_payload(),
             )
             db.add(receipt)
-            await db.commit()
-            logger.info(
-                "IAP subscription already active",
-                platform=request.platform,
-                transaction_id=transaction_id,
-                product_id=product_id,
-                plan=plan,
-            )
+            try:
+                await db.commit()
+            except IntegrityError:
+                await db.rollback()
             return IAPVerifyResponse(
                 status="already_subscribed",
                 transaction_id=transaction_id,
@@ -196,40 +246,57 @@ async def verify_iap(
                 plan=plan,
                 verification_source=verification.source,
             )
-        await credits_service.create_subscription(db, user_key, plan)
-    elif credits_to_add > 0:
-        await credits_service.add_credits(
-            db=db,
-            user_key=user_key,
-            amount=credits_to_add,
-            transaction_type="purchase",
-            description=f"IAP 크레딧 팩 {credits_to_add}개",
-            reference_id=transaction_id,
-        )
 
-    receipt = IAPReceipt(
-        user_key=user_key,
-        platform=request.platform,
-        product_id=product_id,
-        transaction_id=transaction_id,
-        purchase_token=purchase_token,
-        status="verified",
-        payload={
-            "receipt_data": receipt_data,
-            "is_subscription": resolved_is_subscription,
-            "verified_at": utcnow().isoformat(),
-            "verification_source": verification.source,
-            "verification_environment": verification.environment,
-            "verification": verification.raw,
-        },
-    )
-    db.add(receipt)
-    await db.commit()
+    # 보상 지급 + 영수증 기록을 단일 트랜잭션으로 묶는다(F3: 더블그랜트/고아 방지).
+    # 동시 요청 중 패자는 store_transaction_id UNIQUE 위반으로 IntegrityError → 전체
+    # 롤백되어 보상도 함께 취소된다.
+    try:
+        if plan:
+            await credits_service.create_subscription(db, user_key, plan, commit=False)
+        elif credits_to_add > 0:
+            await credits_service.add_credits(
+                db=db,
+                user_key=user_key,
+                amount=credits_to_add,
+                transaction_type="purchase",
+                description=f"IAP 크레딧 팩 {credits_to_add}개",
+                reference_id=store_txn,
+                commit=False,
+            )
+
+        receipt = IAPReceipt(
+            user_key=user_key,
+            platform=request.platform,
+            product_id=product_id,
+            transaction_id=transaction_id,
+            store_transaction_id=store_txn,
+            purchase_token=purchase_token,
+            status="verified",
+            payload=_build_payload(),
+        )
+        db.add(receipt)
+        await db.commit()
+    except IntegrityError:
+        # 동시 요청 패자(또는 client transaction_id 충돌) — 보상은 롤백됨.
+        await db.rollback()
+        logger.info(
+            "IAP concurrent duplicate rejected",
+            platform=request.platform,
+            store_transaction_id=store_txn,
+        )
+        return IAPVerifyResponse(
+            status="already_processed",
+            transaction_id=transaction_id,
+            product_id=product_id,
+            credits_added=0,
+            plan=None,
+        )
 
     logger.info(
         "IAP receipt verified",
         platform=request.platform,
         transaction_id=transaction_id,
+        store_transaction_id=store_txn,
         product_id=product_id,
         credits_added=credits_to_add,
         plan=plan,
@@ -275,10 +342,12 @@ async def _apply_webhook_status(
         "updated_at": utcnow().isoformat(),
     }
 
-    # 구독 취소/만료 동기화 (간단 구현)
+    # 구독 취소/만료/환불 동기화. 'refunded'를 누락하면 환불된 구독이 active로 남아
+    # periodic_credits가 매월 영구 리필 → buy→consume→refund 무한 무료 크레딧.
     if receipt.product_id in SUBSCRIPTION_PRODUCTS and request.status in {
         "cancelled",
         "expired",
+        "refunded",
     }:
         sub_result = await db.execute(
             select(Subscription)
@@ -287,9 +356,24 @@ async def _apply_webhook_status(
         )
         subscription = sub_result.scalars().first()
         if subscription:
+            # cancelled는 기간 만료까지 사용 유지, expired/refunded는 즉시 권한 종료.
             subscription.status = "cancelled" if request.status == "cancelled" else "expired"
-            if request.status == "expired":
+            if request.status in {"expired", "refunded"}:
                 subscription.current_period_end = utcnow() - timedelta(seconds=1)
+
+    # 소비성 크레딧팩 환불 → 지급했던 크레딧 회수(멱등). add_credits가 사용한 것과 같은
+    # reference_id(store_transaction_id 우선)로 회수해 이중 처리하지 않는다.
+    if request.status == "refunded" and receipt.product_id in CREDIT_PACK_PRODUCTS:
+        clawback_amount = CREDIT_PACK_PRODUCTS[receipt.product_id]
+        clawback_ref = receipt.store_transaction_id or receipt.transaction_id
+        await credits_service.clawback_credits(
+            db=db,
+            user_key=receipt.user_key,
+            amount=clawback_amount,
+            reference_id=clawback_ref,
+            description=f"IAP 크레딧 팩 {clawback_amount}개 환불 회수",
+            commit=False,
+        )
 
     await db.commit()
 
@@ -316,7 +400,7 @@ async def _require_webhook_secret(token: str = Query(default="")):
     미설정 시(dev/test)는 통과해 기존 동작을 유지하나, 운영 배포 시 필수.
     """
     secret = settings.iap_webhook_secret
-    if secret and token != secret:
+    if secret and not hmac.compare_digest(token, secret):
         raise AuthorizationError("유효하지 않은 웹훅 토큰입니다.")
 
 

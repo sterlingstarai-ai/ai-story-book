@@ -341,6 +341,14 @@ class IAPReceipt(Base):
             "transaction_id",
             name="uq_iap_receipts_platform_transaction_id",
         ),
+        # 리플레이 방지의 정본 키: 클라이언트가 보낸 transaction_id가 아니라
+        # 스토어가 검증해 돌려준 식별자(Apple original_transaction_id / Google orderId).
+        # 같은 영수증을 다른 transaction_id로 재제출하는 공격을 DB 레벨에서 차단한다.
+        UniqueConstraint(
+            "platform",
+            "store_transaction_id",
+            name="uq_iap_receipts_platform_store_transaction_id",
+        ),
         Index("ix_iap_receipts_user_key", "user_key"),
     )
 
@@ -349,6 +357,8 @@ class IAPReceipt(Base):
     platform = Column(String(20), nullable=False)  # apple, google
     product_id = Column(String(120), nullable=False)
     transaction_id = Column(String(200), nullable=False)
+    # 스토어 검증으로 확정된 거래 식별자(없으면 NULL — local 모드에선 transaction_id와 동일).
+    store_transaction_id = Column(String(200), nullable=True)
     purchase_token = Column(String(500), nullable=True)
     status = Column(String(40), nullable=False, default="verified")
     payload = Column(JSON, nullable=True)
