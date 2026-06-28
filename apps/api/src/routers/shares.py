@@ -12,10 +12,11 @@ from html import escape
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+import structlog
 
 from src.core.config import settings
 from src.core.database import get_db
@@ -23,6 +24,9 @@ from src.core.dependencies import get_user_key
 from src.core.exceptions import AuthorizationError, NotFoundError
 from src.core.utils import utcnow
 from src.models.db import Book, BookShare, Page
+from src.services.storage import get_object_bytes, key_from_public_url
+
+logger = structlog.get_logger()
 
 # 인증된 부모용(/v1/books prefix로 등록)
 router = APIRouter()
@@ -155,16 +159,23 @@ async def public_share(token: str, db: AsyncSession = Depends(get_db)):
     )
 
     # PII 비노출: user_key·profile·생년월·원본사진(source_image_url)은 절대 포함하지 않는다.
+    # 이미지는 영구 공개 버킷 URL을 직접 노출하지 않고 토큰 프록시(/share/{token}/img/...)로
+    # 서빙한다 → 철회/만료가 이미지에도 적용되고, book_id 추측으로 원본 URL을 얻을 수 없다.
+    tok = escape(token)
     title = escape(book.title or "우리 아이 동화")
-    cover = escape(book.cover_image_url or "")
     cover_tag = (
-        f'<img class="cover" loading="lazy" src="{cover}" alt="">' if cover else ""
+        f'<img class="cover" loading="lazy" src="/share/{tok}/img/cover" alt="">'
+        if book.cover_image_url
+        else ""
     )
     page_html = []
     for p in pages:
-        img = escape(p.image_url or "")
         txt = escape(p.text or "")
-        img_tag = f'<img loading="lazy" src="{img}" alt="">' if img else ""
+        img_tag = (
+            f'<img loading="lazy" src="/share/{tok}/img/page/{p.page_number}" alt="">'
+            if p.image_url
+            else ""
+        )
         page_html.append(
             f"<figure class='pg'>{img_tag}<figcaption>{txt}</figcaption></figure>"
         )
@@ -204,3 +215,55 @@ async def public_share(token: str, db: AsyncSession = Depends(get_db)):
 </body>
 </html>"""
     return HTMLResponse(html, headers=_NOINDEX)
+
+
+# 철회 즉시 반영을 위해 캐시 금지(no-store). noindex로 검색·미리보기 비노출.
+_IMG_HEADERS = {"X-Robots-Tag": "noindex, nofollow", "Cache-Control": "no-store"}
+
+
+async def _stream_share_image(token: str, stored_url: Optional[str]) -> Response:
+    """책 소유의 저장 URL에서만 키를 복원해 스트리밍한다(클라가 임의 키를 못 부르게)."""
+    key = key_from_public_url(stored_url)
+    if not key:
+        return Response(status_code=404, headers=_NOINDEX)
+    try:
+        data, content_type = await get_object_bytes(key)
+    except Exception as exc:  # pragma: no cover - 방어적
+        logger.warning("share image fetch failed", token=token[:6], error=str(exc))
+        return Response(status_code=404, headers=_NOINDEX)
+    return Response(content=data, media_type=content_type, headers=_IMG_HEADERS)
+
+
+@public_router.get("/share/{token}/img/cover")
+async def public_share_cover(token: str, db: AsyncSession = Depends(get_db)):
+    """공유 표지 이미지(활성 공유에 한해). 철회/만료 시 404."""
+    share = await _active_share(db, token)
+    if share is None:
+        return Response(status_code=404, headers=_NOINDEX)
+    book = (
+        await db.execute(select(Book).where(Book.id == share.book_id))
+    ).scalar_one_or_none()
+    if book is None:
+        return Response(status_code=404, headers=_NOINDEX)
+    return await _stream_share_image(token, book.cover_image_url)
+
+
+@public_router.get("/share/{token}/img/page/{page_number}")
+async def public_share_page_image(
+    token: str, page_number: int, db: AsyncSession = Depends(get_db)
+):
+    """공유 본문 페이지 이미지(활성 공유에 한해). 철회/만료 시 404."""
+    share = await _active_share(db, token)
+    if share is None:
+        return Response(status_code=404, headers=_NOINDEX)
+    page = (
+        await db.execute(
+            select(Page).where(
+                Page.book_id == share.book_id,
+                Page.page_number == page_number,
+            )
+        )
+    ).scalar_one_or_none()
+    if page is None:
+        return Response(status_code=404, headers=_NOINDEX)
+    return await _stream_share_image(token, page.image_url)

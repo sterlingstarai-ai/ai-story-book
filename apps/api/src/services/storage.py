@@ -4,6 +4,8 @@ Storage Service: S3/Minio 파일 업로드
 
 import asyncio
 import inspect
+from typing import Optional
+
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
@@ -121,6 +123,26 @@ async def ensure_bucket_exists():
             except ClientError as e:
                 logger.error("Failed to create bucket", error=str(e))
                 raise StorageError(f"Failed to create bucket: {e}")
+
+
+def key_from_public_url(url: Optional[str]) -> Optional[str]:
+    """저장된 공개 URL({s3_public_url}/{key})에서 S3 키를 복원한다. 우리 버킷이 아니면 None."""
+    base = (settings.s3_public_url or "").rstrip("/") + "/"
+    if url and base != "/" and url.startswith(base):
+        return url[len(base):]
+    return None
+
+
+async def get_object_bytes(key: str) -> tuple[bytes, str]:
+    """S3 객체를 키로 읽어 (bytes, content_type) 반환 — 공유 이미지 토큰 프록시용."""
+    client = get_s3_client()
+    resp = await _call_s3(client.get_object, Bucket=settings.s3_bucket, Key=key)
+    body = resp["Body"]
+    data = body.read()
+    if inspect.isawaitable(data):
+        data = await data
+    content_type = resp.get("ContentType") or "application/octet-stream"
+    return data, content_type
 
 
 async def upload_image_from_url(

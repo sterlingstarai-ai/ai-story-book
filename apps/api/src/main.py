@@ -82,6 +82,13 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+def _redact_path(path: str) -> str:
+    """capability URL(공유 토큰)을 로그/관측에서 가린다 — 로그 유출 시 무인증 재생 방지."""
+    if path.startswith("/share/"):
+        return "/share/{token}"
+    return path
+
+
 class AccessLogMiddleware(BaseHTTPMiddleware):
     """Emit structured access logs with request correlation and latency."""
 
@@ -94,7 +101,7 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
             logger.error(
                 "HTTP request failed",
                 method=request.method,
-                path=request.url.path,
+                path=_redact_path(request.url.path),
                 duration_ms=duration_ms,
                 error=str(exc),
             )
@@ -104,7 +111,7 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
         logger.info(
             "HTTP request completed",
             method=request.method,
-            path=request.url.path,
+            path=_redact_path(request.url.path),
             status_code=response.status_code,
             duration_ms=duration_ms,
         )
