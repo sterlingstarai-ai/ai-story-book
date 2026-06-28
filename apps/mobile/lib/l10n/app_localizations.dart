@@ -4198,6 +4198,278 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Used {used} min today / limit {limit} min'**
   String lockUsage(int used, int limit);
+
+  /// Growth screen: growthShareText
+  ///
+  /// In en, this message translates to:
+  /// **'📚 Reading Growth Report\n\n📖 Books read: {booksRead}\n⭐ Reading level: Lv.{levelNumber} ({levelLabel})\n📊 Overall score: {scoreValue}/100\n🔤 Words learned: {vocabLearned}\n🔥 Reading streak: {currentStreak} days\n\nGrowing reading one AI storybook at a time 📖'**
+  String growthShareText(int booksRead, int levelNumber, String levelLabel,
+      int scoreValue, int vocabLearned, int currentStreak);
+
+  /// Growth screen: growthCtaTitle
+  ///
+  /// In en, this message translates to:
+  /// **'Show off their growth and keep it going'**
+  String get growthCtaTitle;
+
+  /// Growth screen: growthCtaSubtitle
+  ///
+  /// In en, this message translates to:
+  /// **'One book a day builds your child\'s reading growth.'**
+  String get growthCtaSubtitle;
+
+  /// Growth screen: growthShareSemantic
+  ///
+  /// In en, this message translates to:
+  /// **'Share your child\'s reading growth'**
+  String get growthShareSemantic;
+
+  /// Growth screen: growthShareButton
+  ///
+  /// In en, this message translates to:
+  /// **'Share growth'**
+  String get growthShareButton;
+
+  /// Growth screen: growthCreateSemantic
+  ///
+  /// In en, this message translates to:
+  /// **'Create a new storybook'**
+  String get growthCreateSemantic;
+
+  /// Growth screen: growthCreateButton
+  ///
+  /// In en, this message translates to:
+  /// **'New book'**
+  String get growthCreateButton;
+
+  /// Growth screen: growthConfidenceHigh
+  ///
+  /// In en, this message translates to:
+  /// **'High confidence'**
+  String get growthConfidenceHigh;
+
+  /// Growth screen: growthConfidenceMedium
+  ///
+  /// In en, this message translates to:
+  /// **'Medium confidence'**
+  String get growthConfidenceMedium;
+
+  /// Growth screen: growthConfidenceLow
+  ///
+  /// In en, this message translates to:
+  /// **'More reading improves accuracy'**
+  String get growthConfidenceLow;
+
+  /// Growth screen: growthHeroSemantic
+  ///
+  /// In en, this message translates to:
+  /// **'Estimated reading level {levelNumber}, {levelLabel}. Overall score from books read, vocabulary, accuracy, and completion: {scoreValue} out of 100. Confidence: {confidence}.'**
+  String growthHeroSemantic(
+      int levelNumber, String levelLabel, int scoreValue, String confidence);
+
+  /// Growth screen: growthScoreSummary
+  ///
+  /// In en, this message translates to:
+  /// **'Estimated score from books read, vocabulary, accuracy, and completion: {scoreValue}/100'**
+  String growthScoreSummary(int scoreValue);
+
+  /// Growth screen: growthBooksValue
+  ///
+  /// In en, this message translates to:
+  /// **'{count} books'**
+  String growthBooksValue(int count);
+
+  /// Growth screen: growthDaysValue
+  ///
+  /// In en, this message translates to:
+  /// **'{count} days'**
+  String growthDaysValue(int count);
+
+  /// Growth screen: growthLongestStreak
+  ///
+  /// In en, this message translates to:
+  /// **'Longest {count} days'**
+  String growthLongestStreak(int count);
+
+  /// Growth screen: growthWordsValue
+  ///
+  /// In en, this message translates to:
+  /// **'{count} words'**
+  String growthWordsValue(int count);
+
+  /// Growth screen: growthWeeklyTitle
+  ///
+  /// In en, this message translates to:
+  /// **'Your child\'s growth (weekly)'**
+  String get growthWeeklyTitle;
+
+  /// Growth screen: growthWeekSingle
+  ///
+  /// In en, this message translates to:
+  /// **'This week: {count} books'**
+  String growthWeekSingle(int count);
+
+  /// Growth screen: growthWeekDeltaUp
+  ///
+  /// In en, this message translates to:
+  /// **'This week: {last} books · {delta} more than last week 👏'**
+  String growthWeekDeltaUp(int last, int delta);
+
+  /// Growth screen: growthWeekDeltaDown
+  ///
+  /// In en, this message translates to:
+  /// **'This week: {last} books · {delta} fewer than last week'**
+  String growthWeekDeltaDown(int last, int delta);
+
+  /// Growth screen: growthWeekDeltaSame
+  ///
+  /// In en, this message translates to:
+  /// **'This week: {last} books · same as last week'**
+  String growthWeekDeltaSame(int last);
+
+  /// Growth screen: growthWeekThis
+  ///
+  /// In en, this message translates to:
+  /// **'This'**
+  String get growthWeekThis;
+
+  /// Growth screen: growthWeekN
+  ///
+  /// In en, this message translates to:
+  /// **'Wk {week}'**
+  String growthWeekN(int week);
+
+  /// Growth screen: growthLeagueMaster
+  ///
+  /// In en, this message translates to:
+  /// **'Master League'**
+  String get growthLeagueMaster;
+
+  /// Growth screen: growthLeagueChallenge
+  ///
+  /// In en, this message translates to:
+  /// **'Challenger League'**
+  String get growthLeagueChallenge;
+
+  /// Growth screen: growthLeagueGrowth
+  ///
+  /// In en, this message translates to:
+  /// **'Growth League'**
+  String get growthLeagueGrowth;
+
+  /// Growth screen: growthEncourageTop
+  ///
+  /// In en, this message translates to:
+  /// **'Top among peers! Doing really well 🎉'**
+  String get growthEncourageTop;
+
+  /// Growth screen: growthEncourageAhead
+  ///
+  /// In en, this message translates to:
+  /// **'Ahead of their peers 👍'**
+  String get growthEncourageAhead;
+
+  /// Growth screen: growthEncourageOnPar
+  ///
+  /// In en, this message translates to:
+  /// **'Reading well, on par with peers'**
+  String get growthEncourageOnPar;
+
+  /// Growth screen: growthEncourageGrow
+  ///
+  /// In en, this message translates to:
+  /// **'Reading every day helps them grow. How about a book today? 🌱'**
+  String get growthEncourageGrow;
+
+  /// Growth screen: growthSelfGrowthTitle
+  ///
+  /// In en, this message translates to:
+  /// **'Your child\'s reading growth'**
+  String get growthSelfGrowthTitle;
+
+  /// Growth screen: growthSelfGrowthSummary
+  ///
+  /// In en, this message translates to:
+  /// **'{books} books so far · {vocab} words learned'**
+  String growthSelfGrowthSummary(int books, int vocab);
+
+  /// Growth screen: growthSelfGrowthNote
+  ///
+  /// In en, this message translates to:
+  /// **'At this age, a daily reading habit matters more than rankings. We\'ll show peer comparisons when they\'re older.'**
+  String get growthSelfGrowthNote;
+
+  /// Growth screen: growthPeerSubtitleBaseline
+  ///
+  /// In en, this message translates to:
+  /// **'Peer sample is still small, so compared to the {ageBand} age benchmark (for reference)'**
+  String growthPeerSubtitleBaseline(String ageBand);
+
+  /// Growth screen: growthPeerSubtitle
+  ///
+  /// In en, this message translates to:
+  /// **'Based on {peerCount} peers aged {ageBand} · overall reading score'**
+  String growthPeerSubtitle(String ageBand, int peerCount);
+
+  /// Growth screen: growthCompareScoreLabel
+  ///
+  /// In en, this message translates to:
+  /// **'Overall reading score'**
+  String get growthCompareScoreLabel;
+
+  /// Growth screen: growthScorePoints
+  ///
+  /// In en, this message translates to:
+  /// **'{score} pts'**
+  String growthScorePoints(int score);
+
+  /// Growth screen: growthPeerScorePoints
+  ///
+  /// In en, this message translates to:
+  /// **'Peers {score} pts'**
+  String growthPeerScorePoints(int score);
+
+  /// Growth screen: growthPeerBooksValue
+  ///
+  /// In en, this message translates to:
+  /// **'Peers {value} books'**
+  String growthPeerBooksValue(String value);
+
+  /// Growth screen: growthPeerWordsValue
+  ///
+  /// In en, this message translates to:
+  /// **'Peers {value} words'**
+  String growthPeerWordsValue(String value);
+
+  /// Growth screen: growthPeerAccuracyPercent
+  ///
+  /// In en, this message translates to:
+  /// **'Peers {percent}%'**
+  String growthPeerAccuracyPercent(int percent);
+
+  /// Growth screen: growthPeerTitle
+  ///
+  /// In en, this message translates to:
+  /// **'Peer comparison'**
+  String get growthPeerTitle;
+
+  /// Growth screen: growthTopPercent
+  ///
+  /// In en, this message translates to:
+  /// **'Top {percent}%'**
+  String growthTopPercent(int percent);
+
+  /// Growth screen: growthDisclaimer
+  ///
+  /// In en, this message translates to:
+  /// **'Reading scores and levels are estimates based on books read, completion, words learned, and quiz accuracy. They are not a standardized measure and become more accurate the more your child reads.'**
+  String get growthDisclaimer;
+
+  /// Growth screen: growthLoadError
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t load the growth report.'**
+  String get growthLoadError;
 }
 
 class _AppLocalizationsDelegate

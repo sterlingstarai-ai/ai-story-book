@@ -2210,4 +2210,185 @@ class AppLocalizationsKo extends AppLocalizations {
   String lockUsage(int used, int limit) {
     return '오늘 사용 $used분 / 제한 $limit분';
   }
+
+  @override
+  String growthShareText(int booksRead, int levelNumber, String levelLabel,
+      int scoreValue, int vocabLearned, int currentStreak) {
+    return '📚 우리 아이 읽기 성장 보고서\n\n📖 읽은 책: $booksRead권\n⭐ 읽기 레벨: Lv.$levelNumber ($levelLabel)\n📊 종합 점수: $scoreValue/100\n🔤 학습 어휘: $vocabLearned개\n🔥 연속 읽기: $currentStreak일\n\nAI 동화책으로 매일 한 권씩 우리 아이 읽기 성장 📖';
+  }
+
+  @override
+  String get growthCtaTitle => '성장을 자랑하고, 이어가세요';
+
+  @override
+  String get growthCtaSubtitle => '매일 한 권이 우리 아이 읽기 성장을 만들어요.';
+
+  @override
+  String get growthShareSemantic => '우리 아이 읽기 성장 공유하기';
+
+  @override
+  String get growthShareButton => '성장 공유';
+
+  @override
+  String get growthCreateSemantic => '새 동화책 만들기';
+
+  @override
+  String get growthCreateButton => '새 책 만들기';
+
+  @override
+  String get growthConfidenceHigh => '신뢰도 높음';
+
+  @override
+  String get growthConfidenceMedium => '신뢰도 보통';
+
+  @override
+  String get growthConfidenceLow => '더 읽을수록 정확해져요';
+
+  @override
+  String growthHeroSemantic(
+      int levelNumber, String levelLabel, int scoreValue, String confidence) {
+    return '추정 읽기 레벨 $levelNumber, $levelLabel. 읽은 책·어휘·정확도·완독 종합 점수 $scoreValue점 만점 100점. 신뢰도 $confidence.';
+  }
+
+  @override
+  String growthScoreSummary(int scoreValue) {
+    return '읽은 책·어휘·정확도·완독을 종합한 추정 점수 $scoreValue/100';
+  }
+
+  @override
+  String growthBooksValue(int count) {
+    return '$count권';
+  }
+
+  @override
+  String growthDaysValue(int count) {
+    return '$count일';
+  }
+
+  @override
+  String growthLongestStreak(int count) {
+    return '최장 $count일';
+  }
+
+  @override
+  String growthWordsValue(int count) {
+    return '$count개';
+  }
+
+  @override
+  String get growthWeeklyTitle => '우리 아이 성장 (주간)';
+
+  @override
+  String growthWeekSingle(int count) {
+    return '이번 주 $count권';
+  }
+
+  @override
+  String growthWeekDeltaUp(int last, int delta) {
+    return '이번 주 $last권 · 지난 주보다 $delta권 더 읽었어요 👏';
+  }
+
+  @override
+  String growthWeekDeltaDown(int last, int delta) {
+    return '이번 주 $last권 · 지난 주보다 $delta권 적어요';
+  }
+
+  @override
+  String growthWeekDeltaSame(int last) {
+    return '이번 주 $last권 · 지난 주와 같아요';
+  }
+
+  @override
+  String get growthWeekThis => '이번';
+
+  @override
+  String growthWeekN(int week) {
+    return '$week주';
+  }
+
+  @override
+  String get growthLeagueMaster => '마스터 리그';
+
+  @override
+  String get growthLeagueChallenge => '도전 리그';
+
+  @override
+  String get growthLeagueGrowth => '성장 리그';
+
+  @override
+  String get growthEncourageTop => '또래 중 최상위! 정말 잘하고 있어요 🎉';
+
+  @override
+  String get growthEncourageAhead => '또래보다 앞서가고 있어요 👍';
+
+  @override
+  String get growthEncourageOnPar => '또래와 비슷하게 잘 읽고 있어요';
+
+  @override
+  String get growthEncourageGrow => '매일 읽을수록 쑥쑥 자라요. 오늘도 한 권 어때요? 🌱';
+
+  @override
+  String get growthSelfGrowthTitle => '우리 아이 읽기 성장';
+
+  @override
+  String growthSelfGrowthSummary(int books, int vocab) {
+    return '이번까지 책 $books권 · 학습 어휘 $vocab개';
+  }
+
+  @override
+  String get growthSelfGrowthNote =>
+      '이 나이엔 등수보다 매일 읽는 습관이 가장 중요해요. 또래 비교는 더 큰 친구들에게 보여드려요.';
+
+  @override
+  String growthPeerSubtitleBaseline(String ageBand) {
+    return '아직 또래 표본이 적어 $ageBand세 기준값과 비교 (참고용)';
+  }
+
+  @override
+  String growthPeerSubtitle(String ageBand, int peerCount) {
+    return '같은 $ageBand세 또래 $peerCount명 기준 · 읽기 종합 점수';
+  }
+
+  @override
+  String get growthCompareScoreLabel => '읽기 종합 점수';
+
+  @override
+  String growthScorePoints(int score) {
+    return '$score점';
+  }
+
+  @override
+  String growthPeerScorePoints(int score) {
+    return '또래 $score점';
+  }
+
+  @override
+  String growthPeerBooksValue(String value) {
+    return '또래 $value권';
+  }
+
+  @override
+  String growthPeerWordsValue(String value) {
+    return '또래 $value개';
+  }
+
+  @override
+  String growthPeerAccuracyPercent(int percent) {
+    return '또래 $percent%';
+  }
+
+  @override
+  String get growthPeerTitle => '또래 비교';
+
+  @override
+  String growthTopPercent(int percent) {
+    return '상위 $percent%';
+  }
+
+  @override
+  String get growthDisclaimer =>
+      '읽기 점수·레벨은 읽은 책·완독·학습 어휘·퀴즈 정확도를 종합한 추정치예요. 공인 척도는 아니며, 아이가 꾸준히 읽을수록 더 정확해집니다.';
+
+  @override
+  String get growthLoadError => '성장 리포트를 불러오지 못했어요.';
 }

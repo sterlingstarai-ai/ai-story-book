@@ -2213,4 +2213,185 @@ class AppLocalizationsJa extends AppLocalizations {
   String lockUsage(int used, int limit) {
     return '本日の使用 $used分 / 上限 $limit分';
   }
+
+  @override
+  String growthShareText(int booksRead, int levelNumber, String levelLabel,
+      int scoreValue, int vocabLearned, int currentStreak) {
+    return '📚 うちの子の読書成長レポート\n\n📖 読んだ本: $booksRead冊\n⭐ 読書レベル: Lv.$levelNumber（$levelLabel）\n📊 総合スコア: $scoreValue/100\n🔤 学習した語彙: $vocabLearned語\n🔥 連続読書: $currentStreak日\n\nAI絵本で毎日一冊、うちの子の読書成長 📖';
+  }
+
+  @override
+  String get growthCtaTitle => '成長を自慢して、続けましょう';
+
+  @override
+  String get growthCtaSubtitle => '毎日一冊が、うちの子の読書成長をつくります。';
+
+  @override
+  String get growthShareSemantic => 'うちの子の読書成長を共有する';
+
+  @override
+  String get growthShareButton => '成長を共有';
+
+  @override
+  String get growthCreateSemantic => '新しい絵本をつくる';
+
+  @override
+  String get growthCreateButton => '新しい本';
+
+  @override
+  String get growthConfidenceHigh => '信頼度 高';
+
+  @override
+  String get growthConfidenceMedium => '信頼度 中';
+
+  @override
+  String get growthConfidenceLow => '読むほど正確になります';
+
+  @override
+  String growthHeroSemantic(
+      int levelNumber, String levelLabel, int scoreValue, String confidence) {
+    return '推定読書レベル $levelNumber、$levelLabel。読んだ本・語彙・正確さ・読了の総合スコア $scoreValue 点（100点満点）。信頼度 $confidence。';
+  }
+
+  @override
+  String growthScoreSummary(int scoreValue) {
+    return '読んだ本・語彙・正確さ・読了を総合した推定スコア $scoreValue/100';
+  }
+
+  @override
+  String growthBooksValue(int count) {
+    return '$count冊';
+  }
+
+  @override
+  String growthDaysValue(int count) {
+    return '$count日';
+  }
+
+  @override
+  String growthLongestStreak(int count) {
+    return '最長 $count日';
+  }
+
+  @override
+  String growthWordsValue(int count) {
+    return '$count語';
+  }
+
+  @override
+  String get growthWeeklyTitle => 'うちの子の成長（週間）';
+
+  @override
+  String growthWeekSingle(int count) {
+    return '今週 $count冊';
+  }
+
+  @override
+  String growthWeekDeltaUp(int last, int delta) {
+    return '今週 $last冊 · 先週より $delta冊多く読みました 👏';
+  }
+
+  @override
+  String growthWeekDeltaDown(int last, int delta) {
+    return '今週 $last冊 · 先週より $delta冊少なめ';
+  }
+
+  @override
+  String growthWeekDeltaSame(int last) {
+    return '今週 $last冊 · 先週と同じ';
+  }
+
+  @override
+  String get growthWeekThis => '今';
+
+  @override
+  String growthWeekN(int week) {
+    return '$week週';
+  }
+
+  @override
+  String get growthLeagueMaster => 'マスターリーグ';
+
+  @override
+  String get growthLeagueChallenge => 'チャレンジリーグ';
+
+  @override
+  String get growthLeagueGrowth => 'グロースリーグ';
+
+  @override
+  String get growthEncourageTop => '同年代でトップ！とてもよくできています 🎉';
+
+  @override
+  String get growthEncourageAhead => '同年代より進んでいます 👍';
+
+  @override
+  String get growthEncourageOnPar => '同年代と同じくらいよく読めています';
+
+  @override
+  String get growthEncourageGrow => '毎日読むほどぐんぐん育ちます。今日も一冊どうですか？ 🌱';
+
+  @override
+  String get growthSelfGrowthTitle => 'うちの子の読書成長';
+
+  @override
+  String growthSelfGrowthSummary(int books, int vocab) {
+    return 'これまで $books冊 · 学習した語彙 $vocab語';
+  }
+
+  @override
+  String get growthSelfGrowthNote =>
+      'この年齢では順位より、毎日読む習慣が一番大切です。同年代との比較は、もう少し大きくなってからお見せします。';
+
+  @override
+  String growthPeerSubtitleBaseline(String ageBand) {
+    return 'まだ同年代のサンプルが少ないため、$ageBand歳の基準値と比較（参考）';
+  }
+
+  @override
+  String growthPeerSubtitle(String ageBand, int peerCount) {
+    return '同じ$ageBand歳の同年代 $peerCount人を基準 · 読書総合スコア';
+  }
+
+  @override
+  String get growthCompareScoreLabel => '読書総合スコア';
+
+  @override
+  String growthScorePoints(int score) {
+    return '$score点';
+  }
+
+  @override
+  String growthPeerScorePoints(int score) {
+    return '同年代 $score点';
+  }
+
+  @override
+  String growthPeerBooksValue(String value) {
+    return '同年代 $value冊';
+  }
+
+  @override
+  String growthPeerWordsValue(String value) {
+    return '同年代 $value語';
+  }
+
+  @override
+  String growthPeerAccuracyPercent(int percent) {
+    return '同年代 $percent%';
+  }
+
+  @override
+  String get growthPeerTitle => '同年代との比較';
+
+  @override
+  String growthTopPercent(int percent) {
+    return '上位 $percent%';
+  }
+
+  @override
+  String get growthDisclaimer =>
+      '読書スコアとレベルは、読んだ本・読了・学習した語彙・クイズの正確さを総合した推定値です。公的な指標ではなく、お子さまが読み続けるほど正確になります。';
+
+  @override
+  String get growthLoadError => '成長レポートを読み込めませんでした。';
 }
