@@ -330,6 +330,9 @@ class ReadingLog(Base):
     completed = Column(Boolean, default=False)  # 끝까지 읽었는지
     created_at = Column(DateTime, default=utcnow)
 
+    # 책 참조(many-to-one). UOW가 Book을 ReadingLog보다 먼저 INSERT하도록 보장한다.
+    book = relationship("Book")
+
 
 class IAPReceipt(Base):
     """인앱 결제 영수증 저장"""
@@ -556,6 +559,8 @@ class PronunciationLog(Base):
     audio_url = Column(String(500), nullable=True)
     created_at = Column(DateTime, default=utcnow)
 
+    book = relationship("Book")
+
 
 class QuizAnswer(Base):
     """학습 퀴즈/어휘 응답 기록 — '읽기 성장' 측정의 근거 데이터.
@@ -581,3 +586,5 @@ class QuizAnswer(Base):
     user_answer = Column(Text, nullable=True)
     correct = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, default=utcnow)
+
+    book = relationship("Book")

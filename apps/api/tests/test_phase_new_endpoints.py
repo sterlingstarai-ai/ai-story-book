@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.config import settings
 from src.core.utils import utcnow
 from src.models.db import Book, ChildProfile, Job, Page, PodOrder, Subscription
+from tests.factories import make_book_rows
 
 
 @pytest.mark.asyncio
@@ -1213,7 +1214,10 @@ async def test_pod_order_validates_and_normalizes_shipping_address(
 async def test_pronunciation_evaluate_scores_by_similarity(
     client: AsyncClient,
     headers: dict,
+    db_session: AsyncSession,
 ):
+    db_session.add_all(make_book_rows([("book-pron-1", headers["X-User-Key"])]))
+    await db_session.commit()
     expected = "토끼가 숲 속으로 천천히 걸어갔어요"
 
     high_res = await client.post(
@@ -1252,7 +1256,10 @@ async def test_pronunciation_evaluate_audio_uses_stt_transcript(
     client: AsyncClient,
     headers: dict,
     monkeypatch: pytest.MonkeyPatch,
+    db_session: AsyncSession,
 ):
+    db_session.add_all(make_book_rows([("book-pron-audio", headers["X-User-Key"])]))
+    await db_session.commit()
     from src.routers import pronunciation as pronunciation_router
 
     async def _mock_transcribe_audio(*args, **kwargs):

@@ -9,7 +9,7 @@ from typing import Optional
 import structlog
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
@@ -17,8 +17,9 @@ from src.core.consent import _has_active_photo_consent, latest_active_consent
 from src.core.database import get_db
 from src.core.dependencies import get_user_key
 from src.core.utils import utcnow
-from src.models.db import Character, UserConsent
-from src.services.storage import storage_service
+from src.models.db import Book, Character, UserConsent
+from src.services.data_deletion import purge_book_children
+from src.services.storage import delete_book_files, storage_service
 
 logger = structlog.get_logger()
 
@@ -132,7 +133,26 @@ async def revoke_consent(
             Character.from_photo.is_(True),
         )
     )
-    for character in result.scalars().all():
+    characters = result.scalars().all()
+    character_ids = [c.id for c in characters]
+
+    # 철회된 사진/그림 캐릭터로 만든 '책'에는 아이 얼굴 likeness가 렌더되어 남는다.
+    # 캐릭터 행/원본만 지우면 책의 얼굴 이미지가 공개 URL에 영구 잔존하므로(PIPA/COPPA
+    # 철회-파기 의무 위반), 그 책들을 자식 행·스토리지 파일까지 함께 파기한다.
+    book_ids: list[str] = []
+    if character_ids:
+        books_result = await db.execute(
+            select(Book.id).where(
+                Book.user_key == user_key,
+                Book.character_id.in_(character_ids),
+            )
+        )
+        book_ids = [bid for (bid,) in books_result.all()]
+        await purge_book_children(db, book_ids)
+        if book_ids:
+            await db.execute(delete(Book).where(Book.id.in_(book_ids)))
+
+    for character in characters:
         try:
             await storage_service.delete_prefix(f"characters/{character.id}/")
         except Exception as e:  # pragma: no cover - 방어적
@@ -144,4 +164,12 @@ async def revoke_consent(
         await db.delete(character)
 
     await db.commit()
+
+    # 스토리지 파일 파기는 실패해도 동의 철회 자체는 성공 처리(행은 이미 삭제됨).
+    for book_id in book_ids:
+        try:
+            await delete_book_files(book_id)
+        except Exception as e:  # pragma: no cover - 방어적
+            logger.warning("book file delete failed on revoke", book_id=book_id, error=str(e))
+
     return _to_response(None)

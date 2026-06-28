@@ -104,12 +104,16 @@ async def test_peer_comparison_many_ties_midrank(db_session):
                             age_band="5-7", is_default=True)
     from src.models.db import ReadingLog
     from src.core.utils import utcnow
+    from tests.factories import make_book_rows
     for uk in ["tie_self", "t0", "t1", "t2", "t3", "t4"]:
         db_session.add(prof(uk))
-        db_session.add_all([
-            ReadingLog(user_key=uk, book_id=f"{uk}-b{j}", read_date=utcnow(), completed=True)
-            for j in range(3)
-        ])
+        db_session.add_all(
+            make_book_rows([(f"{uk}-b{j}", uk) for j in range(3)])
+            + [
+                ReadingLog(user_key=uk, book_id=f"{uk}-b{j}", read_date=utcnow(), completed=True)
+                for j in range(3)
+            ]
+        )
     await db_session.commit()
     res = await growth_service.get_peer_comparison(db_session, "tie_self")
     assert res["peer_count"] == 5

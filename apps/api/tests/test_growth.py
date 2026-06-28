@@ -4,6 +4,7 @@ from datetime import date
 
 import pytest
 
+from tests.factories import make_book_rows
 from src.core.utils import derive_age_band, utcnow
 from src.models.db import Book, ChildProfile, Job, QuizAnswer, ReadingLog
 from src.services.growth import (
@@ -27,7 +28,8 @@ def _profile(user_key: str, age_band: str, idx: int) -> ChildProfile:
 
 
 def _reads(user_key: str, n: int, *, completed: bool = False, prefix: str = ""):
-    return [
+    # FK 강제: 각 ReadingLog가 참조하는 Book(+Job)을 함께 만들어 반환한다.
+    logs = [
         ReadingLog(
             user_key=user_key,
             book_id=f"{prefix}{user_key}-bk{j}",
@@ -36,19 +38,23 @@ def _reads(user_key: str, n: int, *, completed: bool = False, prefix: str = ""):
         )
         for j in range(n)
     ]
+    return make_book_rows((lg.book_id, user_key) for lg in logs) + logs
 
 
 def _vocab(user_key: str, term: str, times: int, *, correct: bool = True):
-    return [
+    # term별 고유 book_id로 FK 충돌/중복 PK를 피한다(테스트 로직은 term 기준 집계라 무관).
+    book_id = f"vbk-{user_key}-{term}"
+    answers = [
         QuizAnswer(
             user_key=user_key,
-            book_id="bk",
+            book_id=book_id,
             quiz_type="vocab",
             term=term,
             correct=correct,
         )
         for _ in range(times)
     ]
+    return make_book_rows([(book_id, user_key)]) + answers
 
 
 @pytest.mark.asyncio
@@ -66,8 +72,10 @@ async def test_growth_empty_returns_zeros(client):
 
 
 @pytest.mark.asyncio
-async def test_record_answers_and_vocab_count(client):
+async def test_record_answers_and_vocab_count(client, db_session):
     # 학습 어휘 = 정답 1회 이상인 distinct term. 포도는 오답뿐 → 미카운트.
+    db_session.add_all(make_book_rows([("b1", H["X-User-Key"])]))
+    await db_session.commit()
     answers = [
         {"book_id": "b1", "quiz_type": "vocab", "correct": True, "term": "사과"},
         {"book_id": "b1", "quiz_type": "vocab", "correct": True, "term": "바나나"},
@@ -110,14 +118,17 @@ async def test_record_answer_rejects_foreign_book(client, db_session):
         json={"book_id": "no-such-book", "quiz_type": "comprehension", "correct": True},
         headers=H,
     )
-    assert unknown.status_code == 200, unknown.text  # 미존재 id(데일리/레거시) → 허용
+    # 미존재 book_id는 404. book_id가 NOT NULL FK라 운영에선 INSERT가 FK 위반으로 터지므로
+    # 통과시키지 않고 명확히 거절한다(과거 '미존재 허용'은 오늘의 동화 null-id 시절의 잔재).
+    assert unknown.status_code == 404, unknown.text
 
 
 @pytest.mark.asyncio
 async def test_books_read_counts_distinct(db_session):
     uk = "reader-1"
     db_session.add_all(
-        [
+        make_book_rows([("bookA", uk), ("bookB", uk)])
+        + [
             ReadingLog(user_key=uk, book_id="bookA", read_date=utcnow()),
             ReadingLog(user_key=uk, book_id="bookA", read_date=utcnow()),  # 중복
             ReadingLog(user_key=uk, book_id="bookB", read_date=utcnow()),
@@ -195,6 +206,9 @@ async def test_growth_report_is_profile_scoped_for_multichild(db_session):
     )
     db_session.add(
         ChildProfile(id="prof-B", user_key=uk, name="동생", age_band="3-5", is_default=False)
+    )
+    db_session.add_all(
+        make_book_rows([(f"a{j}", uk) for j in range(3)] + [("b0", uk)])
     )
     for j in range(3):
         db_session.add(
