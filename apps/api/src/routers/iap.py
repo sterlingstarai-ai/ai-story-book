@@ -198,9 +198,10 @@ async def verify_iap(
         # F4 복원: 재설치/기기 변경으로 user_key가 새로 발급된 경우. 스토어가 이 영수증의
         # 소유를 방금 검증했으므로(verified=True) 권한을 호출자에게 이전한다. 소비성
         # 크레딧팩은 스토어가 복원해주지 않으므로 재지급하지 않는다(구독만 재활성).
+        previous_user_key = existing.user_key
         existing.user_key = user_key
         existing.status = "restored"
-        existing.payload = _build_payload({"restored_from_user_key": existing.user_key})
+        existing.payload = _build_payload({"restored_from_user_key": previous_user_key})
         if plan:
             await credits_service.create_subscription(db, user_key, plan, commit=False)
         await db.commit()
