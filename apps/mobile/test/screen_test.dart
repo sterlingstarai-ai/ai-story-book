@@ -10,6 +10,7 @@ import 'package:ai_story_book/models/models.dart';
 import 'package:ai_story_book/providers/providers.dart';
 import 'package:ai_story_book/services/api_client.dart';
 import 'package:ai_story_book/screens/create_screen.dart';
+import 'package:ai_story_book/utils/spec_labels.dart';
 import 'package:ai_story_book/screens/home_screen.dart';
 import 'package:ai_story_book/screens/library_screen.dart';
 import 'package:ai_story_book/screens/loading_screen.dart';
@@ -164,9 +165,10 @@ void main() {
       ));
       await tester.pumpAndSettle();
 
-      expect(find.text('아이 연령대'), findsOneWidget);
+      final l = AppLocalizations.of(tester.element(find.byType(CreateScreen)));
+      expect(find.text(l.createAgeLabel), findsOneWidget);
       for (final age in TargetAge.values) {
-        expect(find.text(age.label), findsOneWidget);
+        expect(find.text(age.localizedLabel(l)), findsOneWidget);
       }
     });
 
@@ -180,9 +182,13 @@ void main() {
       await tester.drag(find.byType(ListView).first, const Offset(0, -220));
       await tester.pumpAndSettle();
 
-      expect(find.text('그림 스타일', skipOffstage: false), findsOneWidget);
+      final l = AppLocalizations.of(tester.element(find.byType(CreateScreen)));
+      expect(find.text(l.createStyleLabel, skipOffstage: false), findsOneWidget);
       for (final style in BookStyle.values) {
-        expect(find.text(style.label, skipOffstage: false), findsOneWidget);
+        expect(
+          find.text(style.localizedLabel(l), skipOffstage: false),
+          findsOneWidget,
+        );
       }
     });
 

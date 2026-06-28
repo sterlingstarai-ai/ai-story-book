@@ -3964,6 +3964,240 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Confirm'**
   String get ageGateConfirm;
+
+  /// No description provided for @consentTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Parental Consent'**
+  String get consentTitle;
+
+  /// No description provided for @consentSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'To protect children, a parent\'s consent is required for the items below.'**
+  String get consentSubtitle;
+
+  /// No description provided for @consentAgreeAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Agree to all'**
+  String get consentAgreeAll;
+
+  /// No description provided for @consentAgreeAllSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'I agree to all of the items below.'**
+  String get consentAgreeAllSubtitle;
+
+  /// No description provided for @consentPrivacyRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Consent to the collection and use of personal information (required)'**
+  String get consentPrivacyRequired;
+
+  /// No description provided for @consentPhotoOptionalTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Make my child the hero with a photo (optional)'**
+  String get consentPhotoOptionalTitle;
+
+  /// No description provided for @consentPhotoDisclosure.
+  ///
+  /// In en, this message translates to:
+  /// **'Your child\'s photo is used only to create storybook characters. · Recipient: AI content-processing providers (incl. overseas, e.g. the US) · Item: child\'s face photo · Purpose: storybook character creation · Retention: kept while you use the service to keep the character consistent, and deleted immediately upon withdrawal or a deletion request · Operators do not view the photos directly. · Right to refuse: you can still use all non-photo features without agreeing (optional).'**
+  String get consentPhotoDisclosure;
+
+  /// No description provided for @consentDataProcessingRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Consent to the data processing and storage policy (required)'**
+  String get consentDataProcessingRequired;
+
+  /// No description provided for @consentAcceptButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Agree and start'**
+  String get consentAcceptButton;
+
+  /// No description provided for @consentRejectButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Don\'t agree'**
+  String get consentRejectButton;
+
+  /// No description provided for @consentRejectDialogTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Consent required'**
+  String get consentRejectDialogTitle;
+
+  /// No description provided for @consentRejectDialogContent.
+  ///
+  /// In en, this message translates to:
+  /// **'Under our child-protection policy, the app cannot be used without parental consent.'**
+  String get consentRejectDialogContent;
+
+  /// No description provided for @consentRejectDialogOk.
+  ///
+  /// In en, this message translates to:
+  /// **'OK'**
+  String get consentRejectDialogOk;
+
+  /// No description provided for @consentSaveError.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to save consent. Check your network and try again.'**
+  String get consentSaveError;
+
+  /// No description provided for @themeLunarNewYear.
+  ///
+  /// In en, this message translates to:
+  /// **'Lunar New Year'**
+  String get themeLunarNewYear;
+
+  /// No description provided for @themeChuseok.
+  ///
+  /// In en, this message translates to:
+  /// **'Chuseok'**
+  String get themeChuseok;
+
+  /// No description provided for @themeChildrensDay.
+  ///
+  /// In en, this message translates to:
+  /// **'Children\'s Day'**
+  String get themeChildrensDay;
+
+  /// No description provided for @themeChristmas.
+  ///
+  /// In en, this message translates to:
+  /// **'Christmas'**
+  String get themeChristmas;
+
+  /// No description provided for @themeDailyHabits.
+  ///
+  /// In en, this message translates to:
+  /// **'Daily Habits'**
+  String get themeDailyHabits;
+
+  /// No description provided for @themeEmotionalCoaching.
+  ///
+  /// In en, this message translates to:
+  /// **'Emotional Coaching'**
+  String get themeEmotionalCoaching;
+
+  /// No description provided for @themeFriendship.
+  ///
+  /// In en, this message translates to:
+  /// **'Friendship'**
+  String get themeFriendship;
+
+  /// No description provided for @themeFamily.
+  ///
+  /// In en, this message translates to:
+  /// **'Family'**
+  String get themeFamily;
+
+  /// No description provided for @themeAdventure.
+  ///
+  /// In en, this message translates to:
+  /// **'Adventure'**
+  String get themeAdventure;
+
+  /// No description provided for @themeNature.
+  ///
+  /// In en, this message translates to:
+  /// **'Nature'**
+  String get themeNature;
+
+  /// No description provided for @themeScience.
+  ///
+  /// In en, this message translates to:
+  /// **'Science'**
+  String get themeScience;
+
+  /// No description provided for @themeTimeTravel.
+  ///
+  /// In en, this message translates to:
+  /// **'Time Travel'**
+  String get themeTimeTravel;
+
+  /// No description provided for @themeAnimal.
+  ///
+  /// In en, this message translates to:
+  /// **'Animals'**
+  String get themeAnimal;
+
+  /// No description provided for @themeDinosaur.
+  ///
+  /// In en, this message translates to:
+  /// **'Dinosaurs'**
+  String get themeDinosaur;
+
+  /// No description provided for @themeOccupation.
+  ///
+  /// In en, this message translates to:
+  /// **'Jobs'**
+  String get themeOccupation;
+
+  /// No description provided for @themeFictionWorld.
+  ///
+  /// In en, this message translates to:
+  /// **'Into the Story'**
+  String get themeFictionWorld;
+
+  /// No description provided for @viewerShareRevoke.
+  ///
+  /// In en, this message translates to:
+  /// **'Revoke shared link'**
+  String get viewerShareRevoke;
+
+  /// No description provided for @viewerShareRevokeDone.
+  ///
+  /// In en, this message translates to:
+  /// **'The shared link has been revoked.'**
+  String get viewerShareRevokeDone;
+
+  /// No description provided for @viewerShareRevokeFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to revoke. Please try again.'**
+  String get viewerShareRevokeFailed;
+
+  /// No description provided for @viewerShareParentRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Parent verification is required to share.'**
+  String get viewerShareParentRequired;
+
+  /// No description provided for @lockExtendDone.
+  ///
+  /// In en, this message translates to:
+  /// **'Screen time extended by 10 minutes.'**
+  String get lockExtendDone;
+
+  /// No description provided for @lockTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'You\'ve reached today\'s screen-time limit'**
+  String get lockTitle;
+
+  /// No description provided for @lockSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'A parent can extend it by 10 minutes.'**
+  String get lockSubtitle;
+
+  /// No description provided for @lockExtendButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Verify parent & extend 10 min'**
+  String get lockExtendButton;
+
+  /// No description provided for @lockUsage.
+  ///
+  /// In en, this message translates to:
+  /// **'Used {used} min today / limit {limit} min'**
+  String lockUsage(int used, int limit);
 }
 
 class _AppLocalizationsDelegate

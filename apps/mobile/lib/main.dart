@@ -108,7 +108,7 @@ class _AIStoryBookAppState extends ConsumerState<AIStoryBookApp>
       return;
     }
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('화면 시간을 10분 연장했어요.')),
+      SnackBar(content: Text(AppLocalizations.of(context).lockExtendDone)),
     );
   }
 
@@ -257,6 +257,7 @@ class _ScreenTimeLockOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     final usedMinutes = snapshot.usedMinutesRounded;
     final limitMinutes = (snapshot.effectiveLimitSeconds / 60).ceil();
 
@@ -278,20 +279,20 @@ class _ScreenTimeLockOverlay extends StatelessWidget {
                   const Icon(Icons.lock_clock,
                       size: 48, color: AppColors.error),
                   const SizedBox(height: AppSpacing.md),
-                  const Text(
-                    '오늘의 화면 시간 제한에 도달했어요',
+                  Text(
+                    l.lockTitle,
                     style: AppTextStyles.heading3,
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: AppSpacing.sm),
                   Text(
-                    '오늘 사용 $usedMinutes분 / 제한 $limitMinutes분',
+                    l.lockUsage(usedMinutes, limitMinutes),
                     style: AppTextStyles.bodySmall,
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: AppSpacing.lg),
-                  const Text(
-                    '부모 확인 후 10분 연장할 수 있어요.',
+                  Text(
+                    l.lockSubtitle,
                     style: AppTextStyles.caption,
                     textAlign: TextAlign.center,
                   ),
@@ -299,7 +300,7 @@ class _ScreenTimeLockOverlay extends StatelessWidget {
                   ElevatedButton.icon(
                     onPressed: onExtend,
                     icon: const Icon(Icons.family_restroom),
-                    label: const Text('부모 인증 후 10분 연장'),
+                    label: Text(l.lockExtendButton),
                   ),
                 ],
               ),

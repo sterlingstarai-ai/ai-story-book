@@ -7,6 +7,7 @@ import '../models/models.dart';
 import '../providers/providers.dart';
 import '../services/analytics.dart';
 import '../utils/constants.dart';
+import '../utils/spec_labels.dart';
 import '../widgets/character_source_sheet.dart';
 import '../widgets/credit_shortage_modal.dart';
 import '../widgets/common_widgets.dart';
@@ -67,6 +68,10 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
   Future<void> _createBook() async {
     if (!_formKey.currentState!.validate()) return;
 
+    // 생성될 동화의 언어를 앱 UI 로케일에 맞춘다(영어/일본어 UI에서 한국어 동화가
+    // 생성되던 문제 해결). async gap 전에 BuildContext에서 읽어둔다.
+    final language = Localizations.localeOf(context).languageCode;
+
     try {
       final credits = await ref.read(apiClientProvider).getCreditsBalance();
       if (credits <= 0) {
@@ -88,6 +93,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
     try {
       final spec = BookSpec(
         topic: _topicController.text.trim(),
+        language: language,
         targetAge: _selectedAge.value,
         style: _selectedStyle.value,
         theme: _selectedTheme?.value,
@@ -249,7 +255,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
               children: TargetAge.values.map((age) {
                 final isSelected = _selectedAge == age;
                 return ChoiceChip(
-                  label: Text(age.label),
+                  label: Text(age.localizedLabel(l)),
                   selected: isSelected,
                   materialTapTargetSize: MaterialTapTargetSize.padded,
                   labelPadding: const EdgeInsets.symmetric(
@@ -282,7 +288,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
               children: BookStyle.values.map((style) {
                 final isSelected = _selectedStyle == style;
                 return ChoiceChip(
-                  label: Text(style.label),
+                  label: Text(style.localizedLabel(l)),
                   selected: isSelected,
                   materialTapTargetSize: MaterialTapTargetSize.padded,
                   labelPadding: const EdgeInsets.symmetric(
@@ -334,7 +340,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                 ...BookTheme.values.map((theme) {
                   final isSelected = _selectedTheme == theme;
                   return ChoiceChip(
-                    label: Text(theme.label),
+                    label: Text(theme.localizedLabel(l)),
                     selected: isSelected,
                     materialTapTargetSize: MaterialTapTargetSize.padded,
                     labelPadding: const EdgeInsets.symmetric(

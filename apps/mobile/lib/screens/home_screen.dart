@@ -25,10 +25,13 @@ class HomeScreen extends ConsumerWidget {
       return;
     }
     ref.read(analyticsProvider).logEvent(AnalyticsEvents.todayStoryRequested);
+    // 오늘의 동화도 앱 로케일 언어로 생성(영/일 UI에서 한국어 동화 방지).
+    final language = Localizations.localeOf(context).languageCode;
     try {
       final jobId = await ref.read(apiClientProvider).generateTodayStory(
             targetAge: '5-7',
             style: 'watercolor',
+            language: language,
           );
       if (context.mounted) {
         Navigator.pushReplacementNamed(context, '/loading', arguments: jobId);

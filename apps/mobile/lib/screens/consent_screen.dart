@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../l10n/app_localizations.dart';
 import '../providers/providers.dart';
 import '../utils/constants.dart';
 
@@ -62,23 +63,24 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
       }
       setState(() => _submitting = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('동의 저장에 실패했어요. 네트워크 확인 후 다시 시도해주세요.'),
+        SnackBar(
+          content: Text(AppLocalizations.of(context).consentSaveError),
         ),
       );
     }
   }
 
   void _reject() {
+    final l = AppLocalizations.of(context);
     showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('동의가 필요합니다'),
-        content: const Text('아동 보호 정책상 부모 동의 없이는 앱을 이용할 수 없습니다.'),
+        title: Text(l.consentRejectDialogTitle),
+        content: Text(l.consentRejectDialogContent),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('확인'),
+            child: Text(l.consentRejectDialogOk),
           ),
         ],
       ),
@@ -87,6 +89,7 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
@@ -103,10 +106,10 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const SizedBox(height: AppSpacing.md),
-                      const Text('부모 동의', style: AppTextStyles.heading1),
+                      Text(l.consentTitle, style: AppTextStyles.heading1),
                       const SizedBox(height: AppSpacing.sm),
-                      const Text(
-                        '아동 보호를 위해 아래 항목에 대한 부모 동의가 필요합니다.',
+                      Text(
+                        l.consentSubtitle,
                         style: AppTextStyles.bodySmall,
                       ),
                       const SizedBox(height: AppSpacing.xl),
@@ -118,11 +121,11 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
                         child: CheckboxListTile(
                           value: _privacy && _photo && _dataProcess,
                           onChanged: (value) => _setAll(value ?? false),
-                          title: const Text(
-                            '약관 전체 동의',
-                            style: TextStyle(fontWeight: FontWeight.w700),
+                          title: Text(
+                            l.consentAgreeAll,
+                            style: const TextStyle(fontWeight: FontWeight.w700),
                           ),
-                          subtitle: const Text('아래 항목에 모두 동의합니다.'),
+                          subtitle: Text(l.consentAgreeAllSubtitle),
                         ),
                       ),
                       const Divider(height: AppSpacing.lg),
@@ -130,20 +133,16 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
                         value: _privacy,
                         onChanged: (value) =>
                             setState(() => _privacy = value ?? false),
-                        title: const Text('개인정보 수집 및 이용에 동의 (필수)'),
+                        title: Text(l.consentPrivacyRequired),
                       ),
                       CheckboxListTile(
                         value: _photo,
                         onChanged: (value) =>
                             setState(() => _photo = value ?? false),
-                        title: const Text('사진으로 우리 아이 주인공 만들기 (선택)'),
-                        subtitle: const Text(
-                          '아이 사진은 동화 캐릭터 생성에만 쓰입니다. · 받는 곳: AI 콘텐츠 처리 업체'
-                          '(미국 등 국외) · 항목: 아이 얼굴 사진 · 목적: 동화 캐릭터 생성 '
-                          '· 보유·이용기간: 캐릭터 일관성 유지를 위해 서비스 이용 기간 동안 보관, 동의 철회·삭제 요청 시 즉시 파기 '
-                          '· 운영자는 사진을 직접 열람하지 않습니다. '
-                          '· 거부권: 동의하지 않아도 사진 외 기능은 그대로 이용할 수 있어요(선택).',
-                          style: TextStyle(fontSize: 12),
+                        title: Text(l.consentPhotoOptionalTitle),
+                        subtitle: Text(
+                          l.consentPhotoDisclosure,
+                          style: const TextStyle(fontSize: 12),
                         ),
                         isThreeLine: true,
                       ),
@@ -151,7 +150,7 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
                         value: _dataProcess,
                         onChanged: (value) =>
                             setState(() => _dataProcess = value ?? false),
-                        title: const Text('데이터 처리 및 저장 정책에 동의 (필수)'),
+                        title: Text(l.consentDataProcessingRequired),
                       ),
                     ],
                   ),
@@ -172,7 +171,7 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
                             color: Colors.white,
                           ),
                         )
-                      : const Text('동의하고 시작하기'),
+                      : Text(l.consentAcceptButton),
                 ),
               ),
               const SizedBox(height: AppSpacing.sm),
@@ -181,7 +180,7 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
                 height: 64,
                 child: OutlinedButton(
                   onPressed: _reject,
-                  child: const Text('동의하지 않음'),
+                  child: Text(l.consentRejectButton),
                 ),
               ),
             ],

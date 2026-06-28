@@ -2090,4 +2090,124 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get ageGateConfirm => '확인';
+
+  @override
+  String get consentTitle => '부모 동의';
+
+  @override
+  String get consentSubtitle => '아동 보호를 위해 아래 항목에 대한 부모 동의가 필요합니다.';
+
+  @override
+  String get consentAgreeAll => '약관 전체 동의';
+
+  @override
+  String get consentAgreeAllSubtitle => '아래 항목에 모두 동의합니다.';
+
+  @override
+  String get consentPrivacyRequired => '개인정보 수집 및 이용에 동의 (필수)';
+
+  @override
+  String get consentPhotoOptionalTitle => '사진으로 우리 아이 주인공 만들기 (선택)';
+
+  @override
+  String get consentPhotoDisclosure =>
+      '아이 사진은 동화 캐릭터 생성에만 쓰입니다. · 받는 곳: AI 콘텐츠 처리 업체(미국 등 국외) · 항목: 아이 얼굴 사진 · 목적: 동화 캐릭터 생성 · 보유·이용기간: 캐릭터 일관성 유지를 위해 서비스 이용 기간 동안 보관, 동의 철회·삭제 요청 시 즉시 파기 · 운영자는 사진을 직접 열람하지 않습니다. · 거부권: 동의하지 않아도 사진 외 기능은 그대로 이용할 수 있어요(선택).';
+
+  @override
+  String get consentDataProcessingRequired => '데이터 처리 및 저장 정책에 동의 (필수)';
+
+  @override
+  String get consentAcceptButton => '동의하고 시작하기';
+
+  @override
+  String get consentRejectButton => '동의하지 않음';
+
+  @override
+  String get consentRejectDialogTitle => '동의가 필요합니다';
+
+  @override
+  String get consentRejectDialogContent => '아동 보호 정책상 부모 동의 없이는 앱을 이용할 수 없습니다.';
+
+  @override
+  String get consentRejectDialogOk => '확인';
+
+  @override
+  String get consentSaveError => '동의 저장에 실패했어요. 네트워크 확인 후 다시 시도해주세요.';
+
+  @override
+  String get themeLunarNewYear => '설날';
+
+  @override
+  String get themeChuseok => '추석';
+
+  @override
+  String get themeChildrensDay => '어린이날';
+
+  @override
+  String get themeChristmas => '크리스마스';
+
+  @override
+  String get themeDailyHabits => '생활습관';
+
+  @override
+  String get themeEmotionalCoaching => '감정코칭';
+
+  @override
+  String get themeFriendship => '우정';
+
+  @override
+  String get themeFamily => '가족';
+
+  @override
+  String get themeAdventure => '모험';
+
+  @override
+  String get themeNature => '자연';
+
+  @override
+  String get themeScience => '과학';
+
+  @override
+  String get themeTimeTravel => '시간여행';
+
+  @override
+  String get themeAnimal => '동물';
+
+  @override
+  String get themeDinosaur => '공룡';
+
+  @override
+  String get themeOccupation => '직업';
+
+  @override
+  String get themeFictionWorld => '작품 속으로';
+
+  @override
+  String get viewerShareRevoke => '공유 링크 철회';
+
+  @override
+  String get viewerShareRevokeDone => '공유 링크를 철회했어요.';
+
+  @override
+  String get viewerShareRevokeFailed => '철회에 실패했어요. 다시 시도해주세요.';
+
+  @override
+  String get viewerShareParentRequired => '공유하려면 부모 인증이 필요해요.';
+
+  @override
+  String get lockExtendDone => '화면 시간을 10분 연장했어요.';
+
+  @override
+  String get lockTitle => '오늘의 화면 시간 제한에 도달했어요';
+
+  @override
+  String get lockSubtitle => '부모 확인 후 10분 연장할 수 있어요.';
+
+  @override
+  String get lockExtendButton => '부모 인증 후 10분 연장';
+
+  @override
+  String lockUsage(int used, int limit) {
+    return '오늘 사용 $used분 / 제한 $limit분';
+  }
 }

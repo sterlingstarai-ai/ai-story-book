@@ -2191,4 +2191,131 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get ageGateConfirm => 'Confirm';
+
+  @override
+  String get consentTitle => 'Parental Consent';
+
+  @override
+  String get consentSubtitle =>
+      'To protect children, a parent\'s consent is required for the items below.';
+
+  @override
+  String get consentAgreeAll => 'Agree to all';
+
+  @override
+  String get consentAgreeAllSubtitle => 'I agree to all of the items below.';
+
+  @override
+  String get consentPrivacyRequired =>
+      'Consent to the collection and use of personal information (required)';
+
+  @override
+  String get consentPhotoOptionalTitle =>
+      'Make my child the hero with a photo (optional)';
+
+  @override
+  String get consentPhotoDisclosure =>
+      'Your child\'s photo is used only to create storybook characters. · Recipient: AI content-processing providers (incl. overseas, e.g. the US) · Item: child\'s face photo · Purpose: storybook character creation · Retention: kept while you use the service to keep the character consistent, and deleted immediately upon withdrawal or a deletion request · Operators do not view the photos directly. · Right to refuse: you can still use all non-photo features without agreeing (optional).';
+
+  @override
+  String get consentDataProcessingRequired =>
+      'Consent to the data processing and storage policy (required)';
+
+  @override
+  String get consentAcceptButton => 'Agree and start';
+
+  @override
+  String get consentRejectButton => 'Don\'t agree';
+
+  @override
+  String get consentRejectDialogTitle => 'Consent required';
+
+  @override
+  String get consentRejectDialogContent =>
+      'Under our child-protection policy, the app cannot be used without parental consent.';
+
+  @override
+  String get consentRejectDialogOk => 'OK';
+
+  @override
+  String get consentSaveError =>
+      'Failed to save consent. Check your network and try again.';
+
+  @override
+  String get themeLunarNewYear => 'Lunar New Year';
+
+  @override
+  String get themeChuseok => 'Chuseok';
+
+  @override
+  String get themeChildrensDay => 'Children\'s Day';
+
+  @override
+  String get themeChristmas => 'Christmas';
+
+  @override
+  String get themeDailyHabits => 'Daily Habits';
+
+  @override
+  String get themeEmotionalCoaching => 'Emotional Coaching';
+
+  @override
+  String get themeFriendship => 'Friendship';
+
+  @override
+  String get themeFamily => 'Family';
+
+  @override
+  String get themeAdventure => 'Adventure';
+
+  @override
+  String get themeNature => 'Nature';
+
+  @override
+  String get themeScience => 'Science';
+
+  @override
+  String get themeTimeTravel => 'Time Travel';
+
+  @override
+  String get themeAnimal => 'Animals';
+
+  @override
+  String get themeDinosaur => 'Dinosaurs';
+
+  @override
+  String get themeOccupation => 'Jobs';
+
+  @override
+  String get themeFictionWorld => 'Into the Story';
+
+  @override
+  String get viewerShareRevoke => 'Revoke shared link';
+
+  @override
+  String get viewerShareRevokeDone => 'The shared link has been revoked.';
+
+  @override
+  String get viewerShareRevokeFailed => 'Failed to revoke. Please try again.';
+
+  @override
+  String get viewerShareParentRequired =>
+      'Parent verification is required to share.';
+
+  @override
+  String get lockExtendDone => 'Screen time extended by 10 minutes.';
+
+  @override
+  String get lockTitle => 'You\'ve reached today\'s screen-time limit';
+
+  @override
+  String get lockSubtitle => 'A parent can extend it by 10 minutes.';
+
+  @override
+  String get lockExtendButton => 'Verify parent & extend 10 min';
+
+  @override
+  String lockUsage(int used, int limit) {
+    return 'Used $used min today / limit $limit min';
+  }
 }
