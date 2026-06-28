@@ -39,8 +39,9 @@ require_var "PRINTFUL_SYNC_VARIANT_ID"
 
 echo "==> Checking required mobile dart-defines"
 require_var "KAKAO_NATIVE_APP_KEY"
-require_var "ADMOB_REWARDED_AD_UNIT_ANDROID"
-require_var "ADMOB_REWARDED_AD_UNIT_IOS"
+# PROD_API_URL 미설정 시 릴리스 빌드는 실행 중 StateError를 던진다(env_config.dart).
+require_var "PROD_API_URL"
+# 광고 제거됨 — AdMob 값은 더 이상 필수 아님(전략 변경 반영).
 
 if [[ ${#missing[@]} -gt 0 ]]; then
   echo ""
@@ -65,7 +66,6 @@ python3 -m pytest apps/api/tests/test_phase_new_endpoints.py -q
 
 cd $ROOT_DIR/apps/mobile
 flutter build apk --release \\
-  --dart-define=KAKAO_NATIVE_APP_KEY=\$KAKAO_NATIVE_APP_KEY \\
-  --dart-define=ADMOB_REWARDED_AD_UNIT_ANDROID=\$ADMOB_REWARDED_AD_UNIT_ANDROID \\
-  --dart-define=ADMOB_REWARDED_AD_UNIT_IOS=\$ADMOB_REWARDED_AD_UNIT_IOS
+  --dart-define=PROD_API_URL=\$PROD_API_URL \\
+  --dart-define=KAKAO_NATIVE_APP_KEY=\$KAKAO_NATIVE_APP_KEY
 EOF
