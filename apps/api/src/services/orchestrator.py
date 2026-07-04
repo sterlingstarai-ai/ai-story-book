@@ -879,30 +879,27 @@ async def package_book(
                 comprehension = None
                 quiz = None
 
+                lp = learning_by_page.get(page_data.page)
+                # 이중언어(ko↔en) 표시 텍스트 매핑. 그 외 언어(ja 등)는 네이티브 텍스트가
+                # 아래 page.text 컬럼에 그대로 저장된다.
                 if story.language == Language.ko:
                     text_ko = page_data.text
-                    lp = learning_by_page.get(page_data.page)
                     if lp:
                         text_en = lp.translated_text
-                        vocab = [v.model_dump() for v in lp.vocab] if lp.vocab else None
-                        comprehension = (
-                            [q.model_dump() for q in lp.comprehension_questions]
-                            if lp.comprehension_questions
-                            else None
-                        )
-                        quiz = [q.model_dump() for q in lp.quiz] if lp.quiz else None
                 elif story.language == Language.en:
                     text_en = page_data.text
-                    lp = learning_by_page.get(page_data.page)
                     if lp:
                         text_ko = lp.translated_text
-                        vocab = [v.model_dump() for v in lp.vocab] if lp.vocab else None
-                        comprehension = (
-                            [q.model_dump() for q in lp.comprehension_questions]
-                            if lp.comprehension_questions
-                            else None
-                        )
-                        quiz = [q.model_dump() for q in lp.quiz] if lp.quiz else None
+                # 학습 자산(어휘/독해/퀴즈)은 콘텐츠 언어와 무관하게 항상 부착한다.
+                # (예전엔 ko/en 분기 안에만 있어 ja 등에서 통째로 누락됐다.)
+                if lp:
+                    vocab = [v.model_dump() for v in lp.vocab] if lp.vocab else None
+                    comprehension = (
+                        [q.model_dump() for q in lp.comprehension_questions]
+                        if lp.comprehension_questions
+                        else None
+                    )
+                    quiz = [q.model_dump() for q in lp.quiz] if lp.quiz else None
 
                 page = Page(
                     book_id=book_id,

@@ -82,6 +82,13 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+def _redact_path(path: str) -> str:
+    """capability URL(공유 토큰)을 로그/관측에서 가린다 — 로그 유출 시 무인증 재생 방지."""
+    if path.startswith("/share/"):
+        return "/share/{token}"
+    return path
+
+
 class AccessLogMiddleware(BaseHTTPMiddleware):
     """Emit structured access logs with request correlation and latency."""
 
@@ -94,7 +101,7 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
             logger.error(
                 "HTTP request failed",
                 method=request.method,
-                path=request.url.path,
+                path=_redact_path(request.url.path),
                 duration_ms=duration_ms,
                 error=str(exc),
             )
@@ -104,7 +111,7 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
         logger.info(
             "HTTP request completed",
             method=request.method,
-            path=request.url.path,
+            path=_redact_path(request.url.path),
             status_code=response.status_code,
             duration_ms=duration_ms,
         )
@@ -350,6 +357,35 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
+def _iap_readiness_issues() -> list[str]:
+    """운영 IAP 설정이 위조 영수증을 통과시킬 수 있는 상태면 사유 목록을 반환한다.
+
+    - strict 모드가 아니면 local/hybrid의 fail-open 경로로 임의 영수증이 통과.
+    - Apple/Google 스토어 키가 모두 없으면 실검증 자체가 불가.
+    - 웹훅 시크릿 미설정이면 무인증 상태 변조(구독 강등 등)가 가능.
+    """
+    issues: list[str] = []
+    if (settings.iap_verification_mode or "local").strip().lower() != "strict":
+        issues.append("iap_mode_not_strict")
+
+    has_apple = bool(settings.apple_iap_shared_secret)
+    has_google = bool(
+        settings.google_play_package_name
+        and (
+            settings.google_play_access_token
+            or settings.google_play_service_account_json
+            or settings.google_play_service_account_file
+        )
+    )
+    if not (has_apple or has_google):
+        issues.append("iap_store_credentials_missing")
+
+    if not settings.iap_webhook_secret:
+        issues.append("iap_webhook_secret_missing")
+
+    return issues
+
+
 async def _build_readiness_payload(*, include_metrics: bool) -> dict:
     """Build readiness payload with dependency state."""
     from src.services.job_monitor import get_job_metrics
@@ -398,6 +434,12 @@ async def _build_readiness_payload(*, include_metrics: bool) -> dict:
             missing_keys.append("llm")
         if settings.image_provider != "mock" and not settings.image_api_key:
             missing_keys.append("image")
+
+        # IAP 결제 보안: 운영에서 local/hybrid 모드나 스토어 키 누락은 위조 영수증을
+        # 통과시키는 fail-open이므로 readiness를 막는다(미관측 출시 차단).
+        iap_issues = _iap_readiness_issues()
+        missing_keys.extend(iap_issues)
+
         if missing_keys:
             keys_status = "unhealthy"
 

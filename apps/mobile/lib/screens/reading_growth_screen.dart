@@ -102,16 +102,18 @@ class _GrowthCtaCard extends StatelessWidget {
 
   final GrowthReport report;
 
-  String _shareText() => '📚 우리 아이 읽기 성장 보고서\n\n'
-      '📖 읽은 책: ${report.booksRead}권\n'
-      '⭐ 읽기 레벨: Lv.${report.levelNumber} (${report.levelLabel})\n'
-      '📊 종합 점수: ${report.scoreValue}/100\n'
-      '🔤 학습 어휘: ${report.vocabLearned}개\n'
-      '🔥 연속 읽기: ${report.currentStreak}일\n\n'
-      'AI 동화책으로 매일 한 권씩 우리 아이 읽기 성장 📖';
+  String _shareText(AppLocalizations l) => l.growthShareText(
+        report.booksRead,
+        report.levelNumber,
+        report.levelLabel,
+        report.scoreValue,
+        report.vocabLearned,
+        report.currentStreak,
+      );
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return Container(
       key: const Key('growth_cta_card'),
       padding: const EdgeInsets.all(AppSpacing.md),
@@ -123,10 +125,10 @@ class _GrowthCtaCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('성장을 자랑하고, 이어가세요', style: AppTextStyles.heading3),
+          Text(l.growthCtaTitle, style: AppTextStyles.heading3),
           const SizedBox(height: AppSpacing.xs),
           Text(
-            '매일 한 권이 우리 아이 읽기 성장을 만들어요.',
+            l.growthCtaSubtitle,
             style: AppTextStyles.caption.copyWith(color: AppColors.textHint),
           ),
           const SizedBox(height: AppSpacing.md),
@@ -135,12 +137,12 @@ class _GrowthCtaCard extends StatelessWidget {
               Expanded(
                 child: Semantics(
                   button: true,
-                  label: '우리 아이 읽기 성장 공유하기',
+                  label: l.growthShareSemantic,
                   child: OutlinedButton.icon(
                     key: const Key('growth_share_btn'),
-                    onPressed: () => Share.share(_shareText()),
+                    onPressed: () => Share.share(_shareText(l)),
                     icon: const Icon(Icons.ios_share, size: 18),
-                    label: const Text('성장 공유'),
+                    label: Text(l.growthShareButton),
                   ),
                 ),
               ),
@@ -148,12 +150,12 @@ class _GrowthCtaCard extends StatelessWidget {
               Expanded(
                 child: Semantics(
                   button: true,
-                  label: '새 동화책 만들기',
+                  label: l.growthCreateSemantic,
                   child: ElevatedButton.icon(
                     key: const Key('growth_create_btn'),
                     onPressed: () => Navigator.pushNamed(context, '/create'),
                     icon: const Icon(Icons.auto_stories, size: 18),
-                    label: const Text('새 책 만들기'),
+                    label: Text(l.growthCreateButton),
                   ),
                 ),
               ),
@@ -173,23 +175,27 @@ class _LevelHero extends StatelessWidget {
   String _confidenceStars(int books) =>
       books >= 13 ? '⭐⭐⭐' : books >= 5 ? '⭐⭐' : '⭐';
 
-  String _confidenceText(int books) => books >= 13
-      ? '신뢰도 높음'
+  String _confidenceText(int books, AppLocalizations l) => books >= 13
+      ? l.growthConfidenceHigh
       : books >= 5
-          ? '신뢰도 보통'
-          : '더 읽을수록 정확해져요';
+          ? l.growthConfidenceMedium
+          : l.growthConfidenceLow;
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     final progress = (report.scoreValue / 100).clamp(0.0, 1.0);
     // 보조기술(TalkBack/VoiceOver)에 핵심 지표를 하나의 명료한 문장으로 읽어준다
     // (시각적 막대·분리된 텍스트 대신 통합 라벨).
     return Semantics(
       container: true,
       excludeSemantics: true,
-      label: '추정 읽기 레벨 ${report.levelNumber}, ${report.levelLabel}. '
-          '읽은 책·어휘·정확도·완독 종합 점수 ${report.scoreValue}점 만점 100점. '
-          '신뢰도 ${_confidenceText(report.booksRead)}.',
+      label: l.growthHeroSemantic(
+        report.levelNumber,
+        report.levelLabel,
+        report.scoreValue,
+        _confidenceText(report.booksRead, l),
+      ),
       child: Container(
         key: const Key('growth_level_hero'),
       padding: const EdgeInsets.all(AppSpacing.lg),
@@ -209,7 +215,8 @@ class _LevelHero extends StatelessWidget {
                 ),
               ),
               Text(
-                '${_confidenceStars(report.booksRead)} ${_confidenceText(report.booksRead)}',
+                '${_confidenceStars(report.booksRead)} '
+                '${_confidenceText(report.booksRead, l)}',
                 style: const TextStyle(color: Colors.white70, fontSize: 11),
               ),
             ],
@@ -246,7 +253,7 @@ class _LevelHero extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.xs),
           Text(
-            '읽은 책·어휘·정확도·완독을 종합한 추정 점수 ${report.scoreValue}/100',
+            l.growthScoreSummary(report.scoreValue),
             style: const TextStyle(color: Colors.white70, fontSize: 12),
           ),
         ],
@@ -278,20 +285,20 @@ class _StatGrid extends StatelessWidget {
         _StatCard(
           icon: Icons.menu_book_rounded,
           label: l10n.booksReadLabel,
-          value: '${report.booksRead}권',
+          value: l10n.growthBooksValue(report.booksRead),
           color: AppColors.primary,
         ),
         _StatCard(
           icon: Icons.local_fire_department_rounded,
           label: l10n.currentStreakLabel,
-          value: '${report.currentStreak}일',
-          sub: '최장 ${report.longestStreak}일',
+          value: l10n.growthDaysValue(report.currentStreak),
+          sub: l10n.growthLongestStreak(report.longestStreak),
           color: AppColors.warning,
         ),
         _StatCard(
           icon: Icons.spellcheck_rounded,
           label: l10n.vocabLearnedLabel,
-          value: '${report.vocabLearned}개',
+          value: l10n.growthWordsValue(report.vocabLearned),
           color: AppColors.secondary,
         ),
         _StatCard(
@@ -372,22 +379,24 @@ class _WeeklyTrend extends StatelessWidget {
 
   final List<int> counts;
 
-  String _deltaText() {
+  String _deltaText(AppLocalizations l) {
     if (counts.length < 2) {
-      return '이번 주 ${counts.isEmpty ? 0 : counts.last}권';
+      return l.growthWeekSingle(counts.isEmpty ? 0 : counts.last);
     }
-    final delta = counts.last - counts[counts.length - 2];
-    final sign = delta > 0 ? '+$delta' : '$delta';
-    final tail = delta > 0
-        ? ' 더 읽었어요 👏'
-        : delta < 0
-            ? ''
-            : ' (지난 주와 같아요)';
-    return '이번 주 ${counts.last}권 · 지난 주 대비 $sign권$tail';
+    final last = counts.last;
+    final delta = last - counts[counts.length - 2];
+    if (delta > 0) {
+      return l.growthWeekDeltaUp(last, delta);
+    }
+    if (delta < 0) {
+      return l.growthWeekDeltaDown(last, -delta);
+    }
+    return l.growthWeekDeltaSame(last);
   }
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     final maxC = counts.fold<int>(1, (m, c) => c > m ? c : m);
     return Container(
       key: const Key('growth_weekly_trend'),
@@ -400,9 +409,9 @@ class _WeeklyTrend extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('우리 아이 성장 (주간)', style: AppTextStyles.heading3),
+          Text(l.growthWeeklyTitle, style: AppTextStyles.heading3),
           const SizedBox(height: 2),
-          Text(_deltaText(), style: AppTextStyles.caption),
+          Text(_deltaText(l), style: AppTextStyles.caption),
           const SizedBox(height: AppSpacing.md),
           SizedBox(
             height: 120,
@@ -442,7 +451,9 @@ class _WeeklyTrend extends StatelessWidget {
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            i == counts.length - 1 ? '이번' : '${i + 1}주',
+                            i == counts.length - 1
+                                ? l.growthWeekThis
+                                : l.growthWeekN(i + 1),
                             style: AppTextStyles.caption,
                           ),
                         ],
@@ -464,36 +475,50 @@ class _WeeklyTrend extends StatelessWidget {
 class _PeerComparison extends ConsumerWidget {
   const _PeerComparison();
 
-  String _league(String medal) {
+  // 리그 구분은 이모지로 시각화(로케일 무관). 이름만 번역한다.
+  String _leagueEmoji(String medal) {
     switch (medal) {
       case 'gold':
-        return '🌳 마스터 리그';
+        return '🌳';
       case 'silver':
-        return '🌿 도전 리그';
+        return '🌿';
       default:
-        return '🌱 성장 리그';
+        return '🌱';
     }
   }
 
-  String _encourage(int topPercent) {
+  String _leagueName(String medal, AppLocalizations l) {
+    switch (medal) {
+      case 'gold':
+        return l.growthLeagueMaster;
+      case 'silver':
+        return l.growthLeagueChallenge;
+      default:
+        return l.growthLeagueGrowth;
+    }
+  }
+
+  String _encourage(int topPercent, AppLocalizations l) {
     if (topPercent <= 10) {
-      return '또래 중 최상위! 정말 잘하고 있어요 🎉';
+      return l.growthEncourageTop;
     }
     if (topPercent <= 30) {
-      return '또래보다 앞서가고 있어요 👍';
+      return l.growthEncourageAhead;
     }
     if (topPercent <= 60) {
-      return '또래와 비슷하게 잘 읽고 있어요';
+      return l.growthEncourageOnPar;
     }
     // 중앙값 미만에도 '따라잡아라'식 열세·추격 프레이밍 대신 자기성장에 초점
     // (아동 사회비교 상향 압박 완화 — 매일 읽는 습관이 성장의 핵심).
-    return '매일 읽을수록 쑥쑥 자라요. 오늘도 한 권 어때요? 🌱';
+    return l.growthEncourageGrow;
   }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l = AppLocalizations.of(context);
     return ref.watch(peerComparisonProvider).maybeWhen(
-          data: (peer) => peer.showRanking ? _ranking(peer) : _selfGrowth(peer),
+          data: (peer) =>
+              peer.showRanking ? _ranking(peer, l) : _selfGrowth(peer, l),
           orElse: () => const SizedBox.shrink(),
         );
   }
@@ -510,24 +535,25 @@ class _PeerComparison extends ConsumerWidget {
       );
 
   // 3-5세: 등수·백분위는 발달상 무의미 → 자기 성장만(사회비교 배제).
-  Widget _selfGrowth(PeerComparison peer) => _shell(children: [
-        const Text('우리 아이 읽기 성장', style: AppTextStyles.heading3),
+  Widget _selfGrowth(PeerComparison peer, AppLocalizations l) => _shell(children: [
+        Text(l.growthSelfGrowthTitle, style: AppTextStyles.heading3),
         const SizedBox(height: AppSpacing.sm),
         Text(
-          '이번까지 책 ${peer.myBooks}권 · 학습 어휘 ${peer.myVocab}개',
+          l.growthSelfGrowthSummary(peer.myBooks, peer.myVocab),
           style: AppTextStyles.body,
         ),
         const SizedBox(height: 4),
-        const Text(
-          '이 나이엔 등수보다 매일 읽는 습관이 가장 중요해요. 또래 비교는 더 큰 친구들에게 보여드려요.',
-          style: TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.5),
+        Text(
+          l.growthSelfGrowthNote,
+          style: const TextStyle(
+              fontSize: 12, color: AppColors.textSecondary, height: 1.5),
         ),
       ]);
 
-  Widget _ranking(PeerComparison peer) {
+  Widget _ranking(PeerComparison peer, AppLocalizations l) {
     final subtitle = peer.isBaseline
-        ? '아직 또래 표본이 적어 ${peer.ageBand}세 기준값과 비교 (참고용)'
-        : '같은 ${peer.ageBand}세 또래 ${peer.peerCount}명 기준 · 읽기 종합 점수';
+        ? l.growthPeerSubtitleBaseline(peer.ageBand)
+        : l.growthPeerSubtitle(peer.ageBand, peer.peerCount);
     final rows = <Widget>[];
     void addRow(String label, double mine, double peer, String mineText, String peerText) {
       if (mine <= 0 && peer <= 0) {
@@ -542,23 +568,27 @@ class _PeerComparison extends ConsumerWidget {
       ));
     }
 
-    addRow('읽기 종합 점수', peer.myScore.toDouble(), peer.peerScore.toDouble(),
-        '${peer.myScore}점', '또래 ${peer.peerScore}점');
-    addRow('읽은 책', peer.myBooks.toDouble(), peer.peerBooks,
-        '${peer.myBooks}권', '또래 ${peer.peerBooks.toStringAsFixed(1)}권');
-    addRow('학습 어휘', peer.myVocab.toDouble(), peer.peerVocab,
-        '${peer.myVocab}개', '또래 ${peer.peerVocab.toStringAsFixed(1)}개');
-    addRow('퀴즈 정확도', peer.myAccuracy * 100, peer.peerAccuracy * 100,
-        '${(peer.myAccuracy * 100).round()}%', '또래 ${(peer.peerAccuracy * 100).round()}%');
+    addRow(l.growthCompareScoreLabel, peer.myScore.toDouble(),
+        peer.peerScore.toDouble(),
+        l.growthScorePoints(peer.myScore), l.growthPeerScorePoints(peer.peerScore));
+    addRow(l.booksReadLabel, peer.myBooks.toDouble(), peer.peerBooks,
+        l.growthBooksValue(peer.myBooks),
+        l.growthPeerBooksValue(peer.peerBooks.toStringAsFixed(1)));
+    addRow(l.vocabLearnedLabel, peer.myVocab.toDouble(), peer.peerVocab,
+        l.growthWordsValue(peer.myVocab),
+        l.growthPeerWordsValue(peer.peerVocab.toStringAsFixed(1)));
+    addRow(l.quizAccuracyLabel, peer.myAccuracy * 100, peer.peerAccuracy * 100,
+        '${(peer.myAccuracy * 100).round()}%',
+        l.growthPeerAccuracyPercent((peer.peerAccuracy * 100).round()));
 
     return _shell(children: [
-      const Text('또래 비교', style: AppTextStyles.heading3),
+      Text(l.growthPeerTitle, style: AppTextStyles.heading3),
       const SizedBox(height: 2),
       Text(subtitle, style: AppTextStyles.caption),
       const SizedBox(height: AppSpacing.md),
       Row(
         children: [
-          Text(_league(peer.medal).split(' ').first,
+          Text(_leagueEmoji(peer.medal),
               style: const TextStyle(fontSize: 30)),
           const SizedBox(width: AppSpacing.sm),
           Expanded(
@@ -570,7 +600,7 @@ class _PeerComparison extends ConsumerWidget {
                   textBaseline: TextBaseline.alphabetic,
                   children: [
                     Text(
-                      '상위 ${peer.topPercent}%',
+                      l.growthTopPercent(peer.topPercent),
                       style: const TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.bold,
@@ -578,11 +608,14 @@ class _PeerComparison extends ConsumerWidget {
                       ),
                     ),
                     const SizedBox(width: AppSpacing.sm),
-                    Text(_league(peer.medal).split(' ').last,
-                        style: AppTextStyles.bodySmall),
+                    Flexible(
+                      child: Text(_leagueName(peer.medal, l),
+                          style: AppTextStyles.bodySmall,
+                          overflow: TextOverflow.ellipsis),
+                    ),
                   ],
                 ),
-                Text(_encourage(peer.topPercent), style: AppTextStyles.bodySmall),
+                Text(_encourage(peer.topPercent, l), style: AppTextStyles.bodySmall),
               ],
             ),
           ),
@@ -664,10 +697,10 @@ class _DisclaimerNote extends StatelessWidget {
         color: AppColors.primaryLight,
         borderRadius: BorderRadius.circular(AppRadius.md),
       ),
-      child: const Text(
-        '읽기 점수·레벨은 읽은 책·완독·학습 어휘·퀴즈 정확도를 종합한 추정치예요. '
-        '공인 척도는 아니며, 아이가 꾸준히 읽을수록 더 정확해집니다.',
-        style: TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.5),
+      child: Text(
+        AppLocalizations.of(context).growthDisclaimer,
+        style: const TextStyle(
+            fontSize: 12, color: AppColors.textSecondary, height: 1.5),
       ),
     );
   }
@@ -684,7 +717,7 @@ class _ErrorView extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text('성장 리포트를 불러오지 못했어요.'),
+          Text(AppLocalizations.of(context).growthLoadError),
           const SizedBox(height: AppSpacing.md),
           ElevatedButton(
             onPressed: onRetry,

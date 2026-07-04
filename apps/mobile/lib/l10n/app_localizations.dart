@@ -3964,6 +3964,512 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Confirm'**
   String get ageGateConfirm;
+
+  /// No description provided for @consentTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Parental Consent'**
+  String get consentTitle;
+
+  /// No description provided for @consentSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'To protect children, a parent\'s consent is required for the items below.'**
+  String get consentSubtitle;
+
+  /// No description provided for @consentAgreeAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Agree to all'**
+  String get consentAgreeAll;
+
+  /// No description provided for @consentAgreeAllSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'I agree to all of the items below.'**
+  String get consentAgreeAllSubtitle;
+
+  /// No description provided for @consentPrivacyRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Consent to the collection and use of personal information (required)'**
+  String get consentPrivacyRequired;
+
+  /// No description provided for @consentPhotoOptionalTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Make my child the hero with a photo (optional)'**
+  String get consentPhotoOptionalTitle;
+
+  /// No description provided for @consentPhotoDisclosure.
+  ///
+  /// In en, this message translates to:
+  /// **'Your child\'s photo is used only to create storybook characters. · Recipient: AI content-processing providers (incl. overseas, e.g. the US) · Item: child\'s face photo · Purpose: storybook character creation · Retention: kept while you use the service to keep the character consistent, and deleted immediately upon withdrawal or a deletion request · Operators do not view the photos directly. · Right to refuse: you can still use all non-photo features without agreeing (optional).'**
+  String get consentPhotoDisclosure;
+
+  /// No description provided for @consentDataProcessingRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Consent to the data processing and storage policy (required)'**
+  String get consentDataProcessingRequired;
+
+  /// No description provided for @consentAcceptButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Agree and start'**
+  String get consentAcceptButton;
+
+  /// No description provided for @consentRejectButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Don\'t agree'**
+  String get consentRejectButton;
+
+  /// No description provided for @consentRejectDialogTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Consent required'**
+  String get consentRejectDialogTitle;
+
+  /// No description provided for @consentRejectDialogContent.
+  ///
+  /// In en, this message translates to:
+  /// **'Under our child-protection policy, the app cannot be used without parental consent.'**
+  String get consentRejectDialogContent;
+
+  /// No description provided for @consentRejectDialogOk.
+  ///
+  /// In en, this message translates to:
+  /// **'OK'**
+  String get consentRejectDialogOk;
+
+  /// No description provided for @consentSaveError.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to save consent. Check your network and try again.'**
+  String get consentSaveError;
+
+  /// No description provided for @themeLunarNewYear.
+  ///
+  /// In en, this message translates to:
+  /// **'Lunar New Year'**
+  String get themeLunarNewYear;
+
+  /// No description provided for @themeChuseok.
+  ///
+  /// In en, this message translates to:
+  /// **'Chuseok'**
+  String get themeChuseok;
+
+  /// No description provided for @themeChildrensDay.
+  ///
+  /// In en, this message translates to:
+  /// **'Children\'s Day'**
+  String get themeChildrensDay;
+
+  /// No description provided for @themeChristmas.
+  ///
+  /// In en, this message translates to:
+  /// **'Christmas'**
+  String get themeChristmas;
+
+  /// No description provided for @themeDailyHabits.
+  ///
+  /// In en, this message translates to:
+  /// **'Daily Habits'**
+  String get themeDailyHabits;
+
+  /// No description provided for @themeEmotionalCoaching.
+  ///
+  /// In en, this message translates to:
+  /// **'Emotional Coaching'**
+  String get themeEmotionalCoaching;
+
+  /// No description provided for @themeFriendship.
+  ///
+  /// In en, this message translates to:
+  /// **'Friendship'**
+  String get themeFriendship;
+
+  /// No description provided for @themeFamily.
+  ///
+  /// In en, this message translates to:
+  /// **'Family'**
+  String get themeFamily;
+
+  /// No description provided for @themeAdventure.
+  ///
+  /// In en, this message translates to:
+  /// **'Adventure'**
+  String get themeAdventure;
+
+  /// No description provided for @themeNature.
+  ///
+  /// In en, this message translates to:
+  /// **'Nature'**
+  String get themeNature;
+
+  /// No description provided for @themeScience.
+  ///
+  /// In en, this message translates to:
+  /// **'Science'**
+  String get themeScience;
+
+  /// No description provided for @themeTimeTravel.
+  ///
+  /// In en, this message translates to:
+  /// **'Time Travel'**
+  String get themeTimeTravel;
+
+  /// No description provided for @themeAnimal.
+  ///
+  /// In en, this message translates to:
+  /// **'Animals'**
+  String get themeAnimal;
+
+  /// No description provided for @themeDinosaur.
+  ///
+  /// In en, this message translates to:
+  /// **'Dinosaurs'**
+  String get themeDinosaur;
+
+  /// No description provided for @themeOccupation.
+  ///
+  /// In en, this message translates to:
+  /// **'Jobs'**
+  String get themeOccupation;
+
+  /// No description provided for @themeFictionWorld.
+  ///
+  /// In en, this message translates to:
+  /// **'Into the Story'**
+  String get themeFictionWorld;
+
+  /// No description provided for @viewerShareRevoke.
+  ///
+  /// In en, this message translates to:
+  /// **'Revoke shared link'**
+  String get viewerShareRevoke;
+
+  /// No description provided for @viewerShareRevokeDone.
+  ///
+  /// In en, this message translates to:
+  /// **'The shared link has been revoked.'**
+  String get viewerShareRevokeDone;
+
+  /// No description provided for @viewerShareRevokeFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to revoke. Please try again.'**
+  String get viewerShareRevokeFailed;
+
+  /// No description provided for @viewerShareParentRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Parent verification is required to share.'**
+  String get viewerShareParentRequired;
+
+  /// No description provided for @lockExtendDone.
+  ///
+  /// In en, this message translates to:
+  /// **'Screen time extended by 10 minutes.'**
+  String get lockExtendDone;
+
+  /// No description provided for @lockTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'You\'ve reached today\'s screen-time limit'**
+  String get lockTitle;
+
+  /// No description provided for @lockSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'A parent can extend it by 10 minutes.'**
+  String get lockSubtitle;
+
+  /// No description provided for @lockExtendButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Verify parent & extend 10 min'**
+  String get lockExtendButton;
+
+  /// No description provided for @lockUsage.
+  ///
+  /// In en, this message translates to:
+  /// **'Used {used} min today / limit {limit} min'**
+  String lockUsage(int used, int limit);
+
+  /// Growth screen: growthShareText
+  ///
+  /// In en, this message translates to:
+  /// **'📚 Reading Growth Report\n\n📖 Books read: {booksRead}\n⭐ Reading level: Lv.{levelNumber} ({levelLabel})\n📊 Overall score: {scoreValue}/100\n🔤 Words learned: {vocabLearned}\n🔥 Reading streak: {currentStreak} days\n\nGrowing reading one AI storybook at a time 📖'**
+  String growthShareText(int booksRead, int levelNumber, String levelLabel,
+      int scoreValue, int vocabLearned, int currentStreak);
+
+  /// Growth screen: growthCtaTitle
+  ///
+  /// In en, this message translates to:
+  /// **'Show off their growth and keep it going'**
+  String get growthCtaTitle;
+
+  /// Growth screen: growthCtaSubtitle
+  ///
+  /// In en, this message translates to:
+  /// **'One book a day builds your child\'s reading growth.'**
+  String get growthCtaSubtitle;
+
+  /// Growth screen: growthShareSemantic
+  ///
+  /// In en, this message translates to:
+  /// **'Share your child\'s reading growth'**
+  String get growthShareSemantic;
+
+  /// Growth screen: growthShareButton
+  ///
+  /// In en, this message translates to:
+  /// **'Share growth'**
+  String get growthShareButton;
+
+  /// Growth screen: growthCreateSemantic
+  ///
+  /// In en, this message translates to:
+  /// **'Create a new storybook'**
+  String get growthCreateSemantic;
+
+  /// Growth screen: growthCreateButton
+  ///
+  /// In en, this message translates to:
+  /// **'New book'**
+  String get growthCreateButton;
+
+  /// Growth screen: growthConfidenceHigh
+  ///
+  /// In en, this message translates to:
+  /// **'High confidence'**
+  String get growthConfidenceHigh;
+
+  /// Growth screen: growthConfidenceMedium
+  ///
+  /// In en, this message translates to:
+  /// **'Medium confidence'**
+  String get growthConfidenceMedium;
+
+  /// Growth screen: growthConfidenceLow
+  ///
+  /// In en, this message translates to:
+  /// **'More reading improves accuracy'**
+  String get growthConfidenceLow;
+
+  /// Growth screen: growthHeroSemantic
+  ///
+  /// In en, this message translates to:
+  /// **'Estimated reading level {levelNumber}, {levelLabel}. Overall score from books read, vocabulary, accuracy, and completion: {scoreValue} out of 100. Confidence: {confidence}.'**
+  String growthHeroSemantic(
+      int levelNumber, String levelLabel, int scoreValue, String confidence);
+
+  /// Growth screen: growthScoreSummary
+  ///
+  /// In en, this message translates to:
+  /// **'Estimated score from books read, vocabulary, accuracy, and completion: {scoreValue}/100'**
+  String growthScoreSummary(int scoreValue);
+
+  /// Growth screen: growthBooksValue
+  ///
+  /// In en, this message translates to:
+  /// **'{count} books'**
+  String growthBooksValue(int count);
+
+  /// Growth screen: growthDaysValue
+  ///
+  /// In en, this message translates to:
+  /// **'{count} days'**
+  String growthDaysValue(int count);
+
+  /// Growth screen: growthLongestStreak
+  ///
+  /// In en, this message translates to:
+  /// **'Longest {count} days'**
+  String growthLongestStreak(int count);
+
+  /// Growth screen: growthWordsValue
+  ///
+  /// In en, this message translates to:
+  /// **'{count} words'**
+  String growthWordsValue(int count);
+
+  /// Growth screen: growthWeeklyTitle
+  ///
+  /// In en, this message translates to:
+  /// **'Your child\'s growth (weekly)'**
+  String get growthWeeklyTitle;
+
+  /// Growth screen: growthWeekSingle
+  ///
+  /// In en, this message translates to:
+  /// **'This week: {count} books'**
+  String growthWeekSingle(int count);
+
+  /// Growth screen: growthWeekDeltaUp
+  ///
+  /// In en, this message translates to:
+  /// **'This week: {last} books · {delta} more than last week 👏'**
+  String growthWeekDeltaUp(int last, int delta);
+
+  /// Growth screen: growthWeekDeltaDown
+  ///
+  /// In en, this message translates to:
+  /// **'This week: {last} books · {delta} fewer than last week'**
+  String growthWeekDeltaDown(int last, int delta);
+
+  /// Growth screen: growthWeekDeltaSame
+  ///
+  /// In en, this message translates to:
+  /// **'This week: {last} books · same as last week'**
+  String growthWeekDeltaSame(int last);
+
+  /// Growth screen: growthWeekThis
+  ///
+  /// In en, this message translates to:
+  /// **'This'**
+  String get growthWeekThis;
+
+  /// Growth screen: growthWeekN
+  ///
+  /// In en, this message translates to:
+  /// **'Wk {week}'**
+  String growthWeekN(int week);
+
+  /// Growth screen: growthLeagueMaster
+  ///
+  /// In en, this message translates to:
+  /// **'Master League'**
+  String get growthLeagueMaster;
+
+  /// Growth screen: growthLeagueChallenge
+  ///
+  /// In en, this message translates to:
+  /// **'Challenger League'**
+  String get growthLeagueChallenge;
+
+  /// Growth screen: growthLeagueGrowth
+  ///
+  /// In en, this message translates to:
+  /// **'Growth League'**
+  String get growthLeagueGrowth;
+
+  /// Growth screen: growthEncourageTop
+  ///
+  /// In en, this message translates to:
+  /// **'Top among peers! Doing really well 🎉'**
+  String get growthEncourageTop;
+
+  /// Growth screen: growthEncourageAhead
+  ///
+  /// In en, this message translates to:
+  /// **'Ahead of their peers 👍'**
+  String get growthEncourageAhead;
+
+  /// Growth screen: growthEncourageOnPar
+  ///
+  /// In en, this message translates to:
+  /// **'Reading well, on par with peers'**
+  String get growthEncourageOnPar;
+
+  /// Growth screen: growthEncourageGrow
+  ///
+  /// In en, this message translates to:
+  /// **'Reading every day helps them grow. How about a book today? 🌱'**
+  String get growthEncourageGrow;
+
+  /// Growth screen: growthSelfGrowthTitle
+  ///
+  /// In en, this message translates to:
+  /// **'Your child\'s reading growth'**
+  String get growthSelfGrowthTitle;
+
+  /// Growth screen: growthSelfGrowthSummary
+  ///
+  /// In en, this message translates to:
+  /// **'{books} books so far · {vocab} words learned'**
+  String growthSelfGrowthSummary(int books, int vocab);
+
+  /// Growth screen: growthSelfGrowthNote
+  ///
+  /// In en, this message translates to:
+  /// **'At this age, a daily reading habit matters more than rankings. We\'ll show peer comparisons when they\'re older.'**
+  String get growthSelfGrowthNote;
+
+  /// Growth screen: growthPeerSubtitleBaseline
+  ///
+  /// In en, this message translates to:
+  /// **'Peer sample is still small, so compared to the {ageBand} age benchmark (for reference)'**
+  String growthPeerSubtitleBaseline(String ageBand);
+
+  /// Growth screen: growthPeerSubtitle
+  ///
+  /// In en, this message translates to:
+  /// **'Based on {peerCount} peers aged {ageBand} · overall reading score'**
+  String growthPeerSubtitle(String ageBand, int peerCount);
+
+  /// Growth screen: growthCompareScoreLabel
+  ///
+  /// In en, this message translates to:
+  /// **'Overall reading score'**
+  String get growthCompareScoreLabel;
+
+  /// Growth screen: growthScorePoints
+  ///
+  /// In en, this message translates to:
+  /// **'{score} pts'**
+  String growthScorePoints(int score);
+
+  /// Growth screen: growthPeerScorePoints
+  ///
+  /// In en, this message translates to:
+  /// **'Peers {score} pts'**
+  String growthPeerScorePoints(int score);
+
+  /// Growth screen: growthPeerBooksValue
+  ///
+  /// In en, this message translates to:
+  /// **'Peers {value} books'**
+  String growthPeerBooksValue(String value);
+
+  /// Growth screen: growthPeerWordsValue
+  ///
+  /// In en, this message translates to:
+  /// **'Peers {value} words'**
+  String growthPeerWordsValue(String value);
+
+  /// Growth screen: growthPeerAccuracyPercent
+  ///
+  /// In en, this message translates to:
+  /// **'Peers {percent}%'**
+  String growthPeerAccuracyPercent(int percent);
+
+  /// Growth screen: growthPeerTitle
+  ///
+  /// In en, this message translates to:
+  /// **'Peer comparison'**
+  String get growthPeerTitle;
+
+  /// Growth screen: growthTopPercent
+  ///
+  /// In en, this message translates to:
+  /// **'Top {percent}%'**
+  String growthTopPercent(int percent);
+
+  /// Growth screen: growthDisclaimer
+  ///
+  /// In en, this message translates to:
+  /// **'Reading scores and levels are estimates based on books read, completion, words learned, and quiz accuracy. They are not a standardized measure and become more accurate the more your child reads.'**
+  String get growthDisclaimer;
+
+  /// Growth screen: growthLoadError
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t load the growth report.'**
+  String get growthLoadError;
 }
 
 class _AppLocalizationsDelegate

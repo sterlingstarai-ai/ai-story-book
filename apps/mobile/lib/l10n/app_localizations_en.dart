@@ -2191,4 +2191,314 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get ageGateConfirm => 'Confirm';
+
+  @override
+  String get consentTitle => 'Parental Consent';
+
+  @override
+  String get consentSubtitle =>
+      'To protect children, a parent\'s consent is required for the items below.';
+
+  @override
+  String get consentAgreeAll => 'Agree to all';
+
+  @override
+  String get consentAgreeAllSubtitle => 'I agree to all of the items below.';
+
+  @override
+  String get consentPrivacyRequired =>
+      'Consent to the collection and use of personal information (required)';
+
+  @override
+  String get consentPhotoOptionalTitle =>
+      'Make my child the hero with a photo (optional)';
+
+  @override
+  String get consentPhotoDisclosure =>
+      'Your child\'s photo is used only to create storybook characters. · Recipient: AI content-processing providers (incl. overseas, e.g. the US) · Item: child\'s face photo · Purpose: storybook character creation · Retention: kept while you use the service to keep the character consistent, and deleted immediately upon withdrawal or a deletion request · Operators do not view the photos directly. · Right to refuse: you can still use all non-photo features without agreeing (optional).';
+
+  @override
+  String get consentDataProcessingRequired =>
+      'Consent to the data processing and storage policy (required)';
+
+  @override
+  String get consentAcceptButton => 'Agree and start';
+
+  @override
+  String get consentRejectButton => 'Don\'t agree';
+
+  @override
+  String get consentRejectDialogTitle => 'Consent required';
+
+  @override
+  String get consentRejectDialogContent =>
+      'Under our child-protection policy, the app cannot be used without parental consent.';
+
+  @override
+  String get consentRejectDialogOk => 'OK';
+
+  @override
+  String get consentSaveError =>
+      'Failed to save consent. Check your network and try again.';
+
+  @override
+  String get themeLunarNewYear => 'Lunar New Year';
+
+  @override
+  String get themeChuseok => 'Chuseok';
+
+  @override
+  String get themeChildrensDay => 'Children\'s Day';
+
+  @override
+  String get themeChristmas => 'Christmas';
+
+  @override
+  String get themeDailyHabits => 'Daily Habits';
+
+  @override
+  String get themeEmotionalCoaching => 'Emotional Coaching';
+
+  @override
+  String get themeFriendship => 'Friendship';
+
+  @override
+  String get themeFamily => 'Family';
+
+  @override
+  String get themeAdventure => 'Adventure';
+
+  @override
+  String get themeNature => 'Nature';
+
+  @override
+  String get themeScience => 'Science';
+
+  @override
+  String get themeTimeTravel => 'Time Travel';
+
+  @override
+  String get themeAnimal => 'Animals';
+
+  @override
+  String get themeDinosaur => 'Dinosaurs';
+
+  @override
+  String get themeOccupation => 'Jobs';
+
+  @override
+  String get themeFictionWorld => 'Into the Story';
+
+  @override
+  String get viewerShareRevoke => 'Revoke shared link';
+
+  @override
+  String get viewerShareRevokeDone => 'The shared link has been revoked.';
+
+  @override
+  String get viewerShareRevokeFailed => 'Failed to revoke. Please try again.';
+
+  @override
+  String get viewerShareParentRequired =>
+      'Parent verification is required to share.';
+
+  @override
+  String get lockExtendDone => 'Screen time extended by 10 minutes.';
+
+  @override
+  String get lockTitle => 'You\'ve reached today\'s screen-time limit';
+
+  @override
+  String get lockSubtitle => 'A parent can extend it by 10 minutes.';
+
+  @override
+  String get lockExtendButton => 'Verify parent & extend 10 min';
+
+  @override
+  String lockUsage(int used, int limit) {
+    return 'Used $used min today / limit $limit min';
+  }
+
+  @override
+  String growthShareText(int booksRead, int levelNumber, String levelLabel,
+      int scoreValue, int vocabLearned, int currentStreak) {
+    return '📚 Reading Growth Report\n\n📖 Books read: $booksRead\n⭐ Reading level: Lv.$levelNumber ($levelLabel)\n📊 Overall score: $scoreValue/100\n🔤 Words learned: $vocabLearned\n🔥 Reading streak: $currentStreak days\n\nGrowing reading one AI storybook at a time 📖';
+  }
+
+  @override
+  String get growthCtaTitle => 'Show off their growth and keep it going';
+
+  @override
+  String get growthCtaSubtitle =>
+      'One book a day builds your child\'s reading growth.';
+
+  @override
+  String get growthShareSemantic => 'Share your child\'s reading growth';
+
+  @override
+  String get growthShareButton => 'Share growth';
+
+  @override
+  String get growthCreateSemantic => 'Create a new storybook';
+
+  @override
+  String get growthCreateButton => 'New book';
+
+  @override
+  String get growthConfidenceHigh => 'High confidence';
+
+  @override
+  String get growthConfidenceMedium => 'Medium confidence';
+
+  @override
+  String get growthConfidenceLow => 'More reading improves accuracy';
+
+  @override
+  String growthHeroSemantic(
+      int levelNumber, String levelLabel, int scoreValue, String confidence) {
+    return 'Estimated reading level $levelNumber, $levelLabel. Overall score from books read, vocabulary, accuracy, and completion: $scoreValue out of 100. Confidence: $confidence.';
+  }
+
+  @override
+  String growthScoreSummary(int scoreValue) {
+    return 'Estimated score from books read, vocabulary, accuracy, and completion: $scoreValue/100';
+  }
+
+  @override
+  String growthBooksValue(int count) {
+    return '$count books';
+  }
+
+  @override
+  String growthDaysValue(int count) {
+    return '$count days';
+  }
+
+  @override
+  String growthLongestStreak(int count) {
+    return 'Longest $count days';
+  }
+
+  @override
+  String growthWordsValue(int count) {
+    return '$count words';
+  }
+
+  @override
+  String get growthWeeklyTitle => 'Your child\'s growth (weekly)';
+
+  @override
+  String growthWeekSingle(int count) {
+    return 'This week: $count books';
+  }
+
+  @override
+  String growthWeekDeltaUp(int last, int delta) {
+    return 'This week: $last books · $delta more than last week 👏';
+  }
+
+  @override
+  String growthWeekDeltaDown(int last, int delta) {
+    return 'This week: $last books · $delta fewer than last week';
+  }
+
+  @override
+  String growthWeekDeltaSame(int last) {
+    return 'This week: $last books · same as last week';
+  }
+
+  @override
+  String get growthWeekThis => 'This';
+
+  @override
+  String growthWeekN(int week) {
+    return 'Wk $week';
+  }
+
+  @override
+  String get growthLeagueMaster => 'Master League';
+
+  @override
+  String get growthLeagueChallenge => 'Challenger League';
+
+  @override
+  String get growthLeagueGrowth => 'Growth League';
+
+  @override
+  String get growthEncourageTop => 'Top among peers! Doing really well 🎉';
+
+  @override
+  String get growthEncourageAhead => 'Ahead of their peers 👍';
+
+  @override
+  String get growthEncourageOnPar => 'Reading well, on par with peers';
+
+  @override
+  String get growthEncourageGrow =>
+      'Reading every day helps them grow. How about a book today? 🌱';
+
+  @override
+  String get growthSelfGrowthTitle => 'Your child\'s reading growth';
+
+  @override
+  String growthSelfGrowthSummary(int books, int vocab) {
+    return '$books books so far · $vocab words learned';
+  }
+
+  @override
+  String get growthSelfGrowthNote =>
+      'At this age, a daily reading habit matters more than rankings. We\'ll show peer comparisons when they\'re older.';
+
+  @override
+  String growthPeerSubtitleBaseline(String ageBand) {
+    return 'Peer sample is still small, so compared to the $ageBand age benchmark (for reference)';
+  }
+
+  @override
+  String growthPeerSubtitle(String ageBand, int peerCount) {
+    return 'Based on $peerCount peers aged $ageBand · overall reading score';
+  }
+
+  @override
+  String get growthCompareScoreLabel => 'Overall reading score';
+
+  @override
+  String growthScorePoints(int score) {
+    return '$score pts';
+  }
+
+  @override
+  String growthPeerScorePoints(int score) {
+    return 'Peers $score pts';
+  }
+
+  @override
+  String growthPeerBooksValue(String value) {
+    return 'Peers $value books';
+  }
+
+  @override
+  String growthPeerWordsValue(String value) {
+    return 'Peers $value words';
+  }
+
+  @override
+  String growthPeerAccuracyPercent(int percent) {
+    return 'Peers $percent%';
+  }
+
+  @override
+  String get growthPeerTitle => 'Peer comparison';
+
+  @override
+  String growthTopPercent(int percent) {
+    return 'Top $percent%';
+  }
+
+  @override
+  String get growthDisclaimer =>
+      'Reading scores and levels are estimates based on books read, completion, words learned, and quiz accuracy. They are not a standardized measure and become more accurate the more your child reads.';
+
+  @override
+  String get growthLoadError => 'Couldn\'t load the growth report.';
 }

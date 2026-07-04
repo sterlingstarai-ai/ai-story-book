@@ -1226,5 +1226,375 @@
         "type": "Object"
       }
     }
+  },
+  "consentTitle": "Parental Consent",
+  "consentSubtitle": "To protect children, a parent's consent is required for the items below.",
+  "consentAgreeAll": "Agree to all",
+  "consentAgreeAllSubtitle": "I agree to all of the items below.",
+  "consentPrivacyRequired": "Consent to the collection and use of personal information (required)",
+  "consentPhotoOptionalTitle": "Make my child the hero with a photo (optional)",
+  "consentPhotoDisclosure": "Your child's photo is used only to create storybook characters. · Recipient: AI content-processing providers (incl. overseas, e.g. the US) · Item: child's face photo · Purpose: storybook character creation · Retention: kept while you use the service to keep the character consistent, and deleted immediately upon withdrawal or a deletion request · Operators do not view the photos directly. · Right to refuse: you can still use all non-photo features without agreeing (optional).",
+  "consentDataProcessingRequired": "Consent to the data processing and storage policy (required)",
+  "consentAcceptButton": "Agree and start",
+  "consentRejectButton": "Don't agree",
+  "consentRejectDialogTitle": "Consent required",
+  "consentRejectDialogContent": "Under our child-protection policy, the app cannot be used without parental consent.",
+  "consentRejectDialogOk": "OK",
+  "consentSaveError": "Failed to save consent. Check your network and try again.",
+  "themeLunarNewYear": "Lunar New Year",
+  "themeChuseok": "Chuseok",
+  "themeChildrensDay": "Children's Day",
+  "themeChristmas": "Christmas",
+  "themeDailyHabits": "Daily Habits",
+  "themeEmotionalCoaching": "Emotional Coaching",
+  "themeFriendship": "Friendship",
+  "themeFamily": "Family",
+  "themeAdventure": "Adventure",
+  "themeNature": "Nature",
+  "themeScience": "Science",
+  "themeTimeTravel": "Time Travel",
+  "themeAnimal": "Animals",
+  "themeDinosaur": "Dinosaurs",
+  "themeOccupation": "Jobs",
+  "themeFictionWorld": "Into the Story",
+  "viewerShareRevoke": "Revoke shared link",
+  "viewerShareRevokeDone": "The shared link has been revoked.",
+  "viewerShareRevokeFailed": "Failed to revoke. Please try again.",
+  "viewerShareParentRequired": "Parent verification is required to share.",
+  "lockExtendDone": "Screen time extended by 10 minutes.",
+  "lockTitle": "You've reached today's screen-time limit",
+  "lockSubtitle": "A parent can extend it by 10 minutes.",
+  "lockExtendButton": "Verify parent & extend 10 min",
+  "lockUsage": "Used {used} min today / limit {limit} min",
+  "@lockUsage": {
+    "placeholders": {
+      "used": {
+        "type": "int"
+      },
+      "limit": {
+        "type": "int"
+      }
+    }
+  },
+  "growthShareText": "📚 Reading Growth Report\n\n📖 Books read: {booksRead}\n⭐ Reading level: Lv.{levelNumber} ({levelLabel})\n📊 Overall score: {scoreValue}/100\n🔤 Words learned: {vocabLearned}\n🔥 Reading streak: {currentStreak} days\n\nGrowing reading one AI storybook at a time 📖",
+  "@growthShareText": {
+    "description": "Growth screen: growthShareText",
+    "placeholders": {
+      "booksRead": {
+        "type": "int"
+      },
+      "levelNumber": {
+        "type": "int"
+      },
+      "levelLabel": {
+        "type": "String"
+      },
+      "scoreValue": {
+        "type": "int"
+      },
+      "vocabLearned": {
+        "type": "int"
+      },
+      "currentStreak": {
+        "type": "int"
+      }
+    }
+  },
+  "growthCtaTitle": "Show off their growth and keep it going",
+  "@growthCtaTitle": {
+    "description": "Growth screen: growthCtaTitle"
+  },
+  "growthCtaSubtitle": "One book a day builds your child's reading growth.",
+  "@growthCtaSubtitle": {
+    "description": "Growth screen: growthCtaSubtitle"
+  },
+  "growthShareSemantic": "Share your child's reading growth",
+  "@growthShareSemantic": {
+    "description": "Growth screen: growthShareSemantic"
+  },
+  "growthShareButton": "Share growth",
+  "@growthShareButton": {
+    "description": "Growth screen: growthShareButton"
+  },
+  "growthCreateSemantic": "Create a new storybook",
+  "@growthCreateSemantic": {
+    "description": "Growth screen: growthCreateSemantic"
+  },
+  "growthCreateButton": "New book",
+  "@growthCreateButton": {
+    "description": "Growth screen: growthCreateButton"
+  },
+  "growthConfidenceHigh": "High confidence",
+  "@growthConfidenceHigh": {
+    "description": "Growth screen: growthConfidenceHigh"
+  },
+  "growthConfidenceMedium": "Medium confidence",
+  "@growthConfidenceMedium": {
+    "description": "Growth screen: growthConfidenceMedium"
+  },
+  "growthConfidenceLow": "More reading improves accuracy",
+  "@growthConfidenceLow": {
+    "description": "Growth screen: growthConfidenceLow"
+  },
+  "growthHeroSemantic": "Estimated reading level {levelNumber}, {levelLabel}. Overall score from books read, vocabulary, accuracy, and completion: {scoreValue} out of 100. Confidence: {confidence}.",
+  "@growthHeroSemantic": {
+    "description": "Growth screen: growthHeroSemantic",
+    "placeholders": {
+      "levelNumber": {
+        "type": "int"
+      },
+      "levelLabel": {
+        "type": "String"
+      },
+      "scoreValue": {
+        "type": "int"
+      },
+      "confidence": {
+        "type": "String"
+      }
+    }
+  },
+  "growthScoreSummary": "Estimated score from books read, vocabulary, accuracy, and completion: {scoreValue}/100",
+  "@growthScoreSummary": {
+    "description": "Growth screen: growthScoreSummary",
+    "placeholders": {
+      "scoreValue": {
+        "type": "int"
+      }
+    }
+  },
+  "growthBooksValue": "{count} books",
+  "@growthBooksValue": {
+    "description": "Growth screen: growthBooksValue",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "growthDaysValue": "{count} days",
+  "@growthDaysValue": {
+    "description": "Growth screen: growthDaysValue",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "growthLongestStreak": "Longest {count} days",
+  "@growthLongestStreak": {
+    "description": "Growth screen: growthLongestStreak",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "growthWordsValue": "{count} words",
+  "@growthWordsValue": {
+    "description": "Growth screen: growthWordsValue",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "growthWeeklyTitle": "Your child's growth (weekly)",
+  "@growthWeeklyTitle": {
+    "description": "Growth screen: growthWeeklyTitle"
+  },
+  "growthWeekSingle": "This week: {count} books",
+  "@growthWeekSingle": {
+    "description": "Growth screen: growthWeekSingle",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "growthWeekDeltaUp": "This week: {last} books · {delta} more than last week 👏",
+  "@growthWeekDeltaUp": {
+    "description": "Growth screen: growthWeekDeltaUp",
+    "placeholders": {
+      "last": {
+        "type": "int"
+      },
+      "delta": {
+        "type": "int"
+      }
+    }
+  },
+  "growthWeekDeltaDown": "This week: {last} books · {delta} fewer than last week",
+  "@growthWeekDeltaDown": {
+    "description": "Growth screen: growthWeekDeltaDown",
+    "placeholders": {
+      "last": {
+        "type": "int"
+      },
+      "delta": {
+        "type": "int"
+      }
+    }
+  },
+  "growthWeekDeltaSame": "This week: {last} books · same as last week",
+  "@growthWeekDeltaSame": {
+    "description": "Growth screen: growthWeekDeltaSame",
+    "placeholders": {
+      "last": {
+        "type": "int"
+      }
+    }
+  },
+  "growthWeekThis": "This",
+  "@growthWeekThis": {
+    "description": "Growth screen: growthWeekThis"
+  },
+  "growthWeekN": "Wk {week}",
+  "@growthWeekN": {
+    "description": "Growth screen: growthWeekN",
+    "placeholders": {
+      "week": {
+        "type": "int"
+      }
+    }
+  },
+  "growthLeagueMaster": "Master League",
+  "@growthLeagueMaster": {
+    "description": "Growth screen: growthLeagueMaster"
+  },
+  "growthLeagueChallenge": "Challenger League",
+  "@growthLeagueChallenge": {
+    "description": "Growth screen: growthLeagueChallenge"
+  },
+  "growthLeagueGrowth": "Growth League",
+  "@growthLeagueGrowth": {
+    "description": "Growth screen: growthLeagueGrowth"
+  },
+  "growthEncourageTop": "Top among peers! Doing really well 🎉",
+  "@growthEncourageTop": {
+    "description": "Growth screen: growthEncourageTop"
+  },
+  "growthEncourageAhead": "Ahead of their peers 👍",
+  "@growthEncourageAhead": {
+    "description": "Growth screen: growthEncourageAhead"
+  },
+  "growthEncourageOnPar": "Reading well, on par with peers",
+  "@growthEncourageOnPar": {
+    "description": "Growth screen: growthEncourageOnPar"
+  },
+  "growthEncourageGrow": "Reading every day helps them grow. How about a book today? 🌱",
+  "@growthEncourageGrow": {
+    "description": "Growth screen: growthEncourageGrow"
+  },
+  "growthSelfGrowthTitle": "Your child's reading growth",
+  "@growthSelfGrowthTitle": {
+    "description": "Growth screen: growthSelfGrowthTitle"
+  },
+  "growthSelfGrowthSummary": "{books} books so far · {vocab} words learned",
+  "@growthSelfGrowthSummary": {
+    "description": "Growth screen: growthSelfGrowthSummary",
+    "placeholders": {
+      "books": {
+        "type": "int"
+      },
+      "vocab": {
+        "type": "int"
+      }
+    }
+  },
+  "growthSelfGrowthNote": "At this age, a daily reading habit matters more than rankings. We'll show peer comparisons when they're older.",
+  "@growthSelfGrowthNote": {
+    "description": "Growth screen: growthSelfGrowthNote"
+  },
+  "growthPeerSubtitleBaseline": "Peer sample is still small, so compared to the {ageBand} age benchmark (for reference)",
+  "@growthPeerSubtitleBaseline": {
+    "description": "Growth screen: growthPeerSubtitleBaseline",
+    "placeholders": {
+      "ageBand": {
+        "type": "String"
+      }
+    }
+  },
+  "growthPeerSubtitle": "Based on {peerCount} peers aged {ageBand} · overall reading score",
+  "@growthPeerSubtitle": {
+    "description": "Growth screen: growthPeerSubtitle",
+    "placeholders": {
+      "ageBand": {
+        "type": "String"
+      },
+      "peerCount": {
+        "type": "int"
+      }
+    }
+  },
+  "growthCompareScoreLabel": "Overall reading score",
+  "@growthCompareScoreLabel": {
+    "description": "Growth screen: growthCompareScoreLabel"
+  },
+  "growthScorePoints": "{score} pts",
+  "@growthScorePoints": {
+    "description": "Growth screen: growthScorePoints",
+    "placeholders": {
+      "score": {
+        "type": "int"
+      }
+    }
+  },
+  "growthPeerScorePoints": "Peers {score} pts",
+  "@growthPeerScorePoints": {
+    "description": "Growth screen: growthPeerScorePoints",
+    "placeholders": {
+      "score": {
+        "type": "int"
+      }
+    }
+  },
+  "growthPeerBooksValue": "Peers {value} books",
+  "@growthPeerBooksValue": {
+    "description": "Growth screen: growthPeerBooksValue",
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "growthPeerWordsValue": "Peers {value} words",
+  "@growthPeerWordsValue": {
+    "description": "Growth screen: growthPeerWordsValue",
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "growthPeerAccuracyPercent": "Peers {percent}%",
+  "@growthPeerAccuracyPercent": {
+    "description": "Growth screen: growthPeerAccuracyPercent",
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "growthPeerTitle": "Peer comparison",
+  "@growthPeerTitle": {
+    "description": "Growth screen: growthPeerTitle"
+  },
+  "growthTopPercent": "Top {percent}%",
+  "@growthTopPercent": {
+    "description": "Growth screen: growthTopPercent",
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "growthDisclaimer": "Reading scores and levels are estimates based on books read, completion, words learned, and quiz accuracy. They are not a standardized measure and become more accurate the more your child reads.",
+  "@growthDisclaimer": {
+    "description": "Growth screen: growthDisclaimer"
+  },
+  "growthLoadError": "Couldn't load the growth report.",
+  "@growthLoadError": {
+    "description": "Growth screen: growthLoadError"
   }
 }

@@ -2092,4 +2092,306 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get ageGateConfirm => '確認';
+
+  @override
+  String get consentTitle => '保護者の同意';
+
+  @override
+  String get consentSubtitle => 'お子さまを守るため、以下の項目について保護者の同意が必要です。';
+
+  @override
+  String get consentAgreeAll => 'すべての規約に同意';
+
+  @override
+  String get consentAgreeAllSubtitle => '以下の項目すべてに同意します。';
+
+  @override
+  String get consentPrivacyRequired => '個人情報の収集・利用に同意（必須）';
+
+  @override
+  String get consentPhotoOptionalTitle => '写真でうちの子を主人公にする（任意）';
+
+  @override
+  String get consentPhotoDisclosure =>
+      'お子さまの写真は絵本キャラクターの作成にのみ使用します。· 提供先：AIコンテンツ処理事業者（米国など国外を含む）· 項目：お子さまの顔写真 · 目的：絵本キャラクターの作成 · 保有・利用期間：キャラクターの一貫性を保つためサービス利用期間中保管し、同意の撤回・削除のご請求時に直ちに破棄します。· 運営者が写真を直接閲覧することはありません。· 拒否権：同意しなくても写真以外の機能はそのままご利用いただけます（任意）。';
+
+  @override
+  String get consentDataProcessingRequired => 'データの処理・保存ポリシーに同意（必須）';
+
+  @override
+  String get consentAcceptButton => '同意して始める';
+
+  @override
+  String get consentRejectButton => '同意しない';
+
+  @override
+  String get consentRejectDialogTitle => '同意が必要です';
+
+  @override
+  String get consentRejectDialogContent =>
+      '児童保護ポリシーにより、保護者の同意なしにアプリをご利用いただけません。';
+
+  @override
+  String get consentRejectDialogOk => 'OK';
+
+  @override
+  String get consentSaveError => '同意の保存に失敗しました。ネットワークを確認して再度お試しください。';
+
+  @override
+  String get themeLunarNewYear => 'お正月';
+
+  @override
+  String get themeChuseok => '秋夕（チュソク）';
+
+  @override
+  String get themeChildrensDay => 'こどもの日';
+
+  @override
+  String get themeChristmas => 'クリスマス';
+
+  @override
+  String get themeDailyHabits => '生活習慣';
+
+  @override
+  String get themeEmotionalCoaching => '感情コーチング';
+
+  @override
+  String get themeFriendship => '友情';
+
+  @override
+  String get themeFamily => '家族';
+
+  @override
+  String get themeAdventure => '冒険';
+
+  @override
+  String get themeNature => '自然';
+
+  @override
+  String get themeScience => '科学';
+
+  @override
+  String get themeTimeTravel => 'タイムトラベル';
+
+  @override
+  String get themeAnimal => 'どうぶつ';
+
+  @override
+  String get themeDinosaur => 'きょうりゅう';
+
+  @override
+  String get themeOccupation => 'おしごと';
+
+  @override
+  String get themeFictionWorld => '物語の中へ';
+
+  @override
+  String get viewerShareRevoke => '共有リンクを取り消す';
+
+  @override
+  String get viewerShareRevokeDone => '共有リンクを取り消しました。';
+
+  @override
+  String get viewerShareRevokeFailed => '取り消しに失敗しました。もう一度お試しください。';
+
+  @override
+  String get viewerShareParentRequired => '共有には保護者の確認が必要です。';
+
+  @override
+  String get lockExtendDone => '画面時間を10分延長しました。';
+
+  @override
+  String get lockTitle => '本日の画面時間の上限に達しました';
+
+  @override
+  String get lockSubtitle => '保護者の確認で10分延長できます。';
+
+  @override
+  String get lockExtendButton => '保護者確認して10分延長';
+
+  @override
+  String lockUsage(int used, int limit) {
+    return '本日の使用 $used分 / 上限 $limit分';
+  }
+
+  @override
+  String growthShareText(int booksRead, int levelNumber, String levelLabel,
+      int scoreValue, int vocabLearned, int currentStreak) {
+    return '📚 うちの子の読書成長レポート\n\n📖 読んだ本: $booksRead冊\n⭐ 読書レベル: Lv.$levelNumber（$levelLabel）\n📊 総合スコア: $scoreValue/100\n🔤 学習した語彙: $vocabLearned語\n🔥 連続読書: $currentStreak日\n\nAI絵本で毎日一冊、うちの子の読書成長 📖';
+  }
+
+  @override
+  String get growthCtaTitle => '成長を自慢して、続けましょう';
+
+  @override
+  String get growthCtaSubtitle => '毎日一冊が、うちの子の読書成長をつくります。';
+
+  @override
+  String get growthShareSemantic => 'うちの子の読書成長を共有する';
+
+  @override
+  String get growthShareButton => '成長を共有';
+
+  @override
+  String get growthCreateSemantic => '新しい絵本をつくる';
+
+  @override
+  String get growthCreateButton => '新しい本';
+
+  @override
+  String get growthConfidenceHigh => '信頼度 高';
+
+  @override
+  String get growthConfidenceMedium => '信頼度 中';
+
+  @override
+  String get growthConfidenceLow => '読むほど正確になります';
+
+  @override
+  String growthHeroSemantic(
+      int levelNumber, String levelLabel, int scoreValue, String confidence) {
+    return '推定読書レベル $levelNumber、$levelLabel。読んだ本・語彙・正確さ・読了の総合スコア $scoreValue 点（100点満点）。信頼度 $confidence。';
+  }
+
+  @override
+  String growthScoreSummary(int scoreValue) {
+    return '読んだ本・語彙・正確さ・読了を総合した推定スコア $scoreValue/100';
+  }
+
+  @override
+  String growthBooksValue(int count) {
+    return '$count冊';
+  }
+
+  @override
+  String growthDaysValue(int count) {
+    return '$count日';
+  }
+
+  @override
+  String growthLongestStreak(int count) {
+    return '最長 $count日';
+  }
+
+  @override
+  String growthWordsValue(int count) {
+    return '$count語';
+  }
+
+  @override
+  String get growthWeeklyTitle => 'うちの子の成長（週間）';
+
+  @override
+  String growthWeekSingle(int count) {
+    return '今週 $count冊';
+  }
+
+  @override
+  String growthWeekDeltaUp(int last, int delta) {
+    return '今週 $last冊 · 先週より $delta冊多く読みました 👏';
+  }
+
+  @override
+  String growthWeekDeltaDown(int last, int delta) {
+    return '今週 $last冊 · 先週より $delta冊少なめ';
+  }
+
+  @override
+  String growthWeekDeltaSame(int last) {
+    return '今週 $last冊 · 先週と同じ';
+  }
+
+  @override
+  String get growthWeekThis => '今';
+
+  @override
+  String growthWeekN(int week) {
+    return '$week週';
+  }
+
+  @override
+  String get growthLeagueMaster => 'マスターリーグ';
+
+  @override
+  String get growthLeagueChallenge => 'チャレンジリーグ';
+
+  @override
+  String get growthLeagueGrowth => 'グロースリーグ';
+
+  @override
+  String get growthEncourageTop => '同年代でトップ！とてもよくできています 🎉';
+
+  @override
+  String get growthEncourageAhead => '同年代より進んでいます 👍';
+
+  @override
+  String get growthEncourageOnPar => '同年代と同じくらいよく読めています';
+
+  @override
+  String get growthEncourageGrow => '毎日読むほどぐんぐん育ちます。今日も一冊どうですか？ 🌱';
+
+  @override
+  String get growthSelfGrowthTitle => 'うちの子の読書成長';
+
+  @override
+  String growthSelfGrowthSummary(int books, int vocab) {
+    return 'これまで $books冊 · 学習した語彙 $vocab語';
+  }
+
+  @override
+  String get growthSelfGrowthNote =>
+      'この年齢では順位より、毎日読む習慣が一番大切です。同年代との比較は、もう少し大きくなってからお見せします。';
+
+  @override
+  String growthPeerSubtitleBaseline(String ageBand) {
+    return 'まだ同年代のサンプルが少ないため、$ageBand歳の基準値と比較（参考）';
+  }
+
+  @override
+  String growthPeerSubtitle(String ageBand, int peerCount) {
+    return '同じ$ageBand歳の同年代 $peerCount人を基準 · 読書総合スコア';
+  }
+
+  @override
+  String get growthCompareScoreLabel => '読書総合スコア';
+
+  @override
+  String growthScorePoints(int score) {
+    return '$score点';
+  }
+
+  @override
+  String growthPeerScorePoints(int score) {
+    return '同年代 $score点';
+  }
+
+  @override
+  String growthPeerBooksValue(String value) {
+    return '同年代 $value冊';
+  }
+
+  @override
+  String growthPeerWordsValue(String value) {
+    return '同年代 $value語';
+  }
+
+  @override
+  String growthPeerAccuracyPercent(int percent) {
+    return '同年代 $percent%';
+  }
+
+  @override
+  String get growthPeerTitle => '同年代との比較';
+
+  @override
+  String growthTopPercent(int percent) {
+    return '上位 $percent%';
+  }
+
+  @override
+  String get growthDisclaimer =>
+      '読書スコアとレベルは、読んだ本・読了・学習した語彙・クイズの正確さを総合した推定値です。公的な指標ではなく、お子さまが読み続けるほど正確になります。';
+
+  @override
+  String get growthLoadError => '成長レポートを読み込めませんでした。';
 }

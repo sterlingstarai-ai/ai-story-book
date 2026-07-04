@@ -22,7 +22,7 @@ from src.models.dto import (
 from src.models.db import Character
 from src.services.photo_character import photo_character_service
 from src.services.storage import storage_service
-from src.services.image import generate_image
+from src.services.image import generate_image, image_storage_scope
 from src.core.utils import utcnow
 from src.core.exceptions import (
     AuthorizationError,
@@ -131,6 +131,7 @@ async def _generate_character_sheet_urls(
     *,
     character_data: dict,
     style: str,
+    character_id: str,
 ) -> list[str]:
     scene_prompts = character_data.get("sheet_scene_prompts")
     if not isinstance(scene_prompts, list):
@@ -156,32 +157,35 @@ async def _generate_character_sheet_urls(
     )
 
     urls: list[str] = []
-    for index, scene in enumerate(normalized_scenes, start=1):
-        prompt_text = (
-            f"{master_description}. Character sheet turn-around frame {index}. "
-            f"{scene}. Keep identity and colors consistent. "
-            f"Children storybook illustration, {style}."
-        )
+    # 시트 이미지를 캐릭터 스코프 키(characters/{id}/sheets/...)에 저장해 동의 철회/계정
+    # 삭제의 delete_prefix가 닿게 한다(추적 불가한 images/{provider}/{uuid} 영구 잔존 방지).
+    with image_storage_scope(f"characters/{character_id}/sheets"):
+        for index, scene in enumerate(normalized_scenes, start=1):
+            prompt_text = (
+                f"{master_description}. Character sheet turn-around frame {index}. "
+                f"{scene}. Keep identity and colors consistent. "
+                f"Children storybook illustration, {style}."
+            )
 
-        try:
-            image_url = await generate_image(
-                ImagePrompt(
-                    page=index,
-                    positive_prompt=prompt_text,
-                    negative_prompt=negative_prompt,
-                    seed=random.randint(1, 2_147_483_647),
-                    aspect_ratio="3:4",
-                    guidance_notes="character_sheet",
+            try:
+                image_url = await generate_image(
+                    ImagePrompt(
+                        page=index,
+                        positive_prompt=prompt_text,
+                        negative_prompt=negative_prompt,
+                        seed=random.randint(1, 2_147_483_647),
+                        aspect_ratio="3:4",
+                        guidance_notes="character_sheet",
+                    )
                 )
-            )
-            if image_url:
-                urls.append(image_url)
-        except Exception as exc:
-            logger.warning(
-                "Character sheet image generation failed",
-                error=str(exc),
-                frame=index,
-            )
+                if image_url:
+                    urls.append(image_url)
+            except Exception as exc:
+                logger.warning(
+                    "Character sheet image generation failed",
+                    error=str(exc),
+                    frame=index,
+                )
     return urls
 
 
@@ -665,6 +669,7 @@ async def create_character_from_drawing(
             sheet_urls = await _generate_character_sheet_urls(
                 character_data=character_data,
                 style=style,
+                character_id=character_id,
             )
 
         base = _build_character_dict(

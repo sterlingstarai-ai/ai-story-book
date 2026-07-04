@@ -262,6 +262,71 @@ class CreditsService:
         )
         return True
 
+    async def clawback_credits(
+        self,
+        db: AsyncSession,
+        user_key: str,
+        amount: int,
+        reference_id: str,
+        description: str = "환불 회수",
+        commit: bool = True,
+    ) -> bool:
+        """환불/취소 시 지급했던 크레딧을 회수한다(잔액은 0 미만으로 내려가지 않음).
+
+        멱등: 같은 reference_id로 이미 회수했으면 재회수하지 않는다(중복 웹훅 방어).
+        반환: 실제 회수 수행 여부.
+        """
+        if amount <= 0:
+            return False
+
+        already = await db.execute(
+            select(CreditTransaction.id)
+            .where(
+                CreditTransaction.reference_id == reference_id,
+                CreditTransaction.transaction_type == "clawback",
+            )
+            .limit(1)
+        )
+        if already.first() is not None:
+            return False  # 이미 회수됨
+
+        try:
+            await self.get_or_create_credits(db, user_key, commit=False)
+            # 원자적 차감 후 음수 클램프(두 문장 모두 같은 트랜잭션 내 → SQLite/PG 공통).
+            await db.execute(
+                update(UserCredits)
+                .where(UserCredits.user_key == user_key)
+                .values(credits=UserCredits.credits - amount)
+            )
+            await db.execute(
+                update(UserCredits)
+                .where(UserCredits.user_key == user_key, UserCredits.credits < 0)
+                .values(credits=0)
+            )
+            balance_result = await db.execute(
+                select(UserCredits.credits).where(UserCredits.user_key == user_key)
+            )
+            new_balance = balance_result.scalar_one()
+            await self._record_transaction(
+                db=db,
+                user_key=user_key,
+                amount=-amount,
+                balance_after=new_balance,
+                transaction_type="clawback",
+                description=description,
+                reference_id=reference_id,
+                commit=False,
+            )
+            if commit:
+                await db.commit()
+            else:
+                await db.flush()
+            return True
+        except Exception:
+            if commit:
+                await db.rollback()
+            raise
+
     async def get_active_subscription(
         self,
         db: AsyncSession,
@@ -288,8 +353,13 @@ class CreditsService:
         db: AsyncSession,
         user_key: str,
         plan: str,
+        commit: bool = True,
     ) -> Subscription:
-        """구독 생성"""
+        """구독 생성.
+
+        commit=False면 커밋하지 않고 flush만 한다 — 호출부가 보상 지급과 영수증
+        기록을 한 트랜잭션으로 묶어 단일 커밋하도록(IAP 더블그랜트 방지).
+        """
         if plan not in SUBSCRIPTION_PLANS:
             raise ValueError(f"Invalid plan: {plan}")
 
@@ -326,11 +396,15 @@ class CreditsService:
                 commit=False,
             )
 
-            await db.commit()
-            await db.refresh(subscription)
+            if commit:
+                await db.commit()
+                await db.refresh(subscription)
+            else:
+                await db.flush()
             return subscription
         except Exception:
-            await db.rollback()
+            if commit:
+                await db.rollback()
             raise
 
     async def cancel_subscription(

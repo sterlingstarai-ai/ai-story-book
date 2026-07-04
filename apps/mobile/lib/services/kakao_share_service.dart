@@ -69,6 +69,7 @@ class KakaoShareService {
 
   Future<KakaoShareResult> shareBookCard({
     required String bookId,
+    required String shareUrl,
     required String title,
     required String coverImageUrl,
     String? description,
@@ -79,7 +80,10 @@ class KakaoShareService {
     }
 
     ensureInitialized();
-    final webUrl = Uri.parse('${_shareBaseUri.toString()}/$bookId');
+    // 공개 토큰 페이지(/share/{token})를 링크로 사용한다. 예전의 {base}/books/{bookId}는
+    // 공개 페이지로 해석되지 않아(404) 수신자가 책을 볼 수 없었다. bookId는 앱 설치 시
+    // 딥링크로 바로 책을 여는 execution params 로만 쓴다.
+    final webUrl = Uri.tryParse(shareUrl) ?? Uri.parse('${_shareBaseUri.toString()}/$bookId');
     final appParams = {'book_id': bookId};
 
     final template = FeedTemplate(
