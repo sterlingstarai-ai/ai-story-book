@@ -142,8 +142,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text(AppLocalizations.of(context).settingsSaveError)),
+        SnackBar(content: Text(AppLocalizations.of(context).settingsSaveError)),
       );
     } finally {
       if (mounted) {
@@ -258,8 +257,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-          content:
-              Text(AppLocalizations.of(context).settingsConsentRevoked)),
+          content: Text(AppLocalizations.of(context).settingsConsentRevoked)),
     );
     Navigator.pushNamedAndRemoveUntil(context, '/consent', (_) => false);
   }
@@ -336,8 +334,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-            content:
-                Text(AppLocalizations.of(context).settingsDeleteKeywordMismatch)),
+            content: Text(
+                AppLocalizations.of(context).settingsDeleteKeywordMismatch)),
       );
       return;
     }
@@ -467,8 +465,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(title,
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.w600)),
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w600)),
                           const SizedBox(height: 2),
                           Text(body),
                         ],

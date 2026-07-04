@@ -172,8 +172,11 @@ class _LevelHero extends StatelessWidget {
 
   final GrowthReport report;
 
-  String _confidenceStars(int books) =>
-      books >= 13 ? '⭐⭐⭐' : books >= 5 ? '⭐⭐' : '⭐';
+  String _confidenceStars(int books) => books >= 13
+      ? '⭐⭐⭐'
+      : books >= 5
+          ? '⭐⭐'
+          : '⭐';
 
   String _confidenceText(int books, AppLocalizations l) => books >= 13
       ? l.growthConfidenceHigh
@@ -198,65 +201,65 @@ class _LevelHero extends StatelessWidget {
       ),
       child: Container(
         key: const Key('growth_level_hero'),
-      padding: const EdgeInsets.all(AppSpacing.lg),
-      decoration: BoxDecoration(
-        color: AppColors.primary,
-        borderRadius: BorderRadius.circular(AppRadius.lg),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  AppLocalizations.of(context).estimatedReadingLevel,
-                  style: const TextStyle(color: Colors.white70, fontSize: 13),
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        decoration: BoxDecoration(
+          color: AppColors.primary,
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    AppLocalizations.of(context).estimatedReadingLevel,
+                    style: const TextStyle(color: Colors.white70, fontSize: 13),
+                  ),
                 ),
-              ),
-              Text(
-                '${_confidenceStars(report.booksRead)} '
-                '${_confidenceText(report.booksRead, l)}',
-                style: const TextStyle(color: Colors.white70, fontSize: 11),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Text(
-                'Lv.${report.levelNumber}',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 40,
-                  fontWeight: FontWeight.bold,
+                Text(
+                  '${_confidenceStars(report.booksRead)} '
+                  '${_confidenceText(report.booksRead, l)}',
+                  style: const TextStyle(color: Colors.white70, fontSize: 11),
                 ),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Text(
-                report.levelLabel,
-                style: const TextStyle(color: Colors.white, fontSize: 18),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.md),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(AppRadius.sm),
-            child: LinearProgressIndicator(
-              value: progress,
-              minHeight: 8,
-              backgroundColor: Colors.white24,
-              valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+              ],
             ),
-          ),
-          const SizedBox(height: AppSpacing.xs),
-          Text(
-            l.growthScoreSummary(report.scoreValue),
-            style: const TextStyle(color: Colors.white70, fontSize: 12),
-          ),
-        ],
+            const SizedBox(height: AppSpacing.sm),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Text(
+                  'Lv.${report.levelNumber}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 40,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Text(
+                  report.levelLabel,
+                  style: const TextStyle(color: Colors.white, fontSize: 18),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.md),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(AppRadius.sm),
+              child: LinearProgressIndicator(
+                value: progress,
+                minHeight: 8,
+                backgroundColor: Colors.white24,
+                valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              l.growthScoreSummary(report.scoreValue),
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+          ],
         ),
       ),
     );
@@ -271,9 +274,8 @@ class _StatGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final accuracyLabel = report.quizTotal > 0
-        ? '${(report.quizAccuracy * 100).round()}%'
-        : '—';
+    final accuracyLabel =
+        report.quizTotal > 0 ? '${(report.quizAccuracy * 100).round()}%' : '—';
     return GridView.count(
       crossAxisCount: 2,
       shrinkWrap: true,
@@ -305,7 +307,9 @@ class _StatGrid extends StatelessWidget {
           icon: Icons.quiz_rounded,
           label: l10n.quizAccuracyLabel,
           value: accuracyLabel,
-          sub: report.quizTotal > 0 ? '${report.quizCorrect}/${report.quizTotal}' : null,
+          sub: report.quizTotal > 0
+              ? '${report.quizCorrect}/${report.quizTotal}'
+              : null,
           color: AppColors.success,
         ),
       ],
@@ -531,11 +535,13 @@ class _PeerComparison extends ConsumerWidget {
           borderRadius: BorderRadius.circular(AppRadius.lg),
           border: Border.all(color: AppColors.divider),
         ),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: children),
+        child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start, children: children),
       );
 
   // 3-5세: 등수·백분위는 발달상 무의미 → 자기 성장만(사회비교 배제).
-  Widget _selfGrowth(PeerComparison peer, AppLocalizations l) => _shell(children: [
+  Widget _selfGrowth(PeerComparison peer, AppLocalizations l) =>
+      _shell(children: [
         Text(l.growthSelfGrowthTitle, style: AppTextStyles.heading3),
         const SizedBox(height: AppSpacing.sm),
         Text(
@@ -555,7 +561,8 @@ class _PeerComparison extends ConsumerWidget {
         ? l.growthPeerSubtitleBaseline(peer.ageBand)
         : l.growthPeerSubtitle(peer.ageBand, peer.peerCount);
     final rows = <Widget>[];
-    void addRow(String label, double mine, double peer, String mineText, String peerText) {
+    void addRow(String label, double mine, double peer, String mineText,
+        String peerText) {
       if (mine <= 0 && peer <= 0) {
         return; // 데이터 0인 축은 '거짓 열세' 방지 위해 숨김
       }
@@ -568,16 +575,28 @@ class _PeerComparison extends ConsumerWidget {
       ));
     }
 
-    addRow(l.growthCompareScoreLabel, peer.myScore.toDouble(),
+    addRow(
+        l.growthCompareScoreLabel,
+        peer.myScore.toDouble(),
         peer.peerScore.toDouble(),
-        l.growthScorePoints(peer.myScore), l.growthPeerScorePoints(peer.peerScore));
-    addRow(l.booksReadLabel, peer.myBooks.toDouble(), peer.peerBooks,
+        l.growthScorePoints(peer.myScore),
+        l.growthPeerScorePoints(peer.peerScore));
+    addRow(
+        l.booksReadLabel,
+        peer.myBooks.toDouble(),
+        peer.peerBooks,
         l.growthBooksValue(peer.myBooks),
         l.growthPeerBooksValue(peer.peerBooks.toStringAsFixed(1)));
-    addRow(l.vocabLearnedLabel, peer.myVocab.toDouble(), peer.peerVocab,
+    addRow(
+        l.vocabLearnedLabel,
+        peer.myVocab.toDouble(),
+        peer.peerVocab,
         l.growthWordsValue(peer.myVocab),
         l.growthPeerWordsValue(peer.peerVocab.toStringAsFixed(1)));
-    addRow(l.quizAccuracyLabel, peer.myAccuracy * 100, peer.peerAccuracy * 100,
+    addRow(
+        l.quizAccuracyLabel,
+        peer.myAccuracy * 100,
+        peer.peerAccuracy * 100,
         '${(peer.myAccuracy * 100).round()}%',
         l.growthPeerAccuracyPercent((peer.peerAccuracy * 100).round()));
 
@@ -588,8 +607,7 @@ class _PeerComparison extends ConsumerWidget {
       const SizedBox(height: AppSpacing.md),
       Row(
         children: [
-          Text(_leagueEmoji(peer.medal),
-              style: const TextStyle(fontSize: 30)),
+          Text(_leagueEmoji(peer.medal), style: const TextStyle(fontSize: 30)),
           const SizedBox(width: AppSpacing.sm),
           Expanded(
             child: Column(
@@ -615,7 +633,8 @@ class _PeerComparison extends ConsumerWidget {
                     ),
                   ],
                 ),
-                Text(_encourage(peer.topPercent, l), style: AppTextStyles.bodySmall),
+                Text(_encourage(peer.topPercent, l),
+                    style: AppTextStyles.bodySmall),
               ],
             ),
           ),

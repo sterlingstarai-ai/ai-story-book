@@ -46,8 +46,8 @@ class _ParentDashboardScreenState extends ConsumerState<ParentDashboardScreen> {
       if (!mounted) {
         return;
       }
-      setState(() =>
-          _errorMessage = AppLocalizations.of(context).parentDashboardLoadError);
+      setState(() => _errorMessage =
+          AppLocalizations.of(context).parentDashboardLoadError);
     } finally {
       if (mounted) {
         setState(() {
@@ -247,8 +247,8 @@ class _SummaryGrid extends StatelessWidget {
         ),
         _MetricCard(
           title: l.parentDashboardMetricAvgMinutesTitle,
-          value:
-              l.parentDashboardMetricAvgMinutesValue(avgMinutes.toStringAsFixed(1)),
+          value: l.parentDashboardMetricAvgMinutesValue(
+              avgMinutes.toStringAsFixed(1)),
           icon: Icons.schedule_outlined,
         ),
         _MetricCard(

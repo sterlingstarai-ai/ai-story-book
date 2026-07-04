@@ -25,7 +25,10 @@ import 'package:ai_story_book/services/parental_control_service.dart';
 /// 네트워크 경계만 가짜로 — 동의/조회 등 여정에 필요한 메서드만.
 class _MockApi extends ApiClient {
   _MockApi()
-      : super(baseUrl: 'http://localhost', userKey: 'itest', enableLogging: false);
+      : super(
+            baseUrl: 'http://localhost',
+            userKey: 'itest',
+            enableLogging: false);
 
   bool consentGranted = false;
 
@@ -44,7 +47,11 @@ class _MockApi extends ApiClient {
     String? consentVersion,
   }) async {
     consentGranted = true;
-    return {'photos': photos, 'privacy': privacy, 'data_processing': dataProcessing};
+    return {
+      'photos': photos,
+      'privacy': privacy,
+      'data_processing': dataProcessing
+    };
   }
 }
 
@@ -120,7 +127,8 @@ Widget _app(SharedPreferences prefs, ApiClient api) => ProviderScope(
         homeStreakProvider.overrideWith((ref) async => _streak()),
         growthReportProvider.overrideWith((ref) async => _growth()),
         peerComparisonProvider.overrideWith((ref) async => _peer()),
-        weeklyReadingTrendProvider.overrideWith((ref) async => const <int>[1, 2, 3]),
+        weeklyReadingTrendProvider
+            .overrideWith((ref) async => const <int>[1, 2, 3]),
       ],
       child: const _IntegrationApp(),
     );

@@ -59,13 +59,15 @@ void main() {
       ),
     );
 
-    final jsonMap = jsonDecode(jsonEncode(source.toJson())) as Map<String, dynamic>;
+    final jsonMap =
+        jsonDecode(jsonEncode(source.toJson())) as Map<String, dynamic>;
     final restored = BookResult.fromJson(jsonMap);
 
     expect(restored.bookId, 'book_123');
     expect(restored.pages.first.textEn, 'The rabbit walked into the forest.');
     expect(restored.pages.first.vocab?.first.word, '숲');
     expect(restored.pages.first.quiz?.first.options.length, 2);
-    expect(restored.learningAssets?.parentGuide.activities.first, '토끼와 숲 그림 그리기');
+    expect(
+        restored.learningAssets?.parentGuide.activities.first, '토끼와 숲 그림 그리기');
   });
 }

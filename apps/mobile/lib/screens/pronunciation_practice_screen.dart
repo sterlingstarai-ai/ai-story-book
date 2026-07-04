@@ -109,7 +109,9 @@ class _PronunciationPracticeScreenState
       allowMultiple: false,
       allowedExtensions: const ['m4a', 'mp3', 'wav', 'aac', 'ogg', 'webm'],
     );
-    if (picked == null || picked.files.isEmpty || picked.files.first.path == null) {
+    if (picked == null ||
+        picked.files.isEmpty ||
+        picked.files.first.path == null) {
       return;
     }
 

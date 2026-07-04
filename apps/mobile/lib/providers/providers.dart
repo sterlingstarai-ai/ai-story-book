@@ -750,8 +750,9 @@ final peerComparisonProvider = FutureProvider<PeerComparison>((ref) async {
   final api = ref.read(apiClientProvider);
   final data = await api.getPeerComparison();
   final my = data['my'] is Map ? data['my'] as Map : const <dynamic, dynamic>{};
-  final avg =
-      data['peer_avg'] is Map ? data['peer_avg'] as Map : const <dynamic, dynamic>{};
+  final avg = data['peer_avg'] is Map
+      ? data['peer_avg'] as Map
+      : const <dynamic, dynamic>{};
   double toDouble(dynamic v) => v is num ? v.toDouble() : 0.0;
   return PeerComparison(
     ageBand: _toStringValue(data['age_band'], fallback: '5-7'),

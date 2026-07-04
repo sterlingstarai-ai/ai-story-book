@@ -217,8 +217,7 @@ class _InpaintScreenState extends ConsumerState<InpaintScreen> {
                           ? const SizedBox(
                               width: 18,
                               height: 18,
-                              child:
-                                  CircularProgressIndicator(strokeWidth: 2),
+                              child: CircularProgressIndicator(strokeWidth: 2),
                             )
                           : Text(l.inpaintApply),
                     ),

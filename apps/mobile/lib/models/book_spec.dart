@@ -37,8 +37,7 @@ class BookSpec {
         if (characterId != null) 'character_id': characterId,
         if (characterIds != null && characterIds!.isNotEmpty)
           'character_ids': characterIds,
-        if (characterRelationship != null &&
-            characterRelationship!.isNotEmpty)
+        if (characterRelationship != null && characterRelationship!.isNotEmpty)
           'character_relationship': characterRelationship,
         if (forbiddenElements != null) 'forbidden_elements': forbiddenElements,
       };

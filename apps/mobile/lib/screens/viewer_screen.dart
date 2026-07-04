@@ -815,7 +815,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.menu_book_rounded, color: Colors.white, size: 18),
+              const Icon(Icons.menu_book_rounded,
+                  color: Colors.white, size: 18),
               const SizedBox(width: AppSpacing.sm),
               Text(
                 l.viewerLearningBar(parts.join(' · ')),
@@ -1027,7 +1028,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     await _audioPlayer.stop();
     if (byTimer && wasEnabled && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AppLocalizations.of(context).viewerSleepModeEnded)),
+        SnackBar(
+            content: Text(AppLocalizations.of(context).viewerSleepModeEnded)),
       );
     }
   }
@@ -1304,8 +1306,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               leading: Icon(
                 _sleepModeEnabled ? Icons.bedtime_off : Icons.bedtime,
               ),
-              title: Text(
-                  _sleepModeEnabled ? l.viewerSleepModeStop : l.viewerSleepModeStart),
+              title: Text(_sleepModeEnabled
+                  ? l.viewerSleepModeStop
+                  : l.viewerSleepModeStart),
               subtitle: Text(
                 _sleepModeEnabled
                     ? l.viewerSleepModeRemaining(_sleepRemainingText())
@@ -1546,7 +1549,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(AppLocalizations.of(context).viewerRegenerateStarted)),
+          SnackBar(
+              content:
+                  Text(AppLocalizations.of(context).viewerRegenerateStarted)),
         );
         // 책 데이터 새로고침
         ref.invalidate(bookDetailProvider(widget.bookId));
@@ -1584,7 +1589,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(AppLocalizations.of(context).viewerPdfSaved(fileName))),
+          SnackBar(
+              content:
+                  Text(AppLocalizations.of(context).viewerPdfSaved(fileName))),
         );
       }
     } catch (e) {
@@ -1734,7 +1741,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(AppLocalizations.of(context).viewerShareLinkFailed)),
+          SnackBar(
+              content:
+                  Text(AppLocalizations.of(context).viewerShareLinkFailed)),
         );
       }
     }
@@ -1760,7 +1769,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(AppLocalizations.of(context).viewerShareLinkFailed)),
+          SnackBar(
+              content:
+                  Text(AppLocalizations.of(context).viewerShareLinkFailed)),
         );
       }
     }
@@ -1779,7 +1790,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(AppLocalizations.of(context).viewerShareRevokeFailed)),
+          SnackBar(
+              content:
+                  Text(AppLocalizations.of(context).viewerShareRevokeFailed)),
         );
       }
     }
@@ -2355,7 +2368,9 @@ class _LanguageToggle extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                selectedLanguage == 'ko' ? l.viewerLanguageKo : l.viewerLanguageEn,
+                selectedLanguage == 'ko'
+                    ? l.viewerLanguageKo
+                    : l.viewerLanguageEn,
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
@@ -2435,7 +2450,9 @@ class _LearningModeSheetState extends State<_LearningModeSheet>
           indicatorColor: AppColors.primary,
           tabs: [
             Tab(icon: const Icon(Icons.abc), text: l.viewerTabWord),
-            Tab(icon: const Icon(Icons.help_outline), text: l.viewerTabQuestion),
+            Tab(
+                icon: const Icon(Icons.help_outline),
+                text: l.viewerTabQuestion),
             Tab(icon: const Icon(Icons.quiz), text: l.viewerTabQuiz),
           ],
         ),
@@ -2513,8 +2530,8 @@ class _VocabDisplayCard extends StatelessWidget {
         child: Row(
           children: [
             Text(item.word,
-                style: AppTextStyles.heading3
-                    .copyWith(color: AppColors.primary)),
+                style:
+                    AppTextStyles.heading3.copyWith(color: AppColors.primary)),
             const SizedBox(width: AppSpacing.sm),
             Expanded(child: Text(item.meaning, style: AppTextStyles.body)),
           ],
@@ -2575,7 +2592,8 @@ class _ComprehensionCardState extends State<_ComprehensionCard> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              l.viewerComprehensionQuestion(widget.index, widget.question.question),
+              l.viewerComprehensionQuestion(
+                  widget.index, widget.question.question),
               style: AppTextStyles.body.copyWith(fontWeight: FontWeight.bold),
             ),
             if (widget.question.answer != null) ...[

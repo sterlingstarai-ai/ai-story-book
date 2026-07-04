@@ -168,7 +168,8 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.photo_library, color: AppColors.primary),
+              leading:
+                  const Icon(Icons.photo_library, color: AppColors.primary),
               title: Text(l.charactersOptionGalleryTitle),
               subtitle: Text(l.charactersOptionGallerySubtitle),
               onTap: () {
@@ -178,7 +179,8 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
             ),
             const Divider(height: 1),
             ListTile(
-              leading: const Icon(Icons.brush_outlined, color: AppColors.primary),
+              leading:
+                  const Icon(Icons.brush_outlined, color: AppColors.primary),
               title: Text(l.charactersOptionDrawingTitle),
               subtitle: Text(l.charactersOptionDrawingSubtitle),
               onTap: () {
@@ -230,8 +232,8 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
         final l = AppLocalizations.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text(l.charactersCreatedSnack(
-                  result['name']?.toString() ?? ''))),
+              content: Text(
+                  l.charactersCreatedSnack(result['name']?.toString() ?? ''))),
         );
         ref.read(charactersProvider.notifier).refresh();
       }
@@ -406,10 +408,10 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
             result['name']?.toString() ?? l.charactersDefaultName;
         final rawSheetUrls = result['character_sheet_urls'];
         final sheetCount = rawSheetUrls is List ? rawSheetUrls.length : 0;
-        final message = creationMode == _CharacterCreationMode.drawing &&
-                sheetCount > 0
-            ? l.charactersCreatedWithSheetsSnack(characterName, sheetCount)
-            : l.charactersCreatedSnack(characterName);
+        final message =
+            creationMode == _CharacterCreationMode.drawing && sheetCount > 0
+                ? l.charactersCreatedWithSheetsSnack(characterName, sheetCount)
+                : l.charactersCreatedSnack(characterName);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(message)),
         );
@@ -767,8 +769,8 @@ class _CharacterDetailSheet extends StatelessWidget {
               _DetailRow(l.charactersDetailTop, character.clothing.top),
               _DetailRow(l.charactersDetailBottom, character.clothing.bottom),
               _DetailRow(l.charactersDetailShoes, character.clothing.shoes),
-              _DetailRow(
-                  l.charactersDetailAccessories, character.clothing.accessories),
+              _DetailRow(l.charactersDetailAccessories,
+                  character.clothing.accessories),
 
               if (character.visualStyleNotes != null) ...[
                 const SizedBox(height: AppSpacing.lg),
@@ -991,8 +993,8 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
               ),
               const SizedBox(height: AppSpacing.lg),
               Center(
-                child: Text(l.charactersFormTitle,
-                    style: AppTextStyles.heading2),
+                child:
+                    Text(l.charactersFormTitle, style: AppTextStyles.heading2),
               ),
               const SizedBox(height: AppSpacing.xl),
 

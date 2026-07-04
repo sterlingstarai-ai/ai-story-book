@@ -94,7 +94,8 @@ void main() {
       ProviderScope(
         overrides: [
           growthReportProvider.overrideWith((ref) async => _sample()),
-          peerComparisonProvider.overrideWith((ref) async => _samplePeerYoung()),
+          peerComparisonProvider
+              .overrideWith((ref) async => _samplePeerYoung()),
         ],
         child: const MaterialApp(
           locale: Locale('ko'),

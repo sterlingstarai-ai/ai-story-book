@@ -34,4 +34,5 @@ class AnalyticsEvents {
   static const subscriptionStarted = 'subscription_started';
 }
 
-final analyticsProvider = Provider<Analytics>((ref) => const LoggingAnalytics());
+final analyticsProvider =
+    Provider<Analytics>((ref) => const LoggingAnalytics());

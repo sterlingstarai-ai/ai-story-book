@@ -55,9 +55,7 @@ class Character {
       visualStyleNotes:
           JsonParsing.asOptionalString(json['visual_style_notes']),
       distinctiveFeatures: json['distinctive_features'] is List
-          ? (json['distinctive_features'] as List)
-              .whereType<String>()
-              .toList()
+          ? (json['distinctive_features'] as List).whereType<String>().toList()
           : null,
       createdAt: JsonParsing.asRequiredDateTime(json['created_at'],
           field: 'created_at'),

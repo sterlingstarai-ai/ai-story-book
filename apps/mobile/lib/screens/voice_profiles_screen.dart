@@ -188,8 +188,8 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
                                       ScaffoldMessenger.of(this.context)
                                           .showSnackBar(
                                         SnackBar(
-                                          content: Text(
-                                              l.voiceProfilesSampleUploadSuccess),
+                                          content: Text(l
+                                              .voiceProfilesSampleUploadSuccess),
                                         ),
                                       );
                                     }
@@ -309,7 +309,8 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
       }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-            content: Text(AppLocalizations.of(context).voiceProfilesCreateError)),
+            content:
+                Text(AppLocalizations.of(context).voiceProfilesCreateError)),
       );
     } finally {
       if (mounted) {
@@ -526,7 +527,9 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
                                 ],
                               ),
                               const SizedBox(height: AppSpacing.xs),
-                              Text(l.voiceProfilesRelationshipPrefix(relationship),
+                              Text(
+                                  l.voiceProfilesRelationshipPrefix(
+                                      relationship),
                                   style: AppTextStyles.bodySmall),
                               const SizedBox(height: AppSpacing.xs),
                               Row(

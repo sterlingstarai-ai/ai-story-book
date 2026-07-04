@@ -543,8 +543,7 @@ void main() {
 
       expect(find.text('설정'), findsOneWidget);
       // 설정 항목이 늘어 카카오 토글이 lazy ListView 빌드 윈도우 밖일 수 있어 먼저 스크롤.
-      final kakaoSwitch =
-          find.widgetWithText(SwitchListTile, '카카오톡 카드 공유');
+      final kakaoSwitch = find.widgetWithText(SwitchListTile, '카카오톡 카드 공유');
       final settingsList = find.byType(ListView).first;
       for (var i = 0; i < 20 && kakaoSwitch.evaluate().isEmpty; i++) {
         await tester.drag(settingsList, const Offset(0, -250));

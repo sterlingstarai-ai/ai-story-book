@@ -394,8 +394,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
             SliverPadding(
               padding: const EdgeInsets.all(AppSpacing.lg),
               sliver: SliverGrid(
-                gridDelegate:
-                    const SliverGridDelegateWithFixedCrossAxisCount(
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: 2,
                   mainAxisSpacing: AppSpacing.md,
                   crossAxisSpacing: AppSpacing.md,
@@ -887,8 +886,8 @@ class _SeriesShelf extends StatelessWidget {
                 child: BookCard(
                   title: book.title,
                   imageUrl: book.coverImageUrl,
-                  subtitle:
-                      '${l.librarySeriesBadge} ${book.seriesIndex ?? ''}'.trim(),
+                  subtitle: '${l.librarySeriesBadge} ${book.seriesIndex ?? ''}'
+                      .trim(),
                   onTap: () => onOpen(book),
                 ),
               );

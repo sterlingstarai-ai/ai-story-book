@@ -78,7 +78,8 @@ class HomeScreen extends ConsumerWidget {
                     Row(
                       children: [
                         Expanded(
-                          child: Text(l.homeTitle, style: AppTextStyles.heading1),
+                          child:
+                              Text(l.homeTitle, style: AppTextStyles.heading1),
                         ),
                         IconButton(
                           onPressed: () =>
@@ -142,8 +143,7 @@ class HomeScreen extends ConsumerWidget {
                         ),
                       ),
                     ),
-              orElse: () =>
-                  const SliverToBoxAdapter(child: SizedBox.shrink()),
+              orElse: () => const SliverToBoxAdapter(child: SizedBox.shrink()),
             ),
 
             const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.xl)),
@@ -409,7 +409,9 @@ class _StreakSummaryCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
-                  data.readToday ? l.homeReadTodayBadge : l.homeNotReadTodayBadge,
+                  data.readToday
+                      ? l.homeReadTodayBadge
+                      : l.homeNotReadTodayBadge,
                   style: AppTextStyles.caption.copyWith(
                     color: AppColors.textPrimary,
                   ),
@@ -824,8 +826,7 @@ class _CharacterQuickStartRow extends StatelessWidget {
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
             itemCount: characters.length,
-            separatorBuilder: (_, __) =>
-                const SizedBox(width: AppSpacing.md),
+            separatorBuilder: (_, __) => const SizedBox(width: AppSpacing.md),
             itemBuilder: (context, index) {
               final character = characters[index];
               return _CharacterQuickStartChip(
@@ -870,8 +871,8 @@ class _CharacterQuickStartChip extends StatelessWidget {
               ),
               child: Text(
                 initial,
-                style: AppTextStyles.heading3
-                    .copyWith(color: AppColors.primary),
+                style:
+                    AppTextStyles.heading3.copyWith(color: AppColors.primary),
               ),
             ),
             const SizedBox(height: 4),

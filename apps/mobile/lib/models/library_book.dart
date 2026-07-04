@@ -50,8 +50,8 @@ class LibraryBook {
         field: 'created_at',
       ),
       seriesId: JsonParsing.asOptionalString(json['series_id']),
-      seriesIndex:
-          JsonParsing.asOptionalInt(json['series_index'], field: 'series_index'),
+      seriesIndex: JsonParsing.asOptionalInt(json['series_index'],
+          field: 'series_index'),
       characterId: JsonParsing.asOptionalString(json['character_id']),
     );
   }

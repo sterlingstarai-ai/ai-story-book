@@ -45,7 +45,8 @@ class LocalNotificationScheduler implements NotificationScheduler {
         final localName = await FlutterTimezone.getLocalTimezone();
         tz.setLocalLocation(tz.getLocation(localName));
       } catch (e) {
-        AppTelemetry.logInfo('notification_tz_local_failed', data: {'error': '$e'});
+        AppTelemetry.logInfo('notification_tz_local_failed',
+            data: {'error': '$e'});
       }
       const android = AndroidInitializationSettings('@mipmap/ic_launcher');
       const darwin = DarwinInitializationSettings(
@@ -84,7 +85,8 @@ class LocalNotificationScheduler implements NotificationScheduler {
       }
       return false;
     } catch (e) {
-      AppTelemetry.logInfo('notification_permission_failed', data: {'error': '$e'});
+      AppTelemetry.logInfo('notification_permission_failed',
+          data: {'error': '$e'});
       return false;
     }
   }
@@ -124,7 +126,8 @@ class LocalNotificationScheduler implements NotificationScheduler {
         matchDateTimeComponents: DateTimeComponents.time,
       );
     } catch (e) {
-      AppTelemetry.logInfo('notification_schedule_failed', data: {'error': '$e'});
+      AppTelemetry.logInfo('notification_schedule_failed',
+          data: {'error': '$e'});
     }
   }
 
