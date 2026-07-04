@@ -3,6 +3,7 @@ import pytest_asyncio
 import os
 from typing import AsyncGenerator
 from httpx import AsyncClient, ASGITransport
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
 # 테스트 환경 설정
@@ -22,6 +23,15 @@ from src.models.db import Base
 # 테스트용 DB 엔진
 TEST_DATABASE_URL = "sqlite+aiosqlite:///./test.db"
 test_engine = create_async_engine(TEST_DATABASE_URL, echo=False)
+
+
+# SQLite는 기본적으로 FK를 강제하지 않는다. 운영 Postgres와 동치를 만들어 FK 위반
+# (책 삭제 시 자식 행 누락 등)을 테스트가 잡도록 PRAGMA foreign_keys=ON 을 강제한다.
+@event.listens_for(test_engine.sync_engine, "connect")
+def _enable_sqlite_foreign_keys(dbapi_connection, _connection_record):
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
 TestSessionLocal = async_sessionmaker(
     bind=test_engine,
     class_=AsyncSession,

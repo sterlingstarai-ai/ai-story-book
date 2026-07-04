@@ -5,8 +5,10 @@
 """
 
 import pytest
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.models.db import CreditTransaction, UserCredits
 from src.services.streak import streak_service
 
 
@@ -55,3 +57,44 @@ async def test_grant_milestone_rewards_skips_rewardless(
         [{"type": "streak", "days": 7, "title": "7일", "reward": None}],
     )
     assert granted == 0
+
+
+@pytest.mark.asyncio
+async def test_grant_milestone_rewards_is_idempotent(
+    db_session: AsyncSession,
+    headers: dict,
+):
+    user_key = headers["X-User-Key"]
+    milestone = {
+        "type": "total",
+        "days": 10,
+        "title": "10일 완독",
+        "reward": "free_pdf",
+    }
+
+    first_grant = await streak_service._grant_milestone_rewards(
+        db_session,
+        user_key,
+        [milestone],
+    )
+    repeated_grant = await streak_service._grant_milestone_rewards(
+        db_session,
+        user_key,
+        [milestone],
+    )
+
+    balance = await db_session.scalar(
+        select(UserCredits.credits).where(UserCredits.user_key == user_key)
+    )
+    reward_transactions = await db_session.scalar(
+        select(func.count(CreditTransaction.id)).where(
+            CreditTransaction.user_key == user_key,
+            CreditTransaction.transaction_type == "bonus",
+            CreditTransaction.reference_id == "milestone_total_10",
+        )
+    )
+
+    assert first_grant == 1
+    assert repeated_grant == 0
+    assert balance == 4
+    assert reward_transactions == 1

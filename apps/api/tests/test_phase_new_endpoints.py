@@ -17,7 +17,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
 from src.core.utils import utcnow
-from src.models.db import Book, ChildProfile, Job, Page, PodOrder, Subscription
+from src.models.db import (
+    Book,
+    Character,
+    ChildProfile,
+    Job,
+    Page,
+    PodOrder,
+    Series,
+    Subscription,
+)
+from tests.factories import make_book_rows
 
 
 @pytest.mark.asyncio
@@ -548,6 +558,29 @@ async def test_library_returns_series_and_character_metadata(
     db_session: AsyncSession,
 ):
     """서재 응답이 시리즈/캐릭터 그룹핑 메타데이터를 포함하는지(P0-3)."""
+    db_session.add_all(
+        [
+            Character(
+                id="char-lib-1",
+                name="또또",
+                master_description="용감한 여우",
+                appearance={},
+                clothing={},
+                personality_traits=[],
+                user_key=headers["X-User-Key"],
+            ),
+            Series(
+                id="series-lib-1",
+                title="또또의 모험",
+                language="ko",
+                target_age="5-7",
+                style="watercolor",
+                user_key=headers["X-User-Key"],
+            ),
+        ]
+    )
+    await db_session.flush()
+
     for idx in (1, 2):
         job = Job(
             id=f"job-library-series-{idx}",
@@ -1254,7 +1287,10 @@ async def test_pod_order_validates_and_normalizes_shipping_address(
 async def test_pronunciation_evaluate_scores_by_similarity(
     client: AsyncClient,
     headers: dict,
+    db_session: AsyncSession,
 ):
+    db_session.add_all(make_book_rows([("book-pron-1", headers["X-User-Key"])]))
+    await db_session.commit()
     expected = "토끼가 숲 속으로 천천히 걸어갔어요"
 
     high_res = await client.post(
@@ -1293,7 +1329,10 @@ async def test_pronunciation_evaluate_audio_uses_stt_transcript(
     client: AsyncClient,
     headers: dict,
     monkeypatch: pytest.MonkeyPatch,
+    db_session: AsyncSession,
 ):
+    db_session.add_all(make_book_rows([("book-pron-audio", headers["X-User-Key"])]))
+    await db_session.commit()
     from src.routers import pronunciation as pronunciation_router
 
     async def _mock_transcribe_audio(*args, **kwargs):

@@ -868,12 +868,14 @@ class ApiClient {
     required String targetAge,
     required String style,
     String? protagonistName,
+    String language = 'ko',
   }) async {
     final response = await _dio.post(
       '/v1/streak/today/generate',
       data: {
         'target_age': targetAge,
         'style': style,
+        'language': language,
         if (protagonistName != null && protagonistName.isNotEmpty)
           'protagonist_name': protagonistName,
       },

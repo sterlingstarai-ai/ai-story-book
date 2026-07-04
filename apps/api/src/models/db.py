@@ -278,6 +278,22 @@ class CreditTransaction(Base):
     """크레딧 거래 기록"""
 
     __tablename__ = "credit_transactions"
+    __table_args__ = (
+        Index(
+            "uq_credit_transactions_milestone_bonus",
+            "user_key",
+            "reference_id",
+            unique=True,
+            sqlite_where=text(
+                "transaction_type = 'bonus' "
+                "AND reference_id LIKE 'milestone_%'"
+            ),
+            postgresql_where=text(
+                "transaction_type = 'bonus' "
+                "AND reference_id LIKE 'milestone_%'"
+            ),
+        ),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_key = Column(String(80), nullable=False, index=True)
@@ -338,6 +354,9 @@ class ReadingLog(Base):
     completed = Column(Boolean, default=False)  # 끝까지 읽었는지
     created_at = Column(DateTime, default=utcnow)
 
+    # 책 참조(many-to-one). UOW가 Book을 ReadingLog보다 먼저 INSERT하도록 보장한다.
+    book = relationship("Book")
+
 
 class IAPReceipt(Base):
     """인앱 결제 영수증 저장"""
@@ -349,6 +368,14 @@ class IAPReceipt(Base):
             "transaction_id",
             name="uq_iap_receipts_platform_transaction_id",
         ),
+        # 리플레이 방지의 정본 키: 클라이언트가 보낸 transaction_id가 아니라
+        # 스토어가 검증해 돌려준 식별자(Apple original_transaction_id / Google orderId).
+        # 같은 영수증을 다른 transaction_id로 재제출하는 공격을 DB 레벨에서 차단한다.
+        UniqueConstraint(
+            "platform",
+            "store_transaction_id",
+            name="uq_iap_receipts_platform_store_transaction_id",
+        ),
         Index("ix_iap_receipts_user_key", "user_key"),
     )
 
@@ -357,6 +384,8 @@ class IAPReceipt(Base):
     platform = Column(String(20), nullable=False)  # apple, google
     product_id = Column(String(120), nullable=False)
     transaction_id = Column(String(200), nullable=False)
+    # 스토어 검증으로 확정된 거래 식별자(없으면 NULL — local 모드에선 transaction_id와 동일).
+    store_transaction_id = Column(String(200), nullable=True)
     purchase_token = Column(String(500), nullable=True)
     status = Column(String(40), nullable=False, default="verified")
     payload = Column(JSON, nullable=True)
@@ -554,6 +583,8 @@ class PronunciationLog(Base):
     audio_url = Column(String(500), nullable=True)
     created_at = Column(DateTime, default=utcnow)
 
+    book = relationship("Book")
+
 
 class QuizAnswer(Base):
     """학습 퀴즈/어휘 응답 기록 — '읽기 성장' 측정의 근거 데이터.
@@ -579,3 +610,5 @@ class QuizAnswer(Base):
     user_answer = Column(Text, nullable=True)
     correct = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, default=utcnow)
+
+    book = relationship("Book")

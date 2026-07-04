@@ -1,0 +1,764 @@
+- generic [active] [ref=e1]:
+  - navigation [ref=e2]:
+    - generic [ref=e4]:
+      - link "ToonyStory" [ref=e5] [cursor=pointer]:
+        - /url: /
+        - img "ToonyStory" [ref=e6]
+      - navigation "Main" [ref=e7]:
+        - list [ref=e9]:
+          - listitem [ref=e10]:
+            - button "Use Cases" [ref=e11] [cursor=pointer]:
+              - text: Use Cases
+              - img [ref=e12]
+          - listitem [ref=e14]:
+            - button "Product" [ref=e15] [cursor=pointer]:
+              - text: Product
+              - img [ref=e16]
+          - listitem [ref=e18]:
+            - link "Pricing" [ref=e19] [cursor=pointer]:
+              - /url: /pricing
+          - listitem [ref=e20]:
+            - link "Blog" [ref=e21] [cursor=pointer]:
+              - /url: /blog
+      - generic [ref=e22]:
+        - link "Log in" [ref=e23] [cursor=pointer]:
+          - /url: /login
+          - button "Log in" [ref=e24]
+        - link "Get Started" [ref=e25] [cursor=pointer]:
+          - /url: /signup
+          - button "Get Started" [ref=e26]
+  - main [ref=e27]:
+    - generic [ref=e28]:
+      - generic [ref=e29]:
+        - generic:
+          - generic:
+            - img
+          - generic:
+            - img
+          - generic:
+            - img
+          - generic:
+            - img
+          - generic:
+            - img
+          - generic:
+            - img
+          - generic:
+            - img
+          - generic:
+            - img
+          - generic:
+            - img
+          - generic:
+            - img
+          - generic:
+            - img
+          - generic:
+            - img
+          - generic:
+            - img
+          - generic:
+            - img
+          - generic:
+            - img
+          - generic:
+            - img
+          - generic:
+            - img
+          - generic:
+            - img
+          - generic:
+            - img
+          - generic:
+            - img
+          - generic:
+            - img
+          - generic:
+            - img
+          - generic:
+            - img
+          - generic:
+            - img
+          - generic:
+            - img
+          - generic:
+            - img
+        - generic [ref=e30]:
+          - navigation "Breadcrumb" [ref=e31]:
+            - link "Home" [ref=e33] [cursor=pointer]:
+              - /url: /
+            - generic [ref=e34]:
+              - img [ref=e35]
+              - generic [ref=e37]: AI Storybook Maker
+          - heading "Free AI Storybook Maker — Create Personalized Children's Books in Minutes" [level=1] [ref=e38]
+          - paragraph [ref=e39]: The free AI storybook maker that turns one photo into a complete illustrated children's book. AI writes the story, generates full-color art on every page, and keeps the character looking like your child from page one to the end. WYSIWYG preview before you order — no credit card required.
+          - generic [ref=e40]:
+            - link "Create a Story Free" [ref=e41] [cursor=pointer]:
+              - /url: /tools/ai-story-generator
+              - text: Create a Story Free
+              - img [ref=e42]
+            - link "Sign up with Google" [ref=e44] [cursor=pointer]:
+              - /url: /api/auth/google
+              - img [ref=e45]
+              - text: Sign up with Google
+          - generic [ref=e51]:
+            - generic [ref=e54]:
+              - generic [ref=e55]:
+                - button "Digital" [ref=e56] [cursor=pointer]:
+                  - img [ref=e57]
+                  - text: Digital
+                - button "Storybook" [ref=e59] [cursor=pointer]:
+                  - img [ref=e60]
+                  - text: Storybook
+              - generic [ref=e62]:
+                - img "Tiny World" [ref=e67]
+                - button "Previous page" [disabled] [ref=e69]:
+                  - img [ref=e70]
+                - button "Next page" [ref=e73] [cursor=pointer]:
+                  - img [ref=e74]
+              - generic [ref=e76]:
+                - button "Go to page 1" [ref=e77] [cursor=pointer]
+                - button "Go to page 2" [ref=e78] [cursor=pointer]
+                - button "Go to page 3" [ref=e79] [cursor=pointer]
+                - button "Go to page 4" [ref=e80] [cursor=pointer]
+                - button "Go to page 5" [ref=e81] [cursor=pointer]
+                - button "Go to page 6" [ref=e82] [cursor=pointer]
+                - button "Go to page 7" [ref=e83] [cursor=pointer]
+                - button "Go to page 8" [ref=e84] [cursor=pointer]
+            - generic [ref=e85]:
+              - paragraph [ref=e86]: "Interactive preview: flip through a sample book"
+              - link "See it live" [ref=e87] [cursor=pointer]:
+                - /url: /book/RXymp8YgstjlHaqKQZIpI
+                - img [ref=e88]
+                - text: See it live
+                - img [ref=e91]
+      - generic [ref=e95]:
+        - button "Contents" [ref=e96] [cursor=pointer]:
+          - generic [ref=e97]:
+            - img [ref=e98]
+            - generic [ref=e99]: Contents
+        - list [ref=e102]:
+          - listitem [ref=e103]:
+            - button "From photo to storybook in minutes" [ref=e104] [cursor=pointer]
+          - listitem [ref=e105]:
+            - button "Everything you need for the perfect story" [ref=e106] [cursor=pointer]
+          - listitem [ref=e107]:
+            - button "What our customers say" [ref=e108] [cursor=pointer]
+          - listitem [ref=e109]:
+            - button "Frequently asked questions" [ref=e110] [cursor=pointer]
+      - generic [ref=e112]:
+        - heading "From photo to storybook in minutes" [level=2] [ref=e114]
+        - generic [ref=e115]:
+          - generic [ref=e116]:
+            - generic [ref=e118]: "1"
+            - generic [ref=e119]:
+              - heading "Upload a Photo" [level=3] [ref=e120]
+              - paragraph [ref=e121]: Any clear, front-facing photo works. Upload from your phone or computer — one photo is all the AI needs.
+          - generic [ref=e122]:
+            - generic [ref=e124]: "2"
+            - generic [ref=e125]:
+              - heading "AI Creates Their Character" [level=3] [ref=e126]
+              - paragraph [ref=e127]: Our AI analyzes the photo and generates a consistent animated character that captures your child's real face, hair, and features.
+          - generic [ref=e128]:
+            - generic [ref=e130]: "3"
+            - generic [ref=e131]:
+              - heading "AI Writes & Illustrates the Story" [level=3] [ref=e132]
+              - paragraph [ref=e133]: Pick a theme and adventure. AI writes a complete story with a beginning, middle, and end — and generates full-color cinematic illustrations for every page.
+          - generic [ref=e134]:
+            - generic [ref=e136]: "4"
+            - generic [ref=e137]:
+              - heading "Preview Every Page, Then Order" [level=3] [ref=e138]
+              - paragraph [ref=e139]: See every illustrated page exactly as it will print — free, no credit card required. When you love it, order a premium hardcover delivered in 3-5 days.
+      - generic [ref=e141]:
+        - heading "Everything you need for the perfect story" [level=2] [ref=e143]
+        - generic [ref=e144]:
+          - generic [ref=e145]:
+            - img [ref=e147]
+            - heading "AI-Powered from Photo to Story" [level=3] [ref=e150]
+            - paragraph [ref=e151]: Describe a theme, upload a photo, and ToonyStory's AI writes the story, generates the illustrations, and builds a complete personalized book — all in under five minutes. No page-by-page editing required.
+          - generic [ref=e152]:
+            - img [ref=e154]
+            - heading "Real Photos, Not Generic Avatars" [level=3] [ref=e157]
+            - paragraph [ref=e158]: Most personalized book tools use cartoon avatar builders — preset eyes, hair, accessories. ToonyStory generates storybook characters directly from your child's real photo. Same face. Same smile. Every page.
+          - generic [ref=e159]:
+            - img [ref=e161]
+            - heading "Full-Color Illustrations on Every Page" [level=3] [ref=e167]
+            - paragraph [ref=e168]: Every scene is a cinematic, full-color illustration — not black-and-white line drawings, not clip art. Movie-quality artwork that brings your child's adventure to life.
+          - link "Consistent Character Throughout AI maintains the same character appearance from page one to the last — same face, same hair, same outfit. No inconsistencies, no random variations." [ref=e169] [cursor=pointer]:
+            - /url: /ai-character-consistency
+            - generic [ref=e170]:
+              - img [ref=e172]
+              - heading "Consistent Character Throughout" [level=3] [ref=e181]
+              - paragraph [ref=e182]: AI maintains the same character appearance from page one to the last — same face, same hair, same outfit. No inconsistencies, no random variations.
+          - generic [ref=e183]:
+            - img [ref=e185]
+            - heading "WYSIWYG Preview — What You See Is What Prints" [level=3] [ref=e188]
+            - paragraph [ref=e189]: Preview every page for free before ordering. The page you approve is the page that ships — no format surprises, no color letdowns.
+          - generic [ref=e190]:
+            - img [ref=e192]
+            - heading "Transparent Pricing, No Hidden Fees" [level=3] [ref=e194]
+            - paragraph [ref=e195]: Free to start. Every price is listed publicly on our pricing page. No surprise charges, no hidden fees — what you see at checkout is the complete cost.
+      - generic [ref=e198]:
+        - generic [ref=e199]:
+          - generic [ref=e200]:
+            - generic [ref=e201]: Upload your photos
+            - generic [ref=e202]:
+              - generic [ref=e203]:
+                - generic [ref=e204]:
+                  - img [ref=e205]
+                  - generic [ref=e210]: Studio Cast
+                - generic [ref=e211]:
+                  - generic [ref=e212]:
+                    - img [ref=e213]
+                    - generic [ref=e216]: Search cast...
+                  - generic [ref=e217]:
+                    - img [ref=e219]
+                    - img [ref=e225]
+                  - generic [ref=e226]:
+                    - img [ref=e227]
+                    - generic [ref=e228]: Add Character
+              - generic [ref=e230]:
+                - generic [ref=e231]:
+                  - img "Gerold — original photo" [ref=e233]
+                  - generic [ref=e234]:
+                    - generic [ref=e235]: Gerold
+                    - generic [ref=e236]: Grandparent
+                - generic [ref=e237]:
+                  - img "Chewy — original photo" [ref=e239]
+                  - generic [ref=e240]:
+                    - generic [ref=e241]: Chewy
+                    - generic [ref=e242]: Pet
+                - generic [ref=e243]:
+                  - img "Sarah — original photo" [ref=e245]
+                  - generic [ref=e246]:
+                    - generic [ref=e247]: Sarah
+                    - generic [ref=e248]: Parent
+                - generic [ref=e249]:
+                  - img "Betty — original photo" [ref=e251]
+                  - generic [ref=e252]:
+                    - generic [ref=e253]: Betty
+                    - generic [ref=e254]: Grandparent
+                - generic [ref=e255]:
+                  - img "John — original photo" [ref=e257]
+                  - generic [ref=e258]:
+                    - generic [ref=e259]: John
+                    - generic [ref=e260]: Parent
+                - generic [ref=e261]:
+                  - img "Beau — original photo" [ref=e263]
+                  - generic [ref=e264]:
+                    - generic [ref=e265]: Beau
+                    - generic [ref=e266]: Child
+                - generic [ref=e267]:
+                  - img "River — original photo" [ref=e269]
+                  - generic [ref=e270]:
+                    - generic [ref=e271]: River
+                    - generic [ref=e272]: Child
+                - generic [ref=e273]:
+                  - img [ref=e275]
+                  - generic [ref=e276]: New Character
+          - generic [ref=e277]:
+            - generic [ref=e278]: Get consistent characters
+            - generic [ref=e279]:
+              - img "Character sheet — stylized versions of the cast for consistent illustrations"
+        - generic [ref=e280]:
+          - generic [ref=e281]: Same characters on every page
+          - generic [ref=e283]:
+            - generic [ref=e287]:
+              - img "Page 1 — consistent characters throughout" [ref=e288]
+              - generic [ref=e289]: Page 1
+            - generic [ref=e293]:
+              - img "Page 2 — consistent characters throughout" [ref=e294]
+              - generic [ref=e295]: Page 2
+            - generic [ref=e299]:
+              - img "Page 3 — consistent characters throughout" [ref=e300]
+              - generic [ref=e301]: Page 3
+            - generic [ref=e305]:
+              - img "Page 4 — consistent characters throughout" [ref=e306]
+              - generic [ref=e307]: Page 4
+            - generic [ref=e310]:
+              - img "Page 5 — consistent characters throughout" [ref=e311]
+              - generic [ref=e312]: Page 5
+      - generic [ref=e316]:
+        - generic [ref=e317]:
+          - paragraph [ref=e318]: Make It Your Style
+          - heading "14 Art Styles to Choose From" [level=2] [ref=e319]
+          - paragraph [ref=e320]: Every story gets its own look. Pick the style that fits your vibe.
+        - generic [ref=e321]:
+          - generic [ref=e323]:
+            - img "Animated art style preview" [ref=e324]
+            - generic [ref=e325]:
+              - paragraph [ref=e326]: Animated
+              - paragraph [ref=e327]: Pixar Inspired
+          - generic [ref=e329]:
+            - img "Modern 3D art style preview" [ref=e330]
+            - generic [ref=e331]:
+              - paragraph [ref=e332]: Modern 3D
+              - paragraph [ref=e333]: Cinematic cartoon
+          - generic [ref=e335]:
+            - img "Soft Realism art style preview" [ref=e336]
+            - generic [ref=e337]:
+              - paragraph [ref=e338]: Soft Realism
+              - paragraph [ref=e339]: Painted portrait
+          - generic [ref=e341]:
+            - img "Soft & Dreamy art style preview" [ref=e342]
+            - generic [ref=e343]:
+              - paragraph [ref=e344]: Soft & Dreamy
+              - paragraph [ref=e345]: Gentle pastels
+          - generic [ref=e347]:
+            - img "Watercolor art style preview" [ref=e348]
+            - generic [ref=e349]:
+              - paragraph [ref=e350]: Watercolor
+              - paragraph [ref=e351]: Hand-painted
+          - generic [ref=e353]:
+            - img "Storybook Classic art style preview" [ref=e354]
+            - generic [ref=e355]:
+              - paragraph [ref=e356]: Storybook Classic
+              - paragraph [ref=e357]: Warm & timeless
+          - generic [ref=e359]:
+            - img "Anime art style preview" [ref=e360]
+            - generic [ref=e361]:
+              - paragraph [ref=e362]: Anime
+              - paragraph [ref=e363]: Ghibli-inspired
+          - generic [ref=e365]:
+            - img "Realistic art style preview" [ref=e366]
+            - generic [ref=e367]:
+              - paragraph [ref=e368]: Realistic
+              - paragraph [ref=e369]: Cinematic
+          - generic [ref=e371]:
+            - img "Comic art style preview" [ref=e372]
+            - generic [ref=e373]:
+              - paragraph [ref=e374]: Comic
+              - paragraph [ref=e375]: Graphic novel
+          - generic [ref=e377]:
+            - img "Pencil Sketch art style preview" [ref=e378]
+            - generic [ref=e379]:
+              - paragraph [ref=e380]: Pencil Sketch
+              - paragraph [ref=e381]: Graphite & charcoal
+          - generic [ref=e383]:
+            - img "Plastic Brick art style preview" [ref=e384]
+            - generic [ref=e385]:
+              - paragraph [ref=e386]: Plastic Brick
+              - paragraph [ref=e387]: Brick toy diorama
+          - generic [ref=e389]:
+            - img "Paper Craft art style preview" [ref=e390]
+            - generic [ref=e391]:
+              - paragraph [ref=e392]: Paper Craft
+              - paragraph [ref=e393]: Layered papercut
+          - generic [ref=e395]:
+            - img "Volumetric Pixel art style preview" [ref=e396]
+            - generic [ref=e397]:
+              - paragraph [ref=e398]: Volumetric Pixel
+              - paragraph [ref=e399]: Voxel blocks
+          - generic [ref=e401]:
+            - img "Playful Cartoon art style preview" [ref=e402]
+            - generic [ref=e403]:
+              - paragraph [ref=e404]: Playful Cartoon
+              - paragraph [ref=e405]: Bold & bouncy
+      - generic [ref=e407]:
+        - heading "More ways to create" [level=2] [ref=e409]
+        - generic [ref=e410]:
+          - link "Kids Storybooks Explore all personalized storybook styles for children." [ref=e411] [cursor=pointer]:
+            - /url: /kids-storybooks
+            - generic [ref=e412]:
+              - img [ref=e414]
+              - heading "Kids Storybooks" [level=3] [ref=e416]
+              - paragraph [ref=e417]: Explore all personalized storybook styles for children.
+          - link "Photo Storybooks Turn your child's photos into illustrated adventures." [ref=e418] [cursor=pointer]:
+            - /url: /kids-storybooks/photo-storybooks
+            - generic [ref=e419]:
+              - img [ref=e421]
+              - heading "Photo Storybooks" [level=3] [ref=e424]
+              - paragraph [ref=e425]: Turn your child's photos into illustrated adventures.
+          - link "Birthday Gift Books The gift they'll never forget — starring them." [ref=e426] [cursor=pointer]:
+            - /url: /kids-storybooks/birthday-gift
+            - generic [ref=e427]:
+              - img [ref=e429]
+              - heading "Birthday Gift Books" [level=3] [ref=e433]
+              - paragraph [ref=e434]: The gift they'll never forget — starring them.
+          - link "Art Styles 12 illustration styles — comic, watercolor, anime, and more." [ref=e435] [cursor=pointer]:
+            - /url: /styles
+            - generic [ref=e436]:
+              - img [ref=e438]
+              - heading "Art Styles" [level=3] [ref=e444]
+              - paragraph [ref=e445]: 12 illustration styles — comic, watercolor, anime, and more.
+      - generic [ref=e447]:
+        - heading "What our customers say" [level=2] [ref=e449]
+        - generic [ref=e450]:
+          - generic [ref=e451]:
+            - generic [ref=e452]:
+              - img [ref=e453]
+              - img [ref=e455]
+              - img [ref=e457]
+              - img [ref=e459]
+              - img [ref=e461]
+            - paragraph [ref=e463]: “I uploaded one photo and had a full illustrated book in minutes. My daughter's character looks exactly like her — her curly hair, her big smile. She's obsessed with it. I didn't expect it to be this good.”
+            - generic [ref=e464]:
+              - paragraph [ref=e465]: Priya M.
+              - paragraph [ref=e466]: Mom of a 5-year-old
+          - generic [ref=e467]:
+            - generic [ref=e468]:
+              - img [ref=e469]
+              - img [ref=e471]
+              - img [ref=e473]
+              - img [ref=e475]
+              - img [ref=e477]
+            - paragraph [ref=e479]: “The AI wrote a whole story and illustrated every page. I was skeptical but the preview sold me immediately — it looked like a real children's book, not something generated. Ordered it the same day.”
+            - generic [ref=e480]:
+              - paragraph [ref=e481]: James R.
+              - paragraph [ref=e482]: Dad buying a birthday gift
+      - generic [ref=e484]:
+        - heading "Frequently asked questions" [level=2] [ref=e486]
+        - generic [ref=e487]:
+          - generic [ref=e488]:
+            - button "Is the storybook maker free to use? +" [ref=e489] [cursor=pointer]:
+              - generic [ref=e490]: Is the storybook maker free to use?
+              - generic [ref=e491]: +
+            - generic [ref=e492]: Yes — the AI storybook maker is free to start. You can create a full storybook, see every illustrated page, and watch the preview without paying anything. You only pay if you want to print a physical copy or upgrade for extra credits and features. All pricing is listed publicly on our pricing page with no hidden fees.
+          - generic [ref=e493]:
+            - button "How is AI-generated different from traditional personalized children's books? +" [ref=e494] [cursor=pointer]:
+              - generic [ref=e495]: How is AI-generated different from traditional personalized children's books?
+              - generic [ref=e496]: +
+            - generic [ref=e497]: Traditional personalized books swap a name into a pre-written story with generic artwork. ToonyStory’s AI writes a unique story for your child and generates original full-color illustrations featuring a character built from their real photo — every book is genuinely one-of-a-kind.
+          - generic [ref=e498]:
+            - button "Do I need a subscription to create a book? +" [ref=e499] [cursor=pointer]:
+              - generic [ref=e500]: Do I need a subscription to create a book?
+              - generic [ref=e501]: +
+            - generic [ref=e502]: ToonyStory is free to start — create and preview your book at no cost. Paid plans unlock more features. Print pricing is transparent and shown upfront at checkout. Every price is listed publicly on our pricing page.
+          - generic [ref=e503]:
+            - button "How accurate is the preview before I order? +" [ref=e504] [cursor=pointer]:
+              - generic [ref=e505]: How accurate is the preview before I order?
+              - generic [ref=e506]: +
+            - generic [ref=e507]: The preview is WYSIWYG — what you see is exactly what prints. The page you approve is the page that ships. There are no format changes, color shifts, or surprises when your book arrives.
+          - generic [ref=e508]:
+            - button "What kind of photo do I need to upload? +" [ref=e509] [cursor=pointer]:
+              - generic [ref=e510]: What kind of photo do I need to upload?
+              - generic [ref=e511]: +
+            - generic [ref=e512]: A clear, front-facing photo with good lighting works best. The AI uses the photo to build your child's character, so the clearer the face, the more accurate the result. Most phone photos work great.
+          - generic [ref=e513]:
+            - button "Can I add siblings, grandparents, or pets to the story? +" [ref=e514] [cursor=pointer]:
+              - generic [ref=e515]: Can I add siblings, grandparents, or pets to the story?
+              - generic [ref=e516]: +
+            - generic [ref=e517]: Yes — you can add multiple characters from separate photos. Everyone gets their own AI-generated character that appears consistently throughout the story.
+          - generic [ref=e518]:
+            - button "How long does it take to create and receive a book? +" [ref=e519] [cursor=pointer]:
+              - generic [ref=e520]: How long does it take to create and receive a book?
+              - generic [ref=e521]: +
+            - generic [ref=e522]: AI generates your complete illustrated book in under five minutes. Once you order, standard printing and shipping takes 3-5 business days. Priority shipping is also available at checkout.
+      - generic [ref=e524]:
+        - generic [ref=e525]:
+          - img [ref=e527]
+          - heading "Free to Start" [level=4] [ref=e529]
+          - paragraph [ref=e530]: Build & preview a full book, no card required.
+        - generic [ref=e531]:
+          - img [ref=e533]
+          - heading "Photo to Story in 5 Min" [level=4] [ref=e536]
+          - paragraph [ref=e537]: AI writes and illustrates your book.
+        - generic [ref=e538]:
+          - img [ref=e540]
+          - heading "WYSIWYG Preview" [level=4] [ref=e543]
+          - paragraph [ref=e544]: What you see is what prints.
+      - generic [ref=e546]:
+        - heading "Turn Any Photo into a Personalized AI Storybook" [level=2] [ref=e547]
+        - paragraph [ref=e548]: Upload a photo, pick a theme, and AI writes and illustrates a complete children's book in minutes. Free to start, preview before you print.
+        - link "Create a Story Free" [ref=e549] [cursor=pointer]:
+          - /url: /create
+          - text: Create a Story Free
+          - img [ref=e550]
+  - contentinfo [ref=e552]:
+    - generic [ref=e553]:
+      - generic [ref=e554]:
+        - link "ToonyStory" [ref=e555] [cursor=pointer]:
+          - /url: /
+          - img "ToonyStory" [ref=e556]
+        - paragraph [ref=e557]: Personalized storybooks for anyone you love — kids, couples, families, even the dog. Real photos become characters. Movie-quality illustrations in minutes.
+        - generic [ref=e558]:
+          - link "TikTok" [ref=e559] [cursor=pointer]:
+            - /url: https://www.tiktok.com/@toonystory
+            - img [ref=e560]
+          - link "Facebook" [ref=e562] [cursor=pointer]:
+            - /url: https://www.facebook.com/createtoonystory
+            - img [ref=e563]
+          - link "Instagram" [ref=e565] [cursor=pointer]:
+            - /url: https://www.instagram.com/createtoonystory
+            - img [ref=e566]
+          - link "YouTube" [ref=e568] [cursor=pointer]:
+            - /url: https://www.youtube.com/@createtoonystory
+            - img [ref=e569]
+          - link "Pinterest" [ref=e571] [cursor=pointer]:
+            - /url: https://www.pinterest.com/toonystory
+            - img [ref=e572]
+      - generic [ref=e574]:
+        - generic [ref=e575]:
+          - heading "Kids Storybooks" [level=3] [ref=e576]
+          - list [ref=e577]:
+            - listitem [ref=e578]:
+              - link "All Kids Storybooks" [ref=e579] [cursor=pointer]:
+                - /url: /kids-storybooks
+            - listitem [ref=e580]:
+              - link "Photo Storybooks" [ref=e581] [cursor=pointer]:
+                - /url: /kids-storybooks/photo-storybooks
+            - listitem [ref=e582]:
+              - link "Video Bedtime Stories" [ref=e583] [cursor=pointer]:
+                - /url: /kids-storybooks/video-bedtime-stories
+            - listitem [ref=e584]:
+              - link "Birthday Gift Books" [ref=e585] [cursor=pointer]:
+                - /url: /kids-storybooks/birthday-gift
+            - listitem [ref=e586]:
+              - link "Grandparent Gifts" [ref=e587] [cursor=pointer]:
+                - /url: /kids-storybooks/grandparent-gift
+            - listitem [ref=e588]:
+              - link "For Teachers" [ref=e589] [cursor=pointer]:
+                - /url: /kids-storybooks/for-teachers
+            - listitem [ref=e590]:
+              - link "Baby Books" [ref=e591] [cursor=pointer]:
+                - /url: /kids-storybooks/baby-books
+        - generic [ref=e592]:
+          - heading "Gifts" [level=3] [ref=e593]
+          - list [ref=e594]:
+            - listitem [ref=e595]:
+              - link "All Gifts" [ref=e596] [cursor=pointer]:
+                - /url: /gifts
+            - listitem [ref=e597]:
+              - link "Grandparent Gifts" [ref=e598] [cursor=pointer]:
+                - /url: /gifts/grandparents
+            - listitem [ref=e599]:
+              - link "Keepsake Books" [ref=e600] [cursor=pointer]:
+                - /url: /gifts/keepsake-books
+            - listitem [ref=e601]:
+              - link "From Grandkids" [ref=e602] [cursor=pointer]:
+                - /url: /gifts/from-grandkids
+            - listitem [ref=e603]:
+              - link "New Grandparents" [ref=e604] [cursor=pointer]:
+                - /url: /gifts/new-grandparents
+            - listitem [ref=e605]:
+              - link "Mother's Day" [ref=e606] [cursor=pointer]:
+                - /url: /gifts/mothers-day
+            - listitem [ref=e607]:
+              - link "Father's Day" [ref=e608] [cursor=pointer]:
+                - /url: /gifts/fathers-day
+            - listitem [ref=e609]:
+              - link "Birthday Gifts" [ref=e610] [cursor=pointer]:
+                - /url: /gifts/birthday
+            - listitem [ref=e611]:
+              - link "Christmas Gifts" [ref=e612] [cursor=pointer]:
+                - /url: /gifts/christmas
+            - listitem [ref=e613]:
+              - link "Valentine's Day" [ref=e614] [cursor=pointer]:
+                - /url: /gifts/valentines-day
+            - listitem [ref=e615]:
+              - link "Personalized Gifts" [ref=e616] [cursor=pointer]:
+                - /url: /gifts/personalized
+        - generic [ref=e617]:
+          - heading "Love Story Gifts" [level=3] [ref=e618]
+          - list [ref=e619]:
+            - listitem [ref=e620]:
+              - link "All Love Story Gifts" [ref=e621] [cursor=pointer]:
+                - /url: /love-story-gifts
+            - listitem [ref=e622]:
+              - link "Wedding Gifts" [ref=e623] [cursor=pointer]:
+                - /url: /love-story-gifts/wedding
+            - listitem [ref=e624]:
+              - link "Anniversary Gifts" [ref=e625] [cursor=pointer]:
+                - /url: /love-story-gifts/anniversary
+            - listitem [ref=e626]:
+              - link "Valentine's Day" [ref=e627] [cursor=pointer]:
+                - /url: /love-story-gifts/valentines-day
+            - listitem [ref=e628]:
+              - link "Why I Love You Book" [ref=e629] [cursor=pointer]:
+                - /url: /love-story-gifts/why-i-love-you
+        - generic [ref=e630]:
+          - heading "Travel Stories" [level=3] [ref=e631]
+          - list [ref=e632]:
+            - listitem [ref=e633]:
+              - link "All Travel Stories" [ref=e634] [cursor=pointer]:
+                - /url: /travel-stories
+            - listitem [ref=e635]:
+              - link "Family Vacation Stories" [ref=e636] [cursor=pointer]:
+                - /url: /travel-stories/family-vacation
+            - listitem [ref=e637]:
+              - link "Honeymoon Recaps" [ref=e638] [cursor=pointer]:
+                - /url: /travel-stories/honeymoon
+            - listitem [ref=e639]:
+              - link "Road Trip Stories" [ref=e640] [cursor=pointer]:
+                - /url: /travel-stories/road-trip
+            - listitem [ref=e641]:
+              - link "Friends Trip" [ref=e642] [cursor=pointer]:
+                - /url: /travel-stories/friends-trip
+        - generic [ref=e643]:
+          - heading "Pet Stories" [level=3] [ref=e644]
+          - list [ref=e645]:
+            - listitem [ref=e646]:
+              - link "All Pet Stories" [ref=e647] [cursor=pointer]:
+                - /url: /pet-stories
+            - listitem [ref=e648]:
+              - link "Dog Stories" [ref=e649] [cursor=pointer]:
+                - /url: /pet-stories/dog-stories
+            - listitem [ref=e650]:
+              - link "Cat Stories" [ref=e651] [cursor=pointer]:
+                - /url: /pet-stories/cat-stories
+            - listitem [ref=e652]:
+              - link "Pet Memorial Books" [ref=e653] [cursor=pointer]:
+                - /url: /pet-stories/pet-memorial
+            - listitem [ref=e654]:
+              - link "Loss of Dog Gifts" [ref=e655] [cursor=pointer]:
+                - /url: /pet-stories/loss-of-dog-gift
+            - listitem [ref=e656]:
+              - link "Loss of Cat Gifts" [ref=e657] [cursor=pointer]:
+                - /url: /pet-stories/loss-of-cat-gift
+            - listitem [ref=e658]:
+              - link "Rainbow Bridge Book" [ref=e659] [cursor=pointer]:
+                - /url: /pet-stories/rainbow-bridge
+            - listitem [ref=e660]:
+              - link "Pet Lover Gifts" [ref=e661] [cursor=pointer]:
+                - /url: /pet-stories/pet-lover-gifts
+            - listitem [ref=e662]:
+              - link "Rescue Story" [ref=e663] [cursor=pointer]:
+                - /url: /pet-stories/rescue-story
+        - generic [ref=e664]:
+          - heading "Faith Books" [level=3] [ref=e665]
+          - list [ref=e666]:
+            - listitem [ref=e667]:
+              - link "All Faith Books" [ref=e668] [cursor=pointer]:
+                - /url: /faith-books
+            - listitem [ref=e669]:
+              - link "Baptism & Christening Gift" [ref=e670] [cursor=pointer]:
+                - /url: /faith-books/baptism-gift
+            - listitem [ref=e671]:
+              - link "Personalized Bible Stories" [ref=e672] [cursor=pointer]:
+                - /url: /faith-books/bible-stories
+            - listitem [ref=e673]:
+              - link "Bedtime Prayers for Kids" [ref=e674] [cursor=pointer]:
+                - /url: /faith-books/bedtime-prayers-for-kids
+            - listitem [ref=e675]:
+              - link "Best Baptism Gifts" [ref=e676] [cursor=pointer]:
+                - /url: /faith-books/best-baptism-gifts
+            - listitem [ref=e677]:
+              - link "First Communion Gift" [ref=e678] [cursor=pointer]:
+                - /url: /faith-books/first-communion
+            - listitem [ref=e679]:
+              - link "Bible Verses for Kids" [ref=e680] [cursor=pointer]:
+                - /url: /faith-books/bible-verses-for-children
+        - generic [ref=e681]:
+          - heading "Journal to Book" [level=3] [ref=e682]
+          - list [ref=e683]:
+            - listitem [ref=e684]:
+              - link "All Journal to Book" [ref=e685] [cursor=pointer]:
+                - /url: /journal-to-book
+            - listitem [ref=e686]:
+              - link "Family History Book" [ref=e687] [cursor=pointer]:
+                - /url: /journal-to-book/family-history
+            - listitem [ref=e688]:
+              - link "Travel Journal Book" [ref=e689] [cursor=pointer]:
+                - /url: /journal-to-book/travel
+            - listitem [ref=e690]:
+              - link "Mission Journal Book" [ref=e691] [cursor=pointer]:
+                - /url: /journal-to-book/mission-journal
+            - listitem [ref=e692]:
+              - link "Kids Writing Book" [ref=e693] [cursor=pointer]:
+                - /url: /journal-to-book/kids-writing
+            - listitem [ref=e694]:
+              - link "Pregnancy Journal" [ref=e695] [cursor=pointer]:
+                - /url: /journal-to-book/pregnancy-journal
+            - listitem [ref=e696]:
+              - link "Life Memoir" [ref=e697] [cursor=pointer]:
+                - /url: /journal-to-book/memoir
+        - generic [ref=e698]:
+          - heading "Product" [level=3] [ref=e699]
+          - list [ref=e700]:
+            - listitem [ref=e701]:
+              - link "How It Works" [ref=e702] [cursor=pointer]:
+                - /url: /how-it-works
+            - listitem [ref=e703]:
+              - link "Pricing" [ref=e704] [cursor=pointer]:
+                - /url: /pricing
+            - listitem [ref=e705]:
+              - link "Character Consistency" [ref=e706] [cursor=pointer]:
+                - /url: /ai-character-consistency
+            - listitem [ref=e707]:
+              - link "Scene-by-Scene Storytelling" [ref=e708] [cursor=pointer]:
+                - /url: /scene-by-scene-storytelling
+            - listitem [ref=e709]:
+              - link "Community Books" [ref=e710] [cursor=pointer]:
+                - /url: /books
+            - listitem [ref=e711]:
+              - link "Compare" [ref=e712] [cursor=pointer]:
+                - /url: /compare
+            - listitem [ref=e713]:
+              - link "FAQ" [ref=e714] [cursor=pointer]:
+                - /url: /faq
+        - generic [ref=e715]:
+          - heading "Tools" [level=3] [ref=e716]
+          - list [ref=e717]:
+            - listitem [ref=e718]:
+              - link "Photo to Cartoon" [ref=e719] [cursor=pointer]:
+                - /url: /tools/photo-to-cartoon
+            - listitem [ref=e720]:
+              - link "AI Story Generator" [ref=e721] [cursor=pointer]:
+                - /url: /tools/ai-story-generator
+            - listitem [ref=e722]:
+              - link "Magic Editor" [ref=e723] [cursor=pointer]:
+                - /url: /tools/magic-editor
+        - generic [ref=e724]:
+          - heading "Art Styles" [level=3] [ref=e725]
+          - list [ref=e726]:
+            - listitem [ref=e727]:
+              - link "All Art Styles" [ref=e728] [cursor=pointer]:
+                - /url: /styles
+            - listitem [ref=e729]:
+              - link "Comic Book" [ref=e730] [cursor=pointer]:
+                - /url: /styles/comic-book
+        - generic [ref=e731]:
+          - heading "Company" [level=3] [ref=e732]
+          - list [ref=e733]:
+            - listitem [ref=e734]:
+              - link "About Us" [ref=e735] [cursor=pointer]:
+                - /url: /about
+            - listitem [ref=e736]:
+              - link "Contact" [ref=e737] [cursor=pointer]:
+                - /url: /contact
+            - listitem [ref=e738]:
+              - link "Support" [ref=e739] [cursor=pointer]:
+                - /url: /support
+            - listitem [ref=e740]:
+              - link "Blog" [ref=e741] [cursor=pointer]:
+                - /url: /blog
+            - listitem [ref=e742]:
+              - link "Help Center" [ref=e743] [cursor=pointer]:
+                - /url: /help
+      - link "ToonyStory on Product Hunt" [ref=e745] [cursor=pointer]:
+        - /url: https://www.producthunt.com/products/toonystory?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-toonystory
+        - img "ToonyStory - Consistent characters in AI storybooks. Finally. | Product Hunt" [ref=e746]
+      - generic [ref=e748]:
+        - generic [ref=e749]: © 2026 Modlific LLC. All rights reserved.
+        - generic [ref=e750]:
+          - link "Privacy Policy" [ref=e751] [cursor=pointer]:
+            - /url: /privacy
+          - generic [ref=e752]: ·
+          - link "Terms of Service" [ref=e753] [cursor=pointer]:
+            - /url: /terms
+          - generic [ref=e754]: ·
+          - link "Refund Policy" [ref=e755] [cursor=pointer]:
+            - /url: /refund-policy
+          - generic [ref=e756]: ·
+          - link "Shipping Policy" [ref=e757] [cursor=pointer]:
+            - /url: /shipping-policy
+          - generic [ref=e758]: ·
+          - link "Credits Terms" [ref=e759] [cursor=pointer]:
+            - /url: /credits-terms
+          - generic [ref=e760]: ·
+          - link "Cookie Preferences" [ref=e761] [cursor=pointer]:
+            - /url: /cookie-preferences
+  - alert [ref=e762]
+  - region "Cookie consent" [ref=e763]:
+    - generic [ref=e764]:
+      - paragraph [ref=e765]:
+        - text: We use cookies to improve your experience, analyze traffic, and measure marketing performance.
+        - link "Manage preferences" [ref=e766] [cursor=pointer]:
+          - /url: /cookie-preferences
+        - text: or read our
+        - link "Privacy Policy" [ref=e767] [cursor=pointer]:
+          - /url: /privacy
+        - text: .
+      - generic [ref=e768]:
+        - button "Only essential" [ref=e769] [cursor=pointer]
+        - button "Accept" [ref=e770] [cursor=pointer]

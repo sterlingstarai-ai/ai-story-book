@@ -7,6 +7,7 @@ import '../models/models.dart';
 import '../providers/providers.dart';
 import '../services/analytics.dart';
 import '../utils/constants.dart';
+import '../utils/spec_labels.dart';
 import '../widgets/character_source_sheet.dart';
 import '../widgets/credit_shortage_modal.dart';
 import '../widgets/common_widgets.dart';
@@ -25,7 +26,8 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
   final _formKey = GlobalKey<FormState>();
 
   TargetAge _selectedAge = TargetAge.age5to7;
-  String _selectedLanguage = 'ko'; // 이야기 생성 언어 (didChangeDependencies에서 로캘 기반 초기화)
+  String _selectedLanguage =
+      'ko'; // 이야기 생성 언어 (didChangeDependencies에서 로캘 기반 초기화)
   BookStyle _selectedStyle = BookStyle.watercolor;
   BookTheme? _selectedTheme;
   List<String> _selectedCharacterIds = []; // 다중 캐릭터 선택
@@ -68,7 +70,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
       }
     }
     // 이야기 언어 기본값을 현재 UI 로캘에서 추론(글로벌 — 지원 언어가 아니면 영어).
-    const supportedStoryLangs = {'ko', 'en', 'ja', 'zh', 'es'};
+    const supportedStoryLangs = {'ko', 'en', 'ja'};
     final localeCode = Localizations.localeOf(context).languageCode;
     _selectedLanguage =
         supportedStoryLangs.contains(localeCode) ? localeCode : 'en';
@@ -272,7 +274,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
               children: TargetAge.values.map((age) {
                 final isSelected = _selectedAge == age;
                 return ChoiceChip(
-                  label: Text(age.label),
+                  label: Text(age.localizedLabel(l)),
                   selected: isSelected,
                   materialTapTargetSize: MaterialTapTargetSize.padded,
                   labelPadding: const EdgeInsets.symmetric(
@@ -392,8 +394,6 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                 'ko': '한국어',
                 'en': 'English',
                 'ja': '日本語',
-                'zh': '中文',
-                'es': 'Español',
               }.entries.map((e) {
                 final isSelected = _selectedLanguage == e.key;
                 return ChoiceChip(
@@ -432,7 +432,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
               children: BookStyle.values.map((style) {
                 final isSelected = _selectedStyle == style;
                 return ChoiceChip(
-                  label: Text(style.label),
+                  label: Text(style.localizedLabel(l)),
                   selected: isSelected,
                   materialTapTargetSize: MaterialTapTargetSize.padded,
                   labelPadding: const EdgeInsets.symmetric(
@@ -484,7 +484,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                 ...BookTheme.values.map((theme) {
                   final isSelected = _selectedTheme == theme;
                   return ChoiceChip(
-                    label: Text(theme.label),
+                    label: Text(theme.localizedLabel(l)),
                     selected: isSelected,
                     materialTapTargetSize: MaterialTapTargetSize.padded,
                     labelPadding: const EdgeInsets.symmetric(

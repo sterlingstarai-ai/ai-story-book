@@ -14,7 +14,7 @@ from typing import Optional
 from sqlalchemy import case, distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.exceptions import AuthorizationError
+from src.core.exceptions import AuthorizationError, NotFoundError
 from src.models.db import Book, ChildProfile, DailyStreak, QuizAnswer, ReadingLog
 
 # 연령대별 기준선 — 정규화 타깃 + 또래 표본 희소 시(또래 < MIN_PEERS_FOR_REAL) 폴백.
@@ -147,17 +147,22 @@ class GrowthService:
     async def assert_book_not_foreign(
         self, db: AsyncSession, book_id: Optional[str], user_key: str
     ) -> None:
-        """기록 대상 book_id가 *다른 유저*의 책이면 차단(IDOR·점수 부풀리기 방지).
+        """기록 대상 book_id가 존재하고 내 책인지 검증한다.
 
-        존재하지 않는 id(오늘의 동화·레거시 등)는 허용 — 과도한 차단으로 정상 기록을
-        막지 않되, 남의 책으로 내 성장 지표를 부풀리는 명백한 조작만 거른다.
+        - 다른 유저의 책 → 차단(IDOR·점수 부풀리기 방지).
+        - 존재하지 않는 책 → 404. ReadingLog/QuizAnswer.book_id 는 NOT NULL FK이므로
+          미존재 id를 통과시키면 운영(Postgres)에서 INSERT가 FK 위반 500으로 터진다.
+          (과거 '미존재 허용'은 오늘의 동화 book_id가 null이던 시절의 잔재 — 지금은
+          generate_today_story가 실제 Book을 만들므로 더 이상 유효하지 않다.)
         """
         if not book_id:
             return
         owner = (
             await db.execute(select(Book.user_key).where(Book.id == book_id))
         ).scalar_one_or_none()
-        if owner is not None and owner != user_key:
+        if owner is None:
+            raise NotFoundError("Book", book_id)
+        if owner != user_key:
             raise AuthorizationError()
 
     async def record_answer(

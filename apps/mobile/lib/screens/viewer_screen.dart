@@ -20,6 +20,7 @@ import '../providers/providers.dart';
 import 'inpaint_screen.dart';
 import '../services/analytics.dart';
 import '../utils/constants.dart';
+import '../widgets/age_gate_dialog.dart';
 import '../widgets/common_widgets.dart';
 import '../widgets/credit_shortage_modal.dart';
 
@@ -1683,6 +1684,14 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                     _shareText(book);
                   },
                 ),
+                _ShareButton(
+                  icon: Icons.link_off,
+                  label: l.viewerShareRevoke,
+                  onTap: () async {
+                    Navigator.pop(context);
+                    await _revokeShare(book);
+                  },
+                ),
               ],
             ),
             const SizedBox(height: AppSpacing.xl),
@@ -1692,17 +1701,46 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     );
   }
 
-  void _copyShareUrl(BookResult book) {
-    final l = AppLocalizations.of(context);
-    // 간단한 공유 텍스트 복사
-    final shareText = l.viewerShareTextSimple(book.title);
-    Clipboard.setData(ClipboardData(text: shareText));
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(l.viewerCopyDone)),
-    );
+  /// 공개 공유 링크는 아이 정보가 외부에 노출되므로 생성 전에 부모 인증을 거친다(F7).
+  /// 인증 통과 시 서버에 공개 링크를 생성하고 그 URL을 반환. 취소/빈 URL이면 null.
+  Future<String?> _createPublicShareUrl(BookResult book) async {
+    final parental = ref.read(parentalControlServiceProvider);
+    if (!parental.isAgeGateVerifiedForSession) {
+      final passed = await showAgeGateDialog(context, ref);
+      if (!passed) {
+        return null;
+      }
+    }
+    final api = ref.read(apiClientProvider);
+    final result = await api.createShareLink(book.bookId);
+    final url = (result['url'] as String?) ?? '';
+    return url.isEmpty ? null : url;
   }
 
-  /// 부모 전용 공개 공유 링크 생성 후 공유(누구나 열어볼 수 있는 동화 페이지).
+  Future<void> _copyShareUrl(BookResult book) async {
+    final l = AppLocalizations.of(context);
+    try {
+      // 실제 공개 링크 URL을 복사한다(이전엔 제목 문구만 복사되던 버그).
+      final url = await _createPublicShareUrl(book);
+      if (url == null) {
+        return;
+      }
+      await Clipboard.setData(ClipboardData(text: url));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(l.viewerCopyDone)),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(AppLocalizations.of(context).viewerShareLinkFailed)),
+        );
+      }
+    }
+  }
+
+  /// 부모 인증 후 공개 공유 링크 생성·공유(누구나 열어볼 수 있는 동화 페이지).
   Future<void> _createAndShareLink(BookResult book) async {
     final l = AppLocalizations.of(context);
     // 공유 시트 위치는 await 전에 캡처(async gap 후 context 사용 회피).
@@ -1711,11 +1749,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
         ? box.localToGlobal(Offset.zero) & box.size
         : const Rect.fromLTWH(0, 0, 100, 100);
     try {
-      final api = ref.read(apiClientProvider);
-      final result = await api.createShareLink(book.bookId);
-      final url = (result['url'] as String?) ?? '';
-      if (url.isEmpty) {
-        throw Exception('빈 공유 URL');
+      final url = await _createPublicShareUrl(book);
+      if (url == null) {
+        return;
       }
       await Share.share(
         l.viewerShareLinkText(book.title, url),
@@ -1725,6 +1761,25 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(AppLocalizations.of(context).viewerShareLinkFailed)),
+        );
+      }
+    }
+  }
+
+  /// 활성 공유 링크 철회(부모가 만든 공개 링크를 비활성화). 철회 UI 부재(F7) 해소.
+  Future<void> _revokeShare(BookResult book) async {
+    final l = AppLocalizations.of(context);
+    try {
+      await ref.read(apiClientProvider).revokeShareLink(book.bookId);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(l.viewerShareRevokeDone)),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(AppLocalizations.of(context).viewerShareRevokeFailed)),
         );
       }
     }
@@ -1749,9 +1804,16 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
         ? box.localToGlobal(Offset.zero) & box.size
         : const Rect.fromLTWH(0, 0, 100, 100);
 
+    // 부모 인증 후 실제 공개 토큰 URL을 만든다(이전엔 /books/{bookId} 라 수신자 404).
+    final shareUrl = await _createPublicShareUrl(book);
+    if (shareUrl == null) {
+      return;
+    }
+
     final kakaoShare = ref.read(kakaoShareServiceProvider);
     final result = await kakaoShare.shareBookCard(
       bookId: book.bookId,
+      shareUrl: shareUrl,
       title: book.title,
       coverImageUrl: book.coverImageUrl,
       description: l.viewerKakaoDescription,
@@ -1765,10 +1827,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       );
     }
 
+    // 폴백(카카오톡 미설치 등): 앱 딥링크 + 공개 토큰 URL.
     final deepLink = 'ai-story-book://books/${book.bookId}';
-    final fallbackUrl = 'https://aistorybook.app/books/${book.bookId}';
     final shareText =
-        l.viewerKakaoShareText(book.title, deepLink, fallbackUrl).trim();
+        l.viewerKakaoShareText(book.title, deepLink, shareUrl).trim();
     await Share.share(
       shareText,
       subject: l.viewerKakaoShareSubject(book.title),

@@ -10,6 +10,7 @@ import 'package:ai_story_book/models/models.dart';
 import 'package:ai_story_book/providers/providers.dart';
 import 'package:ai_story_book/services/api_client.dart';
 import 'package:ai_story_book/screens/create_screen.dart';
+import 'package:ai_story_book/utils/spec_labels.dart';
 import 'package:ai_story_book/screens/home_screen.dart';
 import 'package:ai_story_book/screens/library_screen.dart';
 import 'package:ai_story_book/screens/loading_screen.dart';
@@ -165,9 +166,10 @@ void main() {
       ));
       await tester.pumpAndSettle();
 
-      expect(find.text('아이 연령대'), findsOneWidget);
+      final l = AppLocalizations.of(tester.element(find.byType(CreateScreen)));
+      expect(find.text(l.createAgeLabel), findsOneWidget);
       for (final age in TargetAge.values) {
-        expect(find.text(age.label), findsOneWidget);
+        expect(find.text(age.localizedLabel(l)), findsOneWidget);
       }
     });
 
@@ -189,8 +191,7 @@ void main() {
       expect(find.text('익숙한 단어, 2~3문장, 감정과 간단한 대화'), findsNothing);
     });
 
-    testWidgets('shows story language selector with native names',
-        (tester) async {
+    testWidgets('shows only approved story language chips', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CreateScreen(),
         overrides: createOverrides(),
@@ -198,15 +199,16 @@ void main() {
       await tester.pumpAndSettle();
 
       final listView = find.byType(ListView).first;
-      for (var i = 0;
-          i < 25 && find.text('이야기 언어').evaluate().isEmpty;
-          i++) {
+      for (var i = 0; i < 25 && find.text('이야기 언어').evaluate().isEmpty; i++) {
         await tester.drag(listView, const Offset(0, -250));
         await tester.pumpAndSettle();
       }
       expect(find.text('이야기 언어'), findsOneWidget);
-      expect(find.text('Español', skipOffstage: false), findsOneWidget);
-      expect(find.text('中文', skipOffstage: false), findsOneWidget);
+      expect(find.text('한국어', skipOffstage: false), findsOneWidget);
+      expect(find.text('English', skipOffstage: false), findsOneWidget);
+      expect(find.text('日本語', skipOffstage: false), findsOneWidget);
+      expect(find.text('Español', skipOffstage: false), findsNothing);
+      expect(find.text('中文', skipOffstage: false), findsNothing);
     });
 
     testWidgets('tapping a quick-start template prefills topic and theme',
@@ -221,8 +223,7 @@ void main() {
 
       await tester.tap(find.text('동물 친구'));
       await tester.pumpAndSettle();
-      expect(find.text('용감한 아기 동물이 숲에서 새 친구를 사귀는 이야기'),
-          findsOneWidget);
+      expect(find.text('용감한 아기 동물이 숲에서 새 친구를 사귀는 이야기'), findsOneWidget);
     });
 
     testWidgets('shows relationship selector when 2+ characters selected',
@@ -238,9 +239,7 @@ void main() {
 
       final listView = find.byType(ListView).first;
       Future<void> scrollToText(String text) async {
-        for (var i = 0;
-            i < 25 && find.text(text).evaluate().isEmpty;
-            i++) {
+        for (var i = 0; i < 25 && find.text(text).evaluate().isEmpty; i++) {
           await tester.drag(listView, const Offset(0, -250));
           await tester.pumpAndSettle();
         }
@@ -298,9 +297,14 @@ void main() {
       await tester.drag(find.byType(ListView).first, const Offset(0, -220));
       await tester.pumpAndSettle();
 
-      expect(find.text('그림 스타일', skipOffstage: false), findsOneWidget);
+      final l = AppLocalizations.of(tester.element(find.byType(CreateScreen)));
+      expect(
+          find.text(l.createStyleLabel, skipOffstage: false), findsOneWidget);
       for (final style in BookStyle.values) {
-        expect(find.text(style.label, skipOffstage: false), findsOneWidget);
+        expect(
+          find.text(style.localizedLabel(l), skipOffstage: false),
+          findsOneWidget,
+        );
       }
     });
 
@@ -516,7 +520,8 @@ void main() {
         (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const HomeScreen(),
-        overrides: homeOverrides(books: const [], characters: _sampleCharacters),
+        overrides:
+            homeOverrides(books: const [], characters: _sampleCharacters),
       ));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 200));
@@ -1155,7 +1160,11 @@ void main() {
           apiClientProvider.overrideWithValue(
             _MockApiClient(
               creditsStatus: {
-                'credits': {'credits': 8, 'total_purchased': 10, 'total_used': 2},
+                'credits': {
+                  'credits': 8,
+                  'total_purchased': 10,
+                  'total_used': 2
+                },
                 'subscription': {
                   'plan': 'basic',
                   'plan_name': '베이직',

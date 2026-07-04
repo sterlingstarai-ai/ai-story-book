@@ -1,3 +1,4 @@
+import structlog
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,9 +10,11 @@ from src.core.dependencies import get_profile_id, get_user_key
 from src.models.dto import LibraryResponse, BookSummary, TargetAge, Style
 from src.models.db import Book, ChildProfile
 from src.core.exceptions import NotFoundError, AuthorizationError, ValidationError
+from src.services.data_deletion import purge_book_children
 from src.services.storage import delete_book_files
 
 router = APIRouter()
+logger = structlog.get_logger()
 
 
 class UpdateBookRequest(BaseModel):
@@ -203,11 +206,17 @@ async def delete_book(
     if scoped_profile_id and book.profile_id != scoped_profile_id:
         raise AuthorizationError("선택한 프로필의 책이 아닙니다.")
 
-    # cascade="all, delete-orphan" on Book.pages handles Page deletion
+    # 책을 참조하는 모든 자식 행(공유 링크/퀴즈응답/읽기로그/분기노드 등)을 먼저 제거한다.
+    # 안 하면 Postgres에서 FK 위반으로 삭제가 실패한다(SQLite FK-off라 테스트만 통과).
+    await purge_book_children(db, [book_id])
     await db.delete(book)
     await db.commit()
 
-    # Clean up S3 files (non-blocking, failure doesn't affect response)
-    await delete_book_files(book_id)
+    # S3 파일 정리는 best-effort. 책 행은 이미 삭제됐으므로 스토리지 실패가 응답을
+    # 500으로 만들면 클라이언트에 '삭제 실패'로 오인된다 → 로깅만 하고 성공 반환.
+    try:
+        await delete_book_files(book_id)
+    except Exception as exc:
+        logger.warning("Failed to delete book files", book_id=book_id, error=str(exc))
 
     return {"message": "Book deleted successfully"}

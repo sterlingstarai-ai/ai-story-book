@@ -318,9 +318,9 @@ class IAPVerifierService:
             if txid == expected_transaction_id or original_txid == expected_transaction_id:
                 return item
 
-        if len(by_product) == 1:
-            # 트랜잭션 ID 매칭이 어려운 환경을 위해 product 단건일 때 허용
-            return by_product[0]
+        # 보안: product가 일치해도 transaction_id가 영수증의 어떤 거래와도 매칭되지
+        # 않으면 거부한다. (예전의 `len(by_product)==1` 폴백은 임의 transaction_id로
+        # 같은 영수증을 무한 재사용하는 리플레이를 허용했으므로 제거.)
         return None
 
     async def _fetch_google_purchase(
@@ -416,8 +416,10 @@ class IAPVerifierService:
     def _is_transaction_match(self, expected: str, actual: str) -> bool:
         if expected == actual:
             return True
-        # Google orderId는 suffix(..0)가 붙는 형태가 있어 접두 비교를 허용한다.
-        return expected.startswith(actual) or actual.startswith(expected)
+        # Google 구독 갱신 orderId는 base에 `..0`,`..1` 형태의 갱신 접미가 붙는다.
+        # 갱신 접미만 제거한 base끼리 '정확히' 비교한다(임의 접두/접미 매칭은 리플레이
+        # 표면이므로 허용하지 않는다).
+        return _strip_google_order_suffix(expected) == _strip_google_order_suffix(actual)
 
     def _local_success(
         self,
@@ -479,6 +481,16 @@ class IAPVerifierService:
             return _coerce_str(credentials.token)
         except Exception:
             return None
+
+
+def _strip_google_order_suffix(order_id: str) -> str:
+    """Google 구독 갱신 orderId의 `..N` 갱신 접미를 제거해 base를 반환한다.
+
+    예: 'GPA.1234-5678-9012-34567..0' -> 'GPA.1234-5678-9012-34567'.
+    base에 '..'가 없으면 원본을 그대로 반환한다.
+    """
+    base = order_id.split("..", 1)[0]
+    return base
 
 
 def _parse_int(value: object) -> Optional[int]:

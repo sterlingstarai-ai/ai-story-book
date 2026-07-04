@@ -15,7 +15,6 @@ from src.models.db import (
     StoryDraftDB,
     ImagePromptsDB,
     Book,
-    Page,
     Series,
     Character,
     UserCredits,
@@ -32,9 +31,8 @@ from src.models.db import (
     PodOrder,
     VoiceProfile,
     PronunciationLog,
-    BranchStoryNode,
-    BranchStoryEdge,
 )
+from src.services.data_deletion import purge_book_children
 from src.services.storage import delete_book_files, storage_service
 
 router = APIRouter()
@@ -64,11 +62,9 @@ async def delete_my_data(
     )
     character_ids = [cid for (cid,) in chars_result.all()]
 
-    # FK 순서를 고려해 자식/로그 테이블부터 삭제
-    if book_ids:
-        await db.execute(delete(BranchStoryEdge).where(BranchStoryEdge.book_id.in_(book_ids)))
-        await db.execute(delete(BranchStoryNode).where(BranchStoryNode.book_id.in_(book_ids)))
-        await db.execute(delete(Page).where(Page.book_id.in_(book_ids)))
+    # FK 순서를 고려해 자식/로그 테이블부터 삭제. 책-자식(공유 링크/퀴즈응답/오늘의 동화
+    # 참조 등)은 공용 헬퍼로 일괄 정리 — 누락 시 Postgres에서 erasure 트랜잭션이 abort된다.
+    await purge_book_children(db, book_ids)
     if job_ids:
         await db.execute(delete(StoryDraftDB).where(StoryDraftDB.job_id.in_(job_ids)))
         await db.execute(delete(ImagePromptsDB).where(ImagePromptsDB.job_id.in_(job_ids)))
@@ -119,6 +115,16 @@ async def delete_my_data(
                 character_id=character_id,
                 error=str(exc),
             )
+    # 가족 음성 샘플(voice-samples/{user_key}/...)도 파기 — biometric-adjacent PII 잔존 방지.
+    try:
+        await storage_service.delete_prefix(f"voice-samples/{user_key}/")
+    except Exception as exc:
+        storage_failures += 1
+        logger.warning(
+            "Failed to delete voice samples during user deletion",
+            user_key=user_key,
+            error=str(exc),
+        )
 
     return {
         "status": "success",

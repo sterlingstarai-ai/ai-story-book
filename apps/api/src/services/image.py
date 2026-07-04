@@ -5,6 +5,8 @@ Image Generation Service: 이미지 생성 API 연동
 from __future__ import annotations
 
 import base64
+from contextlib import contextmanager
+from contextvars import ContextVar
 import uuid
 
 import httpx
@@ -16,6 +18,28 @@ from src.core.errors import ImageError, ErrorCode
 from src.models.dto import ImagePrompt
 
 logger = structlog.get_logger()
+
+# 영속화될 이미지의 스토리지 키 접두를 호출 스코프에서 지정한다. 기본(None)이면
+# `images/{provider}/{uuid}`(추적 불가 경로)에 저장되지만, 캐릭터 시트처럼 삭제 가능해야
+# 하는 산출물은 image_storage_scope("characters/{id}/sheets")로 감싸 삭제 경로가 닿게 한다.
+_storage_key_prefix: ContextVar[str | None] = ContextVar("_storage_key_prefix", default=None)
+
+
+@contextmanager
+def image_storage_scope(prefix: str | None):
+    """이 블록에서 생성·영속화되는 이미지의 S3 키 접두를 지정한다(async-task 안전)."""
+    token = _storage_key_prefix.set(prefix)
+    try:
+        yield
+    finally:
+        _storage_key_prefix.reset(token)
+
+
+def _make_image_key(provider: str, ext: str) -> str:
+    prefix = _storage_key_prefix.get()
+    if prefix:
+        return f"{prefix.rstrip('/')}/{uuid.uuid4().hex}.{ext}"
+    return f"images/{provider}/{uuid.uuid4().hex}.{ext}"
 
 
 async def generate_image(
@@ -241,7 +265,7 @@ async def _persist_image_bytes(image_bytes: bytes, mime: str, provider: str) -> 
     from src.services.storage import storage_service
 
     ext = _IMAGE_MIME_EXT.get(mime.split(";")[0].lower().strip(), "png")
-    key = f"images/{provider}/{uuid.uuid4().hex}.{ext}"
+    key = _make_image_key(provider, ext)
     return await storage_service.upload_bytes(image_bytes, key, content_type=mime)
 
 

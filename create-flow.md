@@ -1,0 +1,141 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - link "ToonyStory" [ref=e5] [cursor=pointer]:
+          - /url: /
+          - img "ToonyStory" [ref=e6]
+        - generic [ref=e7]:
+          - link "Watch how it works" [ref=e8] [cursor=pointer]:
+            - /url: https://youtu.be/vQu9A5c6Mb0
+            - img [ref=e9]
+            - text: Watch how it works
+          - link "Log in" [ref=e73] [cursor=pointer]:
+            - /url: /login
+          - link "Get Started" [ref=e74] [cursor=pointer]:
+            - /url: /signup
+    - main [ref=e11]:
+      - generic [ref=e13]:
+        - heading "Create your story" [level=1] [ref=e15]
+        - generic [ref=e76]:
+          - button "Back to templates" [ref=e77] [cursor=pointer]:
+            - img [ref=e78]
+            - text: Back to templates
+          - generic [ref=e80]:
+            - generic [ref=e81]:
+              - generic [ref=e82]:
+                - generic [ref=e85]:
+                  - generic [ref=e86]:
+                    - button "Digital" [ref=e87] [cursor=pointer]:
+                      - img [ref=e88]
+                      - text: Digital
+                    - button "Storybook" [ref=e90] [cursor=pointer]:
+                      - img [ref=e91]
+                      - text: Storybook
+                  - generic [ref=e93]:
+                    - generic [ref=e97]:
+                      - img "Story illustration" [ref=e99]
+                      - paragraph [ref=e101]: Beau and River were playing in their beautiful, sunny backyard. They found a wiggly, purple gummy bear on the table. "It looks magical!" River said. They were both very curious, so they each took a tiny bite.
+                    - button "Previous page" [ref=e103] [cursor=pointer]:
+                      - img [ref=e104]
+                    - button "Next page" [ref=e107] [cursor=pointer]:
+                      - img [ref=e108]
+                  - generic [ref=e110]:
+                    - button "Go to page 1" [ref=e111] [cursor=pointer]
+                    - button "Go to page 2" [ref=e112] [cursor=pointer]
+                    - button "Go to page 3" [ref=e113] [cursor=pointer]
+                    - button "Go to page 4" [ref=e114] [cursor=pointer]
+                    - button "Go to page 5" [ref=e115] [cursor=pointer]
+                    - button "Go to page 6" [ref=e116] [cursor=pointer]
+                    - button "Go to page 7" [ref=e117] [cursor=pointer]
+                    - button "Go to page 8" [ref=e118] [cursor=pointer]
+                - paragraph [ref=e120]: "Interactive preview: flip through a sample book"
+              - generic [ref=e121]:
+                - generic [ref=e122]: adventure
+                - generic [ref=e123]: animated
+                - generic [ref=e124]: 6 pages
+            - generic [ref=e125]:
+              - generic [ref=e126]:
+                - heading "Cast your characters" [level=4] [ref=e127]
+                - paragraph [ref=e128]: Choose who plays each role. Their names replace the placeholders throughout the story.
+                - generic [ref=e129]:
+                  - button "Grandparent Required Tap to assign a character" [ref=e131] [cursor=pointer]:
+                    - img [ref=e133]
+                    - generic [ref=e134]:
+                      - generic [ref=e135]:
+                        - generic [ref=e136]: Grandparent
+                        - generic [ref=e137]: Required
+                      - paragraph [ref=e138]: Tap to assign a character
+                    - img [ref=e139]
+                  - button "Pet Optional Tap to assign a character" [ref=e142] [cursor=pointer]:
+                    - img [ref=e144]
+                    - generic [ref=e145]:
+                      - generic [ref=e146]:
+                        - generic [ref=e147]: Pet
+                        - generic [ref=e148]: Optional
+                      - paragraph [ref=e149]: Tap to assign a character
+                    - img [ref=e150]
+                  - button "Parent Optional Tap to assign a character" [ref=e153] [cursor=pointer]:
+                    - img [ref=e155]
+                    - generic [ref=e156]:
+                      - generic [ref=e157]:
+                        - generic [ref=e158]: Parent
+                        - generic [ref=e159]: Optional
+                      - paragraph [ref=e160]: Tap to assign a character
+                    - img [ref=e161]
+                  - button "Grandparent Optional Tap to assign a character" [ref=e164] [cursor=pointer]:
+                    - img [ref=e166]
+                    - generic [ref=e167]:
+                      - generic [ref=e168]:
+                        - generic [ref=e169]: Grandparent
+                        - generic [ref=e170]: Optional
+                      - paragraph [ref=e171]: Tap to assign a character
+                    - img [ref=e172]
+                  - button "Parent Optional Tap to assign a character" [ref=e175] [cursor=pointer]:
+                    - img [ref=e177]
+                    - generic [ref=e178]:
+                      - generic [ref=e179]:
+                        - generic [ref=e180]: Parent
+                        - generic [ref=e181]: Optional
+                      - paragraph [ref=e182]: Tap to assign a character
+                    - img [ref=e183]
+                  - button "Child Optional Tap to assign a character" [ref=e186] [cursor=pointer]:
+                    - img [ref=e188]
+                    - generic [ref=e189]:
+                      - generic [ref=e190]:
+                        - generic [ref=e191]: Child
+                        - generic [ref=e192]: Optional
+                      - paragraph [ref=e193]: Tap to assign a character
+                    - img [ref=e194]
+                  - button "Child Optional Tap to assign a character" [ref=e197] [cursor=pointer]:
+                    - img [ref=e199]
+                    - generic [ref=e200]:
+                      - generic [ref=e201]:
+                        - generic [ref=e202]: Child
+                        - generic [ref=e203]: Optional
+                      - paragraph [ref=e204]: Tap to assign a character
+                    - img [ref=e205]
+                - generic [ref=e207]:
+                  - generic [ref=e208]:
+                    - img [ref=e209]
+                    - generic [ref=e211]: Set the scene
+                  - paragraph [ref=e212]: A few details make the adventure feel personal. Leave any blank to skip.
+                  - generic [ref=e213]:
+                    - generic [ref=e214]: Where should the adventure take place?
+                    - textbox "e.g. A jungle, an underwater kingdom, outer space..." [ref=e215]
+                  - generic [ref=e216]:
+                    - generic [ref=e217]: What challenge do they need to overcome?
+                    - textbox "e.g. Fear of the dark, a locked gate, a raging river..." [ref=e218]
+                  - generic [ref=e219]:
+                    - generic [ref=e220]: What are they searching for?
+                    - textbox "e.g. A lost treasure map, a missing friend, a magic stone..." [ref=e221]
+              - generic [ref=e222]:
+                - button "Back" [ref=e223] [cursor=pointer]
+                - button "Create Book" [disabled] [ref=e224]:
+                  - img [ref=e226]
+                  - text: Create Book
+        - paragraph [ref=e70]:
+          - text: Already have an account?
+          - link "Sign in" [ref=e71] [cursor=pointer]:
+            - /url: /login
+  - alert [ref=e72]

@@ -3551,6 +3551,97 @@
         ]
       }
     },
+    "/share/{token}/img/cover": {
+      "get": {
+        "description": "공유 표지 이미지(활성 공유에 한해). 철회/만료 시 404.",
+        "operationId": "public_share_cover_share__token__img_cover_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "title": "Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Public Share Cover",
+        "tags": [
+          "Share"
+        ]
+      }
+    },
+    "/share/{token}/img/page/{page_number}": {
+      "get": {
+        "description": "공유 본문 페이지 이미지(활성 공유에 한해). 철회/만료 시 404.",
+        "operationId": "public_share_page_image_share__token__img_page__page_number__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "title": "Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "page_number",
+            "required": true,
+            "schema": {
+              "title": "Page Number",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Public Share Page Image",
+        "tags": [
+          "Share"
+        ]
+      }
+    },
     "/v1/books": {
       "post": {
         "description": "새 동화책 생성 요청\n\n- 비동기로 처리되며 job_id 반환\n- GET /v1/books/{job_id}로 상태 조회\n- 크레딧 1개 필요",

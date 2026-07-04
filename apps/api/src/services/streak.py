@@ -385,15 +385,15 @@ class StreakService:
         for m in milestones:
             amount = self._REWARD_CREDITS.get(m.get("reward") or "", 0)
             if amount > 0:
-                await credits_service.add_credits(
-                    db,
-                    user_key,
-                    amount,
-                    transaction_type="bonus",
-                    description=f"마일스톤 보상: {m.get('title', '')}",
+                was_granted = await credits_service.add_milestone_credits_once(
+                    db=db,
+                    user_key=user_key,
+                    amount=amount,
                     reference_id=f"milestone_{m.get('type')}_{m.get('days')}",
+                    description=f"마일스톤 보상: {m.get('title', '')}",
                 )
-                granted += amount
+                if was_granted:
+                    granted += amount
         return granted
 
     def _check_milestones(self, current_streak: int, total_days: int) -> list[dict]:
