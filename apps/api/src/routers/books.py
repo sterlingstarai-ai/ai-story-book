@@ -1,4 +1,14 @@
-from fastapi import APIRouter, Depends, Header, HTTPException, BackgroundTasks, Query
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    BackgroundTasks,
+    Query,
+    UploadFile,
+    File,
+    Form,
+)
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, or_
@@ -22,9 +32,16 @@ from src.models.dto import (
     SeriesNextRequest,
     BookResult,
     PageResult,
+    RetellRequest,
+    RetellResponse,
 )
 from src.models.db import ChildProfile, Job, Book, Page, Character
-from src.services.orchestrator import start_book_generation, regenerate_page
+from src.services.orchestrator import (
+    start_book_generation,
+    regenerate_page,
+    inpaint_page,
+)
+from src.services.image import supports_inpaint
 from src.services.pdf import pdf_service
 from src.services.tts import tts_service
 from src.services.storage import storage_service
@@ -778,6 +795,147 @@ async def regenerate_book_page(
     return RegeneratePageResponse(job_id=regen_job_id, status=JobState.queued)
 
 
+async def _run_inpaint_job(
+    inpaint_job_id: str,
+    original_job_id: str,
+    book_id: str,
+    page_number: int,
+    mask_url: str,
+    region_prompt: str,
+) -> None:
+    """인페인트(부분 재생성) 백그라운드 실행 + 폴링용 상태 전이."""
+    await _set_regen_job_status(
+        inpaint_job_id,
+        status="running",
+        progress=20,
+        current_step="부분 재생성 중...",
+    )
+    try:
+        await inpaint_page(
+            job_id=original_job_id,
+            book_id=book_id,
+            page_number=page_number,
+            mask_url=mask_url,
+            region_prompt=region_prompt,
+        )
+    except Exception as e:
+        await _set_regen_job_status(
+            inpaint_job_id,
+            status="failed",
+            progress=100,
+            current_step="부분 재생성 실패",
+            error_code=ErrorCode.UNKNOWN.value,
+            error_message=str(e)[:300],
+        )
+        logger.error(
+            "Inpaint job failed",
+            inpaint_job_id=inpaint_job_id,
+            original_job_id=original_job_id,
+            page_number=page_number,
+            error=str(e),
+        )
+        return
+
+    await _set_regen_job_status(
+        inpaint_job_id,
+        status="done",
+        progress=100,
+        current_step="완료",
+    )
+
+
+@router.post(
+    "/{job_id}/pages/{page_number}/inpaint", response_model=RegeneratePageResponse
+)
+async def inpaint_book_page(
+    job_id: str,
+    page_number: int,
+    background_tasks: BackgroundTasks,
+    mask: UploadFile = File(..., description="마스크 PNG(흰색=재생성할 영역)"),
+    region_prompt: str = Form(..., max_length=200, description="이 영역을 어떻게 바꿀지"),
+    db: AsyncSession = Depends(get_db),
+    user_key: str = Depends(get_user_key),
+    profile_id: Optional[str] = Depends(get_profile_id),
+):
+    """
+    페이지 부분 재생성(인페인트) — 마스크 영역만 다시 그린다.
+    image_provider가 replicate/fal일 때만 동작(아니면 409 → 클라이언트는 전체 재생성 폴백).
+    """
+    if not supports_inpaint():
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "INPAINT_UNSUPPORTED",
+                "message": "현재 이미지 제공자는 부분 재생성을 지원하지 않습니다.",
+            },
+        )
+
+    result = await db.execute(select(Job).where(Job.id == job_id))
+    job = result.scalar_one_or_none()
+    if not job:
+        raise NotFoundError("Job", job_id)
+    if job.user_key != user_key:
+        raise AuthorizationError()
+    _assert_job_profile_scope(job, profile_id)
+    if job.status != "done":
+        raise ValidationError("Book generation not complete")
+
+    book_result = await db.execute(select(Book).where(Book.job_id == job_id))
+    book = book_result.scalar_one_or_none()
+    if not book:
+        raise NotFoundError("Book", job_id)
+
+    page_result = await db.execute(
+        select(Page).where(Page.book_id == book.id, Page.page_number == page_number)
+    )
+    page = page_result.scalar_one_or_none()
+    if not page:
+        raise NotFoundError("Page", str(page_number))
+
+    # 마스크 업로드 → S3
+    mask_bytes = await mask.read()
+    if not mask_bytes:
+        raise ValidationError("마스크 이미지가 비어 있습니다.")
+    mask_key = f"masks/{book.id}/{page_number}/{uuid.uuid4().hex}.png"
+    mask_url = await storage_service.upload_bytes(mask_bytes, mask_key, "image/png")
+
+    inpaint_job_id = (
+        f"inpaint_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    )
+    inpaint_job = Job(
+        id=inpaint_job_id,
+        status="queued",
+        progress=0,
+        current_step="부분 재생성 대기 중",
+        user_key=user_key,
+    )
+    db.add(inpaint_job)
+    try:
+        await db.commit()
+    except Exception as e:
+        await db.rollback()
+        logger.error(
+            "Failed to create inpaint job",
+            inpaint_job_id=inpaint_job_id,
+            original_job_id=job_id,
+            page_number=page_number,
+            error=str(e),
+        )
+        raise InternalServerError("부분 재생성 작업 생성에 실패했습니다.") from e
+
+    background_tasks.add_task(
+        _run_inpaint_job,
+        inpaint_job_id,
+        job_id,
+        book.id,
+        page_number,
+        mask_url,
+        region_prompt,
+    )
+
+    return RegeneratePageResponse(job_id=inpaint_job_id, status=JobState.queued)
+
+
 @router.post("/series", response_model=CreateBookResponse)
 async def create_series_next(
     request: SeriesNextRequest,
@@ -882,6 +1040,90 @@ async def create_series_next(
     return CreateBookResponse(
         job_id=job_id, status=JobState.queued, estimated_time_seconds=120
     )
+
+
+@router.post("/{book_id}/retell", response_model=RetellResponse)
+async def retell_book(
+    book_id: str,
+    request: RetellRequest,
+    db: AsyncSession = Depends(get_db),
+    user_key: str = Depends(get_user_key),
+):
+    """
+    '아이와 함께 자라는' 리텔 — 같은 책을 다른 연령대 본문으로 다시 써서 새 책으로 저장한다.
+    삽화(표지·페이지 이미지)는 그대로 재사용하므로 이미지 생성/크레딧 소모가 없다.
+    """
+    # 원본 책 로드 + 소유권 검증
+    source = (
+        await db.execute(select(Book).where(Book.id == book_id))
+    ).scalar_one_or_none()
+    if not source:
+        raise NotFoundError("Book", book_id)
+    if source.user_key != user_key:
+        raise AuthorizationError()
+
+    source_pages = (
+        await db.execute(
+            select(Page).where(Page.book_id == book_id).order_by(Page.page_number)
+        )
+    ).scalars().all()
+    if not source_pages:
+        raise NotFoundError("Pages", book_id)
+
+    # 본문만 새 연령대로 다시 쓰기 (텍스트 전용 LLM 호출)
+    from src.services.llm import call_story_retext
+
+    retold = await call_story_retext(
+        title=source.title,
+        pages_text=[p.text for p in source_pages],
+        target_age=request.target_age.value,
+        language=source.language,
+    )
+
+    # 새 잡(크레딧 미소모) + 새 책 + 페이지(이미지 재사용)
+    new_job_id = f"retell_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    db.add(Job(id=new_job_id, status="done", user_key=user_key))
+    await db.flush()
+
+    new_book_id = f"book_{uuid.uuid4().hex[:16]}"
+    new_book = Book(
+        id=new_book_id,
+        job_id=new_job_id,
+        title=(retold.title or source.title)[:80],
+        language=source.language,
+        target_age=request.target_age.value,
+        style=source.style,
+        theme=source.theme,
+        character_id=source.character_id,
+        character_ids=source.character_ids,
+        cover_image_url=source.cover_image_url,
+        user_key=user_key,
+        profile_id=source.profile_id,
+        # 연령 변형 묶음 — 원본 책으로 역링크
+        retelling_source_book_id=book_id,
+    )
+    db.add(new_book)
+
+    for idx, src_page in enumerate(source_pages):
+        text = retold.pages[idx] if idx < len(retold.pages) else src_page.text
+        db.add(
+            Page(
+                book_id=new_book_id,
+                page_number=src_page.page_number,
+                text=text,
+                image_url=src_page.image_url,
+                image_prompt=src_page.image_prompt,
+            )
+        )
+
+    await db.commit()
+    logger.info(
+        "Book retold for new age",
+        source_book=book_id,
+        new_book=new_book_id,
+        target_age=request.target_age.value,
+    )
+    return RetellResponse(book_id=new_book_id, target_age=request.target_age)
 
 
 @router.get("/{book_id}/pdf")

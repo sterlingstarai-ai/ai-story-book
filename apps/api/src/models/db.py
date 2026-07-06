@@ -136,6 +136,11 @@ class Book(Base):
     series_id = Column(String(60), ForeignKey("series.id"), nullable=True)
     series_index = Column(Integer, nullable=True)  # 시리즈 내 순서 (1, 2, 3...)
 
+    # 연령 리텔(grow-with-child) 원본 책 — 같은 이야기의 다른 연령 변형을 묶는다
+    retelling_source_book_id = Column(
+        String(60), ForeignKey("books.id"), nullable=True
+    )
+
     # 다국어 지원 (v0.3)
     title_ko = Column(String(100), nullable=True)  # 한국어 제목
     title_en = Column(String(100), nullable=True)  # 영어 제목
@@ -202,6 +207,9 @@ class Character(Base):
     clothing = Column(JSON, nullable=False)
     personality_traits = Column(JSON, nullable=False)
     visual_style_notes = Column(String(200), nullable=True)
+    # 식별 가능한 고유 특징(안경/주근깨/곱슬머리 등) — 같은 캐릭터를 날짜·책을 넘어
+    # 동일하게 그리기 위해 영속(시리즈 교차 일관성). 이미지 프롬프트에 매 페이지 강제.
+    distinctive_features = Column(JSON, nullable=True)
     # 아동 사진/그림에서 파생된 캐릭터 여부 — 보호자 동의 게이트·철회 시 파기 대상 식별
     from_photo = Column(Boolean, nullable=False, default=False)
     # 원본 사진/그림 URL — 얼굴 보존 이미지 생성(gemini)의 레퍼런스로 사용
@@ -270,6 +278,22 @@ class CreditTransaction(Base):
     """크레딧 거래 기록"""
 
     __tablename__ = "credit_transactions"
+    __table_args__ = (
+        Index(
+            "uq_credit_transactions_milestone_bonus",
+            "user_key",
+            "reference_id",
+            unique=True,
+            sqlite_where=text(
+                "transaction_type = 'bonus' "
+                "AND reference_id LIKE 'milestone_%'"
+            ),
+            postgresql_where=text(
+                "transaction_type = 'bonus' "
+                "AND reference_id LIKE 'milestone_%'"
+            ),
+        ),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_key = Column(String(80), nullable=False, index=True)

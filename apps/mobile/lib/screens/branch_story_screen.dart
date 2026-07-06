@@ -33,8 +33,7 @@ class _BranchStoryScreenState extends ConsumerState<BranchStoryScreen> {
   List<Map<String, dynamic>> _currentOptions = const [];
   final List<_BranchSnapshot> _history = [];
 
-  String get _progressStorageKey =>
-      'branch_story_progress_${widget.bookId}_v1';
+  String get _progressStorageKey => 'branch_story_progress_${widget.bookId}_v1';
 
   @override
   void initState() {
@@ -267,15 +266,12 @@ class _BranchStoryScreenState extends ConsumerState<BranchStoryScreen> {
     try {
       final api = ref.read(apiClientProvider);
       final book = await api.getBook(widget.bookId);
-      final first = book.pages.isNotEmpty
-          ? book.pages[0].text
-          : l.branchStorySampleText1;
-      final second = book.pages.length > 1
-          ? book.pages[1].text
-          : l.branchStorySampleText2;
-      final third = book.pages.length > 2
-          ? book.pages[2].text
-          : l.branchStorySampleText3;
+      final first =
+          book.pages.isNotEmpty ? book.pages[0].text : l.branchStorySampleText1;
+      final second =
+          book.pages.length > 1 ? book.pages[1].text : l.branchStorySampleText2;
+      final third =
+          book.pages.length > 2 ? book.pages[2].text : l.branchStorySampleText3;
 
       await api.initializeBranchStory(
         widget.bookId,

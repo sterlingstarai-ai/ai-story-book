@@ -113,6 +113,15 @@ class AppLocalizationsJa extends AppLocalizations {
   String get homeCreateCardSubtitle => 'お子さまが主人公の\nオリジナル絵本を作ります';
 
   @override
+  String get homeQuickStartTitle => 'キャラクターからすぐ作る';
+
+  @override
+  String get homePhotoCharacterTitle => 'わが子で絵本を作る';
+
+  @override
+  String get homePhotoCharacterSubtitle => '写真そっくりの主人公に — 写真は安全に処理されます';
+
+  @override
   String homeStreakDaysLabel(Object days) {
     return '$days日連続の読書';
   }
@@ -211,6 +220,48 @@ class AppLocalizationsJa extends AppLocalizations {
   String get createAgeLabel => 'お子さまの年齢層';
 
   @override
+  String get createAgeHelp3to5 => 'やさしい言葉、1〜2文の短い文、繰り返しと擬音語';
+
+  @override
+  String get createAgeHelp5to7 => '身近な言葉、2〜3文、感情と簡単な会話';
+
+  @override
+  String get createAgeHelp7to9 => '豊かな言葉、2〜4文、原因と結果';
+
+  @override
+  String get createAgeHelpAdult => '長さ制限なし、密度の高い物語';
+
+  @override
+  String get createLanguageLabel => '物語の言語';
+
+  @override
+  String get createTemplateSectionLabel => 'おすすめから始める';
+
+  @override
+  String get createTemplateAnimalLabel => 'どうぶつの友だち';
+
+  @override
+  String get createTemplateAnimalTopic => '勇敢な小さな動物が森で新しい友だちを作るお話';
+
+  @override
+  String get createTemplateFriendshipLabel => '友情';
+
+  @override
+  String get createTemplateFriendshipTopic => '友だちを助けて、一緒に問題を解決するお話';
+
+  @override
+  String get createTemplateFeelingsLabel => 'きもちのケア';
+
+  @override
+  String get createTemplateFeelingsTopic => 'こわい夜に、勇気を出して恐れを乗りこえるお話';
+
+  @override
+  String get createTemplateSpaceLabel => '宇宙の冒険';
+
+  @override
+  String get createTemplateSpaceTopic => '星や惑星を探検して、すてきなものを見つけるお話';
+
+  @override
   String get createStyleLabel => 'イラストのスタイル';
 
   @override
@@ -255,6 +306,33 @@ class AppLocalizationsJa extends AppLocalizations {
   String get createCharacterLoadError => 'キャラクターを読み込めませんでした';
 
   @override
+  String get createRelationshipLabel => '関係（任意）';
+
+  @override
+  String get createRelationshipFriends => '友だち';
+
+  @override
+  String get createRelationshipSiblings => 'きょうだい';
+
+  @override
+  String get createRelationshipFamily => '家族';
+
+  @override
+  String get createForbiddenLabel => '入れたくない要素（任意）';
+
+  @override
+  String get createForbiddenViolence => '暴力';
+
+  @override
+  String get createForbiddenScary => 'こわい内容';
+
+  @override
+  String get createForbiddenSad => '悲しい結末';
+
+  @override
+  String get createForbiddenRude => '乱暴な言葉';
+
+  @override
   String get createMakeButton => '絵本を作る';
 
   @override
@@ -268,6 +346,12 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get libraryTitle => 'マイライブラリ';
+
+  @override
+  String get librarySeriesBadge => 'シリーズ';
+
+  @override
+  String get librarySeriesAddVolume => '次の巻を作る';
 
   @override
   String get libraryRefresh => '更新';
@@ -1155,6 +1239,30 @@ class AppLocalizationsJa extends AppLocalizations {
   String get settingsCreditsSubscription => 'クレジット／サブスクリプション';
 
   @override
+  String get settingsPoliciesTitle => 'ポリシー';
+
+  @override
+  String get settingsPoliciesSubtitle => 'クレジット繰り越し・解約後の保管・印刷返金';
+
+  @override
+  String get policyCreditRolloverTitle => 'クレジットの繰り越し';
+
+  @override
+  String get policyCreditRolloverBody => '未使用のクレジットは、定期購読が有効な間、翌月へ繰り越されます。';
+
+  @override
+  String get policyBookAccessTitle => '解約後の絵本';
+
+  @override
+  String get policyBookAccessBody => '解約しても、すでに作成した絵本はそのまま閲覧・ダウンロードできます。';
+
+  @override
+  String get policyRefundTitle => '印刷の返金・再印刷';
+
+  @override
+  String get policyRefundBody => '印刷物に不良や配送中の破損があった場合、無料で再印刷または返金します。';
+
+  @override
   String get settingsSectionApp => 'アプリ設定';
 
   @override
@@ -1555,6 +1663,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get charactersDetailStyleNotes => 'スタイルノート';
 
   @override
+  String get charactersDetailIdentityLock => '🔒 一貫性を保つ特徴';
+
+  @override
   String get charactersDetailCreateBookButton => 'このキャラクターで新しい絵本を作る';
 
   @override
@@ -1739,6 +1850,24 @@ class AppLocalizationsJa extends AppLocalizations {
   String get viewerBranchStorySubtitle => '選択肢によって結末が変わるモード';
 
   @override
+  String get viewerRetellTitle => '別の年齢で書き直す';
+
+  @override
+  String get viewerRetellSubtitle => '同じ絵で、文章だけ新しい年齢に';
+
+  @override
+  String get viewerRetellInProgress => '新しい年齢で書き直し中…';
+
+  @override
+  String get viewerRetellFailed => '書き直しに失敗しました';
+
+  @override
+  String get viewerMilestoneRewardEarned => 'ボーナスクレジットを獲得しました!';
+
+  @override
+  String get viewerMilestoneConfirm => 'やった!';
+
+  @override
   String get viewerLearningModeTitle => '学習モード';
 
   @override
@@ -1805,6 +1934,33 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get viewerRegenerateImageOnly => '画像のみ';
+
+  @override
+  String get viewerRegenerateRegion => 'この部分だけ直す';
+
+  @override
+  String get inpaintTitle => '部分修正';
+
+  @override
+  String get inpaintInstructions => '直したい部分を指でなぞって、変更内容を入力してください。';
+
+  @override
+  String get inpaintRegionPromptLabel => 'どう変えますか？';
+
+  @override
+  String get inpaintRegionPromptHint => '例：空を夕焼けに';
+
+  @override
+  String get inpaintReset => '消す';
+
+  @override
+  String get inpaintApply => '適用';
+
+  @override
+  String get inpaintNeedRegionAndPrompt => '領域と変更内容の両方を入力してください。';
+
+  @override
+  String get inpaintFailed => '部分修正に失敗しました。';
 
   @override
   String get viewerRegenerateAll => 'すべて';

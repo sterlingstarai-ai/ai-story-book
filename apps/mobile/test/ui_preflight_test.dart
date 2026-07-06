@@ -80,8 +80,7 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('handles larger text scales without overflow',
-        (tester) async {
+    testWidgets('handles larger text scales without overflow', (tester) async {
       _setPhoneViewport(tester);
       addTearDown(() => _resetViewport(tester));
 

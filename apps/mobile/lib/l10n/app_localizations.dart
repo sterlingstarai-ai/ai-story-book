@@ -304,6 +304,24 @@ abstract class AppLocalizations {
   /// **'Make a custom storybook\nwith your child as the hero'**
   String get homeCreateCardSubtitle;
 
+  /// No description provided for @homeQuickStartTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Start with my character'**
+  String get homeQuickStartTitle;
+
+  /// No description provided for @homePhotoCharacterTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Make a story with my child'**
+  String get homePhotoCharacterTitle;
+
+  /// No description provided for @homePhotoCharacterSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'A hero who looks just like them — photos are handled safely'**
+  String get homePhotoCharacterSubtitle;
+
   /// No description provided for @homeStreakDaysLabel.
   ///
   /// In en, this message translates to:
@@ -484,6 +502,90 @@ abstract class AppLocalizations {
   /// **'Child\'s age group'**
   String get createAgeLabel;
 
+  /// No description provided for @createAgeHelp3to5.
+  ///
+  /// In en, this message translates to:
+  /// **'Simple words, 1-2 short sentences, repetition and sound words'**
+  String get createAgeHelp3to5;
+
+  /// No description provided for @createAgeHelp5to7.
+  ///
+  /// In en, this message translates to:
+  /// **'Familiar words, 2-3 sentences, feelings and simple dialogue'**
+  String get createAgeHelp5to7;
+
+  /// No description provided for @createAgeHelp7to9.
+  ///
+  /// In en, this message translates to:
+  /// **'Richer words, 2-4 sentences, cause and effect'**
+  String get createAgeHelp7to9;
+
+  /// No description provided for @createAgeHelpAdult.
+  ///
+  /// In en, this message translates to:
+  /// **'No length limit, dense narrative'**
+  String get createAgeHelpAdult;
+
+  /// No description provided for @createLanguageLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Story language'**
+  String get createLanguageLabel;
+
+  /// No description provided for @createTemplateSectionLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Start from a suggestion'**
+  String get createTemplateSectionLabel;
+
+  /// No description provided for @createTemplateAnimalLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Animal friends'**
+  String get createTemplateAnimalLabel;
+
+  /// No description provided for @createTemplateAnimalTopic.
+  ///
+  /// In en, this message translates to:
+  /// **'A brave little animal makes new friends in the forest'**
+  String get createTemplateAnimalTopic;
+
+  /// No description provided for @createTemplateFriendshipLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Friendship'**
+  String get createTemplateFriendshipLabel;
+
+  /// No description provided for @createTemplateFriendshipTopic.
+  ///
+  /// In en, this message translates to:
+  /// **'Helping a friend and solving a problem together'**
+  String get createTemplateFriendshipTopic;
+
+  /// No description provided for @createTemplateFeelingsLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Big feelings'**
+  String get createTemplateFeelingsLabel;
+
+  /// No description provided for @createTemplateFeelingsTopic.
+  ///
+  /// In en, this message translates to:
+  /// **'On a scary night, finding the courage to overcome fear'**
+  String get createTemplateFeelingsTopic;
+
+  /// No description provided for @createTemplateSpaceLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Space adventure'**
+  String get createTemplateSpaceLabel;
+
+  /// No description provided for @createTemplateSpaceTopic.
+  ///
+  /// In en, this message translates to:
+  /// **'Exploring stars and planets and discovering something amazing'**
+  String get createTemplateSpaceTopic;
+
   /// No description provided for @createStyleLabel.
   ///
   /// In en, this message translates to:
@@ -568,6 +670,60 @@ abstract class AppLocalizations {
   /// **'Couldn\'t load characters'**
   String get createCharacterLoadError;
 
+  /// No description provided for @createRelationshipLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Relationship (optional)'**
+  String get createRelationshipLabel;
+
+  /// No description provided for @createRelationshipFriends.
+  ///
+  /// In en, this message translates to:
+  /// **'Friends'**
+  String get createRelationshipFriends;
+
+  /// No description provided for @createRelationshipSiblings.
+  ///
+  /// In en, this message translates to:
+  /// **'Siblings'**
+  String get createRelationshipSiblings;
+
+  /// No description provided for @createRelationshipFamily.
+  ///
+  /// In en, this message translates to:
+  /// **'Family'**
+  String get createRelationshipFamily;
+
+  /// No description provided for @createForbiddenLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Things to leave out (optional)'**
+  String get createForbiddenLabel;
+
+  /// No description provided for @createForbiddenViolence.
+  ///
+  /// In en, this message translates to:
+  /// **'Violence'**
+  String get createForbiddenViolence;
+
+  /// No description provided for @createForbiddenScary.
+  ///
+  /// In en, this message translates to:
+  /// **'Scary content'**
+  String get createForbiddenScary;
+
+  /// No description provided for @createForbiddenSad.
+  ///
+  /// In en, this message translates to:
+  /// **'Sad ending'**
+  String get createForbiddenSad;
+
+  /// No description provided for @createForbiddenRude.
+  ///
+  /// In en, this message translates to:
+  /// **'Rude language'**
+  String get createForbiddenRude;
+
   /// No description provided for @createMakeButton.
   ///
   /// In en, this message translates to:
@@ -597,6 +753,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'My Library'**
   String get libraryTitle;
+
+  /// No description provided for @librarySeriesBadge.
+  ///
+  /// In en, this message translates to:
+  /// **'Series'**
+  String get librarySeriesBadge;
+
+  /// No description provided for @librarySeriesAddVolume.
+  ///
+  /// In en, this message translates to:
+  /// **'Add next volume'**
+  String get librarySeriesAddVolume;
 
   /// No description provided for @libraryRefresh.
   ///
@@ -2242,6 +2410,54 @@ abstract class AppLocalizations {
   /// **'Credits/Subscription'**
   String get settingsCreditsSubscription;
 
+  /// No description provided for @settingsPoliciesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Policies'**
+  String get settingsPoliciesTitle;
+
+  /// No description provided for @settingsPoliciesSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Credit rollover, access after cancel, print refunds'**
+  String get settingsPoliciesSubtitle;
+
+  /// No description provided for @policyCreditRolloverTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Credit rollover'**
+  String get policyCreditRolloverTitle;
+
+  /// No description provided for @policyCreditRolloverBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Unused credits roll over to the next month while your subscription is active.'**
+  String get policyCreditRolloverBody;
+
+  /// No description provided for @policyBookAccessTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Books after cancellation'**
+  String get policyBookAccessTitle;
+
+  /// No description provided for @policyBookAccessBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Even if you cancel, the books you\'ve already made stay readable and downloadable.'**
+  String get policyBookAccessBody;
+
+  /// No description provided for @policyRefundTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Print refund & reprint'**
+  String get policyRefundTitle;
+
+  /// No description provided for @policyRefundBody.
+  ///
+  /// In en, this message translates to:
+  /// **'If a printed book is defective or damaged in transit, we\'ll reprint it free or refund you.'**
+  String get policyRefundBody;
+
   /// No description provided for @settingsSectionApp.
   ///
   /// In en, this message translates to:
@@ -2992,6 +3208,12 @@ abstract class AppLocalizations {
   /// **'Style notes'**
   String get charactersDetailStyleNotes;
 
+  /// No description provided for @charactersDetailIdentityLock.
+  ///
+  /// In en, this message translates to:
+  /// **'🔒 Locked features (kept consistent)'**
+  String get charactersDetailIdentityLock;
+
   /// No description provided for @charactersDetailCreateBookButton.
   ///
   /// In en, this message translates to:
@@ -3328,6 +3550,42 @@ abstract class AppLocalizations {
   /// **'The ending changes based on your choices'**
   String get viewerBranchStorySubtitle;
 
+  /// No description provided for @viewerRetellTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Retell at another age'**
+  String get viewerRetellTitle;
+
+  /// No description provided for @viewerRetellSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Same pictures, text rewritten for a new age'**
+  String get viewerRetellSubtitle;
+
+  /// No description provided for @viewerRetellInProgress.
+  ///
+  /// In en, this message translates to:
+  /// **'Retelling for the new age…'**
+  String get viewerRetellInProgress;
+
+  /// No description provided for @viewerRetellFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t retell this book'**
+  String get viewerRetellFailed;
+
+  /// No description provided for @viewerMilestoneRewardEarned.
+  ///
+  /// In en, this message translates to:
+  /// **'You earned bonus credits!'**
+  String get viewerMilestoneRewardEarned;
+
+  /// No description provided for @viewerMilestoneConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Awesome!'**
+  String get viewerMilestoneConfirm;
+
   /// No description provided for @viewerLearningModeTitle.
   ///
   /// In en, this message translates to:
@@ -3459,6 +3717,60 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Image only'**
   String get viewerRegenerateImageOnly;
+
+  /// No description provided for @viewerRegenerateRegion.
+  ///
+  /// In en, this message translates to:
+  /// **'Fix just this part'**
+  String get viewerRegenerateRegion;
+
+  /// No description provided for @inpaintTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Fix a region'**
+  String get inpaintTitle;
+
+  /// No description provided for @inpaintInstructions.
+  ///
+  /// In en, this message translates to:
+  /// **'Paint the area to fix, then describe the change.'**
+  String get inpaintInstructions;
+
+  /// No description provided for @inpaintRegionPromptLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'What should change?'**
+  String get inpaintRegionPromptLabel;
+
+  /// No description provided for @inpaintRegionPromptHint.
+  ///
+  /// In en, this message translates to:
+  /// **'e.g. make the sky a sunset'**
+  String get inpaintRegionPromptHint;
+
+  /// No description provided for @inpaintReset.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear'**
+  String get inpaintReset;
+
+  /// No description provided for @inpaintApply.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply'**
+  String get inpaintApply;
+
+  /// No description provided for @inpaintNeedRegionAndPrompt.
+  ///
+  /// In en, this message translates to:
+  /// **'Paint a region and describe the change.'**
+  String get inpaintNeedRegionAndPrompt;
+
+  /// No description provided for @inpaintFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t fix that region.'**
+  String get inpaintFailed;
 
   /// No description provided for @viewerRegenerateAll.
   ///

@@ -272,7 +272,8 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
           children: [
             Row(
               children: [
-                const Icon(Icons.card_membership, color: AppColors.textSecondary),
+                const Icon(Icons.card_membership,
+                    color: AppColors.textSecondary),
                 const SizedBox(width: AppSpacing.sm),
                 Text(
                   l.creditsSubscriptionInfo,

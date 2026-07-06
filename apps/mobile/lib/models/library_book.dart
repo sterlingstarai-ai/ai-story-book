@@ -10,6 +10,11 @@ class LibraryBook {
   final String? theme;
   final DateTime createdAt;
 
+  /// 시리즈 그룹핑용 메타데이터 (없으면 단권)
+  final String? seriesId;
+  final int? seriesIndex;
+  final String? characterId;
+
   LibraryBook({
     required this.id,
     required this.title,
@@ -18,6 +23,9 @@ class LibraryBook {
     required this.style,
     this.theme,
     required this.createdAt,
+    this.seriesId,
+    this.seriesIndex,
+    this.characterId,
   });
 
   factory LibraryBook.fromJson(Map<String, dynamic> json) {
@@ -41,6 +49,10 @@ class LibraryBook {
         json['created_at'],
         field: 'created_at',
       ),
+      seriesId: JsonParsing.asOptionalString(json['series_id']),
+      seriesIndex: JsonParsing.asOptionalInt(json['series_index'],
+          field: 'series_index'),
+      characterId: JsonParsing.asOptionalString(json['character_id']),
     );
   }
 }

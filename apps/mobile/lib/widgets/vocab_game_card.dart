@@ -33,8 +33,8 @@ class _VocabGameCardState extends State<VocabGameCard> {
   void initState() {
     super.initState();
     final correct = widget.item.meaning;
-    final distractors =
-        widget.allMeanings.where((m) => m != correct).toList()..shuffle();
+    final distractors = widget.allMeanings.where((m) => m != correct).toList()
+      ..shuffle();
     _choices = <String>{correct, ...distractors.take(3)}.toList()..shuffle();
   }
 

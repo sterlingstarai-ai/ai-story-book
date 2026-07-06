@@ -3,6 +3,41 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ai_story_book/models/models.dart';
 
 void main() {
+  group('LibraryBook', () {
+    test('fromJson parses series and character metadata', () {
+      final book = LibraryBook.fromJson({
+        'book_id': 'book-1',
+        'title': '또또의 모험 2권',
+        'cover_image_url': 'https://example.com/c.jpg',
+        'target_age': '5-7',
+        'style': 'watercolor',
+        'created_at': '2026-01-01T00:00:00Z',
+        'series_id': 'series-1',
+        'series_index': 2,
+        'character_id': 'char-1',
+      });
+
+      expect(book.seriesId, 'series-1');
+      expect(book.seriesIndex, 2);
+      expect(book.characterId, 'char-1');
+    });
+
+    test('fromJson leaves series fields null when absent', () {
+      final book = LibraryBook.fromJson({
+        'book_id': 'book-2',
+        'title': '단권 동화',
+        'cover_image_url': 'https://example.com/c2.jpg',
+        'target_age': '3-5',
+        'style': 'cartoon',
+        'created_at': '2026-01-02T00:00:00Z',
+      });
+
+      expect(book.seriesId, isNull);
+      expect(book.seriesIndex, isNull);
+      expect(book.characterId, isNull);
+    });
+  });
+
   group('BookSpec', () {
     test('creates instance with required fields', () {
       final spec = BookSpec(
@@ -332,6 +367,34 @@ void main() {
       expect(character.appearance.face, equals('둥근 얼굴'));
       expect(character.clothing.top, equals('티셔츠'));
       expect(character.personalityTraits, contains('호기심'));
+      expect(character.distinctiveFeatures, isNull);
+    });
+
+    test('fromJson parses distinctive_features when present', () {
+      final character = Character.fromJson({
+        'id': 'char-df',
+        'name': '토리',
+        'master_description': '귀여운 토끼',
+        'appearance': {
+          'age_visual': '5세',
+          'face': '둥근 얼굴',
+          'hair': '없음',
+          'skin': '갈색 털',
+          'body': '통통함',
+        },
+        'clothing': {
+          'top': '티셔츠',
+          'bottom': '바지',
+          'shoes': '운동화',
+          'accessories': '빨간 안경',
+        },
+        'personality_traits': ['용감함'],
+        'visual_style_notes': '수채화',
+        'distinctive_features': ['빨간 안경', '주근깨'],
+        'created_at': '2024-01-01T00:00:00Z',
+      });
+
+      expect(character.distinctiveFeatures, equals(['빨간 안경', '주근깨']));
     });
 
     test('fromJson coerces mixed scalar types', () {

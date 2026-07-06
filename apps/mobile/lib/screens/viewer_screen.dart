@@ -17,6 +17,7 @@ import '../l10n/app_localizations.dart';
 import '../models/models.dart';
 import '../widgets/vocab_game_card.dart';
 import '../providers/providers.dart';
+import 'inpaint_screen.dart';
 import '../services/analytics.dart';
 import '../utils/constants.dart';
 import '../widgets/age_gate_dialog.dart';
@@ -371,6 +372,56 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     return book.generationWarnings.first;
   }
 
+  /// 마일스톤 달성 모달 — 첫 마일스톤을 축하하고 보상(보너스 크레딧)을 알린다.
+  /// (보상 크레딧은 서버의 읽기 기록 흐름에서 이미 지급됨.)
+  Future<void> _showMilestoneModal(List<dynamic> milestones) async {
+    final l = AppLocalizations.of(context);
+    final m = milestones.first;
+    if (m is! Map) {
+      return;
+    }
+    final title = m['title']?.toString() ?? '';
+    final description = m['description']?.toString() ?? '';
+    final hasReward = m['reward'] != null;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(description),
+            if (hasReward) ...[
+              const SizedBox(height: AppSpacing.md),
+              Container(
+                padding: const EdgeInsets.all(AppSpacing.sm),
+                decoration: BoxDecoration(
+                  color: AppColors.primaryLight,
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.card_giftcard,
+                        color: AppColors.primary, size: 20),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(child: Text(l.viewerMilestoneRewardEarned)),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(l.viewerMilestoneConfirm),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _handleBookCompleted(BookResult book) async {
     await _clearReadingProgress();
     final readingSeconds = DateTime.now().difference(_viewStartedAt).inSeconds;
@@ -378,11 +429,15 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     int streak = 0;
 
     try {
-      await api.recordReading(
+      final readResult = await api.recordReading(
         bookId: widget.bookId,
         readingTime: readingSeconds < 0 ? 0 : readingSeconds,
         completed: true,
       );
+      final milestones = readResult['milestones'];
+      if (milestones is List && milestones.isNotEmpty && mounted) {
+        await _showMilestoneModal(milestones);
+      }
       final streakInfo = await api.getStreakInfo();
       final currentStreak = streakInfo['current_streak'];
       if (currentStreak is int) {
@@ -760,7 +815,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.menu_book_rounded, color: Colors.white, size: 18),
+              const Icon(Icons.menu_book_rounded,
+                  color: Colors.white, size: 18),
               const SizedBox(width: AppSpacing.sm),
               Text(
                 l.viewerLearningBar(parts.join(' · ')),
@@ -972,7 +1028,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     await _audioPlayer.stop();
     if (byTimer && wasEnabled && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AppLocalizations.of(context).viewerSleepModeEnded)),
+        SnackBar(
+            content: Text(AppLocalizations.of(context).viewerSleepModeEnded)),
       );
     }
   }
@@ -1023,6 +1080,55 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   Future<void> _clearReadingProgress() async {
     final prefs = ref.read(sharedPreferencesProvider);
     await prefs.remove(_progressKey);
+  }
+
+  /// 다른 연령대로 본문만 다시 써서 새 책으로 연다(삽화 재사용, 크레딧 0).
+  Future<void> _showRetellAgePicker(BookResult book) async {
+    final l = AppLocalizations.of(context);
+    final targetAge = await showDialog<String>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: Text(l.viewerRetellTitle),
+        children: [
+          for (final entry in {
+            '3-5': l.libraryAge3to5,
+            '5-7': l.libraryAge5to7,
+            '7-9': l.libraryAge7to9,
+          }.entries)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(context, entry.key),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+                child: Text(entry.value),
+              ),
+            ),
+        ],
+      ),
+    );
+    if (targetAge == null || !mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(l.viewerRetellInProgress)),
+    );
+    try {
+      final newBookId =
+          await ref.read(apiClientProvider).retellBook(book.bookId, targetAge);
+      if (!mounted) {
+        return;
+      }
+      Navigator.pushReplacementNamed(context, '/viewer', arguments: newBookId);
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(l.viewerRetellFailed),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
   }
 
   void _showOptionsMenu(BookResult book) {
@@ -1095,6 +1201,16 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                     'bookId': book.bookId,
                   },
                 );
+              },
+            ),
+            // 아이와 함께 자라는 리텔 — 같은 그림으로 다른 연령대 본문
+            ListTile(
+              leading: const Icon(Icons.auto_stories),
+              title: Text(l.viewerRetellTitle),
+              subtitle: Text(l.viewerRetellSubtitle),
+              onTap: () {
+                Navigator.pop(context);
+                _showRetellAgePicker(book);
               },
             ),
             // 학습 모드 (페이지에서만)
@@ -1190,8 +1306,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               leading: Icon(
                 _sleepModeEnabled ? Icons.bedtime_off : Icons.bedtime,
               ),
-              title: Text(
-                  _sleepModeEnabled ? l.viewerSleepModeStop : l.viewerSleepModeStart),
+              title: Text(_sleepModeEnabled
+                  ? l.viewerSleepModeStop
+                  : l.viewerSleepModeStart),
               subtitle: Text(
                 _sleepModeEnabled
                     ? l.viewerSleepModeRemaining(_sleepRemainingText())
@@ -1336,6 +1453,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     final l = AppLocalizations.of(context);
     final pageIndex = _currentPage - 1; // 표지 제외
     if (pageIndex < 0) return;
+    // 능력기반: 알려진 미지원이면 인페인트 옵션 숨김(미확정/지원은 노출, 409로 폴백).
+    final caps = ref.read(capabilitiesProvider).valueOrNull;
+    final inpaintOk = caps == null ? true : caps['inpaint_supported'] == true;
 
     showDialog(
       context: context,
@@ -1347,6 +1467,14 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
             onPressed: () => Navigator.pop(context),
             child: Text(l.viewerCancel),
           ),
+          if (inpaintOk && pageIndex < book.pages.length)
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _openInpaint(book, pageIndex);
+              },
+              child: Text(l.viewerRegenerateRegion),
+            ),
           TextButton(
             onPressed: () {
               Navigator.pop(context);
@@ -1373,6 +1501,33 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     );
   }
 
+  Future<void> _openInpaint(BookResult book, int pageIndex) async {
+    final l = AppLocalizations.of(context);
+    if (book.jobId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l.viewerRegenerateNotSupported)),
+      );
+      return;
+    }
+    final page = book.pages[pageIndex];
+    final result = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => InpaintScreen(
+          jobId: book.jobId!,
+          bookId: widget.bookId,
+          pageNumber: pageIndex + 1,
+          imageUrl: page.imageUrl,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (result == false) {
+      // 제공자 미지원 → 전체 이미지 재생성으로 폴백
+      _regeneratePage(book, pageIndex + 1, 'image');
+    }
+  }
+
   Future<void> _regeneratePage(
       BookResult book, int pageNumber, String target) async {
     final l = AppLocalizations.of(context);
@@ -1394,7 +1549,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(AppLocalizations.of(context).viewerRegenerateStarted)),
+          SnackBar(
+              content:
+                  Text(AppLocalizations.of(context).viewerRegenerateStarted)),
         );
         // 책 데이터 새로고침
         ref.invalidate(bookDetailProvider(widget.bookId));
@@ -1432,7 +1589,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(AppLocalizations.of(context).viewerPdfSaved(fileName))),
+          SnackBar(
+              content:
+                  Text(AppLocalizations.of(context).viewerPdfSaved(fileName))),
         );
       }
     } catch (e) {
@@ -1582,7 +1741,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(AppLocalizations.of(context).viewerShareLinkFailed)),
+          SnackBar(
+              content:
+                  Text(AppLocalizations.of(context).viewerShareLinkFailed)),
         );
       }
     }
@@ -1608,7 +1769,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(AppLocalizations.of(context).viewerShareLinkFailed)),
+          SnackBar(
+              content:
+                  Text(AppLocalizations.of(context).viewerShareLinkFailed)),
         );
       }
     }
@@ -1627,7 +1790,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(AppLocalizations.of(context).viewerShareRevokeFailed)),
+          SnackBar(
+              content:
+                  Text(AppLocalizations.of(context).viewerShareRevokeFailed)),
         );
       }
     }
@@ -2203,7 +2368,9 @@ class _LanguageToggle extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                selectedLanguage == 'ko' ? l.viewerLanguageKo : l.viewerLanguageEn,
+                selectedLanguage == 'ko'
+                    ? l.viewerLanguageKo
+                    : l.viewerLanguageEn,
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
@@ -2283,7 +2450,9 @@ class _LearningModeSheetState extends State<_LearningModeSheet>
           indicatorColor: AppColors.primary,
           tabs: [
             Tab(icon: const Icon(Icons.abc), text: l.viewerTabWord),
-            Tab(icon: const Icon(Icons.help_outline), text: l.viewerTabQuestion),
+            Tab(
+                icon: const Icon(Icons.help_outline),
+                text: l.viewerTabQuestion),
             Tab(icon: const Icon(Icons.quiz), text: l.viewerTabQuiz),
           ],
         ),
@@ -2361,8 +2530,8 @@ class _VocabDisplayCard extends StatelessWidget {
         child: Row(
           children: [
             Text(item.word,
-                style: AppTextStyles.heading3
-                    .copyWith(color: AppColors.primary)),
+                style:
+                    AppTextStyles.heading3.copyWith(color: AppColors.primary)),
             const SizedBox(width: AppSpacing.sm),
             Expanded(child: Text(item.meaning, style: AppTextStyles.body)),
           ],
@@ -2423,7 +2592,8 @@ class _ComprehensionCardState extends State<_ComprehensionCard> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              l.viewerComprehensionQuestion(widget.index, widget.question.question),
+              l.viewerComprehensionQuestion(
+                  widget.index, widget.question.question),
               style: AppTextStyles.body.copyWith(fontWeight: FontWeight.bold),
             ),
             if (widget.question.answer != null) ...[

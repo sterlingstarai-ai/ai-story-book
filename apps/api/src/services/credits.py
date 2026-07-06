@@ -7,6 +7,7 @@ from datetime import timedelta
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, case
+from sqlalchemy.exc import IntegrityError
 
 from ..models.db import UserCredits, Subscription, CreditTransaction
 from ..core.utils import utcnow
@@ -214,6 +215,37 @@ class CreditsService:
         except Exception:
             await db.rollback()
             raise
+
+    async def add_milestone_credits_once(
+        self,
+        db: AsyncSession,
+        user_key: str,
+        amount: int,
+        reference_id: str,
+        description: str,
+    ) -> bool:
+        """같은 사용자·마일스톤 보상은 DB 제약으로 한 번만 지급한다."""
+        try:
+            await self.add_credits(
+                db=db,
+                user_key=user_key,
+                amount=amount,
+                transaction_type="bonus",
+                description=description,
+                reference_id=reference_id,
+            )
+        except IntegrityError:
+            existing_reward = await db.scalar(
+                select(CreditTransaction.id).where(
+                    CreditTransaction.user_key == user_key,
+                    CreditTransaction.transaction_type == "bonus",
+                    CreditTransaction.reference_id == reference_id,
+                )
+            )
+            if existing_reward is None:
+                raise
+            return False
+        return True
 
     async def refund_for_job(
         self,

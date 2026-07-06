@@ -16,6 +16,7 @@ import 'package:ai_story_book/screens/library_screen.dart';
 import 'package:ai_story_book/screens/loading_screen.dart';
 import 'package:ai_story_book/screens/credits_screen.dart';
 import 'package:ai_story_book/screens/characters_screen.dart';
+import 'package:ai_story_book/screens/inpaint_screen.dart';
 import 'package:ai_story_book/widgets/common_widgets.dart';
 
 // ==================== Helpers ====================
@@ -172,6 +173,120 @@ void main() {
       }
     });
 
+    testWidgets('shows live per-band age helper that updates on selection',
+        (tester) async {
+      await tester.pumpWidget(buildTestableWidget(
+        const CreateScreen(),
+        overrides: createOverrides(),
+      ));
+      await tester.pumpAndSettle();
+
+      // 기본 연령(5-7세) 안내가 표시된다.
+      expect(find.text('익숙한 단어, 2~3문장, 감정과 간단한 대화'), findsOneWidget);
+
+      // 다른 연령대(3-5세)를 선택하면 안내가 라이브로 갱신된다.
+      await tester.tap(find.text('3-5세'));
+      await tester.pumpAndSettle();
+      expect(find.text('쉬운 단어, 1~2개의 짧은 문장, 반복과 의성어'), findsOneWidget);
+      expect(find.text('익숙한 단어, 2~3문장, 감정과 간단한 대화'), findsNothing);
+    });
+
+    testWidgets('shows only approved story language chips', (tester) async {
+      await tester.pumpWidget(buildTestableWidget(
+        const CreateScreen(),
+        overrides: createOverrides(),
+      ));
+      await tester.pumpAndSettle();
+
+      final listView = find.byType(ListView).first;
+      for (var i = 0; i < 25 && find.text('이야기 언어').evaluate().isEmpty; i++) {
+        await tester.drag(listView, const Offset(0, -250));
+        await tester.pumpAndSettle();
+      }
+      expect(find.text('이야기 언어'), findsOneWidget);
+      expect(find.text('한국어', skipOffstage: false), findsOneWidget);
+      expect(find.text('English', skipOffstage: false), findsOneWidget);
+      expect(find.text('日本語', skipOffstage: false), findsOneWidget);
+      expect(find.text('Español', skipOffstage: false), findsNothing);
+      expect(find.text('中文', skipOffstage: false), findsNothing);
+    });
+
+    testWidgets('tapping a quick-start template prefills topic and theme',
+        (tester) async {
+      await tester.pumpWidget(buildTestableWidget(
+        const CreateScreen(),
+        overrides: createOverrides(),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('추천으로 시작하기'), findsOneWidget);
+
+      await tester.tap(find.text('동물 친구'));
+      await tester.pumpAndSettle();
+      expect(find.text('용감한 아기 동물이 숲에서 새 친구를 사귀는 이야기'), findsOneWidget);
+    });
+
+    testWidgets('shows relationship selector when 2+ characters selected',
+        (tester) async {
+      await tester.pumpWidget(buildTestableWidget(
+        const CreateScreen(),
+        overrides: createOverrides(), // 샘플 캐릭터 2명(토리, 하나)
+      ));
+      await tester.pumpAndSettle();
+
+      // 관계 섹션은 처음엔 없다(캐릭터 미선택 = AI 자동).
+      expect(find.text('관계 (선택)'), findsNothing);
+
+      final listView = find.byType(ListView).first;
+      Future<void> scrollToText(String text) async {
+        for (var i = 0; i < 25 && find.text(text).evaluate().isEmpty; i++) {
+          await tester.drag(listView, const Offset(0, -250));
+          await tester.pumpAndSettle();
+        }
+        await tester.ensureVisible(find.text(text));
+        await tester.pumpAndSettle();
+      }
+
+      // 두 캐릭터를 선택한다.
+      await scrollToText('토리');
+      await tester.tap(find.text('토리'));
+      await tester.pump();
+      await scrollToText('하나');
+      await tester.tap(find.text('하나'));
+      await tester.pump();
+
+      // 관계 선택 섹션이 나타난다.
+      await scrollToText('관계 (선택)');
+      expect(find.text('관계 (선택)'), findsOneWidget);
+      expect(find.text('남매'), findsOneWidget);
+    });
+
+    testWidgets('shows forbidden-elements selector and toggles a chip',
+        (tester) async {
+      await tester.pumpWidget(buildTestableWidget(
+        const CreateScreen(),
+        overrides: createOverrides(),
+      ));
+      await tester.pumpAndSettle();
+
+      final listView = find.byType(ListView).first;
+      for (var i = 0;
+          i < 25 && find.text('빼고 싶은 요소 (선택)').evaluate().isEmpty;
+          i++) {
+        await tester.drag(listView, const Offset(0, -250));
+        await tester.pumpAndSettle();
+      }
+      expect(find.text('빼고 싶은 요소 (선택)'), findsOneWidget);
+      expect(find.text('폭력'), findsOneWidget);
+
+      await tester.ensureVisible(find.text('폭력'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('폭력'));
+      await tester.pump();
+      // 토글 후에도 예외 없이 유지된다.
+      expect(find.text('폭력'), findsOneWidget);
+    });
+
     testWidgets('renders style selection chips', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
         const CreateScreen(),
@@ -183,7 +298,8 @@ void main() {
       await tester.pumpAndSettle();
 
       final l = AppLocalizations.of(tester.element(find.byType(CreateScreen)));
-      expect(find.text(l.createStyleLabel, skipOffstage: false), findsOneWidget);
+      expect(
+          find.text(l.createStyleLabel, skipOffstage: false), findsOneWidget);
       for (final style in BookStyle.values) {
         expect(
           find.text(style.localizedLabel(l), skipOffstage: false),
@@ -199,7 +315,11 @@ void main() {
       ));
       await tester.pumpAndSettle();
 
-      // Theme section may be below the fold; use skipOffstage: false
+      // 템플릿 행이 추가되어 테마 섹션이 더 아래로 밀렸으므로, lazy ListView가
+      // 해당 위젯을 빌드하도록 먼저 스크롤한다(스타일 섹션 테스트와 동일한 패턴).
+      await tester.drag(find.byType(ListView).first, const Offset(0, -500));
+      await tester.pumpAndSettle();
+
       expect(find.text('테마 (선택)', skipOffstage: false), findsOneWidget);
       expect(find.text('없음', skipOffstage: false), findsOneWidget);
     });
@@ -331,11 +451,14 @@ void main() {
     List<Override> homeOverrides({
       HomeStreakSnapshot streak = _sampleStreak,
       List<LibraryBook>? books,
+      List<Character>? characters,
     }) =>
         [
           libraryProvider
               .overrideWith(() => _MockLibraryNotifier(books ?? _sampleBooks)),
           homeStreakProvider.overrideWith((ref) async => streak),
+          charactersProvider.overrideWith(
+              () => _MockCharactersNotifier(characters ?? const [])),
         ];
 
     testWidgets('renders streak card with current streak and today topic',
@@ -382,6 +505,8 @@ void main() {
           homeStreakProvider.overrideWith((ref) async {
             throw Exception('network');
           }),
+          charactersProvider
+              .overrideWith(() => _MockCharactersNotifier(const [])),
         ],
       ));
       await tester.pump();
@@ -389,6 +514,31 @@ void main() {
 
       expect(find.text('스트릭 카드 오류'), findsOneWidget);
       expect(find.text('다시 시도'), findsOneWidget);
+    });
+
+    testWidgets('shows character-first quick-start row when characters exist',
+        (tester) async {
+      await tester.pumpWidget(buildTestableWidget(
+        const HomeScreen(),
+        overrides:
+            homeOverrides(books: const [], characters: _sampleCharacters),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(find.text('내 캐릭터로 바로 만들기'), findsOneWidget);
+      expect(find.text('토리'), findsOneWidget);
+    });
+
+    testWidgets('shows photo-to-character entry card', (tester) async {
+      await tester.pumpWidget(buildTestableWidget(
+        const HomeScreen(),
+        overrides: homeOverrides(books: const []),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(find.text('내 아이로 동화 만들기'), findsOneWidget);
     });
   });
 
@@ -445,9 +595,47 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
-      expect(find.byType(GridView), findsOneWidget);
+      // 본문이 CustomScrollView(SliverGrid)로 바뀜 — 단권 책들은 그리드에 렌더된다.
+      expect(find.byType(CustomScrollView), findsOneWidget);
       expect(find.text('토끼의 모험'), findsOneWidget);
       expect(find.text('하나의 여행'), findsOneWidget);
+    });
+
+    testWidgets('groups series books into a shelf with an add-volume tile',
+        (tester) async {
+      final seriesBook = LibraryBook.fromJson({
+        'book_id': 'sbook-1',
+        'title': '시리즈 1권',
+        'cover_image_url': 'https://example.com/s1.jpg',
+        'target_age': '5-7',
+        'style': 'watercolor',
+        'created_at': '2026-01-01T00:00:00Z',
+        'series_id': 'series-x',
+        'series_index': 1,
+        'character_id': 'char-x',
+      });
+      await tester.pumpWidget(buildTestableWidget(
+        const LibraryScreen(),
+        overrides: libraryOverrides(
+          LibraryBrowseState(
+            books: [seriesBook],
+            total: 1,
+            nextCursor: null,
+            hasMore: false,
+            isLoadingMore: false,
+            isOffline: false,
+            sort: 'newest',
+            style: null,
+            targetAge: null,
+          ),
+        ),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 시리즈 책장 헤더 + '다음 권 만들기' 타일이 렌더된다.
+      expect(find.text('시리즈 · 1'), findsOneWidget);
+      expect(find.text('다음 권 만들기'), findsOneWidget);
     });
 
     testWidgets('shows empty state when no books', (tester) async {
@@ -972,7 +1160,11 @@ void main() {
           apiClientProvider.overrideWithValue(
             _MockApiClient(
               creditsStatus: {
-                'credits': {'credits': 8, 'total_purchased': 10, 'total_used': 2},
+                'credits': {
+                  'credits': 8,
+                  'total_purchased': 10,
+                  'total_used': 2
+                },
                 'subscription': {
                   'plan': 'basic',
                   'plan_name': '베이직',
@@ -992,6 +1184,25 @@ void main() {
       expect(find.text('해지 예정'), findsOneWidget);
       expect(find.text('현재 결제 주기가 끝나면 무료 플랜으로 전환됩니다.'), findsOneWidget);
       expect(find.text('구독 취소'), findsNothing);
+    });
+  });
+
+  group('InpaintScreen', () {
+    testWidgets('renders the region prompt field and apply button',
+        (tester) async {
+      await tester.pumpWidget(buildTestableWidget(
+        const InpaintScreen(
+          jobId: 'job-1',
+          bookId: 'book-1',
+          pageNumber: 1,
+          imageUrl: 'https://example.com/p1.png',
+        ),
+      ));
+      await tester.pump();
+
+      expect(find.text('부분 수정'), findsOneWidget); // 앱바 제목
+      expect(find.text('적용'), findsOneWidget); // 적용 버튼
+      expect(find.byType(TextField), findsOneWidget); // 영역 설명 입력
     });
   });
 }

@@ -1,0 +1,100 @@
+"""P1-8: 스트릭 마일스톤 — 보상은 누적(total_days)에 붙어 임계마다 한 번만 발화(악용 불가).
+
+핵심: 스트릭을 깼다 다시 쌓아도 total_days는 줄지 않으므로 보상이 재지급되지 않는다.
+(적대적 리뷰가 잡은 current_streak == days repeat-after-reset 버그를 보상에서 회피.)
+"""
+
+import pytest
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.models.db import CreditTransaction, UserCredits
+from src.services.streak import streak_service
+
+
+def test_total_milestone_has_reward_and_fires_at_threshold():
+    ms = streak_service._check_milestones(current_streak=3, total_days=10)
+    total10 = [m for m in ms if m["type"] == "total" and m["days"] == 10]
+    assert len(total10) == 1
+    assert total10[0]["reward"] == "free_pdf"
+
+
+def test_total_reward_does_not_refire_past_threshold():
+    # 누적이 임계를 지나면(=11) 더 이상 발화하지 않음 → 보상 1회만(exploit-proof)
+    ms = streak_service._check_milestones(current_streak=3, total_days=11)
+    assert not any(m["type"] == "total" and m["days"] == 10 for m in ms)
+
+
+def test_streak_milestone_carries_no_reward():
+    # 스트릭 마일스톤은 축하용(보상 없음) — 재축적 재발화해도 악용 위험 없음
+    ms = streak_service._check_milestones(current_streak=7, total_days=7)
+    streak7 = [m for m in ms if m["type"] == "streak" and m["days"] == 7]
+    assert len(streak7) == 1
+    assert streak7[0]["reward"] is None
+
+
+@pytest.mark.asyncio
+async def test_grant_milestone_rewards_grants_credits(
+    db_session: AsyncSession,
+    headers: dict,
+):
+    granted = await streak_service._grant_milestone_rewards(
+        db_session,
+        headers["X-User-Key"],
+        [{"type": "total", "days": 10, "title": "10일 완독", "reward": "free_pdf"}],
+    )
+    assert granted == 1  # free_pdf -> 1 credit
+
+
+@pytest.mark.asyncio
+async def test_grant_milestone_rewards_skips_rewardless(
+    db_session: AsyncSession,
+    headers: dict,
+):
+    granted = await streak_service._grant_milestone_rewards(
+        db_session,
+        headers["X-User-Key"],
+        [{"type": "streak", "days": 7, "title": "7일", "reward": None}],
+    )
+    assert granted == 0
+
+
+@pytest.mark.asyncio
+async def test_grant_milestone_rewards_is_idempotent(
+    db_session: AsyncSession,
+    headers: dict,
+):
+    user_key = headers["X-User-Key"]
+    milestone = {
+        "type": "total",
+        "days": 10,
+        "title": "10일 완독",
+        "reward": "free_pdf",
+    }
+
+    first_grant = await streak_service._grant_milestone_rewards(
+        db_session,
+        user_key,
+        [milestone],
+    )
+    repeated_grant = await streak_service._grant_milestone_rewards(
+        db_session,
+        user_key,
+        [milestone],
+    )
+
+    balance = await db_session.scalar(
+        select(UserCredits.credits).where(UserCredits.user_key == user_key)
+    )
+    reward_transactions = await db_session.scalar(
+        select(func.count(CreditTransaction.id)).where(
+            CreditTransaction.user_key == user_key,
+            CreditTransaction.transaction_type == "bonus",
+            CreditTransaction.reference_id == "milestone_total_10",
+        )
+    )
+
+    assert first_grant == 1
+    assert repeated_grant == 0
+    assert balance == 4
+    assert reward_transactions == 1

@@ -88,7 +88,8 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
         _orderDetail = detail;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AppLocalizations.of(context).podOrderSubmitSuccess)),
+        SnackBar(
+            content: Text(AppLocalizations.of(context).podOrderSubmitSuccess)),
       );
     } catch (error) {
       if (!mounted) {
@@ -210,8 +211,9 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
                   decoration: InputDecoration(
                     labelText: l.podOrderAddressLabel,
                   ),
-                  validator: (value) =>
-                      (value?.trim().isEmpty ?? true) ? l.podOrderAddressError : null,
+                  validator: (value) => (value?.trim().isEmpty ?? true)
+                      ? l.podOrderAddressError
+                      : null,
                 ),
                 const SizedBox(height: AppSpacing.md),
                 Row(
@@ -219,7 +221,8 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
                     Expanded(
                       child: TextFormField(
                         controller: _postalController,
-                        decoration: InputDecoration(labelText: l.podOrderPostalLabel),
+                        decoration:
+                            InputDecoration(labelText: l.podOrderPostalLabel),
                         validator: (value) => (value?.trim().isEmpty ?? true)
                             ? l.podOrderPostalError
                             : null,
@@ -229,7 +232,8 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
                     Expanded(
                       child: TextFormField(
                         controller: _countryController,
-                        decoration: InputDecoration(labelText: l.podOrderCountryLabel),
+                        decoration:
+                            InputDecoration(labelText: l.podOrderCountryLabel),
                         validator: (value) => (value?.trim().isEmpty ?? true)
                             ? l.podOrderCountryError
                             : null,
@@ -241,8 +245,9 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
                 TextFormField(
                   controller: _phoneController,
                   decoration: InputDecoration(labelText: l.podOrderPhoneLabel),
-                  validator: (value) =>
-                      (value?.trim().isEmpty ?? true) ? l.podOrderPhoneError : null,
+                  validator: (value) => (value?.trim().isEmpty ?? true)
+                      ? l.podOrderPhoneError
+                      : null,
                 ),
               ],
             ),
@@ -269,7 +274,8 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
                           : () => setState(() => _quantity -= 1),
                       icon: const Icon(Icons.remove_circle_outline),
                     ),
-                    Text(l.podOrderQuantityValue(_quantity), style: AppTextStyles.heading3),
+                    Text(l.podOrderQuantityValue(_quantity),
+                        style: AppTextStyles.heading3),
                     IconButton(
                       tooltip: l.podOrderIncreaseQuantityTooltip,
                       onPressed: _quantity >= 10
@@ -297,7 +303,8 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.local_shipping_outlined),
-            label: Text(_isSubmitting ? l.podOrderSubmitting : l.podOrderSubmitButton),
+            label: Text(
+                _isSubmitting ? l.podOrderSubmitting : l.podOrderSubmitButton),
           ),
           if (_errorMessage != null) ...[
             const SizedBox(height: AppSpacing.sm),
@@ -320,7 +327,8 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
                 children: [
                   Text(l.podOrderStatusTitle, style: AppTextStyles.heading3),
                   const SizedBox(height: AppSpacing.sm),
-                  Text(l.podOrderOrderNumber(orderId), style: AppTextStyles.bodySmall),
+                  Text(l.podOrderOrderNumber(orderId),
+                      style: AppTextStyles.bodySmall),
                   if (providerOrderId != null && providerOrderId.isNotEmpty)
                     Row(
                       children: [
@@ -338,23 +346,27 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
                               ClipboardData(text: providerOrderId),
                             );
                             messenger.showSnackBar(
-                              SnackBar(content: Text(l.podOrderProviderOrderCopied)),
+                              SnackBar(
+                                  content: Text(l.podOrderProviderOrderCopied)),
                             );
                           },
                           icon: const Icon(Icons.copy, size: 18),
                         ),
                       ],
                     ),
-                  Text(l.podOrderStatusValue(orderStatus), style: AppTextStyles.bodySmall),
+                  Text(l.podOrderStatusValue(orderStatus),
+                      style: AppTextStyles.bodySmall),
                   Text(l.podOrderPaymentAmount(totalPrice),
                       style: AppTextStyles.bodySmall),
-                  Text(l.podOrderSyncValue(syncSource), style: AppTextStyles.bodySmall),
+                  Text(l.podOrderSyncValue(syncSource),
+                      style: AppTextStyles.bodySmall),
                   if ((_orderDetail?['tracking_number']
                           ?.toString()
                           .isNotEmpty ??
                       false))
                     Text(
-                      l.podOrderTrackingNumber(_orderDetail!['tracking_number'].toString()),
+                      l.podOrderTrackingNumber(
+                          _orderDetail!['tracking_number'].toString()),
                       style: AppTextStyles.bodySmall,
                     ),
                   const SizedBox(height: AppSpacing.sm),

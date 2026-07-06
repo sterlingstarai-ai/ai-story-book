@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     image_timeout: int = 90
     image_max_concurrent: int = 3
     image_max_retries: int = 3  # Maximum retries for image generation
+    # 인페인트(부분 재생성) — replicate(SDXL, image+mask 입력 지원) / fal에서만 동작.
+    # FAL 인페인트 엔드포인트(배포 환경에서 확정 가능, 기본값 overridable).
+    image_inpaint_fal_endpoint: str = "https://fal.run/fal-ai/flux-lora/inpainting"
 
     # TTS (Text-to-Speech)
     tts_provider: str = "mock"  # mock, google, elevenlabs

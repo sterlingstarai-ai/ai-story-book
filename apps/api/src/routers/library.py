@@ -133,6 +133,9 @@ async def get_library(
                 target_age=TargetAge(b.target_age),
                 style=b.style,
                 created_at=b.created_at,
+                series_id=b.series_id,
+                series_index=b.series_index,
+                character_id=b.character_id,
             )
             for b in books
         ],

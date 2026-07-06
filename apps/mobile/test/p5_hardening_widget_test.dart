@@ -542,9 +542,16 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
 
       expect(find.text('설정'), findsOneWidget);
-      await tester.tap(
-        find.widgetWithText(SwitchListTile, '카카오톡 카드 공유'),
-      );
+      // 설정 항목이 늘어 카카오 토글이 lazy ListView 빌드 윈도우 밖일 수 있어 먼저 스크롤.
+      final kakaoSwitch = find.widgetWithText(SwitchListTile, '카카오톡 카드 공유');
+      final settingsList = find.byType(ListView).first;
+      for (var i = 0; i < 20 && kakaoSwitch.evaluate().isEmpty; i++) {
+        await tester.drag(settingsList, const Offset(0, -250));
+        await tester.pumpAndSettle();
+      }
+      await tester.ensureVisible(kakaoSwitch);
+      await tester.pumpAndSettle();
+      await tester.tap(kakaoSwitch);
       await tester.pumpAndSettle();
       await tester.tap(find.text('저장'));
       await tester.pump();

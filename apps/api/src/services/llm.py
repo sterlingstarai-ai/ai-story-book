@@ -19,6 +19,7 @@ from src.models.dto import (
     ModerationResult,
     LearningAssets,
     Language,
+    RetoldStory,
 )
 
 logger = structlog.get_logger()
@@ -453,6 +454,8 @@ async def load_characters_from_db(character_ids: list[str]) -> list[dict]:
                 "name": c.name,
                 "appearance": c.master_description,
                 "personality": c.personality_traits,
+                # 영속된 고유 특징 — 같은 캐릭터를 날짜·책을 넘어 동일하게 유지
+                "distinctive_features": c.distinctive_features,
             }
             for c in characters
         ]
@@ -491,6 +494,12 @@ async def call_story_generation(spec: BookSpec) -> StoryDraft:
         if len(all_character_specs) == 1
         else None,
         character_specs=all_character_specs if len(all_character_specs) > 1 else None,
+        # 다중 캐릭터일 때만 관계 힌트를 전달(남매/친구 등 역학 반영)
+        character_relationship=(
+            spec.character_relationship
+            if len(all_character_specs) > 1
+            else None
+        ),
         forbidden_elements=spec.forbidden_elements or [],
     )
 
@@ -566,6 +575,30 @@ async def call_text_rewrite(
         system_prompt, user_prompt, max_tokens=1000, temperature=0.7
     )
     return json.loads(response)
+
+
+async def call_story_retext(
+    title: str,
+    pages_text: list[str],
+    target_age: str,
+    language: str,
+) -> RetoldStory:
+    """같은 이야기를 다른 연령대 본문으로 다시 쓴다(장면·삽화 재사용, 텍스트만 변경)."""
+    system_prompt = render_prompt(
+        "rewrite_story_for_age.system.jinja2",
+        language_name=language_display_name(language),
+    )
+    user_prompt = render_prompt(
+        "rewrite_story_for_age.user.jinja2",
+        target_age=target_age,
+        language=language,
+        title=title,
+        pages=pages_text,
+    )
+    response = await call_llm(
+        system_prompt, user_prompt, max_tokens=3000, temperature=0.7
+    )
+    return parse_json_response(response, RetoldStory)
 
 
 async def call_learning_assets(

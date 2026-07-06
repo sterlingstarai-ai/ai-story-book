@@ -45,7 +45,8 @@ class ScreenTimeSnapshot {
       enabled: enabled ?? this.enabled,
       dailyLimitMinutes: dailyLimitMinutes ?? this.dailyLimitMinutes,
       usedSecondsToday: usedSecondsToday ?? this.usedSecondsToday,
-      extensionSecondsToday: extensionSecondsToday ?? this.extensionSecondsToday,
+      extensionSecondsToday:
+          extensionSecondsToday ?? this.extensionSecondsToday,
       dayKey: dayKey ?? this.dayKey,
     );
   }
@@ -55,7 +56,8 @@ class ScreenTimeService {
   static const keyEnabled = 'screen_time_enabled_v1';
   static const keyDailyLimitMinutes = 'screen_time_daily_limit_minutes_v1';
   static const keyUsedSecondsToday = 'screen_time_used_seconds_today_v1';
-  static const keyExtensionSecondsToday = 'screen_time_extension_seconds_today_v1';
+  static const keyExtensionSecondsToday =
+      'screen_time_extension_seconds_today_v1';
   static const keyDay = 'screen_time_day_v1';
   static const defaultDailyLimitMinutes = 60;
 

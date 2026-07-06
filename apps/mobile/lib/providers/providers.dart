@@ -68,6 +68,16 @@ final apiClientProvider = Provider<ApiClient>((ref) {
   );
 });
 
+/// 배포 환경 기능 가용성(예: inpaint_supported) — UI 게이팅용. 실패 시 보수적으로 미지원.
+final capabilitiesProvider = FutureProvider<Map<String, dynamic>>((ref) async {
+  final api = ref.read(apiClientProvider);
+  try {
+    return await api.getCapabilities();
+  } catch (_) {
+    return const {'inpaint_supported': false};
+  }
+});
+
 final appThemeModeProvider =
     NotifierProvider<AppThemeModeNotifier, ThemeMode>(AppThemeModeNotifier.new);
 
@@ -740,8 +750,9 @@ final peerComparisonProvider = FutureProvider<PeerComparison>((ref) async {
   final api = ref.read(apiClientProvider);
   final data = await api.getPeerComparison();
   final my = data['my'] is Map ? data['my'] as Map : const <dynamic, dynamic>{};
-  final avg =
-      data['peer_avg'] is Map ? data['peer_avg'] as Map : const <dynamic, dynamic>{};
+  final avg = data['peer_avg'] is Map
+      ? data['peer_avg'] as Map
+      : const <dynamic, dynamic>{};
   double toDouble(dynamic v) => v is num ? v.toDouble() : 0.0;
   return PeerComparison(
     ageBand: _toStringValue(data['age_band'], fallback: '5-7'),

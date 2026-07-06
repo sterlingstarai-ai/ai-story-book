@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../l10n/app_localizations.dart';
+import '../models/models.dart';
 import '../utils/constants.dart';
 import '../widgets/app_shell.dart';
 import '../widgets/common_widgets.dart';
@@ -51,6 +52,7 @@ class HomeScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l = AppLocalizations.of(context);
     final libraryAsync = ref.watch(libraryProvider);
+    final charactersAsync = ref.watch(charactersProvider);
     final streakAsync = ref.watch(homeStreakProvider);
     final growthAsync = ref.watch(growthReportProvider);
     final growthSubtitle = growthAsync.maybeWhen(
@@ -76,7 +78,8 @@ class HomeScreen extends ConsumerWidget {
                     Row(
                       children: [
                         Expanded(
-                          child: Text(l.homeTitle, style: AppTextStyles.heading1),
+                          child:
+                              Text(l.homeTitle, style: AppTextStyles.heading1),
                         ),
                         IconButton(
                           onPressed: () =>
@@ -104,6 +107,43 @@ class HomeScreen extends ConsumerWidget {
                   onTap: () => Navigator.pushNamed(context, '/create'),
                 ),
               ),
+            ),
+
+            // 사진→캐릭터 진입 (프라이버시 신뢰 메시지 포함)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.lg, AppSpacing.md, AppSpacing.lg, 0),
+                child: _PhotoCharacterCard(
+                  onTap: () => Navigator.pushNamed(
+                    context,
+                    '/create',
+                    arguments: {'startPhotoCharacter': true},
+                  ),
+                ),
+              ),
+            ),
+
+            // 캐릭터-퍼스트 진입: 저장된 캐릭터로 바로 새 책 만들기
+            charactersAsync.maybeWhen(
+              data: (characters) => characters.isEmpty
+                  ? const SliverToBoxAdapter(child: SizedBox.shrink())
+                  : SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: AppSpacing.lg),
+                        child: _CharacterQuickStartRow(
+                          characters: characters.take(8).toList(),
+                          onSelect: (id) => Navigator.pushNamed(
+                            context,
+                            '/create',
+                            arguments: {
+                              'characterIds': [id],
+                            },
+                          ),
+                        ),
+                      ),
+                    ),
+              orElse: () => const SliverToBoxAdapter(child: SizedBox.shrink()),
             ),
 
             const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.xl)),
@@ -369,7 +409,9 @@ class _StreakSummaryCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
-                  data.readToday ? l.homeReadTodayBadge : l.homeNotReadTodayBadge,
+                  data.readToday
+                      ? l.homeReadTodayBadge
+                      : l.homeNotReadTodayBadge,
                   style: AppTextStyles.caption.copyWith(
                     color: AppColors.textPrimary,
                   ),
@@ -693,6 +735,155 @@ class _SectionLabel extends StatelessWidget {
             fontWeight: FontWeight.w700,
             color: AppColors.textHint,
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 사진→캐릭터 진입 카드 — 탭하면 생성 화면에서 사진/캐릭터 시트를 바로 연다.
+class _PhotoCharacterCard extends StatelessWidget {
+  const _PhotoCharacterCard({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppRadius.lg),
+      child: Container(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          border: Border.all(color: AppColors.divider),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(AppSpacing.sm),
+              decoration: BoxDecoration(
+                color: AppColors.secondaryLight,
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+              ),
+              child: const Icon(Icons.face_retouching_natural,
+                  color: AppColors.secondary, size: 22),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(l.homePhotoCharacterTitle,
+                      style: AppTextStyles.heading3),
+                  const SizedBox(height: 2),
+                  Text(l.homePhotoCharacterSubtitle,
+                      style: AppTextStyles.bodySmall),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right_rounded, color: AppColors.textHint),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 캐릭터-퍼스트 진입 행 — 저장된 캐릭터를 가로로 보여주고,
+/// 탭하면 그 캐릭터로 바로 새 책 생성 화면을 연다.
+class _CharacterQuickStartRow extends StatelessWidget {
+  final List<Character> characters;
+  final void Function(String characterId) onSelect;
+
+  const _CharacterQuickStartRow({
+    required this.characters,
+    required this.onSelect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg + 2, 0, AppSpacing.lg, AppSpacing.sm),
+          child: Text(
+            l.homeQuickStartTitle,
+            style: AppTextStyles.bodySmall.copyWith(
+              fontWeight: FontWeight.w700,
+              color: AppColors.textHint,
+            ),
+          ),
+        ),
+        SizedBox(
+          height: 96,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+            itemCount: characters.length,
+            separatorBuilder: (_, __) => const SizedBox(width: AppSpacing.md),
+            itemBuilder: (context, index) {
+              final character = characters[index];
+              return _CharacterQuickStartChip(
+                name: character.name,
+                onTap: () => onSelect(character.id),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 캐릭터-퍼스트 행의 개별 칩(아바타 + 이름).
+class _CharacterQuickStartChip extends StatelessWidget {
+  final String name;
+  final VoidCallback onTap;
+
+  const _CharacterQuickStartChip({
+    required this.name,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final initial = name.isNotEmpty ? name.substring(0, 1) : '?';
+    return GestureDetector(
+      onTap: onTap,
+      child: SizedBox(
+        width: 64,
+        child: Column(
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: AppColors.primaryLight,
+                shape: BoxShape.circle,
+                border: Border.all(color: AppColors.primaryMedium),
+              ),
+              child: Text(
+                initial,
+                style:
+                    AppTextStyles.heading3.copyWith(color: AppColors.primary),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: AppTextStyles.caption,
+            ),
+          ],
         ),
       ),
     );

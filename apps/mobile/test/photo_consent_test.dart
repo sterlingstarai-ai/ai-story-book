@@ -42,7 +42,8 @@ Widget _host(_FakeApi api, void Function(bool) onResult) {
     home: Scaffold(
       body: Builder(
         builder: (context) => ElevatedButton(
-          onPressed: () async => onResult(await ensurePhotoConsent(context, api)),
+          onPressed: () async =>
+              onResult(await ensurePhotoConsent(context, api)),
           child: const Text('go'),
         ),
       ),

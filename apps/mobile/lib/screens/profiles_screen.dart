@@ -180,7 +180,8 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
                                   if (selectedBirthYear != null &&
                                       selectedBirthMonth != null) {
                                     selectedAgeBand = _deriveAgeBand(
-                                        selectedBirthYear!, selectedBirthMonth!);
+                                        selectedBirthYear!,
+                                        selectedBirthMonth!);
                                   }
                                 });
                               },
@@ -205,7 +206,8 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
                                   if (selectedBirthYear != null &&
                                       selectedBirthMonth != null) {
                                     selectedAgeBand = _deriveAgeBand(
-                                        selectedBirthYear!, selectedBirthMonth!);
+                                        selectedBirthYear!,
+                                        selectedBirthMonth!);
                                   }
                                 });
                               },
@@ -219,7 +221,8 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
                                 selectedBirthMonth != null)
                             ? l.profilesAgeBandAuto(selectedAgeBand)
                             : l.profilesBirthHint,
-                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                        style:
+                            const TextStyle(fontSize: 12, color: Colors.grey),
                       ),
                       const SizedBox(height: AppSpacing.sm),
                       DropdownButtonFormField<String>(
@@ -280,8 +283,9 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
                       },
                     );
                   },
-                  child: Text(
-                      initial == null ? l.profilesAddAction : l.profilesSaveAction),
+                  child: Text(initial == null
+                      ? l.profilesAddAction
+                      : l.profilesSaveAction),
                 ),
               ],
             );
@@ -349,7 +353,8 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AppLocalizations.of(context).profilesEditFailed)),
+        SnackBar(
+            content: Text(AppLocalizations.of(context).profilesEditFailed)),
       );
     } finally {
       if (mounted) {
@@ -571,8 +576,8 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
                             ],
                           ),
                           subtitle: Text(
-                            l.profilesAgeBandValue(
-                                _ageBandLabel(l, profile['age_band']?.toString())),
+                            l.profilesAgeBandValue(_ageBandLabel(
+                                l, profile['age_band']?.toString())),
                           ),
                           trailing: PopupMenuButton<String>(
                             onSelected: (value) {

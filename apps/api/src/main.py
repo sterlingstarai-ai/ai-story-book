@@ -26,6 +26,7 @@ from src.routers import (
     voice_profiles,
     consent,
     shares,
+    config,
 )
 from src.core.database import get_db  # noqa: F401
 from src.core.rate_limit import check_rate_limit, rate_limiter
@@ -590,6 +591,11 @@ app.include_router(
     prefix="/v1/pronunciation",
     tags=["Pronunciation"],
     dependencies=[Depends(check_rate_limit)],
+)
+app.include_router(
+    config.router,
+    prefix="/v1/config",
+    tags=["Config"],
 )
 app.include_router(
     branch.router,

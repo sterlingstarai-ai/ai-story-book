@@ -1128,6 +1128,65 @@ async def regenerate_page(
     )
 
 
+async def inpaint_page(
+    job_id: str,
+    book_id: str,
+    page_number: int,
+    mask_url: str,
+    region_prompt: str,
+):
+    """페이지 부분 재생성(인페인트) — 마스크 영역만 region_prompt로 다시 그리고
+    나머지는 기존 이미지를 유지한다. (image_provider가 replicate/fal일 때만 동작.)"""
+    import random
+
+    from src.core.database import AsyncSessionLocal
+    from src.models.db import Book, Page
+    from src.models.dto import ImagePrompt
+    from src.services.image import generate_image
+    from sqlalchemy import select
+
+    logger.info("Inpainting page", job_id=job_id, book_id=book_id, page=page_number)
+
+    async with AsyncSessionLocal() as session:
+        book_result = await session.execute(select(Book).where(Book.id == book_id))
+        book = book_result.scalar_one_or_none()
+        if not book:
+            raise ValueError(f"Book {book_id} not found")
+
+        page_result = await session.execute(
+            select(Page).where(Page.book_id == book_id, Page.page_number == page_number)
+        )
+        page = page_result.scalar_one_or_none()
+        if not page:
+            raise ValueError(f"Page {page_number} not found")
+        if not page.image_url:
+            raise ValueError(f"Page {page_number} has no base image to inpaint")
+
+        # region 지시 + 기존 페이지 프롬프트(스타일·캐릭터 일관성)를 결합(최대 1200자)
+        positive = (region_prompt.strip() + ". " + (page.image_prompt or "")).strip()
+        positive = positive[:1200]
+        if len(positive) < 10:
+            positive = (region_prompt + " soft children's book illustration")[:1200]
+
+        inpaint_prompt = ImagePrompt(
+            page=page_number,
+            positive_prompt=positive,
+            negative_prompt="text, letters, words, watermark, blurry, deformed",
+            seed=random.randint(1, 2147483647),
+            aspect_ratio="3:4",
+            base_image_url=page.image_url,
+            mask_url=mask_url,
+        )
+        image_url = await generate_image(inpaint_prompt)
+        if image_url:
+            page.image_url = image_url
+
+        page.updated_at = utcnow()
+        await session.commit()
+
+    logger.info("Page inpaint complete", book_id=book_id, page=page_number)
+
+
 # ==================== Series Generation ====================
 
 

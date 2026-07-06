@@ -119,6 +119,16 @@ class AppLocalizationsEn extends AppLocalizations {
       'Make a custom storybook\nwith your child as the hero';
 
   @override
+  String get homeQuickStartTitle => 'Start with my character';
+
+  @override
+  String get homePhotoCharacterTitle => 'Make a story with my child';
+
+  @override
+  String get homePhotoCharacterSubtitle =>
+      'A hero who looks just like them — photos are handled safely';
+
+  @override
   String homeStreakDaysLabel(Object days) {
     return '$days-day reading streak';
   }
@@ -217,6 +227,55 @@ class AppLocalizationsEn extends AppLocalizations {
   String get createAgeLabel => 'Child\'s age group';
 
   @override
+  String get createAgeHelp3to5 =>
+      'Simple words, 1-2 short sentences, repetition and sound words';
+
+  @override
+  String get createAgeHelp5to7 =>
+      'Familiar words, 2-3 sentences, feelings and simple dialogue';
+
+  @override
+  String get createAgeHelp7to9 =>
+      'Richer words, 2-4 sentences, cause and effect';
+
+  @override
+  String get createAgeHelpAdult => 'No length limit, dense narrative';
+
+  @override
+  String get createLanguageLabel => 'Story language';
+
+  @override
+  String get createTemplateSectionLabel => 'Start from a suggestion';
+
+  @override
+  String get createTemplateAnimalLabel => 'Animal friends';
+
+  @override
+  String get createTemplateAnimalTopic =>
+      'A brave little animal makes new friends in the forest';
+
+  @override
+  String get createTemplateFriendshipLabel => 'Friendship';
+
+  @override
+  String get createTemplateFriendshipTopic =>
+      'Helping a friend and solving a problem together';
+
+  @override
+  String get createTemplateFeelingsLabel => 'Big feelings';
+
+  @override
+  String get createTemplateFeelingsTopic =>
+      'On a scary night, finding the courage to overcome fear';
+
+  @override
+  String get createTemplateSpaceLabel => 'Space adventure';
+
+  @override
+  String get createTemplateSpaceTopic =>
+      'Exploring stars and planets and discovering something amazing';
+
+  @override
   String get createStyleLabel => 'Art style';
 
   @override
@@ -266,6 +325,33 @@ class AppLocalizationsEn extends AppLocalizations {
   String get createCharacterLoadError => 'Couldn\'t load characters';
 
   @override
+  String get createRelationshipLabel => 'Relationship (optional)';
+
+  @override
+  String get createRelationshipFriends => 'Friends';
+
+  @override
+  String get createRelationshipSiblings => 'Siblings';
+
+  @override
+  String get createRelationshipFamily => 'Family';
+
+  @override
+  String get createForbiddenLabel => 'Things to leave out (optional)';
+
+  @override
+  String get createForbiddenViolence => 'Violence';
+
+  @override
+  String get createForbiddenScary => 'Scary content';
+
+  @override
+  String get createForbiddenSad => 'Sad ending';
+
+  @override
+  String get createForbiddenRude => 'Rude language';
+
+  @override
   String get createMakeButton => 'Make Storybook';
 
   @override
@@ -280,6 +366,12 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get libraryTitle => 'My Library';
+
+  @override
+  String get librarySeriesBadge => 'Series';
+
+  @override
+  String get librarySeriesAddVolume => 'Add next volume';
 
   @override
   String get libraryRefresh => 'Refresh';
@@ -1201,6 +1293,34 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsCreditsSubscription => 'Credits/Subscription';
 
   @override
+  String get settingsPoliciesTitle => 'Policies';
+
+  @override
+  String get settingsPoliciesSubtitle =>
+      'Credit rollover, access after cancel, print refunds';
+
+  @override
+  String get policyCreditRolloverTitle => 'Credit rollover';
+
+  @override
+  String get policyCreditRolloverBody =>
+      'Unused credits roll over to the next month while your subscription is active.';
+
+  @override
+  String get policyBookAccessTitle => 'Books after cancellation';
+
+  @override
+  String get policyBookAccessBody =>
+      'Even if you cancel, the books you\'ve already made stay readable and downloadable.';
+
+  @override
+  String get policyRefundTitle => 'Print refund & reprint';
+
+  @override
+  String get policyRefundBody =>
+      'If a printed book is defective or damaged in transit, we\'ll reprint it free or refund you.';
+
+  @override
   String get settingsSectionApp => 'App settings';
 
   @override
@@ -1624,6 +1744,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get charactersDetailStyleNotes => 'Style notes';
 
   @override
+  String get charactersDetailIdentityLock =>
+      '🔒 Locked features (kept consistent)';
+
+  @override
   String get charactersDetailCreateBookButton =>
       'Make a new storybook with this character';
 
@@ -1817,6 +1941,25 @@ class AppLocalizationsEn extends AppLocalizations {
       'The ending changes based on your choices';
 
   @override
+  String get viewerRetellTitle => 'Retell at another age';
+
+  @override
+  String get viewerRetellSubtitle =>
+      'Same pictures, text rewritten for a new age';
+
+  @override
+  String get viewerRetellInProgress => 'Retelling for the new age…';
+
+  @override
+  String get viewerRetellFailed => 'Couldn\'t retell this book';
+
+  @override
+  String get viewerMilestoneRewardEarned => 'You earned bonus credits!';
+
+  @override
+  String get viewerMilestoneConfirm => 'Awesome!';
+
+  @override
   String get viewerLearningModeTitle => 'Learning mode';
 
   @override
@@ -1886,6 +2029,35 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get viewerRegenerateImageOnly => 'Image only';
+
+  @override
+  String get viewerRegenerateRegion => 'Fix just this part';
+
+  @override
+  String get inpaintTitle => 'Fix a region';
+
+  @override
+  String get inpaintInstructions =>
+      'Paint the area to fix, then describe the change.';
+
+  @override
+  String get inpaintRegionPromptLabel => 'What should change?';
+
+  @override
+  String get inpaintRegionPromptHint => 'e.g. make the sky a sunset';
+
+  @override
+  String get inpaintReset => 'Clear';
+
+  @override
+  String get inpaintApply => 'Apply';
+
+  @override
+  String get inpaintNeedRegionAndPrompt =>
+      'Paint a region and describe the change.';
+
+  @override
+  String get inpaintFailed => 'Couldn\'t fix that region.';
 
   @override
   String get viewerRegenerateAll => 'All';

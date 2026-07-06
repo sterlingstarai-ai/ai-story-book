@@ -14,6 +14,8 @@ class Language(str, Enum):
     ko = "ko"
     en = "en"
     ja = "ja"
+    zh = "zh"
+    es = "es"
 
 
 class TargetAge(str, Enum):
@@ -92,6 +94,11 @@ class BookSpec(BaseModel):
     )
     character_ids: Optional[List[str]] = Field(
         default=None, max_length=10, description="기존 캐릭터 ID 목록 (다중 선택)"
+    )
+    character_relationship: Optional[str] = Field(
+        default=None,
+        max_length=40,
+        description="다중 캐릭터 간 관계 (예: 남매, 친구, 가족) — 스토리 역학에 반영",
     )
     forbidden_elements: Optional[List[str]] = Field(default=None, max_length=20)
     reference_image_base64: Optional[str] = Field(default=None, max_length=5_000_000)
@@ -214,6 +221,10 @@ class CharacterSheet(BaseModel):
     clothing: CharacterClothing
     personality_traits: List[str] = Field(min_length=1, max_length=10)
     visual_style_notes: str = Field(min_length=1, max_length=200)
+    # 식별 가능한 고유 특징(안경/주근깨/곱슬머리 등) — 페이지 간 일관성 강화용
+    distinctive_features: Optional[List[str]] = Field(
+        default=None, max_length=10
+    )
 
 
 # ==================== Image Prompt Models ====================
@@ -228,6 +239,9 @@ class ImagePrompt(BaseModel):
     seed: int = Field(ge=1, le=2_147_483_647)
     aspect_ratio: Literal["1:1", "3:4", "4:3", "9:16"] = "3:4"
     guidance_notes: Optional[str] = Field(default=None, max_length=200)
+    # 인페인트(부분 재생성)용 — 둘 다 있으면 mask 영역만 재생성, 나머지는 base 유지
+    base_image_url: Optional[str] = Field(default=None, max_length=500)
+    mask_url: Optional[str] = Field(default=None, max_length=500)
 
 
 class ImagePrompts(BaseModel):
@@ -456,6 +470,7 @@ class CreateCharacterRequest(BaseModel):
     clothing: CharacterClothing
     personality_traits: List[str] = Field(min_length=1, max_length=10)
     visual_style_notes: str = Field(min_length=1, max_length=200)
+    distinctive_features: Optional[List[str]] = Field(default=None, max_length=10)
 
 
 class CharacterResponse(BaseModel):
@@ -468,6 +483,7 @@ class CharacterResponse(BaseModel):
     clothing: CharacterClothing
     personality_traits: List[str]
     visual_style_notes: str
+    distinctive_features: Optional[List[str]] = None
     created_at: datetime
 
 
@@ -481,6 +497,29 @@ class CharacterListResponse(BaseModel):
 # ==================== Library Models ====================
 
 
+class RetoldStory(BaseModel):
+    """연령 리텔 결과 — 같은 이야기를 다른 연령대 본문으로 다시 쓴 것."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    title: str = Field(min_length=1, max_length=80)
+    pages: List[str] = Field(min_length=1, max_length=12)
+
+
+class RetellRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    target_age: TargetAge
+
+
+class RetellResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    book_id: str
+    target_age: TargetAge
+    status: str = "done"
+
+
 class BookSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -490,6 +529,10 @@ class BookSummary(BaseModel):
     target_age: TargetAge
     style: str
     created_at: datetime
+    # 시리즈/캐릭터 그룹핑용 메타데이터 (서재 책장 묶음에 사용)
+    series_id: Optional[str] = None
+    series_index: Optional[int] = None
+    character_id: Optional[str] = None
 
 
 class LibraryResponse(BaseModel):

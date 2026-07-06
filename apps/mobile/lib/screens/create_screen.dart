@@ -26,9 +26,13 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
   final _formKey = GlobalKey<FormState>();
 
   TargetAge _selectedAge = TargetAge.age5to7;
+  String _selectedLanguage =
+      'ko'; // 이야기 생성 언어 (didChangeDependencies에서 로캘 기반 초기화)
   BookStyle _selectedStyle = BookStyle.watercolor;
   BookTheme? _selectedTheme;
   List<String> _selectedCharacterIds = []; // 다중 캐릭터 선택
+  String? _selectedRelationship; // 다중 선택 시 캐릭터 관계 (남매/친구/가족)
+  final Set<String> _forbiddenElements = {}; // 빼고 싶은 요소 (콘텐츠 안전)
   bool _isLoading = false;
   bool _didHandleRouteArgs = false;
 
@@ -41,11 +45,35 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
     _didHandleRouteArgs = true;
     final args = ModalRoute.of(context)?.settings.arguments;
     if (args is Map) {
+      // 신규: characterIds 배열 / 레거시: 단일 characterId — 둘 다 수용해 병합
+      final ids = args['characterIds'];
+      if (ids is List) {
+        final parsed =
+            ids.whereType<String>().where((s) => s.isNotEmpty).toList();
+        if (parsed.isNotEmpty) {
+          _selectedCharacterIds = parsed;
+        }
+      }
       final characterId = args['characterId'];
-      if (characterId is String && characterId.isNotEmpty) {
-        _selectedCharacterIds = [characterId];
+      if (characterId is String &&
+          characterId.isNotEmpty &&
+          !_selectedCharacterIds.contains(characterId)) {
+        _selectedCharacterIds = [..._selectedCharacterIds, characterId];
+      }
+      // 홈의 '내 아이로 동화 만들기' 진입 → 사진/캐릭터 시트를 바로 연다.
+      if (args['startPhotoCharacter'] == true) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            _selectChildProtagonist();
+          }
+        });
       }
     }
+    // 이야기 언어 기본값을 현재 UI 로캘에서 추론(글로벌 — 지원 언어가 아니면 영어).
+    const supportedStoryLangs = {'ko', 'en', 'ja'};
+    final localeCode = Localizations.localeOf(context).languageCode;
+    _selectedLanguage =
+        supportedStoryLangs.contains(localeCode) ? localeCode : 'en';
   }
 
   @override
@@ -68,10 +96,6 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
   Future<void> _createBook() async {
     if (!_formKey.currentState!.validate()) return;
 
-    // 생성될 동화의 언어를 앱 UI 로케일에 맞춘다(영어/일본어 UI에서 한국어 동화가
-    // 생성되던 문제 해결). async gap 전에 BuildContext에서 읽어둔다.
-    final language = Localizations.localeOf(context).languageCode;
-
     try {
       final credits = await ref.read(apiClientProvider).getCreditsBalance();
       if (credits <= 0) {
@@ -93,7 +117,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
     try {
       final spec = BookSpec(
         topic: _topicController.text.trim(),
-        language: language,
+        language: _selectedLanguage,
         targetAge: _selectedAge.value,
         style: _selectedStyle.value,
         theme: _selectedTheme?.value,
@@ -102,6 +126,10 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
             : _protagonistController.text.trim(),
         characterIds:
             _selectedCharacterIds.isNotEmpty ? _selectedCharacterIds : null,
+        characterRelationship:
+            _selectedCharacterIds.length >= 2 ? _selectedRelationship : null,
+        forbiddenElements:
+            _forbiddenElements.isNotEmpty ? _forbiddenElements.toList() : null,
       );
 
       final jobId =
@@ -169,10 +197,53 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
     }
   }
 
+  /// 선택된 연령대에 맞는 문체·어휘 안내 문구 (언어 중립적 발달 단계 기준).
+  String _ageHelpText(AppLocalizations l) {
+    switch (_selectedAge) {
+      case TargetAge.age3to5:
+        return l.createAgeHelp3to5;
+      case TargetAge.age5to7:
+        return l.createAgeHelp5to7;
+      case TargetAge.age7to9:
+        return l.createAgeHelp7to9;
+      case TargetAge.adult:
+        return l.createAgeHelpAdult;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
     final charactersAsync = ref.watch(charactersProvider);
+
+    // 추천 빠른 시작 템플릿 — 보편 테마(글로벌). 탭하면 주제·테마를 채워준다.
+    final templates =
+        <({String label, String topic, BookTheme theme, IconData icon})>[
+      (
+        label: l.createTemplateAnimalLabel,
+        topic: l.createTemplateAnimalTopic,
+        theme: BookTheme.animal,
+        icon: Icons.pets,
+      ),
+      (
+        label: l.createTemplateFriendshipLabel,
+        topic: l.createTemplateFriendshipTopic,
+        theme: BookTheme.friendship,
+        icon: Icons.favorite,
+      ),
+      (
+        label: l.createTemplateFeelingsLabel,
+        topic: l.createTemplateFeelingsTopic,
+        theme: BookTheme.emotionalCoaching,
+        icon: Icons.sentiment_satisfied_alt,
+      ),
+      (
+        label: l.createTemplateSpaceLabel,
+        topic: l.createTemplateSpaceTopic,
+        theme: BookTheme.science,
+        icon: Icons.rocket_launch,
+      ),
+    ];
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -195,6 +266,72 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
         child: ListView(
           padding: const EdgeInsets.all(AppSpacing.lg),
           children: [
+            // 연령대 선택 (가장 먼저 노출 — 연령별 문체·어휘가 이야기 생성에 직접 반영됨)
+            Text(l.createAgeLabel, style: AppTextStyles.heading3),
+            const SizedBox(height: AppSpacing.sm),
+            Wrap(
+              spacing: AppSpacing.sm,
+              children: TargetAge.values.map((age) {
+                final isSelected = _selectedAge == age;
+                return ChoiceChip(
+                  label: Text(age.localizedLabel(l)),
+                  selected: isSelected,
+                  materialTapTargetSize: MaterialTapTargetSize.padded,
+                  labelPadding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.sm,
+                    vertical: AppSpacing.md,
+                  ),
+                  onSelected: (selected) {
+                    if (selected) setState(() => _selectedAge = age);
+                  },
+                  selectedColor: AppColors.primaryMedium,
+                  labelStyle: TextStyle(
+                    color: isSelected
+                        ? AppColors.primary
+                        : AppColors.textSecondary,
+                    fontWeight:
+                        isSelected ? FontWeight.w600 : FontWeight.normal,
+                  ),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            // 연령별 문체 안내 (선택에 따라 라이브 업데이트)
+            _AgeHelpBanner(text: _ageHelpText(l)),
+
+            const SizedBox(height: AppSpacing.lg),
+
+            // 추천 템플릿(빠른 시작) — 탭하면 주제·테마 자동 입력
+            Text(l.createTemplateSectionLabel, style: AppTextStyles.heading3),
+            const SizedBox(height: AppSpacing.sm),
+            SizedBox(
+              height: 40,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: templates.length,
+                separatorBuilder: (_, __) =>
+                    const SizedBox(width: AppSpacing.sm),
+                itemBuilder: (context, index) {
+                  final t = templates[index];
+                  return ActionChip(
+                    avatar: Icon(t.icon, size: 18, color: AppColors.primary),
+                    label: Text(t.label),
+                    onPressed: () => setState(() {
+                      _topicController.text = t.topic;
+                      _selectedTheme = t.theme;
+                    }),
+                    backgroundColor: AppColors.surface,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.md),
+                      side: const BorderSide(color: AppColors.divider),
+                    ),
+                  );
+                },
+              ),
+            ),
+
+            const SizedBox(height: AppSpacing.lg),
+
             // 주제 입력
             Text(l.createTopicLabel, style: AppTextStyles.heading3),
             const SizedBox(height: AppSpacing.sm),
@@ -247,15 +384,20 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
 
             const SizedBox(height: AppSpacing.lg),
 
-            // 연령대 선택
-            Text(l.createAgeLabel, style: AppTextStyles.heading3),
+            // 이야기 언어 (글로벌 — 네이티브 표기, 기본값은 UI 로캘)
+            Text(l.createLanguageLabel, style: AppTextStyles.heading3),
             const SizedBox(height: AppSpacing.sm),
             Wrap(
               spacing: AppSpacing.sm,
-              children: TargetAge.values.map((age) {
-                final isSelected = _selectedAge == age;
+              runSpacing: AppSpacing.sm,
+              children: {
+                'ko': '한국어',
+                'en': 'English',
+                'ja': '日本語',
+              }.entries.map((e) {
+                final isSelected = _selectedLanguage == e.key;
                 return ChoiceChip(
-                  label: Text(age.localizedLabel(l)),
+                  label: Text(e.value),
                   selected: isSelected,
                   materialTapTargetSize: MaterialTapTargetSize.padded,
                   labelPadding: const EdgeInsets.symmetric(
@@ -263,7 +405,9 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                     vertical: AppSpacing.md,
                   ),
                   onSelected: (selected) {
-                    if (selected) setState(() => _selectedAge = age);
+                    if (selected) {
+                      setState(() => _selectedLanguage = e.key);
+                    }
                   },
                   selectedColor: AppColors.primaryMedium,
                   labelStyle: TextStyle(
@@ -501,6 +645,84 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
               error: (_, __) => Text(l.createCharacterLoadError),
             ),
 
+            // 캐릭터 2명 이상 선택 시 관계 선택 (남매/친구 스토리 역학에 반영)
+            if (_selectedCharacterIds.length >= 2) ...[
+              const SizedBox(height: AppSpacing.lg),
+              Text(l.createRelationshipLabel, style: AppTextStyles.heading3),
+              const SizedBox(height: AppSpacing.sm),
+              Wrap(
+                spacing: AppSpacing.sm,
+                children: [
+                  l.createRelationshipFriends,
+                  l.createRelationshipSiblings,
+                  l.createRelationshipFamily,
+                ].map((rel) {
+                  final isSelected = _selectedRelationship == rel;
+                  return ChoiceChip(
+                    label: Text(rel),
+                    selected: isSelected,
+                    materialTapTargetSize: MaterialTapTargetSize.padded,
+                    labelPadding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.sm,
+                      vertical: AppSpacing.md,
+                    ),
+                    onSelected: (selected) {
+                      setState(
+                          () => _selectedRelationship = selected ? rel : null);
+                    },
+                    selectedColor: AppColors.primaryMedium,
+                    labelStyle: TextStyle(
+                      color: isSelected
+                          ? AppColors.primary
+                          : AppColors.textSecondary,
+                      fontWeight:
+                          isSelected ? FontWeight.w600 : FontWeight.normal,
+                    ),
+                  );
+                }).toList(),
+              ),
+            ],
+
+            // 빼고 싶은 요소 (콘텐츠 안전) — 다중 선택, forbidden_elements로 전달
+            const SizedBox(height: AppSpacing.lg),
+            Text(l.createForbiddenLabel, style: AppTextStyles.heading3),
+            const SizedBox(height: AppSpacing.sm),
+            Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.sm,
+              children: [
+                l.createForbiddenViolence,
+                l.createForbiddenScary,
+                l.createForbiddenSad,
+                l.createForbiddenRude,
+              ].map((item) {
+                final isSelected = _forbiddenElements.contains(item);
+                return FilterChip(
+                  label: Text(item),
+                  selected: isSelected,
+                  materialTapTargetSize: MaterialTapTargetSize.padded,
+                  onSelected: (selected) {
+                    setState(() {
+                      if (selected) {
+                        _forbiddenElements.add(item);
+                      } else {
+                        _forbiddenElements.remove(item);
+                      }
+                    });
+                  },
+                  selectedColor: AppColors.primaryMedium,
+                  checkmarkColor: AppColors.primary,
+                  labelStyle: TextStyle(
+                    color: isSelected
+                        ? AppColors.primary
+                        : AppColors.textSecondary,
+                    fontWeight:
+                        isSelected ? FontWeight.w600 : FontWeight.normal,
+                  ),
+                );
+              }).toList(),
+            ),
+
             const SizedBox(height: AppSpacing.xxl),
           ],
         ),
@@ -601,6 +823,42 @@ class _CharacterOption extends StatelessWidget {
                   color: AppColors.secondary, size: 24),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// 연령대 선택 바로 아래에 표시되는 문체·어휘 안내 배너.
+/// 선택한 연령에 따라 문구가 라이브로 갱신된다.
+class _AgeHelpBanner extends StatelessWidget {
+  final String text;
+
+  const _AgeHelpBanner({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.secondaryLight,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.auto_stories, size: 18, color: AppColors.secondary),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Text(
+              text,
+              style: AppTextStyles.caption
+                  .copyWith(color: AppColors.textSecondary),
+            ),
+          ),
+        ],
       ),
     );
   }

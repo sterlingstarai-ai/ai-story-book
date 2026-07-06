@@ -113,6 +113,15 @@ class AppLocalizationsKo extends AppLocalizations {
   String get homeCreateCardSubtitle => '우리 아이가 주인공인\n맞춤 동화를 만들어요';
 
   @override
+  String get homeQuickStartTitle => '내 캐릭터로 바로 만들기';
+
+  @override
+  String get homePhotoCharacterTitle => '내 아이로 동화 만들기';
+
+  @override
+  String get homePhotoCharacterSubtitle => '사진 속 모습을 닮은 주인공으로 — 사진은 안전하게 처리돼요';
+
+  @override
   String homeStreakDaysLabel(Object days) {
     return '$days일 연속 읽기';
   }
@@ -211,6 +220,48 @@ class AppLocalizationsKo extends AppLocalizations {
   String get createAgeLabel => '아이 연령대';
 
   @override
+  String get createAgeHelp3to5 => '쉬운 단어, 1~2개의 짧은 문장, 반복과 의성어';
+
+  @override
+  String get createAgeHelp5to7 => '익숙한 단어, 2~3문장, 감정과 간단한 대화';
+
+  @override
+  String get createAgeHelp7to9 => '풍부한 단어, 2~4문장, 원인과 결과';
+
+  @override
+  String get createAgeHelpAdult => '길이 제한 없음, 밀도 있는 서사';
+
+  @override
+  String get createLanguageLabel => '이야기 언어';
+
+  @override
+  String get createTemplateSectionLabel => '추천으로 시작하기';
+
+  @override
+  String get createTemplateAnimalLabel => '동물 친구';
+
+  @override
+  String get createTemplateAnimalTopic => '용감한 아기 동물이 숲에서 새 친구를 사귀는 이야기';
+
+  @override
+  String get createTemplateFriendshipLabel => '우정';
+
+  @override
+  String get createTemplateFriendshipTopic => '친구를 도와주며 함께 문제를 해결하는 이야기';
+
+  @override
+  String get createTemplateFeelingsLabel => '마음 다독이기';
+
+  @override
+  String get createTemplateFeelingsTopic => '무서운 밤, 용기를 내어 두려움을 이겨내는 이야기';
+
+  @override
+  String get createTemplateSpaceLabel => '우주 모험';
+
+  @override
+  String get createTemplateSpaceTopic => '별과 행성을 탐험하며 멋진 것을 발견하는 이야기';
+
+  @override
   String get createStyleLabel => '그림 스타일';
 
   @override
@@ -255,6 +306,33 @@ class AppLocalizationsKo extends AppLocalizations {
   String get createCharacterLoadError => '캐릭터를 불러올 수 없어요';
 
   @override
+  String get createRelationshipLabel => '관계 (선택)';
+
+  @override
+  String get createRelationshipFriends => '친구';
+
+  @override
+  String get createRelationshipSiblings => '남매';
+
+  @override
+  String get createRelationshipFamily => '가족';
+
+  @override
+  String get createForbiddenLabel => '빼고 싶은 요소 (선택)';
+
+  @override
+  String get createForbiddenViolence => '폭력';
+
+  @override
+  String get createForbiddenScary => '무서운 내용';
+
+  @override
+  String get createForbiddenSad => '슬픈 결말';
+
+  @override
+  String get createForbiddenRude => '거친 말';
+
+  @override
   String get createMakeButton => '동화책 만들기';
 
   @override
@@ -268,6 +346,12 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get libraryTitle => '내 서재';
+
+  @override
+  String get librarySeriesBadge => '시리즈';
+
+  @override
+  String get librarySeriesAddVolume => '다음 권 만들기';
 
   @override
   String get libraryRefresh => '새로고침';
@@ -1153,6 +1237,31 @@ class AppLocalizationsKo extends AppLocalizations {
   String get settingsCreditsSubscription => '크레딧/구독';
 
   @override
+  String get settingsPoliciesTitle => '정책 안내';
+
+  @override
+  String get settingsPoliciesSubtitle => '크레딧 이월·해지 후 보관·인쇄 환불';
+
+  @override
+  String get policyCreditRolloverTitle => '크레딧 이월';
+
+  @override
+  String get policyCreditRolloverBody =>
+      '사용하지 않은 크레딧은 구독이 유지되는 동안 다음 달로 이월됩니다.';
+
+  @override
+  String get policyBookAccessTitle => '해지 후 책 보관';
+
+  @override
+  String get policyBookAccessBody => '구독을 해지해도 이미 만든 책은 계속 열람하고 내려받을 수 있습니다.';
+
+  @override
+  String get policyRefundTitle => '인쇄 환불·재인쇄';
+
+  @override
+  String get policyRefundBody => '인쇄본이 불량이거나 배송 중 손상된 경우 무료로 재인쇄하거나 환불해 드립니다.';
+
+  @override
   String get settingsSectionApp => '앱 설정';
 
   @override
@@ -1553,6 +1662,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get charactersDetailStyleNotes => '스타일 노트';
 
   @override
+  String get charactersDetailIdentityLock => '🔒 일관성 고정 특징';
+
+  @override
   String get charactersDetailCreateBookButton => '이 캐릭터로 새 책 만들기';
 
   @override
@@ -1737,6 +1849,24 @@ class AppLocalizationsKo extends AppLocalizations {
   String get viewerBranchStorySubtitle => '선택지에 따라 결말이 달라지는 모드';
 
   @override
+  String get viewerRetellTitle => '다른 연령으로 다시 쓰기';
+
+  @override
+  String get viewerRetellSubtitle => '같은 그림으로 글만 새 연령대에 맞춰요';
+
+  @override
+  String get viewerRetellInProgress => '새 연령대로 다시 쓰는 중…';
+
+  @override
+  String get viewerRetellFailed => '다시 쓰기에 실패했어요';
+
+  @override
+  String get viewerMilestoneRewardEarned => '보너스 크레딧이 지급됐어요!';
+
+  @override
+  String get viewerMilestoneConfirm => '좋아요!';
+
+  @override
   String get viewerLearningModeTitle => '학습 모드';
 
   @override
@@ -1803,6 +1933,33 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get viewerRegenerateImageOnly => '그림만';
+
+  @override
+  String get viewerRegenerateRegion => '이 부분만 고치기';
+
+  @override
+  String get inpaintTitle => '부분 수정';
+
+  @override
+  String get inpaintInstructions => '고칠 부분을 손가락으로 칠한 뒤, 어떻게 바꿀지 적어주세요.';
+
+  @override
+  String get inpaintRegionPromptLabel => '어떻게 바꿀까요?';
+
+  @override
+  String get inpaintRegionPromptHint => '예: 하늘을 노을빛으로';
+
+  @override
+  String get inpaintReset => '지우기';
+
+  @override
+  String get inpaintApply => '적용';
+
+  @override
+  String get inpaintNeedRegionAndPrompt => '고칠 영역과 설명을 모두 입력해주세요.';
+
+  @override
+  String get inpaintFailed => '부분 수정에 실패했어요.';
 
   @override
   String get viewerRegenerateAll => '모두';

@@ -10,6 +10,8 @@ LANGUAGE_DISPLAY_NAMES = {
     "ko": "한국어",
     "en": "English",
     "ja": "日本語",
+    "zh": "中文",
+    "es": "Español",
 }
 
 # 현재 지원(활성) 언어 코드 목록

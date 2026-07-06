@@ -69,6 +69,15 @@ async def generate_image(
         raise ValueError(f"Unknown image provider: {settings.image_provider}")
 
 
+def supports_inpaint() -> bool:
+    """현재 이미지 제공자가 마스크 기반 인페인트(부분 재생성)를 지원하는가.
+
+    Replicate(SDXL: image+mask 입력)와 FAL만 지원. openai/gemini/mock은 미지원이라
+    부분 재생성 대신 전체 페이지 재생성으로 폴백해야 한다.
+    """
+    return settings.image_provider in ("replicate", "fal")
+
+
 async def _generate_openai(prompt: ImagePrompt) -> str:
     """Generate image using OpenAI DALL-E API (gpt-image-1 / dall-e-3)"""
     if not settings.image_api_key:
@@ -342,6 +351,13 @@ async def _generate_replicate(prompt: ImagePrompt) -> str:
                     "num_outputs": 1,
                     "guidance_scale": 7.5,
                     "num_inference_steps": 30,
+                    # 인페인트: base 이미지 + 마스크가 있으면 마스크 영역만 재생성
+                    # (SDXL은 image/mask 입력으로 인페인트 지원). 없으면 일반 생성.
+                    **(
+                        {"image": prompt.base_image_url, "mask": prompt.mask_url}
+                        if prompt.base_image_url and prompt.mask_url
+                        else {}
+                    ),
                 },
             },
         )
@@ -423,21 +439,33 @@ async def _generate_fal(prompt: ImagePrompt) -> str:
             page=prompt.page,
         )
 
+    # 인페인트: base 이미지 + 마스크가 있으면 마스크 영역만 재생성(별도 엔드포인트).
+    is_inpaint = bool(prompt.base_image_url and prompt.mask_url)
+    endpoint = (
+        settings.image_inpaint_fal_endpoint
+        if is_inpaint
+        else "https://fal.run/fal-ai/flux/schnell"
+    )
+    payload = {
+        "prompt": prompt.positive_prompt,
+        "image_size": _get_fal_size(prompt.aspect_ratio),
+        "num_inference_steps": 4,
+        "seed": prompt.seed,
+        "num_images": 1,
+        "enable_safety_checker": True,
+    }
+    if is_inpaint:
+        payload["image_url"] = prompt.base_image_url
+        payload["mask_url"] = prompt.mask_url
+
     async with httpx.AsyncClient(timeout=settings.image_timeout) as client:
         response = await client.post(
-            "https://fal.run/fal-ai/flux/schnell",
+            endpoint,
             headers={
                 "Authorization": f"Key {settings.image_api_key}",
                 "Content-Type": "application/json",
             },
-            json={
-                "prompt": prompt.positive_prompt,
-                "image_size": _get_fal_size(prompt.aspect_ratio),
-                "num_inference_steps": 4,
-                "seed": prompt.seed,
-                "num_images": 1,
-                "enable_safety_checker": True,
-            },
+            json=payload,
         )
 
         if response.status_code != 200:

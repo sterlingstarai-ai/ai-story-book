@@ -9,6 +9,7 @@ class BookSpec {
   final String? protagonistName;
   final String? characterId; // 단일 캐릭터 (기존 호환)
   final List<String>? characterIds; // 다중 캐릭터 (가족 등)
+  final String? characterRelationship; // 다중 캐릭터 간 관계 (남매/친구 등)
   final List<String>? forbiddenElements;
 
   BookSpec({
@@ -21,6 +22,7 @@ class BookSpec {
     this.protagonistName,
     this.characterId,
     this.characterIds,
+    this.characterRelationship,
     this.forbiddenElements,
   });
 
@@ -35,6 +37,8 @@ class BookSpec {
         if (characterId != null) 'character_id': characterId,
         if (characterIds != null && characterIds!.isNotEmpty)
           'character_ids': characterIds,
+        if (characterRelationship != null && characterRelationship!.isNotEmpty)
+          'character_relationship': characterRelationship,
         if (forbiddenElements != null) 'forbidden_elements': forbiddenElements,
       };
 }

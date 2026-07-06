@@ -6,6 +6,12 @@ import '../core/api_error.dart';
 import '../core/app_telemetry.dart';
 import '../models/models.dart';
 
+/// 현재 이미지 제공자가 부분 재생성(인페인트)을 지원하지 않을 때 던진다.
+/// 클라이언트는 이 신호로 전체 페이지 재생성으로 폴백한다.
+class InpaintUnsupportedException implements Exception {
+  const InpaintUnsupportedException();
+}
+
 /// API 클라이언트
 class ApiClient {
   static const Uuid _uuid = Uuid();
@@ -141,11 +147,63 @@ class ApiClient {
     );
   }
 
+  /// 부분 재생성(인페인트) — 마스크 PNG + 영역 설명을 보내고 잡 ID를 받는다.
+  /// 제공자 미지원(409)이면 [InpaintUnsupportedException]를 던진다(전체 재생성 폴백 신호).
+  Future<String> inpaintPage(
+    String jobId,
+    int pageNumber,
+    File maskFile,
+    String regionPrompt,
+  ) async {
+    final formData = FormData.fromMap({
+      'mask': await MultipartFile.fromFile(maskFile.path, filename: 'mask.png'),
+      'region_prompt': regionPrompt,
+    });
+    try {
+      final response = await _dio.post(
+        '/v1/books/$jobId/pages/$pageNumber/inpaint',
+        data: formData,
+        options: Options(
+          headers: _headers,
+          contentType: 'multipart/form-data',
+        ),
+      );
+      final map = _asJsonMap(
+        response.data,
+        context: '/v1/books/{id}/inpaint response',
+      );
+      final newJobId = map['job_id'];
+      if (newJobId is! String || newJobId.isEmpty) {
+        throw StateError('inpaint response missing job_id');
+      }
+      return newJobId;
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 409) {
+        throw const InpaintUnsupportedException();
+      }
+      rethrow;
+    }
+  }
+
+  /// 배포 환경 기능 가용성(예: inpaint_supported) — 클라이언트 UI 게이팅용.
+  Future<Map<String, dynamic>> getCapabilities() async {
+    final response = await _dio.get(
+      '/v1/config/capabilities',
+      options: Options(headers: _headers),
+    );
+    return _asJsonMap(
+      response.data,
+      context: '/v1/config/capabilities response',
+    );
+  }
+
   /// 시리즈 다음 권 생성
   Future<CreateBookResponse> createSeriesBook({
     required String characterId,
     required String topic,
     String? theme,
+    String? seriesId,
+    String? previousBookId,
   }) async {
     final response = await _dio.post(
       '/v1/books/series',
@@ -153,6 +211,9 @@ class ApiClient {
         'character_id': characterId,
         'topic': topic,
         if (theme != null) 'theme': theme,
+        // 기존 시리즈 연결(없으면 백엔드가 새 시리즈 생성)
+        if (seriesId != null) 'series_id': seriesId,
+        if (previousBookId != null) 'previous_book_id': previousBookId,
       },
       options: Options(headers: _headers),
     );
@@ -160,6 +221,25 @@ class ApiClient {
     return CreateBookResponse.fromJson(
       _asJsonMap(response.data, context: '/v1/books/series response'),
     );
+  }
+
+  /// '아이와 함께 자라는' 리텔 — 같은 책을 다른 연령대 본문으로 다시 써 새 책 생성.
+  /// 삽화를 재사용하므로 크레딧을 소모하지 않는다. 새 book_id를 반환.
+  Future<String> retellBook(String bookId, String targetAge) async {
+    final response = await _dio.post(
+      '/v1/books/$bookId/retell',
+      data: {'target_age': targetAge},
+      options: Options(headers: _headers),
+    );
+    final map = _asJsonMap(
+      response.data,
+      context: '/v1/books/{id}/retell response',
+    );
+    final newBookId = map['book_id'];
+    if (newBookId is! String || newBookId.isEmpty) {
+      throw StateError('retell response missing book_id');
+    }
+    return newBookId;
   }
 
   // ==================== Characters ====================
