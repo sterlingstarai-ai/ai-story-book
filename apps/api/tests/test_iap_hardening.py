@@ -248,3 +248,91 @@ async def test_readiness_iap_ok_when_strict_and_configured(client, monkeypatch):
     assert "iap_mode_not_strict" not in missing
     assert "iap_store_credentials_missing" not in missing
     assert "iap_webhook_secret_missing" not in missing
+
+
+# ─────── 출시 감사 2026-07-13: fail-open 영수증/웹훅을 요청 경로에서 차단 ───────
+# readiness 프로브는 '트래픽 보내지 마'만 신호할 뿐 라우트를 막지 않는다. 위조 영수증이
+# 크레딧/구독을 발급받거나 무인증 웹훅이 상태를 변조하는 것을 운영(testing=False)에서
+# fail-closed로 강제한다.
+@pytest.mark.asyncio
+async def test_local_verification_fails_closed_in_production(monkeypatch):
+    """운영에서 local 모드(무검증 성공)는 위조 영수증을 통과시키지 않고 거부한다."""
+    from src.core.exceptions import ValidationError
+
+    monkeypatch.setattr(settings, "testing", False)
+    monkeypatch.setattr(settings, "iap_verification_mode", "local")
+    monkeypatch.setattr(settings, "apple_iap_shared_secret", None)
+
+    with pytest.raises(ValidationError):
+        await iap_verifier.verify_purchase(
+            platform="apple",
+            product_id="credit_pack_10",
+            transaction_id="forged-tx",
+            receipt_data="AAAA",
+        )
+
+
+@pytest.mark.asyncio
+async def test_hybrid_missing_config_fails_closed_in_production(monkeypatch):
+    """운영에서 hybrid 설정 누락 폴백도 무검증 성공이므로 fail-closed."""
+    from src.core.exceptions import ValidationError
+
+    monkeypatch.setattr(settings, "testing", False)
+    monkeypatch.setattr(settings, "iap_verification_mode", "hybrid")
+    monkeypatch.setattr(settings, "apple_iap_shared_secret", None)
+
+    with pytest.raises(ValidationError):
+        await iap_verifier.verify_purchase(
+            platform="apple",
+            product_id="credit_pack_10",
+            transaction_id="forged-tx",
+            receipt_data="AAAA",
+        )
+
+
+@pytest.mark.asyncio
+async def test_local_verification_allowed_in_testing(monkeypatch):
+    """테스트/개발(testing=True)에서는 기존 local 성공 동작을 유지한다."""
+    monkeypatch.setattr(settings, "testing", True)
+    monkeypatch.setattr(settings, "iap_verification_mode", "local")
+
+    result = await iap_verifier.verify_purchase(
+        platform="apple",
+        product_id="credit_pack_10",
+        transaction_id="dev-tx",
+        receipt_data="AAAA",
+    )
+    assert result.verified is True
+
+
+@pytest.mark.asyncio
+async def test_webhook_rejected_when_secret_unset_in_production(client, monkeypatch):
+    """운영에서 웹훅 시크릿 미설정이면 무인증 상태변조를 거부(fail-closed)."""
+    monkeypatch.setattr(settings, "testing", False)
+    monkeypatch.setattr(settings, "iap_webhook_secret", "")
+
+    r = await client.post(
+        "/v1/iap/webhook/apple",
+        json={"transaction_id": "any-tx", "status": "refunded"},
+    )
+    assert r.status_code == 403, r.text
+
+
+@pytest.mark.asyncio
+async def test_webhook_requires_matching_token_when_secret_set(client, monkeypatch):
+    """시크릿 설정 시: 잘못된 토큰 거부(403), 올바른 토큰 통과(200)."""
+    monkeypatch.setattr(settings, "testing", False)
+    monkeypatch.setattr(settings, "iap_webhook_secret", "wh-secret")
+
+    bad = await client.post(
+        "/v1/iap/webhook/apple?token=wrong",
+        json={"transaction_id": "unknown-tx", "status": "refunded"},
+    )
+    assert bad.status_code == 403, bad.text
+
+    ok = await client.post(
+        "/v1/iap/webhook/apple?token=wh-secret",
+        json={"transaction_id": "unknown-tx", "status": "refunded"},
+    )
+    # 인증 통과 — 미지의 transaction_id는 'ignored'로 처리되나 인증 자체는 성공.
+    assert ok.status_code == 200, ok.text

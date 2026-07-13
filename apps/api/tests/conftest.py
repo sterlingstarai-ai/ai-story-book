@@ -11,6 +11,9 @@ os.environ["TESTING"] = "true"
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test.db"
 os.environ["LLM_PROVIDER"] = "mock"
 os.environ["IMAGE_PROVIDER"] = "mock"
+# IAP 기본값은 운영 안전을 위해 strict(fail-closed)이므로, 테스트는 로컬 검증 모드를
+# 명시 주입해 스토어 키 없이도 영수증 흐름을 검증한다(보안 기본값 변경과 한 세트).
+os.environ["IAP_VERIFICATION_MODE"] = "local"
 # S3 credentials for testing (mock values)
 os.environ["S3_ACCESS_KEY"] = "test-access-key"
 os.environ["S3_SECRET_KEY"] = "test-secret-key"

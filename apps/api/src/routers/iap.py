@@ -398,10 +398,15 @@ async def _require_webhook_secret(token: str = Query(default="")):
 
     Apple/Google이 호출하는 공개 엔드포인트가 무인증이면 알려진 transaction id로 구독
     상태를 변조(취소성 공격)할 수 있다. 운영에선 시크릿을 설정하고 웹훅 URL에 토큰을 담는다.
-    미설정 시(dev/test)는 통과해 기존 동작을 유지하나, 운영 배포 시 필수.
+    시크릿 미설정 시 운영(testing=False)에서는 무인증 상태변조를 막기 위해 거부한다
+    (fail-closed). dev/test에서만 통과해 기존 동작을 유지한다.
     """
     secret = settings.iap_webhook_secret
-    if secret and not hmac.compare_digest(token, secret):
+    if not secret:
+        if not settings.testing:
+            raise AuthorizationError("웹훅 인증이 구성되지 않았습니다.")
+        return
+    if not hmac.compare_digest(token, secret):
         raise AuthorizationError("유효하지 않은 웹훅 토큰입니다.")
 
 
