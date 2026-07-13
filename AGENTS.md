@@ -17,8 +17,7 @@ ai-story-book/
 ├── packages/shared/schema/    # generated OpenAPI snapshot; not a source package
 ├── scripts/                   # quality, contract, E2E, deploy, and operator tools
 ├── infra/                     # local/production Compose and nginx
-├── docs/                      # deployment, QA, legal, store, and founder decisions
-└── design-mockups/            # static concepts; not runtime code
+└── docs/                      # deployment, QA, legal, store, and founder decisions
 ```
 
 Nested guidance:
