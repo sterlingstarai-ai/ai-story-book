@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     app_name: str = "AI Story Book API"
     # 기본값을 커밋된 OpenAPI 계약·.env와 일치시켜, .env 부재(CI Phase Gate)에서도
     # info.version이 흔들리지 않게 한다(계약 테스트 환경 비의존).
-    app_version: str = "0.2.0"
+    app_version: str = "1.0.0"
     debug: bool = False  # Must be False in production
     testing: bool = False  # Set to True in test environment
 

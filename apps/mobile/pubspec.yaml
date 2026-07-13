@@ -1,7 +1,7 @@
 name: ai_story_book
 description: AI로 맞춤형 동화책을 생성하는 모바일 앱
 publish_to: 'none'
-version: 0.1.0+1
+version: 1.0.0+1
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

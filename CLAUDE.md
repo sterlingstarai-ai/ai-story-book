@@ -13,7 +13,7 @@
   - 스토리 생성 언어: ko / en / ja / zh / es (`apps/api/src/core/i18n.py`, 기본 ko)
   - 모바일 UI l10n: ko / en / ja (`apps/mobile/lib/l10n/*.arb`)
 - **상태**: 글로벌 다국어 롤아웃 머지(PR #45, 2026-07-06) + 출시 차단 감사 수정 머지(PR #56) → 출시 준비 단계
-- ⚠️ **버전 표기 불일치(출시 전 정리 필요)**: `core/config.py` app_version=`0.2.0`, `pubspec.yaml`=`0.1.0+1`, 과거 문서 표기 0.3.x — 셋 다 실제 기능 스코프보다 뒤처짐
+- **버전**: `1.0.0` — 첫 공개 스토어 출시 GA 기준으로 통일(2026-07-14). `core/config.py` app_version, `pubspec.yaml`(`1.0.0+1`), `openapi.json` info.version, `.env.example` APP_VERSION 모두 일치.
 
 ## 핵심 차별화
 
