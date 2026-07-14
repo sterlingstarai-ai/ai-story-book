@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     app_name: str = "AI Story Book API"
     # 기본값을 커밋된 OpenAPI 계약·.env와 일치시켜, .env 부재(CI Phase Gate)에서도
     # info.version이 흔들리지 않게 한다(계약 테스트 환경 비의존).
-    app_version: str = "0.2.0"
+    app_version: str = "1.0.0"
     debug: bool = False  # Must be False in production
     testing: bool = False  # Set to True in test environment
 
@@ -76,7 +76,9 @@ class Settings(BaseSettings):
     # - local: 로컬 검증(개발/테스트)
     # - hybrid: 키가 있으면 스토어 실검증, 없으면 로컬 검증
     # - strict: 스토어 실검증 필수(키 없거나 검증 실패 시 에러)
-    iap_verification_mode: str = "local"
+    # 기본값은 fail-closed(strict) — 위조 영수증이 무검증으로 통과하지 않게 한다.
+    # 개발/테스트는 명시적으로 local을 설정(conftest는 IAP_VERIFICATION_MODE=local 주입).
+    iap_verification_mode: str = "strict"
     apple_iap_shared_secret: Optional[str] = None
     apple_iap_verify_url: str = "https://buy.itunes.apple.com/verifyReceipt"
     apple_iap_sandbox_verify_url: str = "https://sandbox.itunes.apple.com/verifyReceipt"

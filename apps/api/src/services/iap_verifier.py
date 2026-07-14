@@ -429,6 +429,16 @@ class IAPVerifierService:
         transaction_id: str,
         raw: Optional[dict] = None,
     ) -> IAPVerificationResult:
+        # 보안: 로컬(무검증) 성공은 위조 영수증을 그대로 통과시키는 fail-open이다.
+        # mode=local, hybrid의 설정누락/검증실패 폴백이 모두 이 단일 지점을 지나므로,
+        # 운영(testing=False)에서는 여기서 fail-closed로 막는다 — readiness 프로브가
+        # 아니라 요청 경로 자체에서 강제해, 프로브를 존중하지 않는 배포에서도 위조
+        # 영수증이 크레딧·구독을 발급받지 못하게 한다.
+        if not settings.testing:
+            raise ValidationError(
+                "스토어 검증이 구성되지 않아 결제를 확인할 수 없습니다.",
+                details={"iap_verification": "unavailable"},
+            )
         return IAPVerificationResult(
             verified=True,
             source=source,
