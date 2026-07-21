@@ -38,6 +38,36 @@ class TestPDFServiceSSRF:
         assert service._is_url_allowed("file:///etc/passwd") is False
         assert service._is_url_allowed("gopher://server/") is False
 
+    def test_url_validation_allows_s3_public_url_host(self, monkeypatch):
+        """H11: s3_public_url 호스트(≠ s3_endpoint)를 허용 — R2 공개도메인/CDN 구성."""
+        from src.core.config import settings
+        from src.services.pdf import PDFService
+
+        monkeypatch.setattr(settings, "s3_endpoint", "https://minio:9000")
+        monkeypatch.setattr(settings, "s3_public_url", "https://cdn.example.com")
+        service = PDFService()
+        # 저장되는 이미지 URL은 s3_public_url/{key} 형태 — 허용되어야 삽화가 들어간다.
+        assert (
+            service._is_url_allowed(
+                "https://cdn.example.com/storybook/books/x/cover.png"
+            )
+            is True
+        )
+
+    def test_url_validation_still_blocks_ssrf_with_public_host(self, monkeypatch):
+        """H11: 공개 호스트 허용 후에도 SSRF(메타데이터·file://) 차단 회귀 없음."""
+        from src.core.config import settings
+        from src.services.pdf import PDFService
+
+        monkeypatch.setattr(settings, "s3_endpoint", "https://minio:9000")
+        monkeypatch.setattr(settings, "s3_public_url", "https://cdn.example.com")
+        service = PDFService()
+        assert (
+            service._is_url_allowed("http://169.254.169.254/latest/meta-data/")
+            is False
+        )
+        assert service._is_url_allowed("file:///etc/passwd") is False
+
 
 class TestCreditsService:
     """Credits service tests."""
