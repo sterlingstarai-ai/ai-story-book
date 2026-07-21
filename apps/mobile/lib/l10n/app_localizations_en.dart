@@ -1500,6 +1500,26 @@ class AppLocalizationsEn extends AppLocalizations {
   String get creditsPlanFallbackName => 'Plan';
 
   @override
+  String get planFree => 'Free';
+
+  @override
+  String get planBasic => 'Basic';
+
+  @override
+  String get planPremium => 'Premium';
+
+  @override
+  String get planFeaturesFree =>
+      '2 books / month|Watercolor & cartoon styles|No audio/PDF';
+
+  @override
+  String get planFeaturesBasic => '10 books / month|All styles|PDF|Basic TTS';
+
+  @override
+  String get planFeaturesPremium =>
+      '30 books / month|All features|Premium TTS|Priority processing';
+
+  @override
   String get creditsCurrentPlan => 'Current Plan';
 
   @override

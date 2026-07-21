@@ -12,6 +12,54 @@ import '../utils/constants.dart';
 import '../widgets/age_gate_dialog.dart';
 import '../widgets/common_widgets.dart';
 
+/// M15: 구독 플랜명을 안정 키(plan id)로 로컬라이즈한다. 서버는 한국어 name을
+/// 내려주지만(하위호환) en/ja 사용자에게 '베이직' 등을 노출하지 않도록 id→l10n.
+String localizedPlanName(
+  AppLocalizations l,
+  String planId,
+  String fallback,
+) {
+  switch (planId) {
+    case 'free':
+      return l.planFree;
+    case 'basic':
+      return l.planBasic;
+    case 'premium':
+      return l.planPremium;
+    default:
+      return fallback;
+  }
+}
+
+/// M15: 플랜 features를 로컬라이즈. arb에는 '|' 구분 문자열로 저장하고 분리한다.
+/// 매핑 없는 플랜은 서버 features로 폴백(하위호환).
+List<String> localizedPlanFeatures(
+  AppLocalizations l,
+  String planId,
+  List<String> fallback,
+) {
+  String? joined;
+  switch (planId) {
+    case 'free':
+      joined = l.planFeaturesFree;
+      break;
+    case 'basic':
+      joined = l.planFeaturesBasic;
+      break;
+    case 'premium':
+      joined = l.planFeaturesPremium;
+      break;
+  }
+  if (joined == null || joined.isEmpty) {
+    return fallback;
+  }
+  return joined
+      .split('|')
+      .map((s) => s.trim())
+      .where((s) => s.isNotEmpty)
+      .toList();
+}
+
 /// 크레딧 및 구독 화면
 class CreditsScreen extends ConsumerStatefulWidget {
   const CreditsScreen({super.key});
@@ -438,10 +486,18 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
   Widget _buildPlanCard(Map<String, dynamic> plan) {
     final l = AppLocalizations.of(context);
     final planId = _coerceText(plan['id']) ?? '';
-    final planName = _coerceText(plan['name']) ?? l.creditsPlanFallbackName;
+    final planName = localizedPlanName(
+      l,
+      planId,
+      _coerceText(plan['name']) ?? l.creditsPlanFallbackName,
+    );
     final price = _parseAmount(plan['price']);
     final creditsPerMonth = _parseAmount(plan['credits_per_month']);
-    final features = _asList(plan['features']);
+    final features = localizedPlanFeatures(
+      l,
+      planId,
+      _asList(plan['features']).map((f) => f.toString()).toList(),
+    );
     final isCurrentPlan =
         _coerceText(_asMap(_creditsStatus?['subscription'])['plan']) == planId;
 

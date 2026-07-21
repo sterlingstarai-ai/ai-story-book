@@ -1436,6 +1436,24 @@ class AppLocalizationsJa extends AppLocalizations {
   String get creditsPlanFallbackName => 'プラン';
 
   @override
+  String get planFree => '無料';
+
+  @override
+  String get planBasic => 'ベーシック';
+
+  @override
+  String get planPremium => 'プレミアム';
+
+  @override
+  String get planFeaturesFree => '月2冊作成|水彩・カートゥーンスタイル|音声/PDF非対応';
+
+  @override
+  String get planFeaturesBasic => '月10冊作成|すべてのスタイル|PDF|基本TTS';
+
+  @override
+  String get planFeaturesPremium => '月30冊作成|すべての機能|プレミアムTTS|優先処理';
+
+  @override
   String get creditsCurrentPlan => '現在のプラン';
 
   @override

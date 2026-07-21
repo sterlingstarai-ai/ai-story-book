@@ -2776,6 +2776,42 @@ abstract class AppLocalizations {
   /// **'Plan'**
   String get creditsPlanFallbackName;
 
+  /// No description provided for @planFree.
+  ///
+  /// In en, this message translates to:
+  /// **'Free'**
+  String get planFree;
+
+  /// No description provided for @planBasic.
+  ///
+  /// In en, this message translates to:
+  /// **'Basic'**
+  String get planBasic;
+
+  /// No description provided for @planPremium.
+  ///
+  /// In en, this message translates to:
+  /// **'Premium'**
+  String get planPremium;
+
+  /// No description provided for @planFeaturesFree.
+  ///
+  /// In en, this message translates to:
+  /// **'2 books / month|Watercolor & cartoon styles|No audio/PDF'**
+  String get planFeaturesFree;
+
+  /// No description provided for @planFeaturesBasic.
+  ///
+  /// In en, this message translates to:
+  /// **'10 books / month|All styles|PDF|Basic TTS'**
+  String get planFeaturesBasic;
+
+  /// No description provided for @planFeaturesPremium.
+  ///
+  /// In en, this message translates to:
+  /// **'30 books / month|All features|Premium TTS|Priority processing'**
+  String get planFeaturesPremium;
+
   /// No description provided for @creditsCurrentPlan.
   ///
   /// In en, this message translates to:

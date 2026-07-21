@@ -1435,6 +1435,24 @@ class AppLocalizationsKo extends AppLocalizations {
   String get creditsPlanFallbackName => '플랜';
 
   @override
+  String get planFree => '무료';
+
+  @override
+  String get planBasic => '베이직';
+
+  @override
+  String get planPremium => '프리미엄';
+
+  @override
+  String get planFeaturesFree => '월 2권 생성|watercolor/cartoon 스타일|오디오/PDF 미지원';
+
+  @override
+  String get planFeaturesBasic => '월 10권 생성|모든 스타일|PDF|기본 TTS';
+
+  @override
+  String get planFeaturesPremium => '월 30권 생성|모든 기능|프리미엄 TTS|우선 처리';
+
+  @override
   String get creditsCurrentPlan => '현재 플랜';
 
   @override
