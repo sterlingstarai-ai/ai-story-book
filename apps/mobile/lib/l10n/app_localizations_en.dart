@@ -552,6 +552,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get loadingUnknownError => 'Unknown error';
 
   @override
+  String get loadingSafetyBlockedPrefix => 'This input isn\'t safe:';
+
+  @override
   String get loadingRetryButton => 'Retry';
 
   @override

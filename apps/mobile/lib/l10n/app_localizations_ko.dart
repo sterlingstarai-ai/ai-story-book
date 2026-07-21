@@ -527,6 +527,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get loadingUnknownError => '알 수 없는 오류';
 
   @override
+  String get loadingSafetyBlockedPrefix => '입력이 안전하지 않습니다:';
+
+  @override
   String get loadingRetryButton => '다시 시도';
 
   @override

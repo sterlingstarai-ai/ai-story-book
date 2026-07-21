@@ -176,6 +176,10 @@
   "loadingCompleted": "완성되었어요!",
   "loadingErrorTitle": "문제가 발생했어요",
   "loadingUnknownError": "알 수 없는 오류",
+  "loadingSafetyBlockedPrefix": "입력이 안전하지 않습니다:",
+  "@loadingSafetyBlockedPrefix": {
+    "description": "Prefix shown before server-provided safety reasons when input moderation blocks a book (SAFETY_INPUT)."
+  },
   "loadingRetryButton": "다시 시도",
   "loadingCheckStatusButton": "상태 다시 확인",
   "loadingBackToHomeButton": "홈으로 돌아가기",

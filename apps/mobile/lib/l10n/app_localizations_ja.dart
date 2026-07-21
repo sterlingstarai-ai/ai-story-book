@@ -527,6 +527,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get loadingUnknownError => '不明なエラー';
 
   @override
+  String get loadingSafetyBlockedPrefix => '入力が安全ではありません:';
+
+  @override
   String get loadingRetryButton => '再試行';
 
   @override

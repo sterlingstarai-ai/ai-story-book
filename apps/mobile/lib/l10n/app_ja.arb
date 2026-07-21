@@ -176,6 +176,10 @@
   "loadingCompleted": "完成しました！",
   "loadingErrorTitle": "問題が発生しました",
   "loadingUnknownError": "不明なエラー",
+  "loadingSafetyBlockedPrefix": "入力が安全ではありません:",
+  "@loadingSafetyBlockedPrefix": {
+    "description": "Prefix shown before server-provided safety reasons when input moderation blocks a book (SAFETY_INPUT)."
+  },
   "loadingRetryButton": "再試行",
   "loadingCheckStatusButton": "状態を再確認",
   "loadingBackToHomeButton": "ホームに戻る",

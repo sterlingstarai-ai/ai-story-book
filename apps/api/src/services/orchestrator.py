@@ -355,8 +355,11 @@ async def start_book_generation(
         if not moderation.is_safe:
             from src.core.errors import SafetyError
 
+            # M29: 한국어 접두어를 하드코딩하지 않는다 — 접두어는 클라이언트가
+            # 에러 코드(SAFETY_INPUT) 기반 l10n으로 붙이고, 서버는 사용자 언어로
+            # 생성된 reasons 원문만 담는다.
             raise SafetyError(
-                message=f"입력이 안전하지 않습니다: {', '.join(moderation.reasons)}",
+                message=", ".join(moderation.reasons),
                 is_input=True,
                 suggestions=moderation.suggestions,
             )

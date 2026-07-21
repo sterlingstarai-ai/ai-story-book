@@ -1096,6 +1096,12 @@ abstract class AppLocalizations {
   /// **'Unknown error'**
   String get loadingUnknownError;
 
+  /// Prefix shown before server-provided safety reasons when input moderation blocks a book (SAFETY_INPUT).
+  ///
+  /// In en, this message translates to:
+  /// **'This input isn\'t safe:'**
+  String get loadingSafetyBlockedPrefix;
+
   /// No description provided for @loadingRetryButton.
   ///
   /// In en, this message translates to:

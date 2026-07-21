@@ -421,7 +421,12 @@ def parse_json_response(text: str, expected_type: type):
 
 async def call_moderation(spec: BookSpec) -> ModerationResult:
     """입력 안전성 검사"""
-    system_prompt = render_prompt("moderate_input.system.jinja2")
+    # M29: 사용자 언어로 reasons/suggestions를 생성하도록 language_name 전달
+    # (비한국어 사용자에게 한국어 차단 사유가 노출되던 문제 해소).
+    system_prompt = render_prompt(
+        "moderate_input.system.jinja2",
+        language_name=language_display_name(spec.language.value),
+    )
     user_prompt = render_prompt(
         "moderate_input.user.jinja2",
         topic=spec.topic,

@@ -1,6 +1,10 @@
 from datetime import datetime, timedelta, timezone
 
-from src.services.job_monitor import _db_timestamp
+import pytest
+from sqlalchemy import select
+
+from src.models.db import CreditTransaction, Job, UserCredits
+from src.services.job_monitor import _db_timestamp, job_monitor
 
 
 def test_db_timestamp_keeps_naive_values_unchanged():
@@ -13,13 +17,6 @@ def test_db_timestamp_normalizes_to_naive_utc():
     seoul_time = datetime(2026, 3, 15, 18, 30, 0, tzinfo=timezone(timedelta(hours=9)))
 
     assert _db_timestamp(seoul_time) == datetime(2026, 3, 15, 9, 30, 0)
-
-
-import pytest
-from sqlalchemy import select
-
-from src.models.db import CreditTransaction, Job, UserCredits
-from src.services.job_monitor import job_monitor
 
 
 async def _seed_charged(db, uk, job_id, start=3):

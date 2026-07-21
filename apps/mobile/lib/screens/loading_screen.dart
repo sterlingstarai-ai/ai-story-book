@@ -6,6 +6,23 @@ import '../providers/providers.dart';
 import '../utils/constants.dart';
 import '../widgets/common_widgets.dart';
 
+/// M29: 실패 잡의 표시 텍스트 조합.
+///
+/// 안전 차단(SAFETY_INPUT)은 서버가 사용자 언어로 생성된 reasons만 담아 오므로,
+/// 클라이언트가 로컬라이즈된 접두어를 붙여 표시한다(한국어 접두어 하드코딩 제거).
+/// 그 외 에러 코드는 서버 메시지를 원문 그대로 사용한다.
+String composeJobErrorText(
+  AppLocalizations l,
+  String? errorCode,
+  String? errorMessage,
+) {
+  final message = errorMessage ?? l.loadingUnknownError;
+  if (errorCode == 'SAFETY_INPUT') {
+    return '${l.loadingSafetyBlockedPrefix} $message';
+  }
+  return message;
+}
+
 /// 로딩 화면 (책 생성 진행 상황)
 class LoadingScreen extends ConsumerStatefulWidget {
   final String jobId;
@@ -189,7 +206,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            status.errorMessage ?? l.loadingUnknownError,
+            composeJobErrorText(l, status.errorCode, status.errorMessage),
             style: AppTextStyles.bodySmall,
             textAlign: TextAlign.center,
           ),

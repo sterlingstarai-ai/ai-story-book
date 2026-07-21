@@ -210,6 +210,10 @@
   "loadingCompleted": "All done!",
   "loadingErrorTitle": "Something went wrong",
   "loadingUnknownError": "Unknown error",
+  "loadingSafetyBlockedPrefix": "This input isn't safe:",
+  "@loadingSafetyBlockedPrefix": {
+    "description": "Prefix shown before server-provided safety reasons when input moderation blocks a book (SAFETY_INPUT)."
+  },
   "loadingRetryButton": "Retry",
   "loadingCheckStatusButton": "Check status again",
   "loadingBackToHomeButton": "Back to home",

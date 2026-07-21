@@ -571,3 +571,42 @@ class TestRewriteValidation:
         regen_src = inspect.getsource(orch_module.regenerate_page)
         assert "rewrite_result.revised_text" in regen_src
         assert 'rewrite_result.get("revised_text"' not in regen_src
+
+
+# ==================== M29: 안전 차단 메시지 언어 ====================
+
+
+@pytest.mark.asyncio
+async def test_safety_input_error_message_no_korean_prefix(monkeypatch):
+    """M29: SAFETY_INPUT 실패 메시지에 한국어 접두어 없이 reasons 원문만 담긴다.
+
+    한국어 접두어('입력이 안전하지 않습니다: ')는 클라이언트가 코드 기반 l10n으로
+    붙이므로, 서버 error_message는 사용자 언어로 생성된 reasons만 담아야 한다.
+    """
+    from src.services import orchestrator as orch
+    from src.models.dto import BookSpec, ModerationResult
+
+    captured = {}
+
+    async def fake_mark_failed(job_id, error_code, message):
+        captured["code"] = error_code
+        captured["message"] = message
+
+    monkeypatch.setattr(orch, "update_job_status", AsyncMock())
+    monkeypatch.setattr(orch, "mark_job_failed", fake_mark_failed)
+    monkeypatch.setattr(
+        orch,
+        "moderate_input",
+        AsyncMock(
+            return_value=ModerationResult(
+                is_safe=False, reasons=["unsafe topic"], suggestions=[]
+            )
+        ),
+    )
+
+    spec = BookSpec(topic="x", language="en", target_age="5-7", style="watercolor")
+    await orch.start_book_generation(job_id="j1", spec=spec, user_key="u1")
+
+    assert captured["code"] == ErrorCode.SAFETY_INPUT
+    assert "입력이 안전하지 않습니다" not in captured["message"]
+    assert "unsafe topic" in captured["message"]

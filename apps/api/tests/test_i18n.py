@@ -84,3 +84,9 @@ def test_image_prompt_system_requires_english_positive_prompt():
     """M28: positive_prompt를 영어로만 작성하도록 명시(다국어 혼입 차단)."""
     rendered = render_prompt("generate_image_prompts.system.jinja2")
     assert "영어로만" in rendered
+
+
+def test_moderation_prompt_is_language_parameterized():
+    """M29: 안전 검사 프롬프트가 language_name으로 reasons/suggestions 언어를 지정."""
+    rendered = render_prompt("moderate_input.system.jinja2", language_name="English")
+    assert "English" in rendered
