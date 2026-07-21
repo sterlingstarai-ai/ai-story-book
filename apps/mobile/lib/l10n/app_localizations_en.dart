@@ -552,6 +552,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get loadingUnknownError => 'Unknown error';
 
   @override
+  String get loadingTimeoutMessage =>
+      'Generation is taking longer than expected. Please check the status again.';
+
+  @override
   String get loadingSafetyBlockedPrefix => 'This input isn\'t safe:';
 
   @override

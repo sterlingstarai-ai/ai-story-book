@@ -176,6 +176,7 @@
   "loadingCompleted": "完成しました！",
   "loadingErrorTitle": "問題が発生しました",
   "loadingUnknownError": "不明なエラー",
+  "loadingTimeoutMessage": "生成に想定より時間がかかっています。ステータスをもう一度ご確認ください。",
   "loadingSafetyBlockedPrefix": "入力が安全ではありません:",
   "@loadingSafetyBlockedPrefix": {
     "description": "Prefix shown before server-provided safety reasons when input moderation blocks a book (SAFETY_INPUT)."

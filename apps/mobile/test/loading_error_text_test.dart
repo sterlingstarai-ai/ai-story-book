@@ -36,4 +36,15 @@ void main() {
     final text = composeJobErrorText(l, null, null);
     expect(text, l.loadingUnknownError);
   });
+
+  test('TIMEOUT shows localized message, not raw TimeoutException (H17)',
+      () async {
+    for (final code in ['ko', 'en', 'ja']) {
+      final l = await AppLocalizations.delegate.load(Locale(code));
+      // 폴링 타임아웃은 원문(TimeoutException…) 대신 로컬라이즈 문구로 매핑된다.
+      final text = composeJobErrorText(l, 'TIMEOUT', 'TimeoutException: ...');
+      expect(text, l.loadingTimeoutMessage);
+      expect(text, isNot(contains('TimeoutException')));
+    }
+  });
 }

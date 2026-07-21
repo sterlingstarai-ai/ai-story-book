@@ -527,6 +527,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get loadingUnknownError => '알 수 없는 오류';
 
   @override
+  String get loadingTimeoutMessage => '생성이 예상보다 오래 걸리고 있어요. 상태를 다시 확인해 주세요.';
+
+  @override
   String get loadingSafetyBlockedPrefix => '입력이 안전하지 않습니다:';
 
   @override

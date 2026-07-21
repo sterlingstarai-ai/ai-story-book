@@ -858,27 +858,26 @@ class CharactersNotifier extends AsyncNotifier<List<Character>> {
 /// 현재 생성 중인 Job 상태
 final currentJobProvider = StateProvider<JobStatus?>((ref) => null);
 
+/// 생성 폴링 예산 — 서버 잡 SLA(10분)와 일치시킨다(H17).
+/// 이전에는 maxAttempts(120×2초≈4분)가 먼저 발화해 정상 잡을 4분에 허위 실패시켰다.
+const Duration kJobPollingHardTimeout = Duration(minutes: 10);
+
+/// 폴링 예산 초과 여부(순수 헬퍼 — 결정적 단위 테스트용, H17).
+bool jobPollingBudgetExceeded(Duration elapsed) =>
+    elapsed > kJobPollingHardTimeout;
+
 /// Job 상태 폴링 Provider
 final jobPollingProvider =
     StreamProvider.family<JobStatus, String>((ref, jobId) async* {
   final api = ref.read(apiClientProvider);
   final startedAt = DateTime.now();
-  var attempts = 0;
-  const maxAttempts = 120;
-  const hardTimeout = Duration(minutes: 10);
 
   while (true) {
-    attempts += 1;
+    // H17: 경과시간(SLA 10분) 단일 예산. attempt 카운트 기반 조기 종료 제거.
     final elapsed = DateTime.now().difference(startedAt);
-    if (elapsed > hardTimeout) {
+    if (jobPollingBudgetExceeded(elapsed)) {
       throw TimeoutException(
-        '생성 시간이 너무 오래 걸리고 있어요. 잠시 후 다시 시도해주세요.',
-      );
-    }
-
-    if (attempts > maxAttempts) {
-      throw TimeoutException(
-        '생성이 지연되고 있어요. 다시 시도 버튼으로 상태를 확인해주세요.',
+        'Generation exceeded the ${kJobPollingHardTimeout.inMinutes}-minute budget',
       );
     }
 

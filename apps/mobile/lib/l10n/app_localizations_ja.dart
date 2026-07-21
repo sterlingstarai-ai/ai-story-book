@@ -527,6 +527,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get loadingUnknownError => '不明なエラー';
 
   @override
+  String get loadingTimeoutMessage => '生成に想定より時間がかかっています。ステータスをもう一度ご確認ください。';
+
+  @override
   String get loadingSafetyBlockedPrefix => '入力が安全ではありません:';
 
   @override

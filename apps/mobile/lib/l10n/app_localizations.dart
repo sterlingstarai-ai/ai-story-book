@@ -1096,6 +1096,12 @@ abstract class AppLocalizations {
   /// **'Unknown error'**
   String get loadingUnknownError;
 
+  /// No description provided for @loadingTimeoutMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Generation is taking longer than expected. Please check the status again.'**
+  String get loadingTimeoutMessage;
+
   /// Prefix shown before server-provided safety reasons when input moderation blocks a book (SAFETY_INPUT).
   ///
   /// In en, this message translates to:

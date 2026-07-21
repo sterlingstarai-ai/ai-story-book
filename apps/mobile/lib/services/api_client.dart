@@ -12,6 +12,11 @@ class InpaintUnsupportedException implements Exception {
   const InpaintUnsupportedException();
 }
 
+/// H17: 요청 내에서 이미지/오디오를 동기 처리하는 장시간 엔드포인트(retell·사진/그림
+/// 캐릭터 생성·페이지 오디오)의 per-call receiveTimeout. 기본 30초는 이들에 부족해
+/// 클라 타임아웃 후 서버는 완주 → orphan 리소스가 생겼다.
+const Duration kLongSyncReceiveTimeout = Duration(seconds: 180);
+
 /// API 클라이언트
 class ApiClient {
   static const Uuid _uuid = Uuid();
@@ -241,7 +246,10 @@ class ApiClient {
     final response = await _dio.post(
       '/v1/books/$bookId/retell',
       data: {'target_age': targetAge},
-      options: Options(headers: _headers),
+      options: Options(
+        headers: _headers,
+        receiveTimeout: kLongSyncReceiveTimeout, // H17
+      ),
     );
     final map = _asJsonMap(
       response.data,
@@ -375,6 +383,7 @@ class ApiClient {
       options: Options(
         headers: _headers,
         contentType: 'multipart/form-data',
+        receiveTimeout: kLongSyncReceiveTimeout, // H17
       ),
     );
 
@@ -405,6 +414,7 @@ class ApiClient {
       options: Options(
         headers: _headers,
         contentType: 'multipart/form-data',
+        receiveTimeout: kLongSyncReceiveTimeout, // H17
       ),
     );
 
@@ -559,7 +569,10 @@ class ApiClient {
     final response = await _dio.get(
       '/v1/books/$bookId/pages/$pageNumber/audio',
       queryParameters: {'language': language},
-      options: Options(headers: _headers),
+      options: Options(
+        headers: _headers,
+        receiveTimeout: kLongSyncReceiveTimeout, // H17: 요청 내 TTS 합성
+      ),
     );
 
     final data = _asJsonMap(

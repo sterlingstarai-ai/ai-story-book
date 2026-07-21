@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../l10n/app_localizations.dart';
@@ -16,6 +18,10 @@ String composeJobErrorText(
   String? errorCode,
   String? errorMessage,
 ) {
+  // H17: 폴링 타임아웃은 로컬라이즈된 안내로(TimeoutException 원문 미노출).
+  if (errorCode == 'TIMEOUT') {
+    return l.loadingTimeoutMessage;
+  }
   final message = errorMessage ?? l.loadingUnknownError;
   if (errorCode == 'SAFETY_INPUT') {
     return '${l.loadingSafetyBlockedPrefix} $message';
@@ -90,15 +96,22 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
                 currentStep: l.loadingStepWaiting,
               ),
             ),
-            error: (error, _) => _buildErrorContent(
-              context,
-              JobStatus(
-                jobId: widget.jobId,
-                status: JobState.failed,
-                progress: 0,
-                errorMessage: error.toString(),
-              ),
-            ),
+            error: (error, _) {
+              // H17: 폴링 타임아웃은 서버 실패와 구분한다. 원문(TimeoutException…
+              // 한국어) 노출 대신 로컬라이즈 문구로, 주 액션은 신규 생성이 아니라
+              // 현재 잡 재조회로(크레딧 재차감·서재 중복 방지).
+              final isTimeout = error is TimeoutException;
+              return _buildErrorContent(
+                context,
+                JobStatus(
+                  jobId: widget.jobId,
+                  status: JobState.failed,
+                  progress: 0,
+                  errorCode: isTimeout ? 'TIMEOUT' : null,
+                  errorMessage: isTimeout ? null : error.toString(),
+                ),
+              );
+            },
           ),
         ),
       ),
@@ -211,18 +224,34 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: AppSpacing.xl),
-          PrimaryButton(
-            text: l.loadingRetryButton,
-            isFullWidth: false,
-            onPressed: () {
-              Navigator.pushReplacementNamed(context, '/create');
-            },
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          TextButton(
-            onPressed: () => ref.invalidate(jobPollingProvider(widget.jobId)),
-            child: Text(l.loadingCheckStatusButton),
-          ),
+          // H17: 타임아웃이면 주 액션은 '상태 다시 확인'(현재 잡 재조회) — 신규 생성으로
+          // 직행하면 크레딧 재차감·서재 중복이 발생한다. 진짜 서버 실패에서만 신규 생성.
+          if (status.errorCode == 'TIMEOUT') ...[
+            PrimaryButton(
+              text: l.loadingCheckStatusButton,
+              isFullWidth: false,
+              onPressed: () => ref.invalidate(jobPollingProvider(widget.jobId)),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            TextButton(
+              onPressed: () =>
+                  Navigator.pushReplacementNamed(context, '/create'),
+              child: Text(l.loadingRetryButton),
+            ),
+          ] else ...[
+            PrimaryButton(
+              text: l.loadingRetryButton,
+              isFullWidth: false,
+              onPressed: () {
+                Navigator.pushReplacementNamed(context, '/create');
+              },
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            TextButton(
+              onPressed: () => ref.invalidate(jobPollingProvider(widget.jobId)),
+              child: Text(l.loadingCheckStatusButton),
+            ),
+          ],
           const SizedBox(height: AppSpacing.md),
           TextButton(
             onPressed: () => Navigator.pushReplacementNamed(context, '/'),
