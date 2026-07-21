@@ -1187,11 +1187,12 @@ async def regenerate_page(
                 )
                 story = StoryDraft.model_validate(draft_db.draft)
 
-                # Rewrite text with feedback
+                # Rewrite text with feedback. M31: RewriteResult(검증됨) — revised_text 필수라
+                # 누락은 이미 call_text_rewrite에서 LLM_JSON_INVALID로 실패(조용한 no-op 제거).
                 rewrite_result = await call_text_rewrite(
                     spec, story, page_number, feedback
                 )
-                page.text = rewrite_result.get("revised_text", page.text)
+                page.text = rewrite_result.revised_text
 
         if mode in ["image", "both"]:
             # Generate new image

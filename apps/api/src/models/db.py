@@ -359,9 +359,14 @@ class DailyStory(Base):
     """오늘의 동화"""
 
     __tablename__ = "daily_stories"
+    __table_args__ = (
+        # 하루 1행 보장(H14) — check-then-insert 레이스로 중복 행이 생기면 이후 그 날의
+        # /streak/today가 MultipleResultsFound로 전 사용자 500이 되던 것을 DB로 차단.
+        UniqueConstraint("date", name="uq_daily_stories_date"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    date = Column(DateTime, nullable=False, index=True)  # 날짜 (UTC 기준)
+    date = Column(DateTime, nullable=False)  # 날짜 (UTC 기준) — unique 제약이 인덱스 겸함
     theme = Column(String(30), nullable=False)  # 오늘의 테마
     topic = Column(String(100), nullable=False)  # 오늘의 주제
     book_id = Column(

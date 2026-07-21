@@ -47,6 +47,11 @@ class Theme(str, Enum):
     family = "가족"
     adventure = "모험"
     nature = "자연"
+    # 오늘의 동화 일일 테마(L17/G11) — 역매핑 실패로 조용히 theme=None 되던 4종 정식 추가.
+    courage = "용기"
+    kindness = "친절"
+    growth = "성장"
+    imagination = "상상"
     science = "과학"
     time_travel = "시간여행"  # 미래나 역사 속으로
     animal = "동물"
@@ -165,6 +170,14 @@ class StoryContinuity(BaseModel):
 
     character_consistency_notes: str = Field(min_length=1, max_length=300)
     style_notes_for_images: str = Field(min_length=1, max_length=300)
+
+
+class RewriteResult(BaseModel):
+    """페이지 텍스트 재작성 결과(M31). revised_text 필수 — 누락 시 검증 단계에서 명시 실패."""
+
+    page: int = Field(ge=1, le=12)
+    revised_text: str = Field(min_length=1, max_length=600)
+    notes: Optional[str] = Field(default=None, max_length=300)
 
 
 class StoryDraft(BaseModel):

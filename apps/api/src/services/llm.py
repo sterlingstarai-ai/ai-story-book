@@ -20,6 +20,7 @@ from src.models.dto import (
     LearningAssets,
     Language,
     RetoldStory,
+    RewriteResult,
 )
 
 logger = structlog.get_logger()
@@ -574,7 +575,9 @@ async def call_text_rewrite(
     response = await call_llm(
         system_prompt, user_prompt, max_tokens=1000, temperature=0.7
     )
-    return json.loads(response)
+    # M31: raw json.loads(펜스·검증 없음) 대신 parse_json_response로 마크다운 펜스 제거 +
+    # RewriteResult 스키마 검증. revised_text 누락은 LLM_JSON_INVALID로 명시 실패(조용한 no-op 제거).
+    return parse_json_response(response, RewriteResult)
 
 
 async def call_story_retext(

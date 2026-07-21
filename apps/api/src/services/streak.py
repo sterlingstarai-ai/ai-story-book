@@ -472,19 +472,25 @@ class StreakService:
         return milestones
 
     async def get_today_story(self, db: AsyncSession) -> dict:
-        """오늘의 동화 정보 조회"""
+        """오늘의 동화 정보 조회. 전역 회전이라 기본 tz(H2 결정). 하루 1행을 DB 유니크로 보장(H14)."""
+        # 전역 엔드포인트라 사용자 컨텍스트 없음 — 기본 tz로 하루 경계 판정(G10 결정).
         today = local_today()
         today_start, tomorrow_start = local_day_bounds_utc()
 
-        # 오늘 이미 생성된 스토리가 있는지 확인
-        result = await db.execute(
-            select(DailyStory).where(
-                DailyStory.date >= today_start,
-                DailyStory.date < tomorrow_start,
+        async def _find_today():
+            # 방어적 first(): 마이그레이션 이전 잔존 중복이 있어도 500 대신 첫 행 반환.
+            res = await db.execute(
+                select(DailyStory)
+                .where(
+                    DailyStory.date >= today_start,
+                    DailyStory.date < tomorrow_start,
+                )
+                .order_by(DailyStory.id)
+                .limit(1)
             )
-        )
-        daily_story = result.scalar_one_or_none()
+            return res.scalars().first()
 
+        daily_story = await _find_today()
         if daily_story:
             return {
                 "date": daily_story.date.isoformat(),
@@ -501,14 +507,28 @@ class StreakService:
         topic_index = day_of_year % len(theme_data["topics"])
         topic = theme_data["topics"][topic_index]
 
-        # 새 오늘의 동화 생성
+        # 새 오늘의 동화 생성. 동시 요청/멀티 레플리카가 같은 date로 이중 INSERT하면
+        # uq_daily_stories_date가 차단 → IntegrityError를 rollback 후 재조회해 다른 세션이
+        # 먼저 넣은 행을 반환(성공으로 삼키지 않고 멱등 반환, H14).
         daily_story = DailyStory(
             date=today_start,
             theme=theme_data["theme"],
             topic=topic,
         )
         db.add(daily_story)
-        await db.commit()
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+            existing = await _find_today()
+            if existing is not None:
+                return {
+                    "date": existing.date.isoformat(),
+                    "theme": existing.theme,
+                    "topic": existing.topic,
+                    "book_id": existing.book_id,
+                }
+            raise
 
         return {
             "date": today_start.isoformat(),

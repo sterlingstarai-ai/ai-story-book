@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, Field
 from typing import Literal, Optional
+import structlog
 
 from src.core.database import get_db
 from src.core.dependencies import get_profile_id, get_user_key
@@ -35,6 +36,7 @@ from src.services.growth import growth_service
 from src.services.streak import streak_service, DAILY_THEMES
 
 router = APIRouter()
+logger = structlog.get_logger()
 
 
 async def _validate_profile_ownership(
@@ -206,13 +208,14 @@ async def generate_today_story(
 
     today = await streak_service.get_today_story(db)
 
-    theme_name = next(
-        (t["name"] for t in DAILY_THEMES if t["theme"] == today["theme"]), None
-    )
-    try:
-        book_theme = Theme(theme_name) if theme_name else None
-    except ValueError:
-        book_theme = None
+    # L17: 한국어 표시명 역매핑(Theme(name)) 대신 테마 코드를 Theme enum 멤버명으로 직접 매핑.
+    # 7개 일일 테마 코드는 모두 Theme 멤버명과 일치(courage/kindness/growth/imagination 정식 추가).
+    # 매핑 불가는 조용한 None 대신 로그 + 명시 기본값(emotion)으로 처리.
+    theme_code = today["theme"]
+    book_theme = Theme.__members__.get(theme_code)
+    if book_theme is None:
+        logger.warning("Unmapped daily theme code; using default", theme=theme_code)
+        book_theme = Theme.emotion
 
     spec = BookSpec(
         topic=today["topic"],

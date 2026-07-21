@@ -533,3 +533,41 @@ class TestNormalizeInput:
         result = await normalize_input(spec)
         assert result.topic == spec.topic
         assert result.language == spec.language
+
+
+# ==================== M31: rewrite 검증 ====================
+class TestRewriteValidation:
+    def test_rewrite_result_parses_fenced_json(self):
+        """마크다운 펜스로 감싼 응답도 파싱된다(anthropic 흔한 출력, M31)."""
+        from src.models.dto import RewriteResult
+        from src.services.llm import parse_json_response
+
+        fenced = '```json\n{"page": 1, "revised_text": "고친 문장"}\n```'
+        result = parse_json_response(fenced, RewriteResult)
+        assert result.revised_text == "고친 문장"
+
+    def test_rewrite_result_missing_field_raises(self):
+        """revised_text 누락 응답은 조용한 성공이 아니라 LLM_JSON_INVALID로 실패(M31)."""
+        from src.core.errors import ErrorCode, LLMError
+        from src.models.dto import RewriteResult
+        from src.services.llm import parse_json_response
+
+        with pytest.raises(LLMError) as exc:
+            parse_json_response('{"page": 1}', RewriteResult)
+        assert exc.value.code == ErrorCode.LLM_JSON_INVALID
+
+    def test_call_text_rewrite_uses_parse_and_field_access(self):
+        """call_text_rewrite가 raw json.loads 대신 parse_json_response(RewriteResult)를 쓰고
+        orchestrator가 .revised_text로 접근(조용한 no-op 제거) — 소스 확인(M31)."""
+        import inspect
+
+        from src.services import llm as llm_module
+        from src.services import orchestrator as orch_module
+
+        rewrite_src = inspect.getsource(llm_module.call_text_rewrite)
+        assert "parse_json_response(response, RewriteResult)" in rewrite_src
+        assert "json.loads(response)" not in rewrite_src
+
+        regen_src = inspect.getsource(orch_module.regenerate_page)
+        assert "rewrite_result.revised_text" in regen_src
+        assert 'rewrite_result.get("revised_text"' not in regen_src
