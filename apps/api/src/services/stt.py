@@ -173,15 +173,32 @@ class MockSTTProvider(BaseSTTProvider):
 
 class STTService:
     def __init__(self):
-        self.provider = self._get_provider()
+        # H1/핸드오프 B2: provider 해석을 지연(lazy)한다(임포트 싱글톤 부팅 크래시 방지).
+        self._provider: BaseSTTProvider | None = None
+
+    @property
+    def provider(self) -> BaseSTTProvider:
+        if self._provider is None:
+            self._provider = self._get_provider()
+        return self._provider
 
     def _get_provider(self) -> BaseSTTProvider:
+        """H1: 미지 값·운영 mock은 조용한 Mock 폴백(가짜 발음 점수) 대신 raise."""
         provider_name = settings.stt_provider.lower().strip()
         if provider_name == "openai":
             return OpenAISTTProvider()
         if provider_name == "google":
             return GoogleSTTProvider()
-        return MockSTTProvider()
+        if provider_name == "mock":
+            if settings.testing:
+                return MockSTTProvider()
+            raise ValueError(
+                "STT_PROVIDER=mock은 운영에서 허용되지 않습니다(가짜 발음 점수 방지, H1)"
+            )
+        raise ValueError(
+            f"알 수 없는 STT_PROVIDER={settings.stt_provider!r} — "
+            "openai/google/mock만 허용(조용한 Mock 폴백 금지, H1)"
+        )
 
     async def transcribe_audio(
         self,

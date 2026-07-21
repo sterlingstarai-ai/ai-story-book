@@ -67,6 +67,10 @@ class Settings(BaseSettings):
     # FAL 인페인트 엔드포인트(배포 환경에서 확정 가능, 기본값 overridable).
     image_inpaint_fal_endpoint: str = "https://fal.run/fal-ai/flux-lora/inpainting"
 
+    # 오디오(낭독·발음) 기능 플래그 — G9: GA에서 명시적 비활성으로 출시(원격 config로 전환).
+    # False면 /health/ready가 TTS/STT 라이브 구성을 게이트하지 않는다(기능이 꺼져 있으므로).
+    audio_feature_enabled: bool = False
+
     # TTS (Text-to-Speech)
     tts_provider: str = "mock"  # mock, google, elevenlabs
     google_tts_api_key: Optional[str] = None

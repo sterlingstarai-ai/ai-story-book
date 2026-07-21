@@ -196,18 +196,39 @@ class TTSService:
     }
 
     def __init__(self):
-        self.provider = self._get_provider()
+        # H1/핸드오프 B2: provider 해석을 지연(lazy)한다. tts_service는 모듈 임포트
+        # 시점 싱글톤이라 생성자에서 raise하면 앱 부팅 전체가 죽는다(결제·생성 포함).
+        # 미지/운영-mock provider의 오류는 synthesize 호출(=provider 접근) 시점에만 난다.
+        self._provider: Optional[BaseTTSProvider] = None
+
+    @property
+    def provider(self) -> BaseTTSProvider:
+        if self._provider is None:
+            self._provider = self._get_provider()
+        return self._provider
 
     def _get_provider(self) -> BaseTTSProvider:
-        """환경 변수에 따라 TTS 제공자 선택"""
-        provider_name = settings.tts_provider.lower()
+        """환경 변수에 따라 TTS 제공자 선택.
+
+        H1: 미지 값·운영 mock은 조용한 Mock 폴백(=무음 오디오 서빙) 대신 raise한다.
+        mock은 테스트(settings.testing=True)에서만 허용.
+        """
+        provider_name = settings.tts_provider.lower().strip()
 
         if provider_name == "google":
             return GoogleTTSProvider()
-        elif provider_name == "elevenlabs":
+        if provider_name == "elevenlabs":
             return ElevenLabsProvider()
-        else:
-            return MockTTSProvider()
+        if provider_name == "mock":
+            if settings.testing:
+                return MockTTSProvider()
+            raise ValueError(
+                "TTS_PROVIDER=mock은 운영에서 허용되지 않습니다(무음 오디오 서빙 방지, H1)"
+            )
+        raise ValueError(
+            f"알 수 없는 TTS_PROVIDER={settings.tts_provider!r} — "
+            "google/elevenlabs/mock만 허용(조용한 Mock 폴백 금지, H1)"
+        )
 
     def _resolve_speed(self, target_age: Optional[str]) -> float:
         if not target_age:

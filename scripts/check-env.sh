@@ -47,14 +47,22 @@ PRODUCTION_REQUIRED_VARS=(
 LOCAL_OPTIONAL_VARS=(
   "LLM_API_KEY"
   "IMAGE_API_KEY"
+  "AUDIO_FEATURE_ENABLED"
   "TTS_PROVIDER"
+  "STT_PROVIDER"
   "ADMIN_API_KEY"
 )
 
+# H1/G9: 오디오는 GA에서 기본 비활성(AUDIO_FEATURE_ENABLED=false)이라 TTS/STT를
+# 무조건 필수로 두지 않는다. AUDIO_FEATURE_ENABLED=true로 켜면 TTS_PROVIDER(google/
+# elevenlabs)·STT_PROVIDER(openai/google) 라이브 구성이 필수가 되며, 이는 런타임
+# /health/ready(tts_provider_not_live / stt_provider_not_live)가 최종 게이트한다.
 PRODUCTION_OPTIONAL_VARS=(
   "LLM_API_KEY"
   "IMAGE_API_KEY"
+  "AUDIO_FEATURE_ENABLED"
   "TTS_PROVIDER"
+  "STT_PROVIDER"
   "S3_PUBLIC_URL"
   "ADMIN_API_KEY"
 )

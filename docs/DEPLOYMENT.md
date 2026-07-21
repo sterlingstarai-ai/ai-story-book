@@ -116,6 +116,11 @@ If the image tag is known-good, rollback does not require a new build.
 
 - Do not rely on test ad units in release builds
 - Do not allow silent share/IAP/POD fallback in production
+- Do not allow silent TTS/STT mock fallback in production (H1). Audio ships
+  **disabled by default** (`AUDIO_FEATURE_ENABLED=false`, G9). To enable audio,
+  set `AUDIO_FEATURE_ENABLED=true` **and** a live `TTS_PROVIDER` (google|elevenlabs,
+  with its key) and `STT_PROVIDER` (openai|google); otherwise `/health/ready`
+  returns 503 with `tts_provider_not_live` / `stt_provider_not_live`.
 - Missing release config must surface as either:
   - explicit feature disablement in the UI, or
   - deployment / verification failure

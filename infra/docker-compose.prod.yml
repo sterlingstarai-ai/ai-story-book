@@ -42,11 +42,14 @@ services:
       - IMAGE_TIMEOUT=${IMAGE_TIMEOUT:-90}
       - IMAGE_MAX_CONCURRENT=${IMAGE_MAX_CONCURRENT:-3}
       - IMAGE_MAX_RETRIES=${IMAGE_MAX_RETRIES:-3}
-      # TTS
-      - TTS_PROVIDER=${TTS_PROVIDER:-mock}
+      # 오디오(TTS/STT) — G9/H1: mock 기본값 금지. 미설정이면 readiness(테스트 아님)에서
+      # tts_provider_not_live/stt_provider_not_live로 잡혀 무음 오디오 배포를 차단한다.
+      - AUDIO_FEATURE_ENABLED=${AUDIO_FEATURE_ENABLED:-false}
+      - TTS_PROVIDER=${TTS_PROVIDER}
       - GOOGLE_TTS_API_KEY=${GOOGLE_TTS_API_KEY:-}
       - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
       - ELEVENLABS_VOICE_ID=${ELEVENLABS_VOICE_ID:-21m00Tcm4TlvDq8ikWAM}
+      - STT_PROVIDER=${STT_PROVIDER}
       # Storage
       - S3_ENDPOINT=${S3_ENDPOINT}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY}
@@ -106,11 +109,14 @@ services:
       - IMAGE_TIMEOUT=${IMAGE_TIMEOUT:-90}
       - IMAGE_MAX_CONCURRENT=${IMAGE_MAX_CONCURRENT:-3}
       - IMAGE_MAX_RETRIES=${IMAGE_MAX_RETRIES:-3}
-      # TTS
-      - TTS_PROVIDER=${TTS_PROVIDER:-mock}
+      # 오디오(TTS/STT) — G9/H1: mock 기본값 금지. 미설정이면 readiness(테스트 아님)에서
+      # tts_provider_not_live/stt_provider_not_live로 잡혀 무음 오디오 배포를 차단한다.
+      - AUDIO_FEATURE_ENABLED=${AUDIO_FEATURE_ENABLED:-false}
+      - TTS_PROVIDER=${TTS_PROVIDER}
       - GOOGLE_TTS_API_KEY=${GOOGLE_TTS_API_KEY:-}
       - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
       - ELEVENLABS_VOICE_ID=${ELEVENLABS_VOICE_ID:-21m00Tcm4TlvDq8ikWAM}
+      - STT_PROVIDER=${STT_PROVIDER}
       # Storage
       - S3_ENDPOINT=${S3_ENDPOINT}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY}
