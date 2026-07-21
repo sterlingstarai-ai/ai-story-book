@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:ai_story_book/core/photo_consent.dart';
+import 'package:ai_story_book/l10n/app_localizations.dart';
 import 'package:ai_story_book/services/api_client.dart';
 
 /// getConsent/grantConsent만 가짜로 — JIT 사진 동의 흐름 검증용.
@@ -37,8 +38,18 @@ class _FakeApi extends ApiClient {
   }
 }
 
-Widget _host(_FakeApi api, void Function(bool) onResult) {
+/// H15: getConsent가 실패(순단·429·5xx)하는 변형.
+class _ThrowingApi extends _FakeApi {
+  @override
+  Future<Map<String, dynamic>> getConsent() async =>
+      throw Exception('consent fetch failed');
+}
+
+Widget _host(_FakeApi api, void Function(bool) onResult, {Locale? locale}) {
   return MaterialApp(
+    locale: locale ?? const Locale('ko'),
+    localizationsDelegates: AppLocalizations.localizationsDelegates,
+    supportedLocales: AppLocalizations.supportedLocales,
     home: Scaffold(
       body: Builder(
         builder: (context) => ElevatedButton(
@@ -61,7 +72,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // 5요소 고지(수령자·항목·목적·보유기간·거부권)
-    expect(find.text('사진으로 우리 아이 주인공 만들기'), findsOneWidget);
+    expect(find.textContaining('주인공 만들기'), findsOneWidget);
     expect(find.textContaining('받는 곳'), findsOneWidget);
     expect(find.textContaining('보유·이용기간'), findsOneWidget);
     expect(find.textContaining('거부권'), findsOneWidget);
@@ -101,8 +112,48 @@ void main() {
     await tester.tap(find.text('go'));
     await tester.pumpAndSettle();
 
-    expect(find.text('사진으로 우리 아이 주인공 만들기'), findsNothing); // 다이얼로그 미노출
+    expect(find.textContaining('주인공 만들기'), findsNothing); // 다이얼로그 미노출
     expect(result, isTrue);
     expect(api.grantCalled, isFalse); // 재동의 불필요
+  });
+
+  testWidgets('H15: getConsent 실패 시 grantConsent 미호출 + false(필수 동의 파괴 차단)',
+      (tester) async {
+    final api = _ThrowingApi();
+    bool? result;
+    await tester.pumpWidget(_host(api, (r) => result = r));
+    await tester.tap(find.text('go'));
+    await tester.pumpAndSettle();
+
+    // 동의 다이얼로그가 뜨지 않고, grantConsent(privacy:false...)로 필수 동의를 파괴하지 않는다.
+    expect(find.textContaining('주인공 만들기'), findsNothing);
+    expect(result, isFalse);
+    expect(api.grantCalled, isFalse);
+    // 재시도 안내 스낵바 노출
+    expect(find.textContaining('다시 시도'), findsOneWidget);
+  });
+
+  testWidgets('H16: en 로캘에서 PIPA 고지·버튼이 영어로 표시(한국어 하드코딩 제거)',
+      (tester) async {
+    final api = _FakeApi(alreadyGranted: false);
+    bool? result;
+    await tester.pumpWidget(
+      _host(api, (r) => result = r, locale: const Locale('en')),
+    );
+    await tester.tap(find.text('go'));
+    await tester.pumpAndSettle();
+
+    // 영어 고지·버튼
+    expect(find.textContaining('Recipient'), findsOneWidget);
+    expect(find.text('Agree'), findsOneWidget);
+    expect(find.text('Cancel'), findsOneWidget);
+    // 한국어 리터럴이 남아있지 않다.
+    expect(find.textContaining('받는 곳'), findsNothing);
+    expect(find.text('동의'), findsNothing);
+
+    await tester.tap(find.text('Agree'));
+    await tester.pumpAndSettle();
+    expect(result, isTrue);
+    expect(api.grantArgs!['privacy'], isTrue); // 기존 필수동의 echo 유지
   });
 }

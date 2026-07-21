@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/app_localizations.dart';
 import '../services/api_client.dart';
 
 /// 사진/그림(아동 얼굴) 사용 직전 JIT 보호자 동의.
@@ -11,11 +12,20 @@ import '../services/api_client.dart';
 /// 캐릭터 생성의 모든 사진/그림 진입점(소스 시트·캐릭터 화면)이 같은 고지를 쓰도록
 /// 단일 헬퍼로 둔다(진입점별 고지 누락·불일치 방지).
 Future<bool> ensurePhotoConsent(BuildContext context, ApiClient api) async {
+  final l = AppLocalizations.of(context);
   Map<String, dynamic> consent;
   try {
     consent = await api.getConsent();
   } catch (_) {
-    consent = const <String, dynamic>{};
+    // H15: getConsent 실패 시 빈 맵을 echo하면 grantConsent(privacy:false,
+    // dataProcessing:false)로 기존 필수 동의를 파괴한다. fail-closed로 중단하고
+    // 재시도를 안내한다(감사추적·동의 진정성 보존).
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l.photoConsentLoadFailed)),
+      );
+    }
+    return false;
   }
   if (consent['photos'] == true) {
     return true;
@@ -23,27 +33,20 @@ Future<bool> ensurePhotoConsent(BuildContext context, ApiClient api) async {
   if (!context.mounted) {
     return false;
   }
+  // H16: PIPA 5요소 법정 고지·제목·버튼을 로컬라이즈(en/ja 사용자도 읽을 수 있는 동의).
   final agreed = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('사진으로 우리 아이 주인공 만들기'),
-          content: const Text(
-            '아이 사진은 동화 캐릭터 생성에만 쓰입니다.\n'
-            '· 받는 곳: AI 콘텐츠 처리 업체(미국 등 국외)\n'
-            '· 항목: 아이 얼굴 사진 · 목적: 동화 캐릭터 생성\n'
-            '· 보유·이용기간: 캐릭터 일관성 유지를 위해 서비스 이용 기간 동안 보관, 동의 철회·삭제 요청 시 즉시 파기\n'
-            '· 운영자는 사진을 직접 열람하지 않습니다.\n'
-            '· 거부권: 동의 안 해도 사진 외 기능은 그대로 이용 가능\n\n'
-            '동의하고 사진을 사용할까요?',
-          ),
+          title: Text(l.consentPhotoOptionalTitle),
+          content: Text(l.consentPhotoDisclosure),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('취소'),
+              child: Text(l.photoConsentCancel),
             ),
             TextButton(
               onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('동의'),
+              child: Text(l.photoConsentAgree),
             ),
           ],
         ),

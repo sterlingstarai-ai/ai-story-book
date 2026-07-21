@@ -2292,6 +2292,15 @@ class AppLocalizationsJa extends AppLocalizations {
       'お子さまの写真は絵本キャラクターの作成にのみ使用します。· 提供先：AIコンテンツ処理事業者（米国など国外を含む）· 項目：お子さまの顔写真 · 目的：絵本キャラクターの作成 · 保有・利用期間：キャラクターの一貫性を保つためサービス利用期間中保管し、同意の撤回・削除のご請求時に直ちに破棄します。· 運営者が写真を直接閲覧することはありません。· 拒否権：同意しなくても写真以外の機能はそのままご利用いただけます（任意）。';
 
   @override
+  String get photoConsentAgree => '同意';
+
+  @override
+  String get photoConsentCancel => 'キャンセル';
+
+  @override
+  String get photoConsentLoadFailed => '同意情報を読み込めませんでした。しばらくしてからもう一度お試しください。';
+
+  @override
   String get consentDataProcessingRequired => 'データの処理・保存ポリシーに同意（必須）';
 
   @override

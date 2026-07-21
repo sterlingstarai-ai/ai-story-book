@@ -4355,6 +4355,24 @@ abstract class AppLocalizations {
   /// **'Your child\'s photo is used only to create storybook characters. · Recipient: AI content-processing providers (incl. overseas, e.g. the US) · Item: child\'s face photo · Purpose: storybook character creation · Retention: kept while you use the service to keep the character consistent, and deleted immediately upon withdrawal or a deletion request · Operators do not view the photos directly. · Right to refuse: you can still use all non-photo features without agreeing (optional).'**
   String get consentPhotoDisclosure;
 
+  /// No description provided for @photoConsentAgree.
+  ///
+  /// In en, this message translates to:
+  /// **'Agree'**
+  String get photoConsentAgree;
+
+  /// No description provided for @photoConsentCancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get photoConsentCancel;
+
+  /// No description provided for @photoConsentLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t load your consent info. Please try again in a moment.'**
+  String get photoConsentLoadFailed;
+
   /// No description provided for @consentDataProcessingRequired.
   ///
   /// In en, this message translates to:

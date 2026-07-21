@@ -2291,6 +2291,15 @@ class AppLocalizationsKo extends AppLocalizations {
       '아이 사진은 동화 캐릭터 생성에만 쓰입니다. · 받는 곳: AI 콘텐츠 처리 업체(미국 등 국외) · 항목: 아이 얼굴 사진 · 목적: 동화 캐릭터 생성 · 보유·이용기간: 캐릭터 일관성 유지를 위해 서비스 이용 기간 동안 보관, 동의 철회·삭제 요청 시 즉시 파기 · 운영자는 사진을 직접 열람하지 않습니다. · 거부권: 동의하지 않아도 사진 외 기능은 그대로 이용할 수 있어요(선택).';
 
   @override
+  String get photoConsentAgree => '동의';
+
+  @override
+  String get photoConsentCancel => '취소';
+
+  @override
+  String get photoConsentLoadFailed => '동의 정보를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.';
+
+  @override
   String get consentDataProcessingRequired => '데이터 처리 및 저장 정책에 동의 (필수)';
 
   @override
