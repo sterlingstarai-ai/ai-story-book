@@ -48,8 +48,12 @@ class TestLLMFailures:
 
     @pytest.mark.asyncio
     async def test_llm_json_invalid_retry(self):
-        """Invalid JSON from LLM should trigger retry."""
-        from src.core.errors import TransientError
+        """Invalid JSON from LLM should trigger retry.
+
+        프로덕션 llm.py는 파싱/검증 실패를 StoryBookError(LLM_JSON_INVALID)로 던진다.
+        TransientError는 프로덕션에서 raise되지 않으므로 실제 예외로 재현한다(H9, mock 순수성 제거).
+        """
+        from src.core.errors import ErrorCode, StoryBookError
 
         call_count = 0
 
@@ -57,7 +61,9 @@ class TestLLMFailures:
             nonlocal call_count
             call_count += 1
             if call_count < 2:
-                raise TransientError("LLM_JSON_INVALID", "Invalid JSON")
+                raise StoryBookError(
+                    code=ErrorCode.LLM_JSON_INVALID, message="Invalid JSON"
+                )
             return {"valid": "json"}
 
         with patch(

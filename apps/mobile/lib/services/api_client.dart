@@ -204,7 +204,12 @@ class ApiClient {
     String? theme,
     String? seriesId,
     String? previousBookId,
+    String? idempotencyKey,
   }) async {
+    final headers = Map<String, String>.from(_headers);
+    if (idempotencyKey != null) {
+      headers['X-Idempotency-Key'] = idempotencyKey; // H18
+    }
     final response = await _dio.post(
       '/v1/books/series',
       data: {
@@ -215,7 +220,7 @@ class ApiClient {
         if (seriesId != null) 'series_id': seriesId,
         if (previousBookId != null) 'previous_book_id': previousBookId,
       },
-      options: Options(headers: _headers),
+      options: Options(headers: headers),
     );
 
     return CreateBookResponse.fromJson(
@@ -869,7 +874,12 @@ class ApiClient {
     required String style,
     String? protagonistName,
     String language = 'ko',
+    String? idempotencyKey,
   }) async {
+    final headers = Map<String, String>.from(_headers);
+    if (idempotencyKey != null) {
+      headers['X-Idempotency-Key'] = idempotencyKey; // H18
+    }
     final response = await _dio.post(
       '/v1/streak/today/generate',
       data: {
@@ -879,7 +889,7 @@ class ApiClient {
         if (protagonistName != null && protagonistName.isNotEmpty)
           'protagonist_name': protagonistName,
       },
-      options: Options(headers: _headers),
+      options: Options(headers: headers),
     );
 
     final data = _asJsonMap(
@@ -1185,7 +1195,13 @@ class ApiClient {
     required String bookId,
     required int quantity,
     required Map<String, dynamic> shippingAddress,
+    String? idempotencyKey,
   }) async {
+    // 재시도(타임아웃 후 재탭) 시 같은 멱등키로 이중 주문/외부 draft 이중 생성을 막는다(H6).
+    final headers = Map<String, String>.from(_headers);
+    if (idempotencyKey != null) {
+      headers['X-Idempotency-Key'] = idempotencyKey;
+    }
     final response = await _dio.post(
       '/v1/pod/orders',
       data: {
@@ -1193,12 +1209,25 @@ class ApiClient {
         'quantity': quantity,
         'shipping_address': shippingAddress,
       },
-      options: Options(headers: _headers),
+      options: Options(headers: headers),
     );
     return _asJsonMap(
       response.data,
       context: '/v1/pod/orders response',
     );
+  }
+
+  /// POD 지역 견적(단가·배송비·통화) — 서버가 산출(표시-청구 일치 단일 소스, H20).
+  Future<Map<String, dynamic>> getPodQuote({
+    required String country,
+    required int quantity,
+  }) async {
+    final response = await _dio.get(
+      '/v1/pod/quote',
+      queryParameters: {'country': country, 'quantity': quantity},
+      options: Options(headers: _headers),
+    );
+    return _asJsonMap(response.data, context: '/v1/pod/quote response');
   }
 
   /// POD 주문 조회

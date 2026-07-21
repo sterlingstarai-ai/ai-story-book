@@ -324,6 +324,56 @@ void main() {
       await requestHandled.future.timeout(const Duration(seconds: 1));
     });
 
+    test('createPodOrder sends X-Idempotency-Key header (H6)', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+
+      String? seenKey;
+      server.listen((request) async {
+        seenKey = request.headers.value('x-idempotency-key');
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({'order_id': 'pod_1', 'status': 'created'}));
+        await request.response.close();
+      });
+
+      final client = ApiClient(
+        baseUrl: 'http://${server.address.host}:${server.port}',
+        userKey: 'test-user',
+        enableLogging: false,
+      );
+      await client.createPodOrder(
+        bookId: 'book-1',
+        quantity: 1,
+        shippingAddress: const {'name': 'A', 'line1': 'B', 'city': 'C',
+          'postal_code': '1', 'country': 'KR'},
+        idempotencyKey: 'pod-key-1',
+      );
+      expect(seenKey, 'pod-key-1');
+    });
+
+    test('getPodQuote parses region price and currency (H20)', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+
+      server.listen((request) async {
+        expect(request.uri.path, '/v1/pod/quote');
+        expect(request.uri.queryParameters['country'], 'US');
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({
+          'unit_price': 20, 'shipping_fee': 5, 'total_price': 25, 'currency': 'USD'}));
+        await request.response.close();
+      });
+
+      final client = ApiClient(
+        baseUrl: 'http://${server.address.host}:${server.port}',
+        userKey: 'test-user',
+        enableLogging: false,
+      );
+      final quote = await client.getPodQuote(country: 'US', quantity: 1);
+      expect(quote['total_price'], 25);
+      expect(quote['currency'], 'USD');
+    });
+
     test('getBookStatus parses generation warnings and page asset status',
         () async {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);

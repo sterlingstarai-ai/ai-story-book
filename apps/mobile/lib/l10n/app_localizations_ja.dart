@@ -869,9 +869,24 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
-  String podOrderEstimatedTotal(Object amount) {
-    return '見込み $amountウォン';
+  String podOrderEstimatedTotal(Object amount, Object currency) {
+    return '見込み $amount $currency';
   }
+
+  @override
+  String get podOrderCityLabel => '市区町村';
+
+  @override
+  String get podOrderCityError => '市区町村を入力してください。';
+
+  @override
+  String get podOrderStateLabel => '州/都道府県';
+
+  @override
+  String get podOrderStateError => 'US/CAは州の入力が必要です。';
+
+  @override
+  String get podOrderAddressLine2Label => '住所2（任意）';
 
   @override
   String get podOrderSubmitting => '注文処理中...';
@@ -913,8 +928,8 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
-  String podOrderPaymentAmount(Object amount) {
-    return '決済金額: $amountウォン';
+  String podOrderPaymentAmount(Object amount, Object currency) {
+    return '決済金額: $amount $currency';
   }
 
   @override

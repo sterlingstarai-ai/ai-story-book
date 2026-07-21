@@ -1759,8 +1759,38 @@ abstract class AppLocalizations {
   /// No description provided for @podOrderEstimatedTotal.
   ///
   /// In en, this message translates to:
-  /// **'Est. {amount} KRW'**
-  String podOrderEstimatedTotal(Object amount);
+  /// **'Est. {amount} {currency}'**
+  String podOrderEstimatedTotal(Object amount, Object currency);
+
+  /// No description provided for @podOrderCityLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'City'**
+  String get podOrderCityLabel;
+
+  /// No description provided for @podOrderCityError.
+  ///
+  /// In en, this message translates to:
+  /// **'Please enter a city.'**
+  String get podOrderCityError;
+
+  /// No description provided for @podOrderStateLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'State/Province'**
+  String get podOrderStateLabel;
+
+  /// No description provided for @podOrderStateError.
+  ///
+  /// In en, this message translates to:
+  /// **'State is required for US/CA orders.'**
+  String get podOrderStateError;
+
+  /// No description provided for @podOrderAddressLine2Label.
+  ///
+  /// In en, this message translates to:
+  /// **'Address line 2 (optional)'**
+  String get podOrderAddressLine2Label;
 
   /// No description provided for @podOrderSubmitting.
   ///
@@ -1831,8 +1861,8 @@ abstract class AppLocalizations {
   /// No description provided for @podOrderPaymentAmount.
   ///
   /// In en, this message translates to:
-  /// **'Payment amount: {amount} KRW'**
-  String podOrderPaymentAmount(Object amount);
+  /// **'Payment amount: {amount} {currency}'**
+  String podOrderPaymentAmount(Object amount, Object currency);
 
   /// No description provided for @podOrderSyncValue.
   ///

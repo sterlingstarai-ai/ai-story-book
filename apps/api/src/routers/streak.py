@@ -15,7 +15,7 @@ from src.core.database import get_db
 from src.core.dependencies import get_profile_id, get_user_key
 from src.core.exceptions import ValidationError
 from src.core.utils import utcnow
-from src.models.db import ChildProfile
+from src.models.db import ChildProfile, Job
 from src.models.dto import (
     BookSpec,
     CreateBookResponse,
@@ -28,6 +28,7 @@ from src.models.dto import (
 from src.routers.books import (
     _create_job_with_credit,
     _enforce_free_plan_create_limits,
+    get_idempotency_key,
     schedule_book_generation,
 )
 from src.services.growth import growth_service
@@ -175,6 +176,7 @@ async def generate_today_story(
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
     profile_id: Optional[str] = Depends(get_profile_id),
+    idempotency_key: Optional[str] = Depends(get_idempotency_key),
 ):
     """오늘의 동화를 '내 아이가 주인공'인 개인화 책으로 생성한다.
 
@@ -183,6 +185,25 @@ async def generate_today_story(
     무료 사용자는 *생성* 한도가 있지만 *읽기*(POST /read)는 한도와 무관하게 스트릭을 유지한다.
     """
     scoped_profile_id = await _validate_profile_ownership(db, user_key, profile_id)
+
+    # H18: 재시도(타임아웃 후 재탭) 이중 생성·이중 차감 방지 — 기존 잡 반환. 일별 dedup과
+    # 무관한 시도-단위 멱등키(다른 키면 새 생성이 정상).
+    if idempotency_key:
+        existing_job = (
+            await db.execute(
+                select(Job).where(
+                    Job.idempotency_key == idempotency_key,
+                    Job.user_key == user_key,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing_job:
+            return CreateBookResponse(
+                job_id=existing_job.id,
+                status=JobState(existing_job.status),
+                estimated_time_seconds=120,
+            )
+
     today = await streak_service.get_today_story(db)
 
     theme_name = next(
@@ -213,6 +234,7 @@ async def generate_today_story(
         current_step="오늘의 동화 대기 중",
         credit_description="오늘의 동화 생성",
         refund_description="오늘의 동화 생성 실패 환불",
+        idempotency_key=idempotency_key,
         profile_id=scoped_profile_id,
     )
     await schedule_book_generation(db, background_tasks, job_id, spec, user_key)

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:uuid/uuid.dart';
 import '../core/api_error.dart';
 import '../l10n/app_localizations.dart';
 import '../models/models.dart';
@@ -22,7 +23,10 @@ class LibraryScreen extends ConsumerStatefulWidget {
 
 class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   static const _scrollThreshold = 320.0;
+  static const _uuid = Uuid();
   final ScrollController _scrollController = ScrollController();
+  // H18: 시리즈 생성 시도-단위 멱등키(재시도 시 재사용, 성공 시 리셋).
+  String? _seriesAttemptKey;
 
   Map<String, String> _sortLabels(AppLocalizations l) => {
         'newest': l.librarySortNewest,
@@ -476,12 +480,15 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
       if (!mounted || topic == null || topic.isEmpty) {
         return;
       }
+      _seriesAttemptKey ??= _uuid.v4();
       final response = await ref.read(apiClientProvider).createSeriesBook(
             characterId: characterId,
             topic: topic,
             seriesId: latest.seriesId,
             previousBookId: latest.id,
+            idempotencyKey: _seriesAttemptKey,
           );
+      _seriesAttemptKey = null; // 성공 → 다음 생성은 새 키
       if (!mounted) {
         return;
       }

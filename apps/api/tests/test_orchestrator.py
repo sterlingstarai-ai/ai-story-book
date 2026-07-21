@@ -118,6 +118,50 @@ class TestRunStep:
         fail_fn.assert_called_once()  # 1번만 호출됨 (즉시 중단)
 
     @pytest.mark.asyncio
+    async def test_run_step_retries_retryable_llm_error(self):
+        """재시도 가능한 LLMError(LLM_JSON_INVALID)는 재시도한다(H9)."""
+        from src.services.orchestrator import run_step
+
+        call_count = 0
+
+        async def flaky_fn():
+            nonlocal call_count
+            call_count += 1
+            if call_count < 2:
+                raise StoryBookError(
+                    code=ErrorCode.LLM_JSON_INVALID, message="bad json"
+                )
+            return "recovered"
+
+        with patch("src.services.orchestrator.update_job_status", new_callable=AsyncMock):
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                result = await run_step(
+                    job_id="test-job", step_name="story", progress=20,
+                    fn=flaky_fn, retries=2, timeout_sec=5, backoff=[0, 0],
+                )
+
+        assert result == "recovered"
+        assert call_count == 2  # 재시도됨(수정 전엔 1회 후 즉시 raise)
+
+    @pytest.mark.asyncio
+    async def test_run_step_preserves_final_error_code(self):
+        """소진 후 raise되는 코드가 UNKNOWN이 아니라 원 코드(LLM_TIMEOUT)로 보존된다(H9)."""
+        from src.services.orchestrator import run_step
+
+        async def always_timeout():
+            raise StoryBookError(code=ErrorCode.LLM_TIMEOUT, message="llm timeout")
+
+        with patch("src.services.orchestrator.update_job_status", new_callable=AsyncMock):
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                with pytest.raises(StoryBookError) as exc_info:
+                    await run_step(
+                        job_id="test-job", step_name="story", progress=20,
+                        fn=always_timeout, retries=2, timeout_sec=5, backoff=[0, 0],
+                    )
+
+        assert exc_info.value.code == ErrorCode.LLM_TIMEOUT  # UNKNOWN 아님
+
+    @pytest.mark.asyncio
     async def test_run_step_timeout(self):
         """타임아웃 발생 시 재시도 후 실패"""
         from src.services.orchestrator import run_step

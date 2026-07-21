@@ -869,9 +869,24 @@ class AppLocalizationsKo extends AppLocalizations {
   }
 
   @override
-  String podOrderEstimatedTotal(Object amount) {
-    return '예상 $amount원';
+  String podOrderEstimatedTotal(Object amount, Object currency) {
+    return '예상 $amount $currency';
   }
+
+  @override
+  String get podOrderCityLabel => '도시';
+
+  @override
+  String get podOrderCityError => '도시를 입력해주세요.';
+
+  @override
+  String get podOrderStateLabel => '주/State';
+
+  @override
+  String get podOrderStateError => 'US/CA는 주/State를 입력해주세요.';
+
+  @override
+  String get podOrderAddressLine2Label => '상세주소(선택)';
 
   @override
   String get podOrderSubmitting => '주문 처리 중...';
@@ -913,8 +928,8 @@ class AppLocalizationsKo extends AppLocalizations {
   }
 
   @override
-  String podOrderPaymentAmount(Object amount) {
-    return '결제금액: $amount원';
+  String podOrderPaymentAmount(Object amount, Object currency) {
+    return '결제금액: $amount $currency';
   }
 
   @override

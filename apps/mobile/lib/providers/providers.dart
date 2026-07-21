@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../core/api_error.dart';
 import '../core/env_config.dart';
@@ -896,17 +897,38 @@ final jobPollingProvider =
 final bookCreationProvider =
     AsyncNotifierProvider<BookCreationNotifier, void>(BookCreationNotifier.new);
 
+// H18: 오늘의 동화 생성 시도-단위 멱등키(HomeScreen이 stateless라 provider로 보유).
+// 재시도 시 재사용, 성공 시 null로 리셋.
+final todayAttemptKeyProvider = StateProvider<String?>((ref) => null);
+
 class BookCreationNotifier extends AsyncNotifier<void> {
+  static const _uuid = Uuid();
+  // H18: 시도-단위 멱등키. 타임아웃 후 같은 spec 재시도에선 같은 키를 재사용해 서버가 dedup
+  // (이중 생성·크레딧 이중차감 방지). 성공 시 리셋, spec이 바뀌면 새 키.
+  String? _attemptKey;
+  String? _attemptSig;
+
   @override
   Future<void> build() async {}
 
   Future<String> createBook(BookSpec spec) async {
     final api = ref.read(apiClientProvider);
 
+    // 더블탭 창 축소를 위해 상태를 먼저 loading으로.
     state = const AsyncValue.loading();
 
+    final sig = jsonEncode(spec.toJson());
+    if (_attemptKey == null || _attemptSig != sig) {
+      _attemptKey = _uuid.v4();
+      _attemptSig = sig;
+    }
+
     try {
-      final response = await api.createBook(spec);
+      final response = await api.createBook(spec, idempotencyKey: _attemptKey);
+
+      // 성공 → 다음 생성은 새 키.
+      _attemptKey = null;
+      _attemptSig = null;
 
       // 현재 Job 상태 초기화
       ref.read(currentJobProvider.notifier).state = JobStatus(
@@ -918,6 +940,7 @@ class BookCreationNotifier extends AsyncNotifier<void> {
       state = const AsyncValue.data(null);
       return response.jobId;
     } catch (e, st) {
+      // 키 유지 → 같은 spec 재시도 시 재사용.
       state = AsyncValue.error(e, st);
       rethrow;
     }

@@ -3764,6 +3764,22 @@
               "description": "Optional active child profile id",
               "title": "X-Profile-Id"
             }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Idempotency-Key"
+            }
           }
         ],
         "requestBody": {
@@ -6417,6 +6433,22 @@
               "title": "X-User-Key",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Idempotency-Key"
+            }
           }
         ],
         "requestBody": {
@@ -6501,6 +6533,68 @@
           }
         },
         "summary": "Get Pod Order",
+        "tags": [
+          "POD"
+        ]
+      }
+    },
+    "/v1/pod/quote": {
+      "get": {
+        "description": "지역 견적(단가·배송비·통화)을 서버가 산출해 반환(H20). create_pod_order와 동일한\n_pod_pricing_for를 재사용해 표시-청구 통화·금액 일치를 보장한다(클라 가격 미신뢰).",
+        "operationId": "get_pod_quote_v1_pod_quote_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "country",
+            "required": true,
+            "schema": {
+              "title": "Country",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "quantity",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "title": "Quantity",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Pod Quote",
         "tags": [
           "POD"
         ]
@@ -7349,6 +7443,22 @@
               ],
               "description": "Optional active child profile id",
               "title": "X-Profile-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Idempotency-Key"
             }
           }
         ],

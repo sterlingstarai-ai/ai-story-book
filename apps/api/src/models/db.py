@@ -564,18 +564,34 @@ class PodOrder(Base):
     __tablename__ = "pod_orders"
     __table_args__ = (
         Index("ix_pod_orders_user_key", "user_key"),
+        # 동일 (user_key, idempotency_key) 주문 중복 생성을 DB로 차단(더블탭 이중주문/외부
+        # draft 이중 생성 방지, H6). Job 멱등 인프라와 동일 패턴(NULL 키는 제약 제외).
+        Index(
+            "uq_pod_orders_user_idempotency",
+            "user_key",
+            "idempotency_key",
+            unique=True,
+            sqlite_where=text("idempotency_key IS NOT NULL"),
+            postgresql_where=text("idempotency_key IS NOT NULL"),
+        ),
     )
 
     id = Column(String(60), primary_key=True)
     user_key = Column(String(80), nullable=False)
     book_id = Column(String(60), ForeignKey("books.id"), nullable=False)
+    idempotency_key = Column(String(80), nullable=True)  # H6
     provider = Column(String(40), nullable=False, default="printful")
     status = Column(String(30), nullable=False, default="created")
     quantity = Column(Integer, nullable=False, default=1)
+    # 지역 견적(사용자 표시·청구 기준, region_currency). provider 실비와 별도 컬럼으로
+    # 분리해 한 행에 단위·통화가 혼재하지 않게 한다(H13/G7).
     unit_price = Column(Integer, nullable=False, default=0)
     shipping_fee = Column(Integer, nullable=False, default=0)
     total_price = Column(Integer, nullable=False, default=0)
     currency = Column(String(10), nullable=False, default="KRW")
+    # provider(Printful) 실비 — 원통화·정수 cents로 저장(×환산 금지). None=미연동/미확정.
+    provider_total = Column(Integer, nullable=True)  # H13/G7
+    provider_currency = Column(String(10), nullable=True)  # H13/G7
     shipping_address = Column(JSON, nullable=False)
     provider_order_id = Column(String(120), nullable=True)
     tracking_number = Column(String(120), nullable=True)

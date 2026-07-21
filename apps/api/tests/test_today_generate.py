@@ -33,6 +33,23 @@ async def test_today_generate_creates_personalized_job(client, db_session):
 
 
 @pytest.mark.asyncio
+async def test_today_generate_idempotent_same_key(client, db_session):
+    """같은 X-Idempotency-Key로 2회 생성 → 잡 1건만(재탭 이중 생성·차감 방지, H18)."""
+    body = {"target_age": "5-7", "style": "watercolor"}
+    h = {**H, "X-Idempotency-Key": "today-key-1"}
+
+    r1 = await client.post("/v1/streak/today/generate", json=body, headers=h)
+    r2 = await client.post("/v1/streak/today/generate", json=body, headers=h)
+    assert r1.status_code == 200 and r2.status_code == 200
+    assert r1.json()["job_id"] == r2.json()["job_id"]  # 기존 잡 반환
+
+    jobs = (
+        await db_session.execute(select(Job).where(Job.user_key == H["X-User-Key"]))
+    ).scalars().all()
+    assert len([j for j in jobs if j.idempotency_key == "today-key-1"]) == 1
+
+
+@pytest.mark.asyncio
 async def test_reading_maintains_streak_independent_of_generation(client, db_session):
     """읽기(소비)는 생성 한도/크레딧과 무관하게 스트릭을 유지한다."""
     db_session.add_all(make_book_rows([("some-existing-book", H["X-User-Key"])]))

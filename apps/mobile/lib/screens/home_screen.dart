@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 import '../l10n/app_localizations.dart';
 import '../models/models.dart';
 import '../utils/constants.dart';
@@ -28,12 +29,17 @@ class HomeScreen extends ConsumerWidget {
     ref.read(analyticsProvider).logEvent(AnalyticsEvents.todayStoryRequested);
     // 오늘의 동화도 앱 로케일 언어로 생성(영/일 UI에서 한국어 동화 방지).
     final language = Localizations.localeOf(context).languageCode;
+    // H18: 시도-단위 멱등키(재시도 시 재사용, 성공 시 리셋) → 재탭 이중 생성·차감 방지.
+    final keyNotifier = ref.read(todayAttemptKeyProvider.notifier);
+    keyNotifier.state ??= const Uuid().v4();
     try {
       final jobId = await ref.read(apiClientProvider).generateTodayStory(
             targetAge: '5-7',
             style: 'watercolor',
             language: language,
+            idempotencyKey: keyNotifier.state,
           );
+      keyNotifier.state = null; // 성공 → 다음 생성은 새 키
       if (context.mounted) {
         Navigator.pushReplacementNamed(context, '/loading', arguments: jobId);
       }

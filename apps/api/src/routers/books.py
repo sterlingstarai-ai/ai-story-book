@@ -943,6 +943,7 @@ async def create_series_next(
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
     profile_id: Optional[str] = Depends(get_profile_id),
+    idempotency_key: Optional[str] = Depends(get_idempotency_key),
 ):
     """
     시리즈 다음 권 생성
@@ -953,6 +954,24 @@ async def create_series_next(
     # Check guardrails (daily limit, system load)
     await check_guardrails(db, user_key)
     scoped_profile_id = await _validate_profile_ownership(db, user_key, profile_id)
+
+    # H18: 재시도(타임아웃 후 재탭) 이중 생성·이중 차감 방지 — 기존 잡 반환.
+    if idempotency_key:
+        existing_job = (
+            await db.execute(
+                select(Job).where(
+                    Job.idempotency_key == idempotency_key,
+                    Job.user_key == user_key,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing_job:
+            _assert_job_profile_scope(existing_job, scoped_profile_id)
+            return CreateBookResponse(
+                job_id=existing_job.id,
+                status=JobState(existing_job.status),
+                estimated_time_seconds=120,
+            )
 
     from src.models.db import Character
 
@@ -996,6 +1015,7 @@ async def create_series_next(
         current_step="시리즈 생성 대기 중",
         credit_description="시리즈 생성",
         refund_description="시리즈 잡 생성 실패 환불",
+        idempotency_key=idempotency_key,
         profile_id=scoped_profile_id,
     )
 

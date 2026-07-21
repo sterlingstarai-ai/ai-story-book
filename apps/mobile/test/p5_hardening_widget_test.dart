@@ -427,10 +427,24 @@ class _InteractiveMockApiClient extends ApiClient {
     required String bookId,
     required int quantity,
     required Map<String, dynamic> shippingAddress,
+    String? idempotencyKey,
   }) async {
     return Map<String, dynamic>.from(_createdOrder)
       ..['quantity'] = quantity
       ..['shipping_address'] = Map<String, dynamic>.from(shippingAddress);
+  }
+
+  @override
+  Future<Map<String, dynamic>> getPodQuote({
+    required String country,
+    required int quantity,
+  }) async {
+    return {
+      'unit_price': 20,
+      'shipping_fee': 5,
+      'total_price': (20 * quantity) + 5,
+      'currency': 'USD',
+    };
   }
 
   @override
@@ -726,6 +740,10 @@ void main() {
       await tester.enterText(
         find.widgetWithText(TextFormField, '주소'),
         '서울시 강남구 테스트로 1',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, '도시'),
+        '서울',
       );
       await tester.enterText(
         find.widgetWithText(TextFormField, '우편번호'),

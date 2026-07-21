@@ -20,7 +20,13 @@ import structlog
 
 from src.core.config import settings
 from src.core.book_assets import build_generation_warnings, build_page_asset_status
-from src.core.errors import StoryBookError, ErrorCode, TransientError, get_backoff
+from src.core.errors import (
+    StoryBookError,
+    ErrorCode,
+    TransientError,
+    get_backoff,
+    is_retryable,
+)
 from src.core.utils import utcnow
 from src.models.dto import (
     BookSpec,
@@ -117,9 +123,21 @@ async def run_step(
                 error=str(e),
             )
 
-        except StoryBookError:
-            # 비일시적 오류는 즉시 중단
-            raise
+        except StoryBookError as e:
+            # 재시도 가능한 코드(LLM/이미지 타임아웃·JSON 불량·레이트리밋·스토리지 업로드)는
+            # 재시도한다(H9 — is_retryable 데드코드 해소, CLAUDE.md 규범 재시도표 준수).
+            # SAFETY_* 등 비재시도 코드는 즉시 중단.
+            if is_retryable(e):
+                last_exc = e
+                logger.warning(
+                    "Retryable step error",
+                    job_id=job_id,
+                    step=step_name,
+                    attempt=attempt + 1,
+                    error_code=getattr(e.code, "value", str(e.code)),
+                )
+            else:
+                raise
 
         except Exception as e:
             last_exc = e
@@ -139,6 +157,13 @@ async def run_step(
 
     # 최종 실패 - preserve stack trace with 'from' for proper chaining
     if last_exc:
+        # 최종 에러코드 보존(H9/M20-4): 소진된 StoryBookError의 code(LLM_TIMEOUT 등)를 유지해
+        # UNKNOWN으로 뭉개지 않는다. 비-StoryBookError만 UNKNOWN으로.
+        if isinstance(last_exc, StoryBookError):
+            raise StoryBookError(
+                code=last_exc.code,
+                message=f"Step '{step_name}' failed after {retries + 1} attempts: {last_exc}",
+            ) from last_exc
         raise StoryBookError(
             code=ErrorCode.UNKNOWN,
             message=f"Step '{step_name}' failed after {retries + 1} attempts: {last_exc}",
@@ -150,86 +175,130 @@ async def run_step(
 
 
 async def update_job_status(job_id: str, step: str, progress: int):
-    """잡 상태 업데이트"""
+    """잡 상태(진행) 업데이트 — 이미 terminal(done/failed)이면 running으로 되돌리지 않는다(H10 fence)."""
     from src.core.database import AsyncSessionLocal
     from src.models.db import Job
+    from sqlalchemy import update
 
     async with AsyncSessionLocal() as session:
-        from sqlalchemy import select
-
-        result = await session.execute(select(Job).where(Job.id == job_id))
-        job = result.scalar_one_or_none()
-
-        if job:
-            job.current_step = step
-            job.progress = progress
-            job.status = "running"
-            job.updated_at = utcnow()
-            await session.commit()
+        await session.execute(
+            update(Job)
+            .where(Job.id == job_id, Job.status.in_(["queued", "running"]))
+            .values(
+                current_step=step,
+                progress=progress,
+                status="running",
+                updated_at=utcnow(),
+            )
+        )
+        await session.commit()
 
 
 async def mark_job_failed(job_id: str, error_code: ErrorCode, message: str):
-    """잡 실패 처리"""
+    """잡 실패 처리 — done 잡을 failed로 되돌리지 않는다(H10 fence). 전이 성공 시에만 환불."""
     from src.core.database import AsyncSessionLocal
     from src.models.db import Job
+    from sqlalchemy import select, update
 
     async with AsyncSessionLocal() as session:
-        from sqlalchemy import select
+        # queued/running일 때만 failed 전이(done 뒤집기 방지). 실패 상태를 먼저 영속화(MA3).
+        result = await session.execute(
+            update(Job)
+            .where(Job.id == job_id, Job.status.in_(["queued", "running"]))
+            .values(
+                status="failed",
+                error_code=error_code.value,
+                error_message=message,
+                updated_at=utcnow(),
+            )
+        )
+        transitioned = result.rowcount == 1
+        await session.commit()
 
-        result = await session.execute(select(Job).where(Job.id == job_id))
-        job = result.scalar_one_or_none()
+        if not transitioned:
+            logger.warning(
+                "mark_job_failed skipped (job already terminal)", job_id=job_id
+            )
+            return
 
-        if job:
-            user_key = job.user_key  # 커밋 후 만료 대비 미리 캡처
-            job.status = "failed"
-            job.error_code = error_code.value
-            job.error_message = message
-            job.updated_at = utcnow()
-            # 실패 상태를 먼저 영속화한다(MA3): 이후 환불이 실패해도 실패 마킹을 되돌리지 않게
-            # 별도 트랜잭션으로 분리. add_credits의 예외-롤백이 미커밋 상태를 삼키는 것을 방지.
-            await session.commit()
-
-            # 선차감된 유료 크레딧을 환불(멱등, G3=전 실패 코드 환불). 환불 실패가 잡 실패
-            # 마킹을 막지 않도록 try/except로 감싸 로그만 남긴다(job_monitor 패턴 미러).
+        # 전이 성공 시에만 선차감 유료 크레딧 환불(멱등, G3). 환불 실패가 실패 마킹을 막지 않게.
+        job = (
+            await session.execute(select(Job).where(Job.id == job_id))
+        ).scalar_one_or_none()
+        if job is not None:
             try:
                 from src.services.credits import credits_service
 
                 await credits_service.refund_for_job(
                     session,
-                    user_key,
+                    job.user_key,
                     job_id,
                     description="생성 실패 환불(자동)",
                     commit=True,
                 )
             except Exception as refund_exc:  # noqa: BLE001
                 logger.warning(
-                    "failed-job refund error",
-                    job_id=job_id,
-                    error=str(refund_exc),
+                    "failed-job refund error", job_id=job_id, error=str(refund_exc)
                 )
 
     logger.error("Job failed", job_id=job_id, error_code=error_code, message=message)
 
 
 async def mark_job_done(job_id: str):
-    """잡 완료 처리"""
+    """잡 완료 처리 — running일 때만 done 전이(H10 fence). 책은 mark_job_done 이전에 커밋되므로,
+    SLA로 환불된 잡이 뒤늦게 완주하면 '책+환불' 이중지급이 된다(MA2) → 환불이 존재하면 clawback."""
     from src.core.database import AsyncSessionLocal
-    from src.models.db import Job
+    from src.models.db import CreditTransaction, Job
+    from sqlalchemy import select, update
 
     async with AsyncSessionLocal() as session:
-        from sqlalchemy import select
+        result = await session.execute(
+            update(Job)
+            .where(Job.id == job_id, Job.status == "running")
+            .values(
+                status="done",
+                progress=100,
+                current_step="완료",
+                updated_at=utcnow(),
+            )
+        )
+        transitioned = result.rowcount == 1
+        await session.commit()
 
-        result = await session.execute(select(Job).where(Job.id == job_id))
-        job = result.scalar_one_or_none()
+        # rowcount 무관: 책이 배달된 상태에서 SLA 환불이 존재하면 '책+환불' 이중지급이므로
+        # 환불을 clawback해 정합화(책 배달분 과금, 멱등). done으로 뒤집지 않아도 회수는 필요.
+        job = (
+            await session.execute(select(Job).where(Job.id == job_id))
+        ).scalar_one_or_none()
+        if job is not None:
+            has_refund = (
+                await session.execute(
+                    select(CreditTransaction.id)
+                    .where(
+                        CreditTransaction.reference_id == job_id,
+                        CreditTransaction.transaction_type == "refund",
+                    )
+                    .limit(1)
+                )
+            ).first() is not None
+            if has_refund:
+                from src.services.credits import credits_service
 
-        if job:
-            job.status = "done"
-            job.progress = 100
-            job.current_step = "완료"
-            job.updated_at = utcnow()
-            await session.commit()
+                await credits_service.clawback_credits(
+                    session,
+                    job.user_key,
+                    amount=1,
+                    reference_id=job_id,
+                    description="완료 후 환불 회수",
+                    commit=True,
+                )
 
-    logger.info("Job completed", job_id=job_id)
+    if transitioned:
+        logger.info("Job completed", job_id=job_id)
+    else:
+        logger.warning(
+            "stale done write-back skipped (job already terminal)", job_id=job_id
+        )
 
 
 # ==================== Main Orchestrator ====================

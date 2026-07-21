@@ -343,6 +343,92 @@ async def test_get_or_create_credits_absorbs_concurrent_insert(db_session, monke
     assert len(bonuses) == 1  # 보너스 이중 지급 없음
 
 
+# ── H10: 잡 상태 write-back fence + 완료 후 환불 clawback(MA2) ──
+async def _seed_refunded(db, user_key: str, job_id: str, start: int = 3) -> None:
+    """usage(-1) + refund(+1) 시딩(SLA 실패+환불 상태 모사). 잔액 = start(순비용 0)."""
+    db.add(UserCredits(user_key=user_key, credits=start, total_purchased=0, total_used=1))
+    db.add(CreditTransaction(user_key=user_key, amount=-1, balance_after=start - 1,
+        transaction_type="usage", description="책 생성", reference_id=job_id))
+    db.add(CreditTransaction(user_key=user_key, amount=1, balance_after=start,
+        transaction_type="refund", description="생성 실패 환불", reference_id=job_id))
+    await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_done_writeback_fenced_against_failed(db_session):
+    """SLA로 failed+환불된 잡을 워커가 done으로 뒤집지 못한다(fence) + 책 배달분 clawback(MA2)."""
+    from src.services.orchestrator import mark_job_done
+
+    uk = "h10-fence"
+    await _seed_refunded(db_session, uk, "job-f")  # 잔액 3(usage+refund 상쇄)
+    db_session.add(Job(id="job-f", status="failed", user_key=uk))
+    await db_session.commit()
+
+    await mark_job_done("job-f")
+
+    db_session.expire_all()
+    job = await db_session.get(Job, "job-f")
+    assert job.status == "failed"  # done으로 안 뒤집힘
+    # 책이 배달됐으므로 환불을 clawback → 순비용 1(잔액 2).
+    assert await _balance(db_session, uk) == 2
+    clawbacks = (await db_session.execute(select(CreditTransaction).where(
+        CreditTransaction.reference_id == "job-f",
+        CreditTransaction.transaction_type == "clawback"))).scalars().all()
+    assert len(clawbacks) == 1
+
+
+@pytest.mark.asyncio
+async def test_done_after_refund_claws_back(db_session):
+    """running 중 잘못 환불된 잡이 완주(done)하면 환불을 clawback해 이중지급을 막는다."""
+    from src.services.orchestrator import mark_job_done
+
+    uk = "h10-claw"
+    await _seed_refunded(db_session, uk, "job-c")
+    db_session.add(Job(id="job-c", status="running", user_key=uk))
+    await db_session.commit()
+
+    await mark_job_done("job-c")
+
+    db_session.expire_all()
+    job = await db_session.get(Job, "job-c")
+    assert job.status == "done"
+    assert await _balance(db_session, uk) == 2  # usage만 순반영(clawback으로 환불 회수)
+
+
+@pytest.mark.asyncio
+async def test_update_job_status_skips_terminal(db_session):
+    """done 잡에 update_job_status 호출 → running으로 회귀하지 않는다(fence)."""
+    from src.services.orchestrator import update_job_status
+
+    db_session.add(Job(id="job-t", status="done", user_key="u"))
+    await db_session.commit()
+
+    await update_job_status("job-t", "중간단계", 55)
+
+    db_session.expire_all()
+    job = await db_session.get(Job, "job-t")
+    assert job.status == "done"
+
+
+@pytest.mark.asyncio
+async def test_mark_job_failed_skips_done(db_session):
+    """done 잡에 mark_job_failed 호출 → failed로 되돌리지 않고 환불도 안 한다(fence)."""
+    from src.core.errors import ErrorCode
+    from src.services.orchestrator import mark_job_failed
+
+    uk = "h10-donefail"
+    db_session.add(UserCredits(user_key=uk, credits=3, total_purchased=0, total_used=0))
+    db_session.add(Job(id="job-d", status="done", user_key=uk))
+    await db_session.commit()
+
+    await mark_job_failed("job-d", ErrorCode.LLM_TIMEOUT, "late failure")
+
+    db_session.expire_all()
+    job = await db_session.get(Job, "job-d")
+    assert job.status == "done"
+    assert await _balance(db_session, uk) == 3  # 환불 안 됨
+
+
 @pytest.mark.asyncio
 async def test_get_or_create_streak_absorbs_concurrent_insert(db_session, monkeypatch):
     """L8: get_or_create_streak 동시 최초 요청 PK 충돌 흡수·재조회(500·이중 행 없음)."""

@@ -17,7 +17,7 @@ from src.core.config import settings
 from src.core.database import AsyncSessionLocal
 from src.core.utils import utcnow
 from src.models.db import Job
-from sqlalchemy import select, and_, func
+from sqlalchemy import select, and_, func, update
 
 logger = structlog.get_logger()
 
@@ -176,7 +176,27 @@ class JobMonitor:
             )
 
     async def _mark_job_failed(self, session, job: Job, error_code: str, message: str):
-        """Mark a job as failed (크레딧을 소모한 잡이면 1 크레딧 환불 — silent 손실 방지)"""
+        """Mark a job as failed (크레딧을 소모한 잡이면 1 크레딧 환불 — silent 손실 방지).
+
+        done 잡을 failed로 되돌리지 않는다(H10 fence). 조건부 UPDATE로 전이 성공(rowcount==1)
+        시에만 환불해, 워커가 완주해 done이 된 잡을 SLA 틱이 failed+환불로 뒤집는 것을 막는다.
+        """
+        result = await session.execute(
+            update(Job)
+            .where(Job.id == job.id, Job.status.in_(["queued", "running"]))
+            .values(
+                status="failed",
+                error_code=error_code,
+                error_message=message,
+                updated_at=_db_utcnow(),
+            )
+        )
+        if result.rowcount != 1:
+            logger.info(
+                "SLA fail skipped (job already terminal)", job_id=job.id
+            )
+            return
+        # 세션 내 job 객체도 전이 결과에 맞춘다(호출자 assert·후속 로직 호환).
         job.status = "failed"
         job.error_code = error_code
         job.error_message = message

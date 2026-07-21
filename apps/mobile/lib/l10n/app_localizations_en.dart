@@ -904,9 +904,24 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String podOrderEstimatedTotal(Object amount) {
-    return 'Est. $amount KRW';
+  String podOrderEstimatedTotal(Object amount, Object currency) {
+    return 'Est. $amount $currency';
   }
+
+  @override
+  String get podOrderCityLabel => 'City';
+
+  @override
+  String get podOrderCityError => 'Please enter a city.';
+
+  @override
+  String get podOrderStateLabel => 'State/Province';
+
+  @override
+  String get podOrderStateError => 'State is required for US/CA orders.';
+
+  @override
+  String get podOrderAddressLine2Label => 'Address line 2 (optional)';
 
   @override
   String get podOrderSubmitting => 'Processing order...';
@@ -949,8 +964,8 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String podOrderPaymentAmount(Object amount) {
-    return 'Payment amount: $amount KRW';
+  String podOrderPaymentAmount(Object amount, Object currency) {
+    return 'Payment amount: $amount $currency';
   }
 
   @override
