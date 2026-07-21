@@ -677,3 +677,112 @@ async def test_safety_input_error_message_no_korean_prefix(monkeypatch):
     assert captured["code"] == ErrorCode.SAFETY_INPUT
     assert "입력이 안전하지 않습니다" not in captured["message"]
     assert "unsafe topic" in captured["message"]
+
+
+# ==================== M12: 재생성/리텔/인페인트 모더레이션 재사용 ====================
+
+
+def test_moderate_text_pure_helper():
+    """M12: _moderate_text 순수 헬퍼 — 금칙 표현은 False, 정상은 True."""
+    from src.services.orchestrator import _moderate_text
+
+    assert _moderate_text("토리는 친구들과 즐겁게 놀았어요") is True
+    assert _moderate_text("늑대가 토끼를 잔혹하게 살해했다") is False
+    assert _moderate_text("a happy day with murder scene") is False
+
+
+def test_regenerate_request_requires_feedback_for_text_mode():
+    """M12: mode=text/both는 feedback 필수(없으면 검증 실패) — no-op done 위장 차단."""
+    import pytest as _pytest
+    from pydantic import ValidationError
+
+    from src.models.dto import RegeneratePageRequest
+
+    # image 모드는 feedback 없이 허용
+    RegeneratePageRequest(mode="image")
+    # text/both는 feedback 없으면 거부
+    with _pytest.raises(ValidationError):
+        RegeneratePageRequest(mode="text")
+    with _pytest.raises(ValidationError):
+        RegeneratePageRequest(mode="both", feedback="   ")
+    # feedback 있으면 통과
+    RegeneratePageRequest(mode="text", feedback="더 밝게 해줘")
+
+
+class _RegenRes:
+    def __init__(self, v):
+        self._v = v
+
+    def scalar_one_or_none(self):
+        return self._v
+
+
+class _RegenSession:
+    """regenerate_page용 최소 fake 세션 — execute가 순서대로 book/page/draft 반환."""
+
+    def __init__(self, rows):
+        self._rows = list(rows)
+        self._i = 0
+        self.committed = False
+
+    async def execute(self, _q):
+        row = self._rows[self._i]
+        self._i += 1
+        return _RegenRes(row)
+
+    async def commit(self):
+        self.committed = True
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+
+@pytest.mark.asyncio
+async def test_regenerate_rejects_forbidden_feedback(monkeypatch):
+    """M12: 금칙 feedback은 SAFETY_INPUT으로 차단되고 page.text는 불변."""
+    from types import SimpleNamespace
+
+    from src.core.errors import SafetyError
+    from src.services import orchestrator as orch
+
+    book = SimpleNamespace(
+        id="b1", title="t", language="ko", target_age="5-7", style="watercolor"
+    )
+    page = SimpleNamespace(id="p1", text="원래 본문", page_number=1)
+    monkeypatch.setattr(
+        "src.core.database.AsyncSessionLocal",
+        lambda: _RegenSession([book, page]),
+    )
+
+    with pytest.raises(SafetyError) as ei:
+        await orch.regenerate_page(
+            "job1", "b1", 1, "text", feedback="늑대가 토끼를 잔혹하게 살해하는 장면"
+        )
+    assert ei.value.code == ErrorCode.SAFETY_INPUT
+    assert page.text == "원래 본문"  # 무검사 커밋 없음
+
+
+@pytest.mark.asyncio
+async def test_regenerate_missing_draft_no_silent_noop(monkeypatch):
+    """M12: draft 없는 책(retell 등)의 텍스트 재생성은 done 위장 대신 명시 실패."""
+    from types import SimpleNamespace
+
+    from src.services import orchestrator as orch
+
+    book = SimpleNamespace(
+        id="b1", title="t", language="ko", target_age="5-7", style="watercolor"
+    )
+    page = SimpleNamespace(id="p1", text="원래 본문", page_number=1)
+    # 3번째 execute(draft 조회)가 None → draft 부재
+    session = _RegenSession([book, page, None])
+    monkeypatch.setattr("src.core.database.AsyncSessionLocal", lambda: session)
+
+    with pytest.raises(StoryBookError):
+        await orch.regenerate_page(
+            "job1", "b1", 1, "text", feedback="더 밝고 따뜻하게 써줘"
+        )
+    assert page.text == "원래 본문"  # 불변
+    assert session.committed is False  # done 위장 커밋 없음

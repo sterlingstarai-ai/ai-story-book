@@ -47,7 +47,7 @@ from src.services.tts import tts_service
 from src.services.storage import storage_service
 from src.services.credits import credits_service
 from src.core.utils import local_day_bounds_utc, local_month_bounds_utc, utcnow
-from src.core.errors import ErrorCode
+from src.core.errors import ErrorCode, SafetyError, StoryBookError
 from src.core.exceptions import (
     AuthorizationError,
     InternalServerError,
@@ -411,13 +411,17 @@ async def _run_regeneration_job(
             feedback=feedback,
         )
     except Exception as e:
+        # M12: SafetyError 등 도메인 에러 코드(SAFETY_INPUT/OUTPUT)를 UNKNOWN으로 뭉개지 않는다.
+        error_code = (
+            e.code.value if isinstance(e, StoryBookError) else ErrorCode.UNKNOWN.value
+        )
         await _set_regen_job_status(
             regen_job_id,
             status="failed",
             progress=100,
             current_step="재생성 실패",
-            error_code=ErrorCode.UNKNOWN.value,
-            error_message=str(e)[:300],
+            error_code=error_code,
+            error_message=str(getattr(e, "message", e))[:300],
         )
         logger.error(
             "Regeneration job failed",
@@ -824,13 +828,17 @@ async def _run_inpaint_job(
             region_prompt=region_prompt,
         )
     except Exception as e:
+        # M12: 도메인 에러 코드(SAFETY_INPUT 등)를 보존.
+        error_code = (
+            e.code.value if isinstance(e, StoryBookError) else ErrorCode.UNKNOWN.value
+        )
         await _set_regen_job_status(
             inpaint_job_id,
             status="failed",
             progress=100,
             current_step="부분 재생성 실패",
-            error_code=ErrorCode.UNKNOWN.value,
-            error_message=str(e)[:300],
+            error_code=error_code,
+            error_message=str(getattr(e, "message", e))[:300],
         )
         logger.error(
             "Inpaint job failed",
@@ -1110,6 +1118,18 @@ async def retell_book(
         target_age=request.target_age.value,
         language=source.language,
     )
+
+    # M12: 리텔 결과 출력 모더레이션 — 최초 생성 G 게이트 파리티. 위반 시 저장·공유 전 차단.
+    from src.services.orchestrator import _moderate_text
+
+    retold_text = " ".join(
+        [retold.title or ""] + [p or "" for p in (retold.pages or [])]
+    )
+    if not _moderate_text(retold_text):
+        raise SafetyError(
+            message="다시 쓴 이야기가 안전 기준을 통과하지 못했습니다",
+            is_input=False,
+        )
 
     # 새 잡(크레딧 미소모) + 새 책 + 페이지(이미지 재사용)
     new_job_id = f"retell_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"

@@ -4,7 +4,14 @@ from datetime import datetime
 from enum import Enum
 from typing import Dict, List, Literal, Optional
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 # Import ErrorCode from canonical source to avoid duplication
 from src.core.errors import ErrorCode  # noqa: E402
@@ -373,6 +380,16 @@ class RegeneratePageRequest(BaseModel):
         validation_alias=AliasChoices("mode", "regenerate_target")
     )
     feedback: Optional[str] = Field(default=None, max_length=200)
+
+    @model_validator(mode="after")
+    def _require_feedback_for_text_modes(self) -> "RegeneratePageRequest":
+        # M12: 텍스트 재생성은 feedback이 있어야 실제 재작성이 일어난다. 없으면
+        # 조용한 no-op 후 잡이 done으로 위장되므로(무한 재시도·CS) 요청 단계에서 거부.
+        if self.mode in ("text", "both") and not (
+            self.feedback and self.feedback.strip()
+        ):
+            raise ValueError("feedback is required when mode is 'text' or 'both'")
+        return self
 
 
 class RegeneratePageResponse(BaseModel):

@@ -99,3 +99,35 @@ async def test_retell_rejects_other_users_book(
         headers=headers,
     )
     assert res.status_code in (401, 403, 404)
+
+
+@pytest.mark.asyncio
+async def test_retell_output_moderation_blocks_unsafe(
+    client: AsyncClient,
+    headers: dict,
+    db_session: AsyncSession,
+):
+    """M12: 리텔 결과가 금칙 표현을 담으면 저장 전 SAFETY_OUTPUT으로 차단(무검사 우회 제거)."""
+    await _seed_book(db_session, headers["X-User-Key"], "book-retell-unsafe")
+
+    unsafe = RetoldStory(title="잔혹 동화", pages=["늑대가 토끼를 잔혹하게 살해했다", "쉬운 2"])
+    with patch(
+        "src.services.llm.call_story_retext",
+        new=AsyncMock(return_value=unsafe),
+    ):
+        res = await client.post(
+            "/v1/books/book-retell-unsafe/retell",
+            json={"target_age": "3-5"},
+            headers=headers,
+        )
+
+    assert res.status_code == 422, res.text
+    assert res.json()["error"]["code"] == "SAFETY_OUTPUT"
+
+    # 새 책이 생성되지 않았다(무검사 저장 우회 제거).
+    new_books = (
+        await db_session.execute(
+            select(Book).where(Book.retelling_source_book_id == "book-retell-unsafe")
+        )
+    ).scalars().all()
+    assert new_books == []

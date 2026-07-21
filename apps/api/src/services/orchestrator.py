@@ -872,6 +872,24 @@ _MOD_FORBIDDEN_KO = [
 _KEYWORD_COVERED_LANGUAGES = {Language.ko, Language.en}
 
 
+def _moderate_text(text: str) -> bool:
+    """텍스트 금칙어 검사(순수 헬퍼). 안전하면 True.
+
+    M12: 최초 생성 파이프라인의 출력 안전검사(KO 구체표현·EN 단어경계)를
+    재생성 feedback·인페인트 region_prompt·retell/재생성 출력에서 재사용한다.
+    B/G 안전 게이트가 최초 생성에만 있어 재생성·리텔·인페인트가 우회하던 공백을 메운다.
+    """
+    if not isinstance(text, str):
+        return True
+    for pattern in _MOD_FORBIDDEN_KO:
+        if pattern in text:
+            return False
+    for rx in _MOD_FORBIDDEN_EN_RE:
+        if rx.search(text):
+            return False
+    return True
+
+
 async def moderate_output(story: StoryDraft, image_urls: dict) -> bool:
     """G. 출력 안전성 검사 - 생성된 콘텐츠 검증.
 
@@ -892,15 +910,9 @@ async def moderate_output(story: StoryDraft, image_urls: dict) -> bool:
     for page in story.pages:
         text += " " + page.text
 
-    for pattern in _MOD_FORBIDDEN_KO:
-        if pattern in text:
-            logger.warning("Output moderation failed", pattern=pattern, title=story.title)
-            return False
-
-    for rx in _MOD_FORBIDDEN_EN_RE:
-        if rx.search(text):
-            logger.warning("Output moderation failed", pattern=rx.pattern, title=story.title)
-            return False
+    if not _moderate_text(text):
+        logger.warning("Output moderation failed (keyword)", title=story.title)
+        return False
 
     # H24: 키워드망 밖 언어는 fail-open 대신 LLM 출력 모더레이션 폴백.
     if story.language not in _KEYWORD_COVERED_LANGUAGES:
@@ -1202,29 +1214,60 @@ async def regenerate_page(
 
         # Regenerate based on mode
         if mode in ["text", "both"]:
+            from src.core.errors import SafetyError
+
+            # M12: feedback 입력 모더레이션 — 최초 생성 B 게이트 파리티. 부적절 요청은
+            # LLM에 전달하기 전에 SAFETY_INPUT으로 차단(page.text 불변).
+            if feedback and not _moderate_text(feedback):
+                raise SafetyError(
+                    message="부적절한 재생성 요청입니다", is_input=True
+                )
+
             # Load story draft for context
             draft_result = await session.execute(
                 select(StoryDraftDB).where(StoryDraftDB.job_id == job_id)
             )
             draft_db = draft_result.scalar_one_or_none()
 
-            if draft_db and feedback:
-                from src.models.dto import BookSpec, StoryDraft
-
-                spec = BookSpec(
-                    topic=book.title,
-                    language=book.language,
-                    target_age=book.target_age,
-                    style=book.style,
+            # M12: draft 부재(retell 책 등)면 조용한 no-op(done 위장) 대신 명시 실패.
+            if not draft_db:
+                raise StoryBookError(
+                    code=ErrorCode.LLM_JSON_INVALID,
+                    message=(
+                        "이 책은 텍스트 재생성을 위한 스토리 원안이 없습니다"
+                        "(연령 리텔·이미지 전용 책은 텍스트 재생성 불가)."
+                    ),
                 )
-                story = StoryDraft.model_validate(draft_db.draft)
 
-                # Rewrite text with feedback. M31: RewriteResult(검증됨) — revised_text 필수라
-                # 누락은 이미 call_text_rewrite에서 LLM_JSON_INVALID로 실패(조용한 no-op 제거).
-                rewrite_result = await call_text_rewrite(
-                    spec, story, page_number, feedback
+            from src.models.dto import BookSpec, StoryDraft
+
+            spec = BookSpec(
+                topic=book.title,
+                language=book.language,
+                target_age=book.target_age,
+                style=book.style,
+            )
+            story = StoryDraft.model_validate(draft_db.draft)
+
+            # Rewrite text with feedback. M31: RewriteResult(검증됨) — revised_text 필수라
+            # 누락은 이미 call_text_rewrite에서 LLM_JSON_INVALID로 실패(조용한 no-op 제거).
+            rewrite_result = await call_text_rewrite(
+                spec, story, page_number, feedback
+            )
+            revised = rewrite_result.revised_text
+            # M12: 빈/공백 revised_text 가드 — 원문 유지 대신 명시 실패.
+            if not revised or not revised.strip():
+                raise StoryBookError(
+                    code=ErrorCode.LLM_JSON_INVALID,
+                    message="재생성 텍스트가 비어 있습니다",
                 )
-                page.text = rewrite_result.revised_text
+            # M12: 재생성 출력 모더레이션 — 최초 생성 G 게이트 파리티.
+            if not _moderate_text(revised):
+                raise SafetyError(
+                    message="재생성된 내용이 안전 기준을 통과하지 못했습니다",
+                    is_input=False,
+                )
+            page.text = revised
 
         if mode in ["image", "both"]:
             # Generate new image
@@ -1285,6 +1328,14 @@ async def inpaint_page(
             raise ValueError(f"Page {page_number} not found")
         if not page.image_url:
             raise ValueError(f"Page {page_number} has no base image to inpaint")
+
+        # M12: region_prompt 입력 모더레이션 — 무검사 결합 전에 SAFETY_INPUT으로 차단.
+        from src.core.errors import SafetyError
+
+        if not _moderate_text(region_prompt):
+            raise SafetyError(
+                message="부적절한 부분 재생성 요청입니다", is_input=True
+            )
 
         # region 지시 + 기존 페이지 프롬프트(스타일·캐릭터 일관성)를 결합(최대 1200자)
         positive = (region_prompt.strip() + ". " + (page.image_prompt or "")).strip()
