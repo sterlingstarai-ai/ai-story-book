@@ -81,7 +81,9 @@ async def test_delete_character_rolls_back_on_commit_failure():
         id="char-1",
         user_key="user-12345678",
     )
-    db = _FailingCommitDbSession(execute_results=[existing_character])
+    # H7: delete_character가 SELECT 후 update(Series) nullify를 실행하므로 execute가 2회.
+    # 두 번째(UPDATE) 결과는 사용되지 않는다.
+    db = _FailingCommitDbSession(execute_results=[existing_character, None])
 
     with pytest.raises(InternalServerError):
         await delete_character(

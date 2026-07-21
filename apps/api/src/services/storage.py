@@ -230,31 +230,55 @@ async def upload_file(
     return f"{settings.s3_public_url}/{s3_key}"
 
 
-async def delete_book_files(book_id: str):
-    """Delete all files for a book"""
+async def _delete_prefix_keys(prefix: str) -> list[str]:
+    """prefix 하 모든 객체를 삭제하고, **삭제에 실패한 키 목록**을 반환한다([] = 전건 성공).
+
+    H8: 이전 구현은 ClientError를 내부에서 삼켜(raise 안 함) 지배적 실패 클래스(S3 API
+    오류)가 항상 '실패 0'으로 보고됐다. 이제 (a) list_objects_v2를 페이지네이션해 전체 키를
+    열거하고, (b) delete_objects 응답의 per-key 'Errors'를 실패로 합산하며, (c) ClientError
+    발생 시에도 삼키지 않고 해당 prefix를 실패로 표면화한다. 호출부가 status=partial 판정에 쓴다.
+    """
+    s3_client = get_s3_client()
+    failed: list[str] = []
+    total_deleted = 0
+    continuation: Optional[str] = None
     try:
-        s3_client = get_s3_client()
-        prefix = f"books/{book_id}/"
+        while True:
+            kwargs = {"Bucket": settings.s3_bucket, "Prefix": prefix}
+            if continuation:
+                kwargs["ContinuationToken"] = continuation
+            response = await _call_s3(s3_client.list_objects_v2, **kwargs)
 
-        # List objects
-        response = await _call_s3(
-            s3_client.list_objects_v2,
-            Bucket=settings.s3_bucket,
-            Prefix=prefix,
-        )
+            objects = response.get("Contents", [])
+            if objects:
+                del_resp = await _call_s3(
+                    s3_client.delete_objects,
+                    Bucket=settings.s3_bucket,
+                    Delete={"Objects": [{"Key": obj["Key"]} for obj in objects]},
+                )
+                errors = del_resp.get("Errors", []) or []
+                failed.extend(e["Key"] for e in errors if e.get("Key"))
+                total_deleted += len(objects) - len(errors)
 
-        # Delete objects
-        objects = response.get("Contents", [])
-        if objects:
-            await _call_s3(
-                s3_client.delete_objects,
-                Bucket=settings.s3_bucket,
-                Delete={"Objects": [{"Key": obj["Key"]} for obj in objects]},
-            )
-            logger.info(f"Deleted {len(objects)} files for book {book_id}")
+            if response.get("IsTruncated"):
+                continuation = response.get("NextContinuationToken")
+                if not continuation:
+                    break
+            else:
+                break
     except ClientError as e:
-        logger.error(f"Failed to delete files: {e}")
-        # Don't raise - deletion failure shouldn't block other operations
+        logger.error("S3 delete failed", prefix=prefix, error=str(e))
+        # 삼키지 않는다 — prefix 전체를 실패로 표면화(아동 PII 잔존을 관측 가능하게).
+        failed.append(f"{prefix}*")
+
+    if total_deleted:
+        logger.info("Deleted objects under prefix", prefix=prefix, count=total_deleted)
+    return failed
+
+
+async def delete_book_files(book_id: str) -> list[str]:
+    """Delete all files for a book. Returns keys that FAILED to delete ([] = ok, H8)."""
+    return await _delete_prefix_keys(f"books/{book_id}/")
 
 
 class StorageService:
@@ -313,27 +337,13 @@ class StorageService:
         """Wrapper for upload_file function"""
         return await upload_file(data, book_id, filename, content_type)
 
-    async def delete_prefix(self, prefix: str) -> int:
-        """주어진 prefix 의 모든 객체 삭제(동의 철회 시 아동 사진 파기 등). 실패해도 raise 안 함."""
-        try:
-            s3_client = get_s3_client()
-            response = await _call_s3(
-                s3_client.list_objects_v2,
-                Bucket=settings.s3_bucket,
-                Prefix=prefix,
-            )
-            objects = response.get("Contents", [])
-            if objects:
-                await _call_s3(
-                    s3_client.delete_objects,
-                    Bucket=settings.s3_bucket,
-                    Delete={"Objects": [{"Key": obj["Key"]} for obj in objects]},
-                )
-                logger.info(f"Deleted {len(objects)} files under {prefix}")
-            return len(objects)
-        except ClientError as e:
-            logger.error(f"Failed to delete prefix {prefix}: {e}")
-            return 0
+    async def delete_prefix(self, prefix: str) -> list[str]:
+        """prefix 하 모든 객체 삭제(동의 철회 시 아동 사진 파기 등).
+
+        H8: 반환값을 '삭제 실패 키 목록'으로 변경([] = 전건 성공). ClientError·per-key
+        Errors를 삼키지 않고 표면화해 호출부가 status=partial을 판정하게 한다.
+        """
+        return await _delete_prefix_keys(prefix)
 
 
 # 싱글톤 인스턴스

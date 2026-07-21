@@ -276,3 +276,44 @@ async def test_delete_character_with_series_nullifies_series(client, db_session)
     series = (await db_session.execute(select(Series).where(Series.id == sid))).scalar_one()
     assert series.character_id is None
     assert (await db_session.execute(select(Character).where(Character.id == cid))).scalar_one_or_none() is None
+
+
+# ==================== H8: 스토리지 파기 실패 표면화(status partial) ====================
+
+
+@pytest.mark.asyncio
+async def test_delete_book_files_returns_failed_keys(monkeypatch):
+    """H8: delete_objects의 per-key Errors를 삼키지 않고 실패키로 반환."""
+    from src.services import storage as storage_module
+
+    class _FakeS3:
+        def list_objects_v2(self, **kw):
+            return {"Contents": [{"Key": "books/x/cover.png"}], "IsTruncated": False}
+
+        def delete_objects(self, **kw):
+            return {"Errors": [{"Key": "books/x/cover.png", "Code": "AccessDenied"}]}
+
+    monkeypatch.setattr(storage_module, "get_s3_client", lambda: _FakeS3())
+    failed = await storage_module.delete_book_files("x")
+    assert failed == ["books/x/cover.png"]
+
+
+@pytest.mark.asyncio
+async def test_account_deletion_reports_storage_failure_as_partial(
+    client, db_session, monkeypatch
+):
+    """H8: 스토리지 파기 실패 시 응답 status='partial' + storage_delete_failures>0."""
+    from src.services import storage as storage_module
+
+    async def failing_delete_prefix(prefix):
+        return [f"{prefix}orphan.png"]  # 실패키 표면화
+
+    monkeypatch.setattr(
+        storage_module.storage_service, "delete_prefix", failing_delete_prefix
+    )
+
+    r = await client.delete("/v1/users/me", headers=OWNER_HEADERS)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "partial"
+    assert body["storage_delete_failures"] > 0

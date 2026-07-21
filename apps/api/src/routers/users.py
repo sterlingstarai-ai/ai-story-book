@@ -92,44 +92,38 @@ async def delete_my_data(
 
     await db.commit()
 
-    # 스토리지 파일 삭제는 실패해도 응답은 성공 처리
-    storage_failures = 0
-    for book_id in book_ids:
+    # H8/G24: 스토리지 파기 실패를 삼키지 않고 표면화한다. 헬퍼가 실패키 목록을 반환하며,
+    # 실패가 있으면 status='partial' + 식별 가능한 로그(아동 PII 잔존을 관측 가능하게).
+    failed_keys: list[str] = []
+
+    async def _purge(coro, **log_ctx):
         try:
-            await delete_book_files(book_id)
-        except Exception as exc:
-            storage_failures += 1
-            logger.warning(
-                "Failed to delete book files during user deletion",
-                user_key=user_key,
-                book_id=book_id,
-                error=str(exc),
-            )
+            keys = await coro
+        except Exception as exc:  # ClientError 외 예외도 실패로 표면화
+            logger.warning("Storage purge raised during user deletion",
+                           user_key=user_key, error=str(exc), **log_ctx)
+            return ["<raised>"]
+        if keys:
+            logger.warning("Storage purge failures during user deletion",
+                           user_key=user_key, failed_keys=keys, **log_ctx)
+        return keys or []
+
+    for book_id in book_ids:
+        failed_keys.extend(await _purge(delete_book_files(book_id), book_id=book_id))
     # 아동 사진/그림 파생 캐릭터 원본 파기(PIPA/GDPR 삭제권 — revoke 경로와 동일)
     for character_id in character_ids:
-        try:
-            await storage_service.delete_prefix(f"characters/{character_id}/")
-        except Exception as exc:
-            storage_failures += 1
-            logger.warning(
-                "Failed to delete character files during user deletion",
-                user_key=user_key,
-                character_id=character_id,
-                error=str(exc),
-            )
+        failed_keys.extend(await _purge(
+            storage_service.delete_prefix(f"characters/{character_id}/"),
+            character_id=character_id,
+        ))
     # 가족 음성 샘플(voice-samples/{user_key}/...)도 파기 — biometric-adjacent PII 잔존 방지.
-    try:
-        await storage_service.delete_prefix(f"voice-samples/{user_key}/")
-    except Exception as exc:
-        storage_failures += 1
-        logger.warning(
-            "Failed to delete voice samples during user deletion",
-            user_key=user_key,
-            error=str(exc),
-        )
+    failed_keys.extend(await _purge(
+        storage_service.delete_prefix(f"voice-samples/{user_key}/")
+    ))
 
+    storage_failures = len(failed_keys)
     return {
-        "status": "success",
+        "status": "partial" if storage_failures else "success",
         "deleted_books": len(book_ids),
         "storage_delete_failures": storage_failures,
         "message": "내 데이터가 삭제되었습니다.",

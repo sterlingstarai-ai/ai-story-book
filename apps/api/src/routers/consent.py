@@ -154,7 +154,14 @@ async def revoke_consent(
 
     for character in characters:
         try:
-            await storage_service.delete_prefix(f"characters/{character.id}/")
+            # H8: delete_prefix가 실패키 목록을 반환 — 삼키지 말고 표면화(PII 잔존 관측).
+            failed = await storage_service.delete_prefix(f"characters/{character.id}/")
+            if failed:
+                logger.warning(
+                    "character file delete failures on revoke",
+                    character_id=character.id,
+                    failed_keys=failed,
+                )
         except Exception as e:  # pragma: no cover - 방어적
             logger.warning(
                 "character file delete failed",
@@ -168,7 +175,13 @@ async def revoke_consent(
     # 스토리지 파일 파기는 실패해도 동의 철회 자체는 성공 처리(행은 이미 삭제됨).
     for book_id in book_ids:
         try:
-            await delete_book_files(book_id)
+            failed = await delete_book_files(book_id)
+            if failed:
+                logger.warning(
+                    "book file delete failures on revoke",
+                    book_id=book_id,
+                    failed_keys=failed,
+                )
         except Exception as e:  # pragma: no cover - 방어적
             logger.warning("book file delete failed on revoke", book_id=book_id, error=str(e))
 
