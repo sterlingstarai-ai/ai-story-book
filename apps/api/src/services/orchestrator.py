@@ -1300,6 +1300,23 @@ async def start_series_generation(
         prev_book_id=request.previous_book_id,
     )
 
+    from src.models.dto import Style, TargetAge
+
+    # H19/G22: '다음 권'이 원작 스타일·연령대를 버리고 watercolor/5-7로 나오던 문제 —
+    # 명시값 우선, 없으면 prev_book 값 상속, 둘 다 없으면 기본값.
+    effective_style = request.style
+    if effective_style is None:
+        if prev_book and prev_book.style in {s.value for s in Style}:
+            effective_style = Style(prev_book.style)
+        else:
+            effective_style = Style.watercolor
+    effective_target_age = request.target_age
+    if effective_target_age is None:
+        if prev_book and prev_book.target_age in {t.value for t in TargetAge}:
+            effective_target_age = TargetAge(prev_book.target_age)
+        else:
+            effective_target_age = TargetAge.a5_7
+
     # 시리즈 ID 결정 우선순위:
     # 1) request.series_id
     # 2) previous_book_id로 조회한 책의 series_id
@@ -1330,8 +1347,8 @@ async def start_series_generation(
                 id=series_id,
                 title=series_title,
                 language=request.language.value,
-                target_age=request.target_age.value,
-                style=request.style.value,
+                target_age=effective_target_age.value,
+                style=effective_style.value,
                 theme=request.theme.value if request.theme else None,
                 character_id=request.character_id,
                 user_key=user_key,
@@ -1364,12 +1381,12 @@ async def start_series_generation(
         else "시리즈의 첫 번째 이야기입니다."
     )
 
-    # Create BookSpec for series
+    # Create BookSpec for series — H19: 원작 상속된 effective 값 사용(watercolor/5-7 기본 탈락).
     series_spec = BookSpec(
         topic=topic,
         language=language,
-        target_age=request.target_age,
-        style=request.style,
+        target_age=effective_target_age,
+        style=effective_style,
         page_count=request.page_count,
         theme=request.theme,
         character_id=request.character_id,

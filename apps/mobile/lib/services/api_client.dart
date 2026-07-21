@@ -204,6 +204,9 @@ class ApiClient {
     String? theme,
     String? seriesId,
     String? previousBookId,
+    String? style,
+    String? targetAge,
+    String? language,
     String? idempotencyKey,
   }) async {
     final headers = Map<String, String>.from(_headers);
@@ -216,6 +219,10 @@ class ApiClient {
         'character_id': characterId,
         'topic': topic,
         if (theme != null) 'theme': theme,
+        // H19: 원작 스타일·연령대·언어를 전달(미전송 시 watercolor/5-7로 깨지던 문제).
+        if (style != null) 'style': style,
+        if (targetAge != null) 'target_age': targetAge,
+        if (language != null) 'language': language,
         // 기존 시리즈 연결(없으면 백엔드가 새 시리즈 생성)
         if (seriesId != null) 'series_id': seriesId,
         if (previousBookId != null) 'previous_book_id': previousBookId,

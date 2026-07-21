@@ -2666,12 +2666,24 @@
             "title": "Series Title"
           },
           "style": {
-            "$ref": "#/components/schemas/Style",
-            "default": "watercolor"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Style"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "target_age": {
-            "$ref": "#/components/schemas/TargetAge",
-            "default": "5-7"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TargetAge"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "theme": {
             "anyOf": [

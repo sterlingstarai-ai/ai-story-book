@@ -566,5 +566,32 @@ void main() {
       expect(result['score'], 88.5);
       await requestHandled.future.timeout(const Duration(seconds: 1));
     });
+
+    test('createSeriesBook sends style/target_age/language (H19)', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+
+      Map<String, dynamic>? seen;
+      server.listen((request) async {
+        final body = await utf8.decoder.bind(request).join();
+        seen = jsonDecode(body) as Map<String, dynamic>;
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({'job_id': 'j1', 'status': 'queued'}));
+        await request.response.close();
+      });
+
+      final client = ApiClient(
+        baseUrl: 'http://${server.address.host}:${server.port}',
+        userKey: 'test-user',
+        enableLogging: false,
+      );
+      await client.createSeriesBook(
+        characterId: 'c1', topic: 't', previousBookId: 'b0',
+        style: '3d', targetAge: '7-9', language: 'en',
+      );
+      expect(seen!['style'], '3d');
+      expect(seen!['target_age'], '7-9');
+      expect(seen!['language'], 'en');
+    });
   });
 }

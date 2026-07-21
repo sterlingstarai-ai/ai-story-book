@@ -486,6 +486,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
             topic: topic,
             seriesId: latest.seriesId,
             previousBookId: latest.id,
+            // H19: 원작 스타일·연령대 상속(다음 권이 watercolor/5-7로 깨지지 않게).
+            style: latest.style,
+            targetAge: latest.targetAge,
             idempotencyKey: _seriesAttemptKey,
           );
       _seriesAttemptKey = null; // 성공 → 다음 생성은 새 키

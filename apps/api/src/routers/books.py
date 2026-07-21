@@ -1008,7 +1008,13 @@ async def create_series_next(
         if prev_book.user_key != user_key:
             raise AuthorizationError()
 
-    await _enforce_free_plan_create_limits(db, user_key, request.style)
+    # H19: style 미지정 시 원작(prev_book) 스타일을 상속해 무료플랜 한도 검사(무결성 유지).
+    from src.models.dto import Style as _Style
+
+    effective_style = request.style
+    if effective_style is None and prev_book and prev_book.style in {s.value for s in _Style}:
+        effective_style = _Style(prev_book.style)
+    await _enforce_free_plan_create_limits(db, user_key, effective_style)
 
     # Create new job for series
     job_id = f"series_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"

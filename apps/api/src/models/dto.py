@@ -466,8 +466,10 @@ class SeriesNextRequest(BaseModel):
     series_title: Optional[str] = Field(default=None, max_length=100)
     theme: Optional[Theme] = None
     language: Language = Language.ko
-    target_age: TargetAge = TargetAge.a5_7
-    style: Style = Style.watercolor
+    # H19/G22: 미지정(None)이면 원작(prev_book) 스타일·연령대를 상속(기존 클라 호환). 오케스트레이터가
+    # 상속 계산 — 명시값이 있으면 그 값, 없고 prev_book 있으면 원작 값, 둘 다 없으면 기본(5-7/watercolor).
+    target_age: Optional[TargetAge] = None
+    style: Optional[Style] = None
     page_count: int = Field(ge=4, le=12, default=8)
     forbidden_elements: Optional[List[str]] = Field(default=None, max_length=20)
 
