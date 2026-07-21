@@ -42,7 +42,7 @@ cd apps/api && alembic upgrade head && alembic heads       # 단일 head 확인
 - 통화 = **원통화 저장**(quoted_* vs provider_* 분리)
 - IAP 복원 = **크레딧 재지급 금지 + 해당 plan active만 만료**(타인 구독 파기 금지)
 - 그 외 게이트는 §2 각 항목의 **결정**대로.
-- **미결 2건**: G28·G29(브랜드/도메인·앱 표시명)는 W6 착수 전 CTO 확정 예정 — 그 전까지 W6의 해당 네이티브/브랜드 티켓(H27·M33·L19·L21)만 보류하고 나머지 진행.
+- 브랜드(G28·G29) 확정: 정본 도메인 = **aistorybook.com**(Info.plist placeholder·SHARE_BASE_URL·법정 고지 링크 정본) / 카카오 딥링크 수신 = **1차 제외**(execution params 제거, 공유 링크는 공개 공유 웹페이지로) / KAKAO_NATIVE_APP_KEY 주입 = **xcconfig·CI 빌드변수**(하드코딩 금지) / en·ja 앱 표시명 = **영문 'AI Story Book' 통일**(권한 목적 문구만 번역). → H27·M33·L19·L21 모두 착수 가능(미결 없음).
 
 ## 작업 리듬
 1. 티켓 착수 전: `depends_on`·`⚠ 정정`·§2 결정·§3.2 공유 불변식(같은 함수 동시 편집 충돌) 확인.
