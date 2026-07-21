@@ -720,10 +720,15 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
 
     final transactionId = purchase.purchaseID ??
         '${purchase.productID}-${DateTime.now().millisecondsSinceEpoch}';
+    // 검증 진행 중인 동일 트랜잭션의 중복 스트림 이벤트는 drop한다(MI2). 여기서 complete를
+    // 호출하면 원 이벤트의 검증 결과와 무관하게 트랜잭션이 마무리돼 대금 유실 위험이 있다.
     if (_verifyingTransactions.contains(transactionId)) {
-      await iapService.completePurchase(purchase);
       return;
     }
+
+    final isSubscription =
+        _subscriptionProductMap.containsValue(purchase.productID);
+    final consumable = !isSubscription;
 
     _verifyingTransactions.add(transactionId);
     try {
@@ -734,8 +739,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
         'platform': platform,
         'product_id': purchase.productID,
         'transaction_id': transactionId,
-        'is_subscription':
-            _subscriptionProductMap.containsValue(purchase.productID),
+        'is_subscription': isSubscription,
       };
       final serverData = purchase.verificationData.serverVerificationData;
       if (platform == 'apple') {
@@ -745,6 +749,10 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
       }
 
       final result = await apiClient.verifyIap(payload);
+      // 서버 검증 성공 후에만 스토어 트랜잭션을 마무리(Android 소모성은 consume). 검증
+      // 전에 마무리하면 미지급 상태로 대금이 영구 유실된다(C3). 실패 시(catch) 마무리하지
+      // 않아 pending으로 남기고 다음 실행 purchaseStream 재전달로 재검증되게 한다.
+      await iapService.finishPurchase(purchase, consumable: consumable);
       await _loadCreditsStatus();
 
       if (mounted) {
@@ -760,6 +768,8 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
         );
       }
     } catch (_) {
+      // 검증 실패: completePurchase/consume를 호출하지 않아 트랜잭션을 pending 유지 →
+      // 다음 앱 실행 시 재검증. 기존 문구가 '잠시 후 다시 시도' 취지라 그대로 재사용.
       if (mounted) {
         final l = AppLocalizations.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -768,7 +778,6 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
       }
     } finally {
       _verifyingTransactions.remove(transactionId);
-      await iapService.completePurchase(purchase);
     }
   }
 

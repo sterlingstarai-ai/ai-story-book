@@ -180,11 +180,33 @@ async def mark_job_failed(job_id: str, error_code: ErrorCode, message: str):
         job = result.scalar_one_or_none()
 
         if job:
+            user_key = job.user_key  # 커밋 후 만료 대비 미리 캡처
             job.status = "failed"
             job.error_code = error_code.value
             job.error_message = message
             job.updated_at = utcnow()
+            # 실패 상태를 먼저 영속화한다(MA3): 이후 환불이 실패해도 실패 마킹을 되돌리지 않게
+            # 별도 트랜잭션으로 분리. add_credits의 예외-롤백이 미커밋 상태를 삼키는 것을 방지.
             await session.commit()
+
+            # 선차감된 유료 크레딧을 환불(멱등, G3=전 실패 코드 환불). 환불 실패가 잡 실패
+            # 마킹을 막지 않도록 try/except로 감싸 로그만 남긴다(job_monitor 패턴 미러).
+            try:
+                from src.services.credits import credits_service
+
+                await credits_service.refund_for_job(
+                    session,
+                    user_key,
+                    job_id,
+                    description="생성 실패 환불(자동)",
+                    commit=True,
+                )
+            except Exception as refund_exc:  # noqa: BLE001
+                logger.warning(
+                    "failed-job refund error",
+                    job_id=job_id,
+                    error=str(refund_exc),
+                )
 
     logger.error("Job failed", job_id=job_id, error_code=error_code, message=message)
 

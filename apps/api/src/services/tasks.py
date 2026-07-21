@@ -33,9 +33,26 @@ async def _mark_job_failed_async(job_id: str, message: str) -> None:
         if not job:
             return
 
+        user_key = job.user_key  # 커밋 후 만료 대비 미리 캡처
         job.status = "failed"
         job.error_message = message[:300]
+        # 실패 상태를 먼저 영속화(MA3) 후 별도 트랜잭션으로 선차감 크레딧 환불(멱등).
         await session.commit()
+
+        try:
+            from src.services.credits import credits_service
+
+            await credits_service.refund_for_job(
+                session,
+                user_key,
+                job_id,
+                description="생성 실패 환불(자동)",
+                commit=True,
+            )
+        except Exception as refund_exc:  # noqa: BLE001
+            logger.warning(
+                "failed-job refund error", job_id=job_id, error=str(refund_exc)
+            )
 
 
 async def _regenerate_page_async(

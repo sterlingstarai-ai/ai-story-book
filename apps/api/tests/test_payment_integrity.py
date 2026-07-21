@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
+from src.core.errors import ErrorCode
 from src.models.db import CreditTransaction, Job, UserCredits
 from src.services.credits import credits_service
 
@@ -100,3 +101,101 @@ async def test_job_monitor_refunds_failed_stuck_job(db_session):
 
     assert job.status == "failed"
     assert await _balance(db_session, uk) == 3  # 크레딧 먹튀 방지(환불됨)
+
+
+# ── C2: 파이프라인 인-플라이트 최종 실패 시 환불(orchestrator / celery 경로) ──
+@pytest.mark.asyncio
+async def test_orchestrator_mark_job_failed_refunds_charged_job(db_session):
+    """mark_job_failed(orchestrator)가 선차감 크레딧을 환불한다(수정 전엔 잔액 2)."""
+    from src.services.orchestrator import mark_job_failed
+
+    uk = "c2-orch"
+    await _seed_charged(db_session, uk, "job-fail")
+    db_session.add(Job(id="job-fail", status="running", user_key=uk))
+    await db_session.commit()
+    assert await _balance(db_session, uk) == 2
+
+    await mark_job_failed("job-fail", ErrorCode.LLM_JSON_INVALID, "boom")
+
+    db_session.expire_all()
+    assert await _balance(db_session, uk) == 3  # 환불됨
+    job = await db_session.get(Job, "job-fail")
+    assert job.status == "failed"
+    refunds = (
+        await db_session.execute(
+            select(CreditTransaction).where(
+                CreditTransaction.reference_id == "job-fail",
+                CreditTransaction.transaction_type == "refund",
+            )
+        )
+    ).scalars().all()
+    assert len(refunds) == 1
+
+
+@pytest.mark.asyncio
+async def test_mark_job_failed_refund_idempotent(db_session):
+    """두 번 호출해도 refund 1건·잔액 3 유지(멱등)."""
+    from src.services.orchestrator import mark_job_failed
+
+    uk = "c2-idem"
+    await _seed_charged(db_session, uk, "job-idem")
+    db_session.add(Job(id="job-idem", status="running", user_key=uk))
+    await db_session.commit()
+
+    await mark_job_failed("job-idem", ErrorCode.IMAGE_FAILED, "boom1")
+    await mark_job_failed("job-idem", ErrorCode.IMAGE_FAILED, "boom2")
+
+    db_session.expire_all()
+    assert await _balance(db_session, uk) == 3
+    refunds = (
+        await db_session.execute(
+            select(CreditTransaction).where(
+                CreditTransaction.reference_id == "job-idem",
+                CreditTransaction.transaction_type == "refund",
+            )
+        )
+    ).scalars().all()
+    assert len(refunds) == 1
+
+
+@pytest.mark.asyncio
+async def test_tasks_mark_job_failed_async_refunds(db_session):
+    """Celery 경로 _mark_job_failed_async도 환불한다."""
+    from src.services.tasks import _mark_job_failed_async
+
+    uk = "c2-task"
+    await _seed_charged(db_session, uk, "job-task")
+    db_session.add(Job(id="job-task", status="running", user_key=uk))
+    await db_session.commit()
+
+    await _mark_job_failed_async("job-task", "boom")
+
+    db_session.expire_all()
+    assert await _balance(db_session, uk) == 3
+    job = await db_session.get(Job, "job-task")
+    assert job.status == "failed"
+
+
+@pytest.mark.asyncio
+async def test_mark_job_failed_persists_status_even_if_refund_fails(db_session, monkeypatch):
+    """MA3: 환불이 강제 실패해도 status=='failed'는 영속(먼저 커밋됨)."""
+    from src.services.orchestrator import mark_job_failed
+
+    uk = "c2-refundfail"
+    await _seed_charged(db_session, uk, "job-rf")
+    db_session.add(Job(id="job-rf", status="running", user_key=uk))
+    await db_session.commit()
+
+    async def boom_refund(*args, **kwargs):
+        raise RuntimeError("refund backend down")
+
+    # mark_job_failed의 지연 import가 참조하는 동일 싱글톤을 직접 패치.
+    monkeypatch.setattr(credits_service, "refund_for_job", boom_refund)
+
+    # 환불 실패가 예외로 전파되지 않아야 함(잡 실패 마킹을 막지 않음).
+    await mark_job_failed("job-rf", ErrorCode.STORAGE_UPLOAD_FAILED, "x")
+
+    db_session.expire_all()
+    job = await db_session.get(Job, "job-rf")
+    assert job.status == "failed"  # 상태는 영속
+    assert await _balance(db_session, uk) == 2  # 환불은 안 됨(강제 실패)

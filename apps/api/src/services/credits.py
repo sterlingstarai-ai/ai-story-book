@@ -398,46 +398,62 @@ class CreditsService:
         plan_info = SUBSCRIPTION_PLANS[plan]
         now = utcnow()
 
-        # 기존 활성 구독 취소
-        existing = await self.get_active_subscription(db, user_key)
-        if existing:
-            existing.status = "cancelled"
-            existing.current_period_end = now
-
-        # 새 구독 생성
-        try:
-            subscription = Subscription(
-                user_key=user_key,
-                plan=plan,
-                status="active",
-                credits_per_month=plan_info["credits_per_month"],
-                current_period_start=now,
-                current_period_end=now + timedelta(days=30),
-            )
-            db.add(subscription)
-            await db.flush()
-
-            # 월간 크레딧 지급
-            await self.add_credits(
-                db=db,
-                user_key=user_key,
-                amount=plan_info["credits_per_month"],
-                transaction_type="subscription",
-                description=f"{plan_info['name']} 구독 크레딧",
-                reference_id=str(subscription.id),
-                commit=False,
-            )
-
-            if commit:
-                await db.commit()
-                await db.refresh(subscription)
-            else:
+        # 동시 create의 경쟁 패자는 (user_key) WHERE status='active' 부분 유니크(M17)에서
+        # IntegrityError를 맞는다 → rollback 후 재조회하여 기존 active를 취소하고 1회 재시도.
+        for attempt in range(2):
+            # 기존 활성 구독 취소. 부분 유니크(active 1개) 슬롯을 먼저 비우기 위해
+            # 취소 UPDATE를 새 active INSERT보다 먼저 flush한다(플러시 순서 보장).
+            existing = await self.get_active_subscription(db, user_key)
+            if existing:
+                existing.status = "cancelled"
+                existing.current_period_end = now
                 await db.flush()
-            return subscription
-        except Exception:
-            if commit:
+
+            try:
+                subscription = Subscription(
+                    user_key=user_key,
+                    plan=plan,
+                    status="active",
+                    credits_per_month=plan_info["credits_per_month"],
+                    current_period_start=now,
+                    current_period_end=now + timedelta(days=30),
+                )
+                db.add(subscription)
+                await db.flush()
+
+                # 월간 크레딧 지급
+                await self.add_credits(
+                    db=db,
+                    user_key=user_key,
+                    amount=plan_info["credits_per_month"],
+                    transaction_type="subscription",
+                    description=f"{plan_info['name']} 구독 크레딧",
+                    reference_id=str(subscription.id),
+                    commit=False,
+                )
+
+                if commit:
+                    await db.commit()
+                    await db.refresh(subscription)
+                else:
+                    await db.flush()
+                return subscription
+            except IntegrityError:
                 await db.rollback()
-            raise
+                if attempt == 0:
+                    continue  # 경쟁 패자 → 재조회 후 기존 active 취소하고 재시도
+                # 두 번째도 충돌: 경쟁 승자의 active를 최종본으로 반환.
+                existing = await self.get_active_subscription(db, user_key)
+                if existing is not None:
+                    return existing
+                raise
+            except Exception:
+                if commit:
+                    await db.rollback()
+                raise
+
+        # 루프는 항상 return/raise로 종료(방어적 unreachable 가드).
+        raise RuntimeError("create_subscription: unreachable")
 
     async def cancel_subscription(
         self,

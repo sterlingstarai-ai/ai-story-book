@@ -7,6 +7,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 API_ROOT = Path(__file__).resolve().parents[2]
 API_ENV_FILE = API_ROOT / ".env"
 
+# 앱 버전은 코드가 정본(GA 1.0.0 통일). APP_VERSION env·구버전 .env 잔재가 런타임
+# info.version을 흔들어 계약 신선도 테스트를 소음화하지 않도록, pydantic 필드가 아니라
+# 모듈 상수 + property로 노출해 env 오버라이드 대상에서 제외한다(M8).
+APP_VERSION = "1.0.0"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -17,10 +22,12 @@ class Settings(BaseSettings):
 
     # App
     app_name: str = "AI Story Book API"
-    # 기본값을 커밋된 OpenAPI 계약·.env와 일치시켜, .env 부재(CI Phase Gate)에서도
-    # info.version이 흔들리지 않게 한다(계약 테스트 환경 비의존).
-    app_version: str = "1.0.0"
     debug: bool = False  # Must be False in production
+
+    @property
+    def app_version(self) -> str:
+        """코드 정본 버전(APP_VERSION env로 오버라이드 불가)."""
+        return APP_VERSION
     testing: bool = False  # Set to True in test environment
 
     # Database

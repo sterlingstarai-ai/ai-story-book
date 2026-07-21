@@ -260,6 +260,18 @@ class Subscription(Base):
     """구독 정보"""
 
     __tablename__ = "subscriptions"
+    __table_args__ = (
+        # 사용자당 active 구독은 최대 1행 — check-then-write 사이 DB 제약 부재로 인한
+        # 동시 이중 active(→ periodic_credits 영구 이중 지급)를 DB 레벨에서 차단(M17).
+        # cancelled/expired는 제약 대상 아님(부분 인덱스).
+        Index(
+            "uq_subscriptions_active_per_user",
+            "user_key",
+            unique=True,
+            sqlite_where=text("status = 'active'"),
+            postgresql_where=text("status = 'active'"),
+        ),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_key = Column(String(80), nullable=False, index=True)
