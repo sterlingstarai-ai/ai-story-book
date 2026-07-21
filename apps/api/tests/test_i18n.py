@@ -71,3 +71,16 @@ def test_protagonist_name_in_story_user_prompt():
     )
     assert "지우" in prompt
     assert "language: en" in prompt
+
+
+def test_character_sheet_prompt_is_english_bound_not_korean():
+    """M28: 캐릭터 시트 master_description이 '한글로' 대신 영어로 작성되도록 지시."""
+    rendered = render_prompt("generate_character_sheet.system.jinja2")
+    assert "한글로" not in rendered
+    assert "영어로" in rendered  # 영어 고정 지시 존재
+
+
+def test_image_prompt_system_requires_english_positive_prompt():
+    """M28: positive_prompt를 영어로만 작성하도록 명시(다국어 혼입 차단)."""
+    rendered = render_prompt("generate_image_prompts.system.jinja2")
+    assert "영어로만" in rendered
