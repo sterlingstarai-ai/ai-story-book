@@ -13,6 +13,17 @@ import structlog
 
 from src.core.config import settings
 
+# H3: STT 지원 언어 → 코드 매핑. OpenAI Whisper는 ISO-639-1(ko/en/ja/zh/es)을,
+# Google STT는 BCP-47을 사용한다. 이전엔 ko/en만 매핑돼 ja/zh/es가 한국어로 오전사됐다.
+STT_LANGUAGE_CODES = {
+    "ko": "ko-KR",
+    "en": "en-US",
+    "ja": "ja-JP",
+    "zh": "cmn-Hans-CN",
+    "es": "es-ES",
+}
+SUPPORTED_STT_LANGUAGES = tuple(STT_LANGUAGE_CODES.keys())
+
 logger = structlog.get_logger()
 
 
@@ -60,8 +71,8 @@ class OpenAISTTProvider(BaseSTTProvider):
         form = {
             "model": self.model,
         }
-        if language in {"ko", "en"}:
-            form["language"] = language
+        if language in SUPPORTED_STT_LANGUAGES:
+            form["language"] = language  # OpenAI Whisper는 ISO-639-1 코드 수용
 
         async with httpx.AsyncClient(timeout=60) as client:
             response = await client.post(
@@ -112,7 +123,10 @@ class GoogleSTTProvider(BaseSTTProvider):
         if not self.api_key:
             raise ValueError("GOOGLE_STT_API_KEY is not configured")
 
-        language_code = "ko-KR" if language == "ko" else "en-US"
+        # H3: ko/en 하드코딩 대신 5개 언어 매핑. 미지원 언어는 ko 오전사 대신 명시 예외.
+        language_code = STT_LANGUAGE_CODES.get(language)
+        if language_code is None:
+            raise ValueError(f"STT가 지원하지 않는 언어입니다: {language!r}")
         audio_content = base64.b64encode(audio_bytes).decode("utf-8")
         payload = {
             "config": {

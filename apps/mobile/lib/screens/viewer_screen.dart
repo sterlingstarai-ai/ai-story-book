@@ -64,7 +64,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   BookResult? _activeBook;
   DateTime _viewStartedAt = DateTime.now();
   // 다국어 지원
-  String _selectedLanguage = 'ko'; // 'ko' or 'en'
+  String _selectedLanguage = 'ko'; // 책 언어로 초기화됨(H3). ko/en 토글은 이중언어 책용.
+  bool _languageInitialized = false;
 
   @override
   void initState() {
@@ -205,6 +206,15 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   Widget _buildViewer(BookResult book) {
     final l = AppLocalizations.of(context);
     _activeBook = book;
+    // H3: 오디오·발음을 책 언어로 요청하도록 최초 1회 책 언어로 초기화한다.
+    // (ja/zh/es 책이 한국어 보이스로 오합성된 오디오를 요청하던 문제 제거.)
+    if (!_languageInitialized) {
+      final lang = book.language;
+      if (lang != null && lang.isNotEmpty) {
+        _selectedLanguage = lang;
+      }
+      _languageInitialized = true;
+    }
     // 표지(0) + 페이지들
     final totalPages = book.pages.length + 1;
     _restoreReadingProgressIfNeeded(totalPages);
@@ -1252,6 +1262,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                       'bookId': book.bookId,
                       'pageNumber': page.pageNumber,
                       'expectedText': expected,
+                      // H3: 발음 평가를 책 언어로(ja/zh/es 한국어 오전사 제거).
+                      'language': _selectedLanguage,
                     },
                   );
                 },

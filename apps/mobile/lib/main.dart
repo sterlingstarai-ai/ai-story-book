@@ -416,11 +416,16 @@ Route<dynamic> buildAppRoute(RouteSettings settings) {
           pageNumber <= 0) {
         return _homeRoute();
       }
+      final pronunciationLanguage = args?['language']?.toString();
       return MaterialPageRoute(
         builder: (_) => PronunciationPracticeScreen(
           bookId: bookId,
           pageNumber: pageNumber,
           expectedText: expectedText,
+          language: (pronunciationLanguage != null &&
+                  pronunciationLanguage.isNotEmpty)
+              ? pronunciationLanguage
+              : 'ko',
         ),
       );
 

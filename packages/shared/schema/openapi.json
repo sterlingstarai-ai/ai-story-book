@@ -4017,7 +4017,7 @@
             "required": false,
             "schema": {
               "default": "ko",
-              "pattern": "^(ko|en)$",
+              "pattern": "^(ko|en|ja|zh|es)$",
               "title": "Language",
               "type": "string"
             }

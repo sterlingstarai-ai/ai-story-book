@@ -102,3 +102,95 @@ async def test_get_page_audio_rolls_back_when_commit_fails():
 
     assert fake_db.commit_calls == 1
     assert fake_db.rollback_calls == 1
+
+
+# ---- H3: 오디오 언어 5종(ja/zh/es 한국어 보이스 오합성 제거) ----
+
+
+class _FakeDbSessionOK:
+    """commit이 실패하지 않는 세션(H3 정상 경로 테스트용)."""
+
+    def __init__(self, rows):
+        self._rows = list(rows)
+        self._index = 0
+        self.commit_calls = 0
+
+    async def execute(self, _query):
+        row = self._rows[self._index]
+        self._index += 1
+        return _FakeScalarResult(row)
+
+    async def commit(self):
+        self.commit_calls += 1
+
+    async def rollback(self):
+        pass
+
+
+@pytest.mark.asyncio
+async def test_ja_book_audio_uses_ja_voice_not_ko():
+    """H3: ja 책은 ja 보이스로 합성되고 기본 슬롯(audio_url)에 저장된다(ko 오합성 제거)."""
+    from src.routers.books import _generate_audio_pages
+
+    page = SimpleNamespace(
+        id="p1", audio_url=None, audio_url_ko=None, audio_url_en=None
+    )
+    fake_db = _FakeDbSessionOK([page])
+    pages = [{"page_number": 1, "text": "ねこがいます", "page_id": "p1"}]
+
+    synth = AsyncMock(return_value=b"ja-audio")
+    upload = AsyncMock(return_value="https://cdn.example.com/ja.mp3")
+
+    with patch("src.core.database.AsyncSessionLocal", new=_session_local_factory(fake_db)):
+        with patch("src.routers.books.tts_service.synthesize_page", new=synth):
+            with patch("src.routers.books.storage_service.upload_bytes", new=upload):
+                await _generate_audio_pages("book-ja", pages, default_language="ja")
+
+    assert synth.await_count == 1
+    assert synth.call_args.kwargs["language"] == "ja"
+    # ja 오디오는 기본 슬롯에만, ko 슬롯은 오염되지 않는다(MA5).
+    assert page.audio_url == "https://cdn.example.com/ja.mp3"
+    assert page.audio_url_ko is None
+
+
+@pytest.mark.asyncio
+async def test_get_page_audio_ja_uses_base_slot_and_ja_voice():
+    """H3: GET audio?language=ja가 422가 아니라 ja 보이스로 합성·기본 슬롯 저장."""
+    from src.routers.books import get_page_audio
+
+    book = SimpleNamespace(
+        id="b1", user_key="u1", language="ja", target_age="3-5"
+    )
+    page = SimpleNamespace(
+        id="p1", text="ねこ", audio_url=None, audio_url_ko=None, audio_url_en=None
+    )
+    fake_db = _FakeDbSessionOK([book, page])
+
+    synth = AsyncMock(return_value=b"aud")
+    upload = AsyncMock(return_value="https://cdn.example.com/ja1.mp3")
+
+    with patch("src.routers.books.tts_service.synthesize_page", new=synth):
+        with patch("src.routers.books.storage_service.upload_bytes", new=upload):
+            result = await get_page_audio(
+                "b1", 1, language="ja", db=fake_db, user_key="u1", profile_id=None
+            )
+
+    assert result["audio_url"] == "https://cdn.example.com/ja1.mp3"
+    assert synth.call_args.kwargs["language"] == "ja"
+    assert page.audio_url == "https://cdn.example.com/ja1.mp3"
+
+
+@pytest.mark.asyncio
+async def test_get_page_audio_rejects_unsupported_language():
+    """H3: 매핑 밖 언어는 조용한 ko 폴백 대신 ValidationError(fail-open 제거)."""
+    from src.core.exceptions import ValidationError
+    from src.routers.books import get_page_audio
+
+    book = SimpleNamespace(id="b1", user_key="u1", language="ko", target_age="3-5")
+    page = SimpleNamespace(id="p1", text="hi", audio_url=None)
+    fake_db = _FakeDbSessionOK([book, page])
+
+    with pytest.raises(ValidationError):
+        await get_page_audio(
+            "b1", 1, language="fr", db=fake_db, user_key="u1", profile_id=None
+        )

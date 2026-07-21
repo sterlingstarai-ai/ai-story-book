@@ -70,4 +70,15 @@ void main() {
     expect(
         restored.learningAssets?.parentGuide.activities.first, '토끼와 숲 그림 그리기');
   });
+
+  test('BookResult parses book language for audio/pronunciation requests (H3)', () {
+    final restored = BookResult.fromJson({
+      'book_id': 'book_ja',
+      'title': 'ねこの ぼうけん',
+      'cover_image_url': 'https://cdn.example.com/cover.jpg',
+      'language': 'ja',
+      'pages': const [],
+    });
+    expect(restored.language, 'ja');
+  });
 }

@@ -13,6 +13,42 @@ from ..core.config import settings
 logger = structlog.get_logger()
 
 
+# H3: 스토리 5개 언어(ko/en/ja/zh/es) → TTS 언어코드·기본 보이스.
+# 이전에는 ko/en만 매핑돼 ja/zh/es 책이 한국어(ko-KR) 보이스로 오합성된 오디오를
+# audio_url에 영구 캐시했다. 매핑 밖 언어는 무음/오합성 폴백 없이 명시 예외.
+TTS_LANGUAGE_CODES = {
+    "ko": "ko-KR",
+    "en": "en-US",
+    "ja": "ja-JP",
+    "zh": "cmn-CN",
+    "es": "es-ES",
+}
+TTS_DEFAULT_VOICES = {
+    "ko": "ko-KR-Neural2-A",
+    "en": "en-US-Neural2-F",
+    "ja": "ja-JP-Neural2-B",
+    "zh": "cmn-CN-Wavenet-A",
+    "es": "es-ES-Neural2-A",
+}
+# 오디오 표면(생성·조회·발음)이 허용하는 언어 = TTS 매핑 보유 언어.
+SUPPORTED_AUDIO_LANGUAGES = tuple(TTS_LANGUAGE_CODES.keys())
+
+
+def resolve_tts_language(language: str) -> tuple[str, str]:
+    """언어 코드 → (TTS languageCode, 기본 보이스명). 미지원 언어는 ValueError(H3).
+
+    무음/오합성 폴백을 금지하기 위해, 호출부(오디오 생성/조회)는 이 예외를
+    NOT_SUPPORTED로 명시 처리해야 한다.
+    """
+    lang = (language or "").lower().strip()
+    if lang not in TTS_LANGUAGE_CODES:
+        raise ValueError(
+            f"TTS가 지원하지 않는 언어입니다: {language!r} "
+            f"(지원: {', '.join(SUPPORTED_AUDIO_LANGUAGES)})"
+        )
+    return TTS_LANGUAGE_CODES[lang], TTS_DEFAULT_VOICES[lang]
+
+
 class BaseTTSProvider(ABC):
     """TTS 제공자 기본 클래스"""
 
@@ -48,10 +84,11 @@ class GoogleTTSProvider(BaseTTSProvider):
         if not self.api_key:
             raise ValueError("GOOGLE_TTS_API_KEY not configured")
 
-        language_code = "ko-KR" if language == "ko" else "en-US"
+        # H3: ko/en 하드코딩 대신 5개 스토리 언어 매핑. 미지원 언어는 raise(무음 폴백 금지).
+        language_code, default_voice = resolve_tts_language(language)
         resolved_voice = voice
         if voice in {"default", "ko-KR-Neural2-A"}:
-            resolved_voice = "ko-KR-Neural2-A" if language == "ko" else "en-US-Neural2-F"
+            resolved_voice = default_voice
 
         payload = {
             "input": {"text": text},

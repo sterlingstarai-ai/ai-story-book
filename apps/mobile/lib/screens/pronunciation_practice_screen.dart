@@ -14,11 +14,13 @@ class PronunciationPracticeScreen extends ConsumerStatefulWidget {
     required this.bookId,
     required this.pageNumber,
     required this.expectedText,
+    this.language = 'ko',
   });
 
   final String bookId;
   final int pageNumber;
   final String expectedText;
+  final String language;
 
   @override
   ConsumerState<PronunciationPracticeScreen> createState() =>
@@ -128,7 +130,7 @@ class _PronunciationPracticeScreenState
         expectedText: expected,
         bookId: widget.bookId,
         pageNumber: widget.pageNumber,
-        language: 'ko',
+        language: widget.language, // H3: 책 언어로 발음 평가
       );
       if (!mounted) {
         return;

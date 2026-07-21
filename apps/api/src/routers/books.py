@@ -1341,14 +1341,24 @@ async def _generate_audio_pages(
     async with AsyncSessionLocal() as db:
         for page_data in pages:
             try:
-                # ko/en 모두 존재하면 각각 생성, 없으면 기본 텍스트로 생성
+                # H3: 책 언어 기반 오디오 생성. ko/en 이중 텍스트는 각 슬롯에, 그 외
+                # 스토리 언어(ja/zh/es)는 책 언어 보이스로 1건 생성해 기본 슬롯(audio_url)에
+                # 저장한다(MA5: 한국어 슬롯 교차 오염·매 요청 재합성 방지).
                 generated_urls = {}
-                text_by_language = {
-                    "ko": page_data.get("text_ko") or page_data.get("text"),
-                    "en": page_data.get("text_en"),
-                }
+                base_lang = (default_language or "ko").lower().strip()
+                if base_lang in ("ko", "en"):
+                    text_by_language = {
+                        "ko": page_data.get("text_ko") or page_data.get("text"),
+                        "en": page_data.get("text_en"),
+                    }
+                    languages = ("ko", "en")
+                else:
+                    text_by_language = {
+                        base_lang: page_data.get("text") or page_data.get("text_ko"),
+                    }
+                    languages = (base_lang,)
 
-                for language in ("ko", "en"):
+                for language in languages:
                     source_text = text_by_language.get(language)
                     if not source_text:
                         continue
@@ -1375,9 +1385,9 @@ async def _generate_audio_pages(
                         page.audio_url_ko = generated_urls["ko"]
                     if "en" in generated_urls:
                         page.audio_url_en = generated_urls["en"]
-                    # 하위 호환: 기본 언어 audio_url 유지
-                    if default_language == "en" and "en" in generated_urls:
-                        page.audio_url = generated_urls["en"]
+                    # 기본 슬롯: 책 언어 오디오 우선(비 ko/en 언어는 여기에만 저장됨).
+                    if base_lang in generated_urls:
+                        page.audio_url = generated_urls[base_lang]
                     elif "ko" in generated_urls:
                         page.audio_url = generated_urls["ko"]
                     elif generated_urls:
@@ -1423,7 +1433,7 @@ async def _generate_audio_pages(
 async def get_page_audio(
     book_id: str,
     page_number: int,
-    language: str = Query(default="ko", pattern="^(ko|en)$"),
+    language: str = Query(default="ko", pattern="^(ko|en|ja|zh|es)$"),
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
     profile_id: Optional[str] = Depends(get_profile_id),
@@ -1454,10 +1464,19 @@ async def get_page_audio(
     if not page:
         raise NotFoundError("Page", str(page_number))
 
+    from src.services.tts import SUPPORTED_AUDIO_LANGUAGES
+
     if not isinstance(language, str):
         language = getattr(language, "default", "ko")
-    if language not in {"ko", "en"}:
-        language = "ko"
+    language = language.lower().strip()
+    book_language = str(getattr(book, "language", "") or "ko").lower().strip()
+
+    # H3: 미지원 언어는 조용한 'ko' 강제(=한국어 보이스 오합성) 대신 명시 차단(fail-open 제거).
+    if language not in SUPPORTED_AUDIO_LANGUAGES:
+        raise ValidationError(
+            f"오디오가 지원하지 않는 언어입니다: {language} "
+            f"(지원: {', '.join(SUPPORTED_AUDIO_LANGUAGES)})"
+        )
 
     audio_url_en = getattr(page, "audio_url_en", None)
     audio_url_ko = getattr(page, "audio_url_ko", None)
@@ -1469,7 +1488,10 @@ async def get_page_audio(
         return {"audio_url": audio_url_en}
     if language == "ko" and audio_url_ko:
         return {"audio_url": audio_url_ko}
-    if audio_url_default and language == "ko":
+    if language == "ko" and audio_url_default and book_language == "ko":
+        return {"audio_url": audio_url_default}
+    # H3/MA5: ja/zh/es는 책 언어와 일치할 때 기본 슬롯(audio_url)에서 캐시 반환.
+    if language not in ("ko", "en") and language == book_language and audio_url_default:
         return {"audio_url": audio_url_default}
 
     # 신규 합성(비용 발생)은 유료 기능. 단, 비독자 저연령(3-5)은 오디오가 책을 소비하는
@@ -1482,8 +1504,11 @@ async def get_page_audio(
     try:
         if language == "en":
             source_text = getattr(page, "text_en", None) or page.text
-        else:
+        elif language == "ko":
             source_text = getattr(page, "text_ko", None) or page.text
+        else:
+            # H3: ja/zh/es는 책 본문(page.text)을 책 언어 보이스로 합성.
+            source_text = page.text
         audio_bytes = await tts_service.synthesize_page(
             source_text,
             target_age=getattr(book, "target_age", None),
@@ -1496,12 +1521,15 @@ async def get_page_audio(
             audio_bytes, audio_key, content_type="audio/mpeg"
         )
 
-        # DB 업데이트
+        # DB 업데이트 — H3/MA5: 언어별 슬롯. 비 ko/en 책 언어는 기본 슬롯(audio_url)에만
+        # 저장하고, ko companion은 책 언어가 ko일 때만 기본 슬롯을 덮어쓴다(교차 오염 방지).
         if language == "en":
             page.audio_url_en = audio_url
-        else:
+        elif language == "ko":
             page.audio_url_ko = audio_url
-        if language == "ko":
+            if book_language == "ko":
+                page.audio_url = audio_url
+        else:
             page.audio_url = audio_url
         await db.commit()
 
