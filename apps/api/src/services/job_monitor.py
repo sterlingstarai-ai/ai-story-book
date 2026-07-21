@@ -151,29 +151,16 @@ class JobMonitor:
                 )
 
     async def _handle_stuck_job(self, session, job: Job, reason: str):
-        """Handle a stuck job - retry or fail"""
-        max_job_retries = max(0, int(settings.job_max_retries))
-        retry_count = job.retry_count or 0
+        """스턱 잡 처리 — 즉시 실패+환불(M18).
 
-        if retry_count < max_job_retries:
-            # Retry the job
-            job.status = "queued"
-            job.retry_count = retry_count + 1
-            job.last_retry_at = _db_utcnow()
-            job.current_step = f"재시도 중... ({job.retry_count}/{max_job_retries})"
-            job.updated_at = _db_utcnow()
-
-            logger.info(
-                "Job requeued for retry",
-                job_id=job.id,
-                retry_count=job.retry_count,
-                reason=reason,
-            )
-        else:
-            # Max retries exceeded, mark as failed
-            await self._mark_job_failed(
-                session, job, reason, f"Max retries ({max_job_retries}) exceeded"
-            )
+        기존 '재큐(status=queued)'는 좀비였다: Job 행에 BookSpec이 저장되지 않고 Celery는
+        DB 'queued' 행이 아니라 브로커 메시지를 소비하므로 재디스패치가 구조적으로 불가능해
+        재시도가 한 번도 일어나지 않았다(거짓 '재시도 중 n/3' UI). 첫 감지 시 즉시 실패 처리해
+        멱등 환불(_mark_job_failed)로 크레딧을 방어하고, 복구는 사용자 재생성으로(G14).
+        """
+        await self._mark_job_failed(
+            session, job, reason, "복구 불가 — 즉시 실패 처리"
+        )
 
     async def _mark_job_failed(self, session, job: Job, error_code: str, message: str):
         """Mark a job as failed (크레딧을 소모한 잡이면 1 크레딧 환불 — silent 손실 방지).

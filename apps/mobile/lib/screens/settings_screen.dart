@@ -303,7 +303,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(l.settingsFinalConfirmPrompt),
+                Text(l.settingsFinalConfirmPrompt(l.settingsDeleteKeyword)),
                 const SizedBox(height: AppSpacing.sm),
                 TextField(
                   controller: textController,
@@ -318,8 +318,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 child: Text(l.settingsCancel),
               ),
               TextButton(
-                onPressed: () =>
-                    Navigator.pop(context, textController.text.trim() == '삭제'),
+                // H21: 하드코딩 '삭제' 대신 로캘 키워드와 비교 → en/ja 사용자도 삭제 가능.
+                onPressed: () => Navigator.pop(
+                    context, textController.text.trim() == l.settingsDeleteKeyword),
                 child: Text(l.settingsDeleteKeyword),
               ),
             ],

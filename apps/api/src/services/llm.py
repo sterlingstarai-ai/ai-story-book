@@ -617,15 +617,9 @@ async def call_learning_assets(
     Returns:
         LearningAssets: 학습 자산 (번역, 어휘, 질문, 퀴즈, 부모 가이드)
     """
-    # 언어 이름 매핑
-    language_names = {
-        Language.ko: "한국어",
-        Language.en: "English",
-        Language.ja: "日本語",
-    }
-
-    source_lang_name = language_names.get(source_language, source_language.value)
-    target_lang_name = language_names.get(target_language, target_language.value)
+    # 언어 표시명은 i18n 단일출처를 사용(중복 맵 제거, L16). zh/es도 中文/Español로 정상 표기.
+    source_lang_name = language_display_name(source_language.value)
+    target_lang_name = language_display_name(target_language.value)
 
     system_prompt = render_prompt(
         "generate_learning_assets.system.jinja2",

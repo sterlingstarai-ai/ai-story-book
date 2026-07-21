@@ -2359,8 +2359,8 @@ abstract class AppLocalizations {
   /// No description provided for @settingsFinalConfirmPrompt.
   ///
   /// In en, this message translates to:
-  /// **'To proceed with deletion, type \"삭제\" below.'**
-  String get settingsFinalConfirmPrompt;
+  /// **'To proceed with deletion, type \"{keyword}\" below.'**
+  String settingsFinalConfirmPrompt(Object keyword);
 
   /// No description provided for @settingsDeleteKeyword.
   ///

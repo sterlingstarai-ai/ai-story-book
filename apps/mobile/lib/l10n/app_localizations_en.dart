@@ -1262,8 +1262,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsFinalConfirmTitle => 'Final confirmation';
 
   @override
-  String get settingsFinalConfirmPrompt =>
-      'To proceed with deletion, type \"삭제\" below.';
+  String settingsFinalConfirmPrompt(Object keyword) {
+    return 'To proceed with deletion, type \"$keyword\" below.';
+  }
 
   @override
   String get settingsDeleteKeyword => 'Delete';

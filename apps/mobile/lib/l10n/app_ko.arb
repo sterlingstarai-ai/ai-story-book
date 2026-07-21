@@ -386,7 +386,7 @@
   "settingsDeleteAllContent": "이 작업은 되돌릴 수 없습니다. 계속할까요?",
   "settingsContinue": "계속",
   "settingsFinalConfirmTitle": "최종 확인",
-  "settingsFinalConfirmPrompt": "삭제를 진행하려면 아래에 \"삭제\"를 입력하세요.",
+  "settingsFinalConfirmPrompt": "삭제를 진행하려면 아래에 \"{keyword}\"를 입력하세요.",
   "settingsDeleteKeyword": "삭제",
   "settingsDeleteKeywordMismatch": "확인 텍스트가 일치하지 않습니다.",
   "settingsDeleteError": "데이터 삭제에 실패했어요. 잠시 후 다시 시도해주세요.",

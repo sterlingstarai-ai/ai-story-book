@@ -91,8 +91,11 @@ async def _resolve_effective_plan(db: AsyncSession, user_key: str) -> str:
 
 
 async def _count_monthly_book_creations(db: AsyncSession, user_key: str) -> int:
-    # '이번 달'도 KST 로컬 기준(일일 한도·스트릭과 일관).
-    month_start, month_end = local_month_bounds_utc()
+    # '이번 달'도 사용자 tz 로컬 기준(일일 한도·스트릭과 일관, H2).
+    from src.services.streak import load_user_tz
+
+    tz = await load_user_tz(db, user_key)
+    month_start, month_end = local_month_bounds_utc(tz=tz)
     result = await db.execute(
         select(func.count(Job.id)).where(
             Job.user_key == user_key,
@@ -438,10 +441,12 @@ async def check_guardrails(db: AsyncSession, user_key: str):
     Check system guardrails before creating a new job.
     Raises HTTPException if guardrails are violated.
     """
-    # Check daily job limit per user — '하루' 경계는 KST 로컬 기준(스트릭/오늘읽음과 일관).
-    # UTC 자정으로 두면 한국 부모에게 한도가 오전 9시에 리셋되는 혼란이 생긴다.
+    # Check daily job limit per user — '하루' 경계는 사용자 tz 로컬 기준(스트릭/오늘읽음과 일관, H2).
+    from src.services.streak import load_user_tz
+
     now = utcnow()
-    today_start, next_day_start = local_day_bounds_utc(now)
+    tz = await load_user_tz(db, user_key)
+    today_start, next_day_start = local_day_bounds_utc(now, tz=tz)
     daily_jobs_result = await db.execute(
         select(func.count(Job.id)).where(
             and_(

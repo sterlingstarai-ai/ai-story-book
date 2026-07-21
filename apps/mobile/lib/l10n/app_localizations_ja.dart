@@ -1212,7 +1212,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get settingsFinalConfirmTitle => '最終確認';
 
   @override
-  String get settingsFinalConfirmPrompt => '削除を進めるには、下に「삭제」と入力してください。';
+  String settingsFinalConfirmPrompt(Object keyword) {
+    return '削除を進めるには、下に「$keyword」と入力してください。';
+  }
 
   @override
   String get settingsDeleteKeyword => '削除';

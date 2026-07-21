@@ -1210,7 +1210,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get settingsFinalConfirmTitle => '최종 확인';
 
   @override
-  String get settingsFinalConfirmPrompt => '삭제를 진행하려면 아래에 \"삭제\"를 입력하세요.';
+  String settingsFinalConfirmPrompt(Object keyword) {
+    return '삭제를 진행하려면 아래에 \"$keyword\"를 입력하세요.';
+  }
 
   @override
   String get settingsDeleteKeyword => '삭제';

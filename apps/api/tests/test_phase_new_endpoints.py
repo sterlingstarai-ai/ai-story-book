@@ -448,6 +448,23 @@ async def test_settings_get_and_patch(
     assert after_data["dark_mode"] is True
     assert after_data["screen_time_enabled"] is True
     assert after_data["daily_limit_minutes"] == 45
+    assert "timezone" in after_data  # H2: 기본 Asia/Seoul
+
+
+@pytest.mark.asyncio
+async def test_settings_timezone_valid_and_invalid(client, headers):
+    """H2: 유효 IANA 타임존은 저장, 무효는 4xx."""
+    ok = await client.patch(
+        "/v1/settings", json={"timezone": "America/Los_Angeles"}, headers=headers
+    )
+    assert ok.status_code == 200, ok.text
+    after = await client.get("/v1/settings", headers=headers)
+    assert after.json()["timezone"] == "America/Los_Angeles"
+
+    bad = await client.patch(
+        "/v1/settings", json={"timezone": "Not/AZone"}, headers=headers
+    )
+    assert bad.status_code == 422  # pydantic validation error
 
 
 @pytest.mark.asyncio

@@ -386,7 +386,7 @@
   "settingsDeleteAllContent": "この操作は取り消せません。続行しますか？",
   "settingsContinue": "続行",
   "settingsFinalConfirmTitle": "最終確認",
-  "settingsFinalConfirmPrompt": "削除を進めるには、下に「삭제」と入力してください。",
+  "settingsFinalConfirmPrompt": "削除を進めるには、下に「{keyword}」と入力してください。",
   "settingsDeleteKeyword": "削除",
   "settingsDeleteKeywordMismatch": "確認テキストが一致しません。",
   "settingsDeleteError": "データの削除に失敗しました。しばらくしてから再試行してください。",

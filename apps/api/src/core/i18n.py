@@ -21,5 +21,10 @@ DEFAULT_LANGUAGE = "ko"
 
 
 def language_display_name(code: str) -> str:
-    """언어 코드의 표시명. 미지원 코드는 기본 언어명으로 폴백."""
-    return LANGUAGE_DISPLAY_NAMES.get(code, LANGUAGE_DISPLAY_NAMES[DEFAULT_LANGUAGE])
+    """언어 코드의 표시명. 미지원 코드는 조용한 ko 폴백 대신 ValueError로 시끄럽게 실패한다(L16)
+    — enum만 추가하고 이 맵 갱신을 빠뜨리면 신규 언어 책이 전부 한국어로 조용히 생성되는 잠복을
+    즉시 드러내기 위함. 정상 호출부는 모두 Language enum.value를 넘기므로 정상 경로 무영향."""
+    try:
+        return LANGUAGE_DISPLAY_NAMES[code]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported language code: {code!r}") from exc

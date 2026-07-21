@@ -6,9 +6,10 @@ Settings Router
 from __future__ import annotations
 
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,6 +22,8 @@ router = APIRouter()
 
 class SettingsPatchRequest(BaseModel):
     language: Optional[str] = Field(default=None, pattern="^(ko|en)$")
+    # 하루/월 경계 판정용 IANA 타임존(H2). 유효한 zoneinfo 키만 허용.
+    timezone: Optional[str] = Field(default=None, max_length=40)
     dark_mode: Optional[bool] = None
     bedtime_notification_enabled: Optional[bool] = None
     bedtime_notification_hour: Optional[int] = Field(default=None, ge=0, le=23)
@@ -29,6 +32,17 @@ class SettingsPatchRequest(BaseModel):
     allow_kakao_share: Optional[bool] = None
     screen_time_enabled: Optional[bool] = None
     daily_limit_minutes: Optional[int] = Field(default=None, ge=30, le=120)
+
+    @field_validator("timezone")
+    @classmethod
+    def _validate_timezone(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        try:
+            ZoneInfo(v)
+        except Exception as exc:  # noqa: BLE001
+            raise ValueError(f"Invalid IANA timezone: {v!r}") from exc
+        return v
 
 
 async def _get_or_create_settings(db: AsyncSession, user_key: str) -> UserSettings:
@@ -68,6 +82,7 @@ async def get_settings(
 
     return {
         "language": settings.language,
+        "timezone": settings.timezone,
         "dark_mode": settings.dark_mode,
         "bedtime_notification_enabled": settings.bedtime_notification_enabled,
         "bedtime_notification_hour": settings.bedtime_notification_hour,
@@ -93,6 +108,7 @@ async def patch_settings(
 
     for key in (
         "language",
+        "timezone",
         "dark_mode",
         "bedtime_notification_enabled",
         "bedtime_notification_hour",

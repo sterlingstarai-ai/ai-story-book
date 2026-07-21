@@ -673,7 +673,7 @@
   "settingsDeleteAllContent": "This action cannot be undone. Do you want to continue?",
   "settingsContinue": "Continue",
   "settingsFinalConfirmTitle": "Final confirmation",
-  "settingsFinalConfirmPrompt": "To proceed with deletion, type \"삭제\" below.",
+  "settingsFinalConfirmPrompt": "To proceed with deletion, type \"{keyword}\" below.",
   "settingsDeleteKeyword": "Delete",
   "settingsDeleteKeywordMismatch": "The confirmation text does not match.",
   "settingsDeleteError": "Failed to delete data. Please try again shortly.",

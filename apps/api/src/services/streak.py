@@ -10,13 +10,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
-from ..models.db import Book, DailyStreak, DailyStory, ReadingLog
+from ..models.db import Book, DailyStreak, DailyStory, ReadingLog, UserSettings
 from ..core.utils import (
+    DEFAULT_TZ,
     local_day_bounds_utc,
     local_today,
     to_local_date,
     utcnow,
 )
+
+
+async def load_user_tz(db: AsyncSession, user_key: str) -> str:
+    """사용자의 IANA 타임존(user_settings.timezone). 미설정/미존재는 기본 Asia/Seoul(H2)."""
+    tz = (
+        await db.execute(
+            select(UserSettings.timezone).where(UserSettings.user_key == user_key)
+        )
+    ).scalar_one_or_none()
+    return tz or DEFAULT_TZ
 
 
 # 오늘의 동화 테마 목록
@@ -141,18 +152,19 @@ class StreakService:
         if profile_id:
             return await self._get_profile_streak_info(db, user_key, profile_id)
 
+        tz = await load_user_tz(db, user_key)
         streak = await self.get_or_create_streak(db, user_key)
-        today = local_today()
+        today = local_today(tz)
 
-        # 오늘 읽었는지 확인(KST 로컬 날짜 기준)
+        # 오늘 읽었는지 확인(사용자 tz 로컬 날짜 기준)
         read_today = False
         if streak.last_read_date:
-            read_today = to_local_date(streak.last_read_date) == today
+            read_today = to_local_date(streak.last_read_date, tz) == today
 
         # 스트릭이 끊어졌는지 확인
         streak_broken = False
         if streak.last_read_date and not read_today:
-            days_since = (today - to_local_date(streak.last_read_date)).days
+            days_since = (today - to_local_date(streak.last_read_date, tz)).days
             if days_since > 1:
                 streak_broken = True
 
@@ -192,10 +204,11 @@ class StreakService:
                 "streak_broken": False,
             }
 
+        tz = await load_user_tz(db, user_key)
         datetimes = [read_date for (read_date,) in rows if read_date is not None]
-        unique_dates = sorted({to_local_date(dt) for dt in datetimes})
+        unique_dates = sorted({to_local_date(dt, tz) for dt in datetimes})
         last_date = unique_dates[-1]
-        today = local_today()
+        today = local_today(tz)
         days_since = (today - last_date).days
 
         read_today = last_date == today
@@ -250,9 +263,10 @@ class StreakService:
         profile_id: Optional[str] = None,
     ) -> dict:
         """읽기 기록 및 스트릭 업데이트 (원자적)"""
+        # '오늘' 경계는 사용자 tz 기준(H2) — 비KST 사용자가 UTC 자정에 스트릭이 끊기지 않게.
+        tz = await load_user_tz(db, user_key)
         if profile_id:
-            # '오늘' 판정은 KST 로컬 하루 경계로(UTC 자정 = KST 오전 9시 어긋남 방지).
-            today_start, tomorrow_start = local_day_bounds_utc()
+            today_start, tomorrow_start = local_day_bounds_utc(tz=tz)
 
             today_result = await db.execute(
                 select(ReadingLog.id).where(
@@ -296,13 +310,13 @@ class StreakService:
             }
 
         streak = await self.get_or_create_streak(db, user_key)
-        today = local_today()
+        today = local_today(tz)
         today_dt = utcnow()
 
-        # 오늘 이미 읽었는지 확인(KST 로컬 날짜)
+        # 오늘 이미 읽었는지 확인(사용자 tz 로컬 날짜)
         already_read_today = False
         if streak.last_read_date:
-            already_read_today = to_local_date(streak.last_read_date) == today
+            already_read_today = to_local_date(streak.last_read_date, tz) == today
 
         # 읽기 기록 추가
         reading_log = ReadingLog(
@@ -319,7 +333,7 @@ class StreakService:
         if not already_read_today:
             # 새 스트릭 값 계산
             if streak.last_read_date:
-                days_since = (today - to_local_date(streak.last_read_date)).days
+                days_since = (today - to_local_date(streak.last_read_date, tz)).days
                 if days_since == 1:
                     new_streak = streak.current_streak + 1
                 elif days_since > 1:

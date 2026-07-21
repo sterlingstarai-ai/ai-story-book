@@ -494,6 +494,10 @@ class UserSettings(Base):
 
     user_key = Column(String(80), primary_key=True)
     language = Column(String(10), nullable=False, default="ko")
+    # 하루/월 경계(스트릭·일일/월간 한도·리포트) 판정용 IANA 타임존(H2/G10). 기본 Asia/Seoul.
+    timezone = Column(
+        String(40), nullable=False, default="Asia/Seoul", server_default="Asia/Seoul"
+    )
     dark_mode = Column(Boolean, nullable=False, default=False)
     bedtime_notification_enabled = Column(Boolean, nullable=False, default=False)
     bedtime_notification_hour = Column(Integer, nullable=True)

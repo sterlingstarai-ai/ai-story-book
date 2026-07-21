@@ -2806,6 +2806,18 @@
               }
             ],
             "title": "Sleep Mode Default Minutes"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone"
           }
         },
         "title": "SettingsPatchRequest",
