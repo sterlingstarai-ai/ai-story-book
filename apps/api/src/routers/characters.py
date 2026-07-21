@@ -416,6 +416,16 @@ async def delete_character(
     # 사진/그림 파생 여부를 행 삭제 전에 확보(삭제 후 원본 스토리지도 파기해야 함).
     was_from_photo = bool(getattr(character, "from_photo", False))
 
+    # H7: series.character_id → characters.id는 단방향 FK(ondelete 없음)라 ORM이
+    # 자동 nullify하지 못해 commit에서 IntegrityError 500이 난다. 삭제 전에 명시 해제.
+    from sqlalchemy import update
+    from src.models.db import Series
+
+    await db.execute(
+        update(Series)
+        .where(Series.character_id == character_id)
+        .values(character_id=None)
+    )
     await db.delete(character)
     try:
         await db.commit()

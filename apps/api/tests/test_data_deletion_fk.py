@@ -197,3 +197,82 @@ def test_sheet_image_key_is_under_character_prefix():
     with image_storage_scope("characters/char_abc/sheets"):
         key = _make_image_key("openai", "png")
     assert key.startswith("characters/char_abc/sheets/")
+
+
+# ==================== H7: series FK 미처리로 인한 erasure 500 ====================
+
+
+async def _make_character(db, user_key=OWNER) -> str:
+    from src.models.db import Character
+
+    cid = f"char_{uuid.uuid4().hex[:8]}"
+    db.add(
+        Character(
+            id=cid,
+            name="토리",
+            master_description="a white rabbit",
+            appearance={"face": "round"},
+            clothing={"top": "vest"},
+            personality_traits=["brave"],
+            user_key=user_key,
+        )
+    )
+    await db.flush()
+    return cid
+
+
+async def _make_series(db, character_id, user_key=OWNER) -> str:
+    from src.models.db import Series
+
+    sid = f"series_{uuid.uuid4().hex[:8]}"
+    db.add(
+        Series(
+            id=sid,
+            title="시리즈",
+            language="ko",
+            target_age="5-7",
+            style="watercolor",
+            character_id=character_id,
+            user_key=user_key,
+        )
+    )
+    await db.flush()
+    return sid
+
+
+@pytest.mark.asyncio
+async def test_account_deletion_with_series_succeeds(client, db_session):
+    """H7: 시리즈 사용 이력이 있어도 계정 삭제가 200(FK 순서 위반 없음)."""
+    from src.models.db import Series
+
+    cid = await _make_character(db_session)
+    sid = await _make_series(db_session, cid)
+    book_id = await _make_book(db_session, character_id=cid)
+    book = (await db_session.execute(select(Book).where(Book.id == book_id))).scalar_one()
+    book.series_id = sid
+    await db_session.commit()
+
+    r = await client.delete("/v1/users/me", headers=OWNER_HEADERS)
+    assert r.status_code == 200, r.text
+
+    db_session.expire_all()
+    assert (await db_session.execute(select(Series).where(Series.user_key == OWNER))).scalars().all() == []
+    assert (await db_session.execute(select(Book).where(Book.user_key == OWNER))).scalars().all() == []
+
+
+@pytest.mark.asyncio
+async def test_delete_character_with_series_nullifies_series(client, db_session):
+    """H7: 시리즈를 만든 캐릭터 삭제가 200 + series.character_id null화."""
+    from src.models.db import Character, Series
+
+    cid = await _make_character(db_session)
+    sid = await _make_series(db_session, cid)
+    await db_session.commit()
+
+    r = await client.delete(f"/v1/characters/{cid}", headers=OWNER_HEADERS)
+    assert r.status_code == 200, r.text
+
+    db_session.expire_all()
+    series = (await db_session.execute(select(Series).where(Series.id == sid))).scalar_one()
+    assert series.character_id is None
+    assert (await db_session.execute(select(Character).where(Character.id == cid))).scalar_one_or_none() is None

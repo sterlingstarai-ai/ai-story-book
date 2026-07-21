@@ -82,8 +82,10 @@ async def delete_my_data(
     await db.execute(delete(Subscription).where(Subscription.user_key == user_key))
     await db.execute(delete(UserCredits).where(UserCredits.user_key == user_key))
     await db.execute(delete(DailyStreak).where(DailyStreak.user_key == user_key))
-    await db.execute(delete(Series).where(Series.user_key == user_key))
+    # H7: Book(series_id→series.id FK)을 Series보다 먼저 삭제해야 FK 위반이 없다.
+    # Series는 여전히 Character(series.character_id→characters.id FK)보다 앞이어야 한다.
     await db.execute(delete(Book).where(Book.user_key == user_key))
+    await db.execute(delete(Series).where(Series.user_key == user_key))
     await db.execute(delete(Job).where(Job.user_key == user_key))
     await db.execute(delete(Character).where(Character.user_key == user_key))
     await db.execute(delete(VoiceProfile).where(VoiceProfile.user_key == user_key))
