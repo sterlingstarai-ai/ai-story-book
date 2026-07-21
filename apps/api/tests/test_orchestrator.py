@@ -188,7 +188,7 @@ class TestRunStep:
 class TestModerateOutput:
     """출력 안전성 검사 테스트"""
 
-    def _make_story(self, title="Test Story", page_texts=None):
+    def _make_story(self, title="Test Story", page_texts=None, language=None):
         """테스트용 StoryDraft 생성 헬퍼"""
         from src.models.dto import (
             StoryDraft,
@@ -207,7 +207,7 @@ class TestModerateOutput:
 
         return StoryDraft(
             title=title,
-            language=Language.ko,
+            language=language or Language.ko,
             target_age=TargetAge.a5_7,
             theme="friendship",
             moral="Be kind",
@@ -335,6 +335,73 @@ class TestModerateOutput:
         )
         result = await moderate_output(story, {})
         assert result is False
+
+    # ---- H24: ko/en 키워드망 밖 언어(ja/zh/es) LLM 출력 모더레이션 폴백 ----
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("lang_code", ["ja", "zh", "es"])
+    async def test_uncovered_language_unsafe_blocked_via_llm(
+        self, lang_code, monkeypatch
+    ):
+        """ja/zh/es는 키워드망 밖 → LLM 폴백이 unsafe면 차단(fail-open 금지)."""
+        from src.services import llm as llm_module
+        from src.services.orchestrator import moderate_output
+        from src.models.dto import Language, ModerationResult
+
+        called = {}
+
+        async def fake_output_mod(text, language):
+            called["language"] = language
+            return ModerationResult(is_safe=False, reasons=["violence"], suggestions=[])
+
+        monkeypatch.setattr(
+            llm_module, "call_output_moderation", fake_output_mod, raising=False
+        )
+
+        # 키워드망(ko/en)에 안 걸리는 텍스트지만 LLM은 unsafe로 판정.
+        story = self._make_story(
+            title="物語",
+            page_texts=["殺す", "銃"],
+            language=Language(lang_code),
+        )
+        result = await moderate_output(story, {})
+        assert result is False
+        assert called["language"] == Language(lang_code)
+
+    @pytest.mark.asyncio
+    async def test_uncovered_language_safe_passes_via_mock_default(self):
+        """ja 정상 동화: mock 프로바이더 출력 모더레이션 기본 safe → 통과(오탐 없음)."""
+        from src.services.orchestrator import moderate_output
+        from src.models.dto import Language
+
+        story = self._make_story(
+            title="ともだち",
+            page_texts=["ともだちとあそびました", "たのしいいちにち"],
+            language=Language.ja,
+        )
+        result = await moderate_output(story, {})
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_covered_language_skips_llm_fallback(self, monkeypatch):
+        """ko/en은 키워드망으로 충분 → LLM 폴백을 호출하지 않는다(비용·지연)."""
+        from src.services import llm as llm_module
+        from src.services.orchestrator import moderate_output
+        from src.models.dto import Language
+
+        async def boom(text, language):  # 호출되면 실패
+            raise AssertionError("covered language must not call LLM fallback")
+
+        monkeypatch.setattr(
+            llm_module, "call_output_moderation", boom, raising=False
+        )
+
+        story = self._make_story(
+            page_texts=["The day had begun happily.", "We had fun!"],
+            language=Language.en,
+        )
+        result = await moderate_output(story, {})
+        assert result is True
 
 
 # ==================== generate_image_with_retry Tests ====================

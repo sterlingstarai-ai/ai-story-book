@@ -867,11 +867,26 @@ _MOD_FORBIDDEN_KO = [
 ]
 
 
+# H24: 아래 KO/EN 키워드망이 실제로 커버하는 언어. 이 밖의 스토리 언어(ja/zh/es)는
+# 키워드망이 비어 있어 fail-open(항상 True)하던 아동 안전 공백 → LLM 폴백으로 커버.
+_KEYWORD_COVERED_LANGUAGES = {Language.ko, Language.en}
+
+
 async def moderate_output(story: StoryDraft, image_urls: dict) -> bool:
     """G. 출력 안전성 검사 - 생성된 콘텐츠 검증.
 
     영어 금칙어는 단어 경계로, 한국어 금칙어는 구체적 표현으로 검사하여
     '피자/예술/총총' 등 정상 단어의 오탐(=정상 동화의 silent generation failure)을 방지한다.
+
+    ko/en 키워드망 밖 언어(ja/zh/es)는 키워드가 없어 무조건 통과하던 fail-open을
+    제거하고, LLM 기반 출력 모더레이션(call_output_moderation)으로 폴백한다(H24, G17).
+
+    NOTE(H24/G17): image_urls 인자의 이미지 콘텐츠 안전검사는 여기서 배선하지 않는다.
+    현 아키텍처에는 생성된 이미지에 대한 safety 신호가 provider 요청 파라미터
+    (fal enable_safety_checker 등) 외에 반환 경로로 없어, Python 측에서 always-safe
+    훅을 두면 '검사한 척'하는 안전 연극이 된다. 실질 배선(vision 모더레이션 또는
+    provider nsfw 플래그 패스스루)은 이미지 생성 반환 타입 변경을 수반하는 별도
+    스코프 — CTO 재확인 대상으로 보고한다.
     """
     text = story.title
     for page in story.pages:
@@ -885,6 +900,20 @@ async def moderate_output(story: StoryDraft, image_urls: dict) -> bool:
     for rx in _MOD_FORBIDDEN_EN_RE:
         if rx.search(text):
             logger.warning("Output moderation failed", pattern=rx.pattern, title=story.title)
+            return False
+
+    # H24: 키워드망 밖 언어는 fail-open 대신 LLM 출력 모더레이션 폴백.
+    if story.language not in _KEYWORD_COVERED_LANGUAGES:
+        from src.services.llm import call_output_moderation
+
+        result = await call_output_moderation(text, story.language)
+        if not result.is_safe:
+            logger.warning(
+                "Output moderation failed (LLM fallback)",
+                language=story.language.value,
+                reasons=result.reasons,
+                title=story.title,
+            )
             return False
 
     return True

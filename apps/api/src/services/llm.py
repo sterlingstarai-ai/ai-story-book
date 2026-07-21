@@ -442,6 +442,28 @@ async def call_moderation(spec: BookSpec) -> ModerationResult:
     return parse_json_response(response, ModerationResult)
 
 
+async def call_output_moderation(text: str, language: Language) -> ModerationResult:
+    """출력(생성된 책 텍스트) 안전성 검사 — LLM 기반.
+
+    H24: orchestrator의 ko/en 키워드망이 커버하지 못하는 언어(ja/zh/es)에서
+    출력 안전 게이트가 fail-open하던 공백을 메우는 폴백. mock 프로바이더는
+    안전 기본값(is_safe=True)을 반환해 테스트 결정성을 유지한다.
+    """
+    system_prompt = render_prompt(
+        "moderate_output.system.jinja2",
+        language_name=language_display_name(language.value),
+    )
+    user_prompt = render_prompt(
+        "moderate_output.user.jinja2",
+        text=text,
+        language=language.value,
+    )
+    response = await call_llm(
+        system_prompt, user_prompt, max_tokens=500, temperature=0.2
+    )
+    return parse_json_response(response, ModerationResult)
+
+
 async def load_characters_from_db(character_ids: list[str]) -> list[dict]:
     """DB에서 캐릭터 목록 로드"""
     if not character_ids:
