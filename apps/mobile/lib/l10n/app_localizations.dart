@@ -1102,6 +1102,66 @@ abstract class AppLocalizations {
   /// **'Generation is taking longer than expected. Please check the status again.'**
   String get loadingTimeoutMessage;
 
+  /// No description provided for @errorValidation.
+  ///
+  /// In en, this message translates to:
+  /// **'Please check your input.'**
+  String get errorValidation;
+
+  /// No description provided for @errorUnauthorized.
+  ///
+  /// In en, this message translates to:
+  /// **'Please sign in.'**
+  String get errorUnauthorized;
+
+  /// No description provided for @errorForbidden.
+  ///
+  /// In en, this message translates to:
+  /// **'You don\'t have permission for this.'**
+  String get errorForbidden;
+
+  /// No description provided for @errorInternal.
+  ///
+  /// In en, this message translates to:
+  /// **'A server error occurred. Please try again in a moment.'**
+  String get errorInternal;
+
+  /// No description provided for @errorRateLimit.
+  ///
+  /// In en, this message translates to:
+  /// **'Too many requests. Please try again in a moment.'**
+  String get errorRateLimit;
+
+  /// No description provided for @errorServiceUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'The server is temporarily unstable. Please try again in a moment.'**
+  String get errorServiceUnavailable;
+
+  /// No description provided for @errorTimeout.
+  ///
+  /// In en, this message translates to:
+  /// **'The request timed out. Please try again.'**
+  String get errorTimeout;
+
+  /// No description provided for @errorConnection.
+  ///
+  /// In en, this message translates to:
+  /// **'Please check your internet connection.'**
+  String get errorConnection;
+
+  /// No description provided for @errorNetwork.
+  ///
+  /// In en, this message translates to:
+  /// **'A network error occurred.'**
+  String get errorNetwork;
+
+  /// No description provided for @errorCancelled.
+  ///
+  /// In en, this message translates to:
+  /// **'The request was cancelled.'**
+  String get errorCancelled;
+
   /// Prefix shown before server-provided safety reasons when input moderation blocks a book (SAFETY_INPUT).
   ///
   /// In en, this message translates to:

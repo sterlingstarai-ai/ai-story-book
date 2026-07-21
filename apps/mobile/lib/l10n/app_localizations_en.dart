@@ -556,6 +556,39 @@ class AppLocalizationsEn extends AppLocalizations {
       'Generation is taking longer than expected. Please check the status again.';
 
   @override
+  String get errorValidation => 'Please check your input.';
+
+  @override
+  String get errorUnauthorized => 'Please sign in.';
+
+  @override
+  String get errorForbidden => 'You don\'t have permission for this.';
+
+  @override
+  String get errorInternal =>
+      'A server error occurred. Please try again in a moment.';
+
+  @override
+  String get errorRateLimit =>
+      'Too many requests. Please try again in a moment.';
+
+  @override
+  String get errorServiceUnavailable =>
+      'The server is temporarily unstable. Please try again in a moment.';
+
+  @override
+  String get errorTimeout => 'The request timed out. Please try again.';
+
+  @override
+  String get errorConnection => 'Please check your internet connection.';
+
+  @override
+  String get errorNetwork => 'A network error occurred.';
+
+  @override
+  String get errorCancelled => 'The request was cancelled.';
+
+  @override
   String get loadingSafetyBlockedPrefix => 'This input isn\'t safe:';
 
   @override

@@ -25,7 +25,7 @@ ApiError? _extractApiError(Object error) {
 }
 
 /// 보호자 동의 미동의(403)는 서버가 내려준 구체 사유를 그대로 노출한다.
-String _errorMessage(Object error, String fallback) {
+String _errorMessage(AppLocalizations l, Object error, String fallback) {
   final apiError = _extractApiError(error);
   if (apiError == null) {
     return fallback;
@@ -33,7 +33,7 @@ String _errorMessage(Object error, String fallback) {
   if (apiError.statusCode == 403) {
     return apiError.message;
   }
-  return apiError.userMessage;
+  return apiError.localizedMessage(l); // M15: en/ja 로케일 에러 로컬라이즈
 }
 
 /// '우리 아이를 주인공으로' 소스 선택 시트.
@@ -94,7 +94,7 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
         Navigator.pop(context, id);
       }
     } catch (error) {
-      _showError(_errorMessage(error, l.characterSourceCreateFailed));
+      _showError(_errorMessage(l, error, l.characterSourceCreateFailed));
     }
   }
 
@@ -147,6 +147,7 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
       }
     } catch (error) {
       _showError(_errorMessage(
+        l,
         error,
         l.characterSourcePhotoFailed,
       ));

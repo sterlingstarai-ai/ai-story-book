@@ -211,6 +211,16 @@
   "loadingErrorTitle": "Something went wrong",
   "loadingUnknownError": "Unknown error",
   "loadingTimeoutMessage": "Generation is taking longer than expected. Please check the status again.",
+  "errorValidation": "Please check your input.",
+  "errorUnauthorized": "Please sign in.",
+  "errorForbidden": "You don't have permission for this.",
+  "errorInternal": "A server error occurred. Please try again in a moment.",
+  "errorRateLimit": "Too many requests. Please try again in a moment.",
+  "errorServiceUnavailable": "The server is temporarily unstable. Please try again in a moment.",
+  "errorTimeout": "The request timed out. Please try again.",
+  "errorConnection": "Please check your internet connection.",
+  "errorNetwork": "A network error occurred.",
+  "errorCancelled": "The request was cancelled.",
   "loadingSafetyBlockedPrefix": "This input isn't safe:",
   "@loadingSafetyBlockedPrefix": {
     "description": "Prefix shown before server-provided safety reasons when input moderation blocks a book (SAFETY_INPUT)."

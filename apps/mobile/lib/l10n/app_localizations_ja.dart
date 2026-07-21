@@ -530,6 +530,36 @@ class AppLocalizationsJa extends AppLocalizations {
   String get loadingTimeoutMessage => '生成に想定より時間がかかっています。ステータスをもう一度ご確認ください。';
 
   @override
+  String get errorValidation => '入力内容をご確認ください。';
+
+  @override
+  String get errorUnauthorized => 'ログインが必要です。';
+
+  @override
+  String get errorForbidden => 'アクセス権限がありません。';
+
+  @override
+  String get errorInternal => 'サーバーエラーが発生しました。しばらくしてからもう一度お試しください。';
+
+  @override
+  String get errorRateLimit => 'リクエストが多すぎます。しばらくしてからもう一度お試しください。';
+
+  @override
+  String get errorServiceUnavailable => 'サーバーが一時的に不安定です。しばらくしてからもう一度お試しください。';
+
+  @override
+  String get errorTimeout => 'リクエストがタイムアウトしました。もう一度お試しください。';
+
+  @override
+  String get errorConnection => 'インターネット接続をご確認ください。';
+
+  @override
+  String get errorNetwork => 'ネットワークエラーが発生しました。';
+
+  @override
+  String get errorCancelled => 'リクエストがキャンセルされました。';
+
+  @override
   String get loadingSafetyBlockedPrefix => '入力が安全ではありません:';
 
   @override

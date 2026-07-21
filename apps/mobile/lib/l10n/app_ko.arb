@@ -177,6 +177,16 @@
   "loadingErrorTitle": "문제가 발생했어요",
   "loadingUnknownError": "알 수 없는 오류",
   "loadingTimeoutMessage": "생성이 예상보다 오래 걸리고 있어요. 상태를 다시 확인해 주세요.",
+  "errorValidation": "입력 정보를 확인해주세요.",
+  "errorUnauthorized": "로그인이 필요합니다.",
+  "errorForbidden": "접근 권한이 없습니다.",
+  "errorInternal": "서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
+  "errorRateLimit": "요청이 너무 많습니다. 잠시 후 다시 시도해주세요.",
+  "errorServiceUnavailable": "서버가 일시적으로 불안정합니다. 잠시 후 다시 시도해주세요.",
+  "errorTimeout": "요청 시간이 초과되었습니다. 다시 시도해주세요.",
+  "errorConnection": "인터넷 연결을 확인해주세요.",
+  "errorNetwork": "네트워크 오류가 발생했습니다.",
+  "errorCancelled": "요청이 취소되었습니다.",
   "loadingSafetyBlockedPrefix": "입력이 안전하지 않습니다:",
   "@loadingSafetyBlockedPrefix": {
     "description": "Prefix shown before server-provided safety reasons when input moderation blocks a book (SAFETY_INPUT)."

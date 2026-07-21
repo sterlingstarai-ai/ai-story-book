@@ -185,7 +185,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   String _friendlyErrorMessage(Object error) {
     final l = AppLocalizations.of(context);
     if (error is ApiError) {
-      return error.userMessage;
+      return error.localizedMessage(l);
     }
     final raw = error.toString().toLowerCase();
     if (raw.contains('socketexception') ||

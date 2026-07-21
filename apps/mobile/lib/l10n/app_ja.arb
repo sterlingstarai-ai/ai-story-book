@@ -177,6 +177,16 @@
   "loadingErrorTitle": "問題が発生しました",
   "loadingUnknownError": "不明なエラー",
   "loadingTimeoutMessage": "生成に想定より時間がかかっています。ステータスをもう一度ご確認ください。",
+  "errorValidation": "入力内容をご確認ください。",
+  "errorUnauthorized": "ログインが必要です。",
+  "errorForbidden": "アクセス権限がありません。",
+  "errorInternal": "サーバーエラーが発生しました。しばらくしてからもう一度お試しください。",
+  "errorRateLimit": "リクエストが多すぎます。しばらくしてからもう一度お試しください。",
+  "errorServiceUnavailable": "サーバーが一時的に不安定です。しばらくしてからもう一度お試しください。",
+  "errorTimeout": "リクエストがタイムアウトしました。もう一度お試しください。",
+  "errorConnection": "インターネット接続をご確認ください。",
+  "errorNetwork": "ネットワークエラーが発生しました。",
+  "errorCancelled": "リクエストがキャンセルされました。",
   "loadingSafetyBlockedPrefix": "入力が安全ではありません:",
   "@loadingSafetyBlockedPrefix": {
     "description": "Prefix shown before server-provided safety reasons when input moderation blocks a book (SAFETY_INPUT)."

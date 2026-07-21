@@ -530,6 +530,36 @@ class AppLocalizationsKo extends AppLocalizations {
   String get loadingTimeoutMessage => '생성이 예상보다 오래 걸리고 있어요. 상태를 다시 확인해 주세요.';
 
   @override
+  String get errorValidation => '입력 정보를 확인해주세요.';
+
+  @override
+  String get errorUnauthorized => '로그인이 필요합니다.';
+
+  @override
+  String get errorForbidden => '접근 권한이 없습니다.';
+
+  @override
+  String get errorInternal => '서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.';
+
+  @override
+  String get errorRateLimit => '요청이 너무 많습니다. 잠시 후 다시 시도해주세요.';
+
+  @override
+  String get errorServiceUnavailable => '서버가 일시적으로 불안정합니다. 잠시 후 다시 시도해주세요.';
+
+  @override
+  String get errorTimeout => '요청 시간이 초과되었습니다. 다시 시도해주세요.';
+
+  @override
+  String get errorConnection => '인터넷 연결을 확인해주세요.';
+
+  @override
+  String get errorNetwork => '네트워크 오류가 발생했습니다.';
+
+  @override
+  String get errorCancelled => '요청이 취소되었습니다.';
+
+  @override
   String get loadingSafetyBlockedPrefix => '입력이 안전하지 않습니다:';
 
   @override

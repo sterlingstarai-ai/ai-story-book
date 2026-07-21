@@ -155,7 +155,7 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
         return;
       }
       final message = error is ApiError
-          ? error.userMessage
+          ? error.localizedMessage(AppLocalizations.of(context))
           : AppLocalizations.of(context).podOrderSubmitError;
       setState(() => _errorMessage = message);
     } finally {
@@ -184,7 +184,7 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
         return;
       }
       final message = error is ApiError
-          ? error.userMessage
+          ? error.localizedMessage(AppLocalizations.of(context))
           : AppLocalizations.of(context).podOrderStatusError;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message)),

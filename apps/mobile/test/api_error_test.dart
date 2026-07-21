@@ -1,5 +1,8 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ai_story_book/l10n/app_localizations.dart';
+import 'package:flutter/widgets.dart';
+
 
 import 'package:ai_story_book/core/api_error.dart';
 
@@ -203,4 +206,31 @@ void main() {
       );
     });
   });
+
+  group('M15 localizedMessage', () {
+    test('network/http codes localize; en/ja show no Korean', () async {
+      final en = await AppLocalizations.delegate.load(const Locale('en'));
+      final ja = await AppLocalizations.delegate.load(const Locale('ja'));
+
+      final conn = ApiError(code: 'CONNECTION_ERROR', message: '인터넷 연결을 확인해주세요.', statusCode: 0);
+      expect(conn.localizedMessage(en), en.errorConnection);
+      expect(conn.localizedMessage(en), isNot(contains('인터넷')));
+      expect(conn.localizedMessage(ja), ja.errorConnection);
+
+      final val = ApiError(code: 'VALIDATION_ERROR', message: 'x', statusCode: 422);
+      expect(val.localizedMessage(en), en.errorValidation);
+
+      final rate = ApiError(code: 'RATE_LIMIT_EXCEEDED', message: 'x', statusCode: 429);
+      expect(rate.localizedMessage(ja), ja.errorRateLimit);
+    });
+
+    test('server-message codes (NOT_FOUND/PAYMENT_REQUIRED) keep the specific message', () async {
+      final en = await AppLocalizations.delegate.load(const Locale('en'));
+      final nf = ApiError(code: 'NOT_FOUND', message: 'Book not found', statusCode: 404);
+      expect(nf.localizedMessage(en), 'Book not found');
+      final pay = ApiError(code: 'PAYMENT_REQUIRED', message: '무료 플랜은 월 2권까지 생성할 수 있습니다.', statusCode: 402);
+      expect(pay.localizedMessage(en), '무료 플랜은 월 2권까지 생성할 수 있습니다.');
+    });
+  });
+
 }
