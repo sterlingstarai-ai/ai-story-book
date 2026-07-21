@@ -10,7 +10,7 @@ import structlog
 
 from src.core.config import settings
 from src.core.errors import LLMError, ErrorCode
-from src.core.i18n import language_display_name
+from src.core.i18n import SUPPORTED_LANGUAGES, language_display_name
 from src.models.dto import (
     BookSpec,
     StoryDraft,
@@ -258,8 +258,10 @@ async def _call_mock(
         # 요청된 언어/연령을 user_prompt 에서 감지(mock 충실도). 프롬프트는
         # "- language: en" / "- target_age: 7-9" 형태로 spec 을 그대로 담고 있어
         # 골든 하니스가 spec→story 전파를 구조 단계에서 검증할 수 있게 한다.
+        # M34: 하드코딩('en','ja','ko') 대신 i18n.SUPPORTED_LANGUAGES 단일출처 — zh/es 골든이
+        # mock에서 ko로 폴백해 language_matches_spec이 실패하던 false-green 제거.
         _mock_language = "ko"
-        for _cand in ("en", "ja", "ko"):
+        for _cand in SUPPORTED_LANGUAGES:
             if f"language: {_cand}" in user_prompt:
                 _mock_language = _cand
                 break
