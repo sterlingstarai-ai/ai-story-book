@@ -108,8 +108,11 @@ class PhotoCharacterService:
             try:
                 return json.loads(content)
             except json.JSONDecodeError:
+                # M21: 실 프로바이더 파싱 실패를 고정 mock('양갈래 소녀')로 삼키지 않는다 —
+                # 부모가 올린 사진과 전혀 다른 캐릭터가 200으로 저장되던 fail-open 제거.
+                # 형제 텍스트 캐릭터 경로와 동일하게 raise(라우터가 5xx로 표준화).
                 logger.error("OpenAI vision returned invalid JSON", content=content[:200])
-                return self._mock_analysis()
+                raise
 
     async def _analyze_with_anthropic(self, image_base64: str, prompt: str) -> dict:
         """Anthropic Claude Vision으로 분석"""
@@ -155,8 +158,9 @@ class PhotoCharacterService:
                     return json.loads(json_match.group())
                 return json.loads(content)
             except json.JSONDecodeError:
+                # M21: 실 프로바이더 파싱 실패를 mock으로 삼키지 않고 raise(fail-open 제거).
                 logger.error("Anthropic vision returned invalid JSON", content=content[:200])
-                return self._mock_analysis()
+                raise
 
     def _get_analysis_prompt(self) -> str:
         """분석 프롬프트"""

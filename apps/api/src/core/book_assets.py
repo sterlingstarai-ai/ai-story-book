@@ -59,6 +59,11 @@ def build_page_asset_status(
     }
 
 
+def _is_missing_asset_url(url: Optional[str]) -> bool:
+    """URL이 비어있음/None(예외 실패로 image_url='' 저장)인지. asset_status의 'missing'과 일관."""
+    return not (isinstance(url, str) and url.strip())
+
+
 def build_generation_warnings(
     *,
     cover_image_url: Optional[str],
@@ -66,11 +71,22 @@ def build_generation_warnings(
 ) -> list[dict]:
     warnings: list[dict] = []
 
+    # M19: placeholder(강등)뿐 아니라 빈/None URL(예외 실패)도 경고 — 그림 없는 페이지가
+    # 경고 배너 없이 '완성'으로 배달되던 비대칭(asset_status는 'missing'인데 warnings는 0건) 해소.
     if is_placeholder_asset_url(cover_image_url):
         warnings.append(
             {
                 "code": "cover_placeholder_image",
                 "message": "표지 이미지 생성이 실패해 임시 이미지를 표시하고 있습니다.",
+                "asset": "cover",
+                "page_number": 0,
+            }
+        )
+    elif _is_missing_asset_url(cover_image_url):
+        warnings.append(
+            {
+                "code": "cover_image_missing",
+                "message": "표지 이미지 생성에 실패했습니다.",
                 "asset": "cover",
                 "page_number": 0,
             }
@@ -82,6 +98,15 @@ def build_generation_warnings(
                 {
                     "code": "page_placeholder_image",
                     "message": "일부 페이지 이미지 생성이 실패해 임시 이미지를 표시하고 있습니다.",
+                    "asset": "image",
+                    "page_number": page_number,
+                }
+            )
+        elif _is_missing_asset_url(image_url):
+            warnings.append(
+                {
+                    "code": "page_image_missing",
+                    "message": "일부 페이지 이미지 생성에 실패했습니다.",
                     "asset": "image",
                     "page_number": page_number,
                 }
