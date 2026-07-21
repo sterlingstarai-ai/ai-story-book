@@ -305,6 +305,28 @@ class CreditTransaction(Base):
                 "AND reference_id LIKE 'milestone_%'"
             ),
         ),
+        # M16: 멀티 레플리카 동시 스캔/재전송에서의 이중 환불·N중 지급을 DB로 강제 차단.
+        # refund는 job당 1회(reference_id=job_id), purchase는 (user_key, 결제 txn)당 1회.
+        Index(
+            "uq_credit_transactions_refund",
+            "reference_id",
+            unique=True,
+            sqlite_where=text("transaction_type = 'refund'"),
+            postgresql_where=text("transaction_type = 'refund'"),
+        ),
+        Index(
+            "uq_credit_transactions_purchase",
+            "user_key",
+            "reference_id",
+            unique=True,
+            sqlite_where=text("transaction_type = 'purchase'"),
+            postgresql_where=text("transaction_type = 'purchase'"),
+        ),
+        Index(
+            "ix_credit_transactions_reference_type",
+            "reference_id",
+            "transaction_type",
+        ),
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -389,6 +411,7 @@ class IAPReceipt(Base):
             name="uq_iap_receipts_platform_store_transaction_id",
         ),
         Index("ix_iap_receipts_user_key", "user_key"),
+        Index("ix_iap_receipts_subscription_id", "subscription_id"),
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -401,8 +424,47 @@ class IAPReceipt(Base):
     purchase_token = Column(String(500), nullable=True)
     status = Column(String(40), nullable=False, default="verified")
     payload = Column(JSON, nullable=True)
+    # 이 영수증이 개설/재활성한 구독(H5). 웹훅이 '최신 구독' 임의 매칭 대신 이 구독만
+    # 갱신하게 해, 업그레이드 후 옛 영수증 통지가 방금 결제한 구독을 죽이는 것을 막는다.
+    subscription_id = Column(
+        Integer, ForeignKey("subscriptions.id"), nullable=True
+    )
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class IapWebhookEvent(Base):
+    """IAP 웹훅 이벤트 적재(H4).
+
+    verify 이전 선도착하거나 store 식별자로만 오는 환불/취소 통지가 영수증 조회 미스로
+    유실되지 않도록 적재한다. verify 시 매칭 영수증에 sticky 재적용 후 applied=True.
+    """
+
+    __tablename__ = "iap_webhook_events"
+    __table_args__ = (
+        # 중복 웹훅 멱등: 같은 (platform, transaction_id, status)는 1행.
+        Index(
+            "uq_iap_webhook_events_dedup",
+            "platform",
+            "transaction_id",
+            "status",
+            unique=True,
+        ),
+        Index(
+            "ix_iap_webhook_events_lookup",
+            "platform",
+            "transaction_id",
+            "applied",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    platform = Column(String(20), nullable=False)
+    transaction_id = Column(String(200), nullable=False)
+    status = Column(String(40), nullable=False)
+    payload = Column(JSON, nullable=True)
+    applied = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, default=utcnow)
 
 
 class UserConsent(Base):

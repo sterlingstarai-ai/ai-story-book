@@ -27,6 +27,9 @@ class IAPVerificationResult:
     store_transaction_id: Optional[str]
     store_product_id: Optional[str]
     raw: dict
+    # 구독 만료 시각(ms epoch). 만료된 영수증의 restore로 영구 active 구독이 생기는
+    # 무한 리필을 막기 위해 사용(C1/MA1). 크레딧팩·미지원 시 None.
+    expires_date_ms: Optional[int] = None
 
 
 class IAPVerifierService:

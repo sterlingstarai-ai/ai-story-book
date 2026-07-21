@@ -8,6 +8,7 @@ from datetime import timedelta
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 
 from ..models.db import Book, DailyStreak, DailyStory, ReadingLog
 from ..core.utils import (
@@ -108,6 +109,8 @@ class StreakService:
         streak = result.scalar_one_or_none()
 
         if not streak:
+            # 신규 사용자 동시 첫 요청은 PK(user_key) 충돌 → IntegrityError를 흡수하고
+            # 재조회해 500·이중 행을 막는다(L8).
             streak = DailyStreak(
                 user_key=user_key,
                 current_streak=0,
@@ -115,8 +118,16 @@ class StreakService:
                 total_days=0,
             )
             db.add(streak)
-            await db.commit()
-            await db.refresh(streak)
+            try:
+                await db.commit()
+                await db.refresh(streak)
+            except IntegrityError:
+                await db.rollback()
+                streak = (
+                    await db.execute(
+                        select(DailyStreak).where(DailyStreak.user_key == user_key)
+                    )
+                ).scalar_one()
 
         return streak
 

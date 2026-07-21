@@ -4,6 +4,7 @@ Credits Router
 """
 
 from fastapi import APIRouter, Depends, Header, Query
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from typing import Optional
@@ -15,6 +16,7 @@ from src.core.config import settings
 from src.core.database import get_db
 from src.core.dependencies import get_user_key
 from src.core.exceptions import (
+    APIError,
     AuthorizationError,
     InternalServerError,
     NotFoundError,
@@ -187,6 +189,18 @@ async def subscribe(
             details={"available_plans": list(SUBSCRIPTION_PLANS.keys())},
         )
 
+    existing = await credits_service.get_active_subscription(db, user_key)
+
+    # M13: 활성 유료 구독 보유자가 free로 전환하면 create_subscription이 유료 구독을
+    # 취소해 잔여기간 entitlement가 소멸된다(스토어 청구는 계속). 즉시 거부한다(크레딧 미지급).
+    if request.plan == "free" and existing and existing.plan in ("basic", "premium"):
+        raise APIError(
+            status_code=400,
+            error_code="ACTIVE_PAID_SUBSCRIPTION",
+            message="활성 유료 구독이 있어 무료 플랜으로 전환할 수 없습니다.",
+            details={"current_plan": existing.plan},
+        )
+
     # 결제 우회 차단: 유료 플랜은 검증된 IAP 영수증(POST /v1/iap/verify)으로만 열어야 한다.
     # 이 엔드포인트는 사용자 키만으로 크레딧을 지급하므로 운영에선 유료 직접 구독을 막는다.
     # (free 플랜 변경·테스트는 허용. allow_unverified_subscribe=True면 dev에서 허용.)
@@ -199,7 +213,6 @@ async def subscribe(
             "유료 구독은 앱스토어 결제(검증된 영수증)를 통해서만 시작할 수 있습니다."
         )
 
-    existing = await credits_service.get_active_subscription(db, user_key)
     if existing and existing.plan == request.plan:
         plan_info = SUBSCRIPTION_PLANS[request.plan]
         return {
@@ -298,14 +311,25 @@ async def add_credits(
             details={"field": "transaction_id"},
         )
 
-    new_balance = await credits_service.add_credits(
-        db=db,
-        user_key=user_key,
-        amount=request.amount,
-        transaction_type="purchase",
-        description=f"크레딧 {request.amount}개 구매",
-        reference_id=request.transaction_id,
-    )
+    # M16: 같은 (user_key, transaction_id) purchase 재전송은 부분 유니크가 차단 →
+    # IntegrityError를 흡수해 멱등 응답(N중 지급 방지).
+    try:
+        new_balance = await credits_service.add_credits(
+            db=db,
+            user_key=user_key,
+            amount=request.amount,
+            transaction_type="purchase",
+            description=f"크레딧 {request.amount}개 구매",
+            reference_id=request.transaction_id,
+        )
+    except IntegrityError:
+        await db.rollback()
+        new_balance = await credits_service.get_credits(db, user_key)
+        return {
+            "status": "already_processed",
+            "message": "이미 처리된 결제입니다.",
+            "new_balance": new_balance,
+        }
 
     return {
         "status": "success",

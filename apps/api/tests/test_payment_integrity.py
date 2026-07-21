@@ -199,3 +199,181 @@ async def test_mark_job_failed_persists_status_even_if_refund_fails(db_session, 
     job = await db_session.get(Job, "job-rf")
     assert job.status == "failed"  # 상태는 영속
     assert await _balance(db_session, uk) == 2  # 환불은 안 됨(강제 실패)
+
+
+# ── M16: credit_transactions 멱등성 DB 강제(refund/purchase 부분 유니크) ──
+@pytest.mark.asyncio
+async def test_refund_partial_unique_blocks_duplicate(db_session):
+    """같은 reference_id로 transaction_type='refund' 2행 직접 insert → 2번째 IntegrityError."""
+    db_session.add(
+        CreditTransaction(
+            user_key="m16r", amount=1, balance_after=1,
+            transaction_type="refund", reference_id="job-r",
+        )
+    )
+    await db_session.commit()
+    db_session.add(
+        CreditTransaction(
+            user_key="m16r", amount=1, balance_after=2,
+            transaction_type="refund", reference_id="job-r",
+        )
+    )
+    with pytest.raises(IntegrityError):
+        await db_session.commit()
+    await db_session.rollback()
+
+
+@pytest.mark.asyncio
+async def test_purchase_partial_unique_blocks_duplicate(db_session):
+    """같은 (user_key, reference_id) transaction_type='purchase' 2행 → 2번째 IntegrityError."""
+    db_session.add(
+        CreditTransaction(
+            user_key="m16p", amount=10, balance_after=10,
+            transaction_type="purchase", reference_id="pay-1",
+        )
+    )
+    await db_session.commit()
+    db_session.add(
+        CreditTransaction(
+            user_key="m16p", amount=10, balance_after=20,
+            transaction_type="purchase", reference_id="pay-1",
+        )
+    )
+    with pytest.raises(IntegrityError):
+        await db_session.commit()
+    await db_session.rollback()
+
+    # 다른 사용자·다른 reference_id는 허용(부분·복합 스코프 확인).
+    db_session.add(
+        CreditTransaction(
+            user_key="m16p2", amount=10, balance_after=10,
+            transaction_type="purchase", reference_id="pay-1",
+        )
+    )
+    await db_session.commit()
+
+
+@pytest.mark.asyncio
+async def test_refund_for_job_absorbs_db_duplicate(db_session, monkeypatch):
+    """앱 레벨 already-체크를 통과해도(동시 race 시뮬) DB 부분 유니크가 이중 환불을 차단하고
+    refund_for_job이 IntegrityError를 흡수해 False 반환·잔액 불변(멱등)."""
+    uk = "m16absorb"
+    await _seed_charged(db_session, uk, "job-a")
+    assert await credits_service.refund_for_job(db_session, uk, "job-a") is True
+    assert await _balance(db_session, uk) == 3
+
+    # 두 번째 호출에서 already-체크가 미스하도록 강제(경쟁 세션이 방금 커밋한 상황 재현) →
+    # add_credits가 uq_refund 위반 → 세이브포인트 흡수 → False, 잔액 불변.
+    monkeypatch.setattr(credits_service, "_job_already_refunded", _always_false)
+    assert await credits_service.refund_for_job(db_session, uk, "job-a") is False
+    db_session.expire_all()
+    assert await _balance(db_session, uk) == 3
+
+
+async def _always_false(*args, **kwargs):
+    return False
+
+
+@pytest.mark.asyncio
+async def test_admin_add_duplicate_transaction_id_idempotent(client, headers, monkeypatch):
+    """X-Admin-Key로 같은 transaction_id 재전송 → 잔액 1회만 반영(멱등 200)."""
+    from src.core.config import settings
+
+    monkeypatch.setattr(settings, "admin_api_key", "adminkey")
+    admin_headers = {**headers, "X-Admin-Key": "adminkey"}
+    body = {"amount": 10, "transaction_id": "pay_dup"}
+
+    r1 = await client.post("/v1/credits/add", json=body, headers=admin_headers)
+    assert r1.status_code == 200, r1.text
+    r2 = await client.post("/v1/credits/add", json=body, headers=admin_headers)
+    assert r2.status_code == 200, r2.text  # 멱등(2번째도 성공 응답)
+
+    bal = await client.get("/v1/credits/balance", headers=headers)
+    assert bal.json()["credits"] == 13  # 신규 3 + 10 (20 아님)
+
+
+# ── L8: get_or_create_credits 동시 최초 요청 PK 충돌 흡수 ──
+@pytest.mark.asyncio
+async def test_get_or_create_credits_absorbs_concurrent_insert(db_session, monkeypatch):
+    """신규 사용자 동시 첫 요청 PK 충돌을 흡수·재조회(500·보너스 이중지급 없음)."""
+    from src.core.database import AsyncSessionLocal
+
+    uk = "l8-race"
+    real_record = credits_service._record_transaction
+    fired = {"done": False}
+
+    async def racing_record(*args, **kwargs):
+        if not fired["done"]:
+            fired["done"] = True
+            # 경쟁 세션이 같은 PK를 먼저 커밋(별도 세션, 같은 test.db).
+            async with AsyncSessionLocal() as other:
+                other.add(
+                    UserCredits(user_key=uk, credits=3, total_purchased=0, total_used=0)
+                )
+                other.add(
+                    CreditTransaction(
+                        user_key=uk, amount=3, balance_after=3,
+                        transaction_type="bonus", description="신규 가입 보너스 크레딧",
+                    )
+                )
+                await other.commit()
+        return await real_record(*args, **kwargs)
+
+    monkeypatch.setattr(credits_service, "_record_transaction", racing_record)
+
+    uc = await credits_service.get_or_create_credits(db_session, uk, commit=False)
+    await db_session.commit()
+    assert uc is not None
+
+    db_session.expire_all()
+    rows = (
+        await db_session.execute(
+            select(UserCredits).where(UserCredits.user_key == uk)
+        )
+    ).scalars().all()
+    assert len(rows) == 1  # 이중 행 없음
+    bonuses = (
+        await db_session.execute(
+            select(CreditTransaction).where(
+                CreditTransaction.user_key == uk,
+                CreditTransaction.transaction_type == "bonus",
+            )
+        )
+    ).scalars().all()
+    assert len(bonuses) == 1  # 보너스 이중 지급 없음
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_streak_absorbs_concurrent_insert(db_session, monkeypatch):
+    """L8: get_or_create_streak 동시 최초 요청 PK 충돌 흡수·재조회(500·이중 행 없음)."""
+    from src.models.db import DailyStreak
+    from src.services.streak import streak_service
+
+    uk = "l8-streak-race"
+    # 경쟁 세션이 스트릭 행을 먼저 커밋하도록 db.commit을 시임(첫 커밋 직전 트리거).
+    real_commit = db_session.commit
+    fired = {"done": False}
+
+    async def racing_commit(*args, **kwargs):
+        if not fired["done"]:
+            fired["done"] = True
+            from src.core.database import AsyncSessionLocal
+
+            async with AsyncSessionLocal() as other:
+                other.add(DailyStreak(user_key=uk, current_streak=0, longest_streak=0, total_days=0))
+                await other.commit()
+        return await real_commit(*args, **kwargs)
+
+    monkeypatch.setattr(db_session, "commit", racing_commit)
+
+    streak = await streak_service.get_or_create_streak(db_session, uk)
+    assert streak is not None
+
+    monkeypatch.undo()
+    db_session.expire_all()
+    rows = (
+        await db_session.execute(
+            select(DailyStreak).where(DailyStreak.user_key == uk)
+        )
+    ).scalars().all()
+    assert len(rows) == 1

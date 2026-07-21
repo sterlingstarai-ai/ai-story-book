@@ -5975,6 +5975,22 @@
               "title": "Token",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "X-Webhook-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Webhook-Token"
+            }
           }
         ],
         "requestBody": {
@@ -6025,6 +6041,22 @@
               "default": "",
               "title": "Token",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Webhook-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Webhook-Token"
             }
           }
         ],
