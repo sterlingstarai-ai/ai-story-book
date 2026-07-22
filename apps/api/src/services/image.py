@@ -388,8 +388,11 @@ async def _generate_replicate(prompt: ImagePrompt) -> str:
                 page=prompt.page,
             )
 
-        # Poll for completion
-        for _ in range(60):  # Max 60 attempts (1 per second)
+        # Poll for completion.
+        # M20/G16: 폴링 상한을 image_timeout에서 파생(하드코딩 60초 제거) — 60~90초에
+        # 정상 완료되는 예측이 IMAGE_TIMEOUT으로 조기 실패하던 스펙(90초) 불일치 해소.
+        max_polls = max(1, int(settings.image_timeout))
+        for _ in range(max_polls):  # 1 attempt per second, up to image_timeout
             await asyncio.sleep(1)
 
             poll_response = await client.get(

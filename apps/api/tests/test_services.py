@@ -327,3 +327,18 @@ class TestModerationOutput:
 
         result = await moderate_output(story, {})
         assert result is False  # Should catch forbidden word
+
+
+class TestReplicatePolling:
+    """M20/G16: Replicate 폴링 상한이 image_timeout에서 파생(60초 하드코딩 제거)."""
+
+    def test_replicate_poll_derives_from_image_timeout(self):
+        import inspect
+
+        from src.services import image as image_module
+
+        src = inspect.getsource(image_module._generate_replicate)
+        # 하드코딩 60 폴링 제거, image_timeout 파생.
+        assert "range(60)" not in src
+        assert "settings.image_timeout" in src
+        assert "max_polls" in src
