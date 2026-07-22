@@ -101,6 +101,12 @@ jobs:
           pytest tests/ -v --cov=src --cov-report=xml 2>&1 | tee test-output.log
           coverage report --fail-under=40
 
+      - name: Money-path coverage gate
+        working-directory: apps/api
+        # L2: 전역 40% 임계는 결제·크레딧 파일이 0%로 떨어져도 통과시킨다. money 경로별
+        # per-file 임계(회귀 방지 기준선)를 별도 게이트해 결제 코드 테스트 소실을 감지.
+        run: python scripts/coverage_gate.py coverage.xml
+
       - name: Live E2E journey (full generation pipeline)
         # TESTING=false 실서버로 전체 생성 파이프라인(create→done)+성장·또래·오디오게이트·
         # IDOR·동의철회를 검증. SQLite+mock providers라 키·Postgres·Redis·S3 불필요.
