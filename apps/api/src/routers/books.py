@@ -1335,6 +1335,24 @@ async def generate_book_audio(
     if not pages:
         raise NotFoundError("Pages", book_id)
 
+    # L5: fire-and-forget였던 배치 오디오를 audio_ Job 행으로 관측 가능하게 한다. 실패/타임아웃이
+    # 잡 상태(done/failed)로 표면화되고 GET /v1/books/{job_id}로 폴링 가능(형제 regen/inpaint와 대칭).
+    audio_job_id = f"audio_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    audio_job = Job(
+        id=audio_job_id,
+        status="running",
+        progress=0,
+        current_step="오디오 생성 대기 중",
+        user_key=user_key,
+    )
+    db.add(audio_job)
+    try:
+        await db.commit()
+    except Exception as e:
+        await db.rollback()
+        logger.error("Failed to create audio job", book_id=book_id, error=str(e))
+        raise InternalServerError("오디오 작업 생성에 실패했습니다.") from e
+
     # Start background task for audio generation
     background_tasks.add_task(
         _generate_audio_for_book,
@@ -1351,9 +1369,14 @@ async def generate_book_audio(
         ],
         book.target_age,
         book.language,
+        audio_job_id,
     )
 
-    return {"status": "processing", "message": "오디오 생성이 시작되었습니다."}
+    return {
+        "status": "processing",
+        "job_id": audio_job_id,
+        "message": "오디오 생성이 시작되었습니다.",
+    }
 
 
 async def _generate_audio_for_book(
@@ -1361,12 +1384,17 @@ async def _generate_audio_for_book(
     pages: list[dict],
     target_age: str,
     default_language: str,
+    audio_job_id: Optional[str] = None,
 ):
-    """책 오디오 생성 백그라운드 태스크 (5분 타임아웃)"""
+    """책 오디오 생성 백그라운드 태스크 (5분 타임아웃).
+
+    L5: 결과를 audio_ Job 상태로 표면화 — 타임아웃/전체 실패는 failed(에러코드 포함),
+    부분/전체 성공은 done. audio_job_id가 없으면(구 호출 경로) 로그만 남긴다.
+    """
     import asyncio
 
     try:
-        await asyncio.wait_for(
+        succeeded, failed_pages = await asyncio.wait_for(
             _generate_audio_pages(
                 book_id=book_id,
                 pages=pages,
@@ -1377,6 +1405,52 @@ async def _generate_audio_for_book(
         )
     except asyncio.TimeoutError:
         logger.error("Audio generation timed out", book_id=book_id, total_pages=len(pages))
+        if audio_job_id:
+            await _set_regen_job_status(
+                audio_job_id,
+                status="failed",
+                progress=100,
+                current_step="오디오 생성 타임아웃",
+                error_code="AUDIO_TIMEOUT",
+                error_message="오디오 생성이 시간 내에 완료되지 않았습니다.",
+            )
+        return
+    except Exception as e:
+        logger.error("Audio generation failed", book_id=book_id, error=str(e))
+        if audio_job_id:
+            await _set_regen_job_status(
+                audio_job_id,
+                status="failed",
+                progress=100,
+                current_step="오디오 생성 실패",
+                error_code="AUDIO_FAILED",
+                error_message=str(e),
+            )
+        return
+
+    if not audio_job_id:
+        return
+    if succeeded == 0 and failed_pages:
+        await _set_regen_job_status(
+            audio_job_id,
+            status="failed",
+            progress=100,
+            current_step="오디오 생성 실패",
+            error_code="AUDIO_FAILED",
+            error_message=f"모든 페이지 오디오 생성 실패(pages={failed_pages})",
+        )
+    else:
+        step = (
+            "오디오 생성 완료"
+            if not failed_pages
+            else f"오디오 부분 생성(실패 페이지: {failed_pages})"
+        )
+        await _set_regen_job_status(
+            audio_job_id,
+            status="done",
+            progress=100,
+            current_step=step,
+        )
 
 
 async def _generate_audio_pages(
@@ -1480,6 +1554,9 @@ async def _generate_audio_pages(
             book_id=book_id,
             total_pages=succeeded,
         )
+
+    # L5: 호출자(_generate_audio_for_book)가 잡 상태(done/failed)를 결정할 수 있도록 결과 반환.
+    return succeeded, failed_pages
 
 
 @router.get("/{book_id}/pages/{page_number}/audio")

@@ -194,3 +194,138 @@ async def test_get_page_audio_rejects_unsupported_language():
         await get_page_audio(
             "b1", 1, language="fr", db=fake_db, user_key="u1", profile_id=None
         )
+
+
+# ---- L5: 배치 오디오 실패/완료가 audio_ Job 상태로 표면화 ----
+
+
+@pytest.mark.asyncio
+async def test_batch_audio_marks_job_failed_on_total_failure():
+    """모든 페이지 오디오가 실패하면 audio_ Job이 failed(AUDIO_FAILED)로 전이."""
+    from src.routers import books
+
+    captured = {}
+
+    async def fake_set_status(job_id, *, status, **kw):
+        captured["job_id"] = job_id
+        captured["status"] = status
+        captured["error_code"] = kw.get("error_code")
+
+    async def all_fail(**_kw):
+        return (0, [1, 2, 3])  # succeeded=0, 전부 실패
+
+    with patch.object(books, "_set_regen_job_status", new=fake_set_status), patch.object(
+        books, "_generate_audio_pages", new=all_fail
+    ):
+        await books._generate_audio_for_book("book-1", [], "5-7", "ko", "audio_job_1")
+
+    assert captured["status"] == "failed"
+    assert captured["error_code"] == "AUDIO_FAILED"
+    assert captured["job_id"] == "audio_job_1"
+
+
+@pytest.mark.asyncio
+async def test_batch_audio_marks_job_done_on_success():
+    """일부라도 성공하면 audio_ Job이 done으로 전이(부분 실패는 step에 기록)."""
+    from src.routers import books
+
+    captured = {}
+
+    async def fake_set_status(job_id, *, status, **kw):
+        captured["status"] = status
+        captured["step"] = kw.get("current_step")
+
+    async def partial_ok(**_kw):
+        return (2, [3])  # 2 성공, 1 실패
+
+    with patch.object(books, "_set_regen_job_status", new=fake_set_status), patch.object(
+        books, "_generate_audio_pages", new=partial_ok
+    ):
+        await books._generate_audio_for_book("book-1", [], "5-7", "ko", "audio_job_2")
+
+    assert captured["status"] == "done"
+    assert "실패 페이지" in captured["step"]
+
+
+@pytest.mark.asyncio
+async def test_batch_audio_marks_job_failed_on_timeout():
+    """타임아웃이면 audio_ Job이 failed(AUDIO_TIMEOUT)로 전이."""
+    import asyncio
+
+    from src.routers import books
+
+    captured = {}
+
+    async def fake_set_status(job_id, *, status, **kw):
+        captured["status"] = status
+        captured["error_code"] = kw.get("error_code")
+
+    async def timeout_pages(**_kw):
+        raise asyncio.TimeoutError()
+
+    with patch.object(books, "_set_regen_job_status", new=fake_set_status), patch.object(
+        books, "_generate_audio_pages", new=timeout_pages
+    ):
+        await books._generate_audio_for_book("book-1", [], "5-7", "ko", "audio_job_3")
+
+    assert captured["status"] == "failed"
+    assert captured["error_code"] == "AUDIO_TIMEOUT"
+
+
+@pytest.mark.asyncio
+async def test_batch_audio_returns_pollable_job_id():
+    """POST /audio가 폴링 가능한 audio_ job_id를 반환한다."""
+    from fastapi import BackgroundTasks
+
+    from src.routers import books
+
+    book = SimpleNamespace(
+        id="book-1", user_key="user-1", target_age="5-7", language="ko"
+    )
+    page = SimpleNamespace(
+        id="page-1", page_number=1, text="hi", text_ko="안녕", text_en="hi"
+    )
+
+    class _OkSession:
+        def __init__(self):
+            self._results = [
+                _FakeScalarResult(book),  # select(Book)
+                SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [page])),  # pages
+            ]
+            self._i = 0
+            self.added = []
+
+        async def execute(self, _q):
+            r = self._results[self._i]
+            self._i += 1
+            return r
+
+        def add(self, obj):
+            self.added.append(obj)
+
+        async def commit(self):
+            pass
+
+        async def rollback(self):
+            pass
+
+    fake_db = _OkSession()
+
+    async def _noop_enforce(*_a, **_k):
+        return None
+
+    with patch.object(books, "_enforce_free_plan_feature_access", new=_noop_enforce), patch.object(
+        books, "_assert_book_profile_scope", new=lambda *a, **k: None
+    ):
+        result = await books.generate_book_audio(
+            "book-1",
+            BackgroundTasks(),
+            db=fake_db,
+            user_key="user-1",
+            profile_id=None,
+        )
+
+    assert result["status"] == "processing"
+    assert result["job_id"].startswith("audio_")
+    # audio_ Job 행이 생성됨(폴링 대상).
+    assert any(getattr(o, "id", "").startswith("audio_") for o in fake_db.added)
