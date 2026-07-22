@@ -98,3 +98,24 @@ async def test_grant_milestone_rewards_is_idempotent(
     assert repeated_grant == 0
     assert balance == 4
     assert reward_transactions == 1
+
+
+@pytest.mark.asyncio
+async def test_milestone_reward_not_exposed_when_already_granted(db_session):
+    """L12/G23: 이미 지급된 계정 마일스톤 보상은 응답에 미지급 축하로 재노출되지 않는다."""
+    from src.services.credits import credits_service
+    from src.services.streak import streak_service
+
+    uk = "l12-milestone-user-000000000001"
+    await credits_service.get_or_create_credits(db_session, uk)
+
+    m1 = [{"type": "total", "days": 10, "title": "t", "description": "d", "reward": "free_pdf"}]
+    await streak_service._grant_milestone_rewards(db_session, uk, m1)
+    assert m1[0]["granted"] is True
+    assert m1[0]["reward"] == "free_pdf"
+
+    # 둘째 프로필이 같은 계정 마일스톤(total 10) 재도달 → 이미 지급, 미노출.
+    m2 = [{"type": "total", "days": 10, "title": "t", "description": "d", "reward": "free_pdf"}]
+    await streak_service._grant_milestone_rewards(db_session, uk, m2)
+    assert m2[0]["granted"] is False
+    assert m2[0]["reward"] is None

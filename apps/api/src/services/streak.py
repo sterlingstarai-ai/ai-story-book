@@ -432,8 +432,17 @@ class StreakService:
                     reference_id=f"milestone_{m.get('type')}_{m.get('days')}",
                     description=f"마일스톤 보상: {m.get('title', '')}",
                 )
+                # L12/G23: 계정 1회 지급(reference_id 계정 단위). 이미 지급된 보상은
+                # 응답에서 '미지급 축하'로 노출하지 않는다(둘째 프로필 재도달 등). 실지급
+                # 여부를 milestone에 표기하고, 미지급이면 reward를 비운다.
+                m["granted"] = was_granted
                 if was_granted:
                     granted += amount
+                else:
+                    m["reward"] = None
+            else:
+                # 보상 없는 축하(streak) 마일스톤 — 표시 정합을 위해 granted=True.
+                m["granted"] = True
         return granted
 
     def _check_milestones(self, current_streak: int, total_days: int) -> list[dict]:

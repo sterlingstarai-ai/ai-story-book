@@ -7,7 +7,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
-from src.core.dependencies import get_profile_id, get_user_key
+from src.core.dependencies import (
+    get_profile_id,
+    get_user_key,
+    validate_profile_ownership,
+)
 from src.services.growth import growth_service
 
 router = APIRouter()
@@ -30,6 +34,8 @@ async def get_growth(
     profile_id: Optional[str] = Depends(get_profile_id),
 ):
     """아이의 읽기 성장 리포트 — 읽은 책·스트릭·학습 어휘·퀴즈 정확도·추정 읽기레벨."""
+    # L12: 삭제/타인 profile_id로 0-리포트·age_band 폴백 우회 차단.
+    profile_id = await validate_profile_ownership(db, user_key, profile_id)
     return await growth_service.get_growth_report(db, user_key, profile_id=profile_id)
 
 
@@ -40,6 +46,7 @@ async def get_peer_comparison(
     profile_id: Optional[str] = Depends(get_profile_id),
 ):
     """같은 연령대 또래 대비 비교 — 또래 평균·상위%·메달(참고용 추정)."""
+    profile_id = await validate_profile_ownership(db, user_key, profile_id)  # L12
     return await growth_service.get_peer_comparison(
         db, user_key, profile_id=profile_id
     )
@@ -53,6 +60,8 @@ async def record_answer(
     profile_id: Optional[str] = Depends(get_profile_id),
 ):
     """학습 퀴즈/어휘 응답 기록 — 성장 측정의 근거 데이터."""
+    # L12: dangling profile_id로 저장 차단(삭제/타인 프로필 → 422).
+    profile_id = await validate_profile_ownership(db, user_key, profile_id)
     # 남의 책으로 내 성장 지표를 부풀리는 조작 차단(IDOR).
     await growth_service.assert_book_not_foreign(db, payload.book_id, user_key)
     answer = await growth_service.record_answer(

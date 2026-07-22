@@ -4,6 +4,8 @@ from datetime import date
 
 import pytest
 
+from sqlalchemy import select
+
 from tests.factories import make_book_rows
 from src.core.utils import derive_age_band, utcnow
 from src.models.db import Book, ChildProfile, Job, QuizAnswer, ReadingLog
@@ -375,3 +377,30 @@ async def test_account_growth_streak_consistent_with_books(client, db_session):
     assert data["books_read"] >= 3
     assert data["current_streak"] >= 1  # L9: books_read>0인데 streak=0 모순 제거
     assert data["total_reading_days"] >= 3
+
+
+@pytest.mark.asyncio
+async def test_growth_rejects_unowned_profile(client, db_session):
+    """L12: 삭제/타인 profile_id로 GET /v1/growth → 422(0-리포트·age_band 우회 차단)."""
+    res = await client.get(
+        "/v1/growth",
+        headers={**H, "X-Profile-Id": "p-nonexistent-999"},
+    )
+    assert res.status_code == 400, res.text  # ValidationError → 400
+
+
+@pytest.mark.asyncio
+async def test_answers_rejects_unowned_profile(client, db_session):
+    """L12: 무효 profile_id로 POST /v1/growth/answers → 422, QuizAnswer 미저장."""
+    db_session.add_all(make_book_rows([("b-l12", H["X-User-Key"])]))
+    await db_session.commit()
+    res = await client.post(
+        "/v1/growth/answers",
+        json={"book_id": "b-l12", "quiz_type": "vocab", "correct": True},
+        headers={**H, "X-Profile-Id": "p-nonexistent-999"},
+    )
+    assert res.status_code == 400, res.text  # ValidationError → 400
+    saved = (
+        await db_session.execute(select(QuizAnswer).where(QuizAnswer.book_id == "b-l12"))
+    ).scalars().all()
+    assert saved == []
