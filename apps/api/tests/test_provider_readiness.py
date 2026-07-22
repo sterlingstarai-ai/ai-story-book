@@ -74,7 +74,12 @@ async def test_readiness_blocks_when_tts_mock_and_audio_enabled(client, monkeypa
 
     r = await client.get("/health/ready")
     assert r.status_code == 503
-    assert "tts_provider_not_live" in r.json().get("missing_keys", [])
+    # M9: 공개 /ready는 provider_keys boolean만 노출(상세 사유는 인증된 detailed에만).
+    assert r.json()["services"]["provider_keys"] == "unhealthy"
+    assert "missing_keys" not in r.json()
+    monkeypatch.setattr(settings, "admin_api_key", "testadminkey")
+    d = await client.get("/health/detailed", headers={"X-Admin-Key": "testadminkey"})
+    assert "tts_provider_not_live" in d.json().get("missing_keys", [])
 
 
 @pytest.mark.asyncio
@@ -88,7 +93,11 @@ async def test_readiness_blocks_when_stt_unknown_and_audio_enabled(client, monke
 
     r = await client.get("/health/ready")
     assert r.status_code == 503
-    assert "stt_provider_not_live" in r.json().get("missing_keys", [])
+    assert r.json()["services"]["provider_keys"] == "unhealthy"
+    assert "missing_keys" not in r.json()
+    monkeypatch.setattr(settings, "admin_api_key", "testadminkey")
+    d = await client.get("/health/detailed", headers={"X-Admin-Key": "testadminkey"})
+    assert "stt_provider_not_live" in d.json().get("missing_keys", [])
 
 
 @pytest.mark.asyncio

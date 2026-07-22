@@ -636,7 +636,12 @@ async def test_readiness_blocks_when_iap_not_strict_in_production(client, monkey
 
     r = await client.get("/health/ready")
     assert r.status_code == 503
-    missing = r.json().get("missing_keys", [])
+    # M9: 공개 /ready는 provider_keys boolean만; 상세 IAP 사유는 인증된 detailed에만.
+    assert r.json()["services"]["provider_keys"] == "unhealthy"
+    assert "missing_keys" not in r.json()
+    monkeypatch.setattr(settings, "admin_api_key", "testadminkey")
+    d = await client.get("/health/detailed", headers={"X-Admin-Key": "testadminkey"})
+    missing = d.json().get("missing_keys", [])
     assert "iap_mode_not_strict" in missing
     assert "iap_store_credentials_missing" in missing
     assert "iap_webhook_secret_missing" in missing

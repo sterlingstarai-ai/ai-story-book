@@ -3511,8 +3511,26 @@
     },
     "/health/detailed": {
       "get": {
-        "description": "Detailed health check with job metrics and external API status",
+        "description": "Detailed health check with job metrics and external API status.\n\nM9: 내부 메트릭·config·missing_keys(빠진 보안설정 목록)를 노출하므로 X-Admin-Key\n인증을 요구한다(무인증 정찰 차단). admin_api_key 미설정이면 detailed 미제공(403).",
         "operationId": "detailed_health_check_health_detailed_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Admin-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-Key"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -3521,6 +3539,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Detailed Health Check"
