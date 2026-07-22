@@ -364,16 +364,34 @@ async def start_book_generation(
                 suggestions=moderation.suggestions,
             )
 
-        # C. 스토리 생성
-        story_draft = await run_step(
-            job_id=job_id,
-            step_name="generate_story",
-            progress=PROGRESS_STORY,
-            fn=lambda: generate_story(normalized_spec),
-            retries=2,
-            timeout_sec=settings.llm_timeout,
-            backoff=[2, 5],
-        )
+        # C. 스토리 생성 + 출력 안전성 재시도(G16/M20: SAFETY_OUTPUT 시 최대 2회 재생성).
+        # 출력 텍스트 안전검사를 이미지 비용 '전'으로 옮겨, unsafe면 값싸게 재생성한다
+        # (이미지·캐릭터 재생성 없이). 2회 재생성 후에도 unsafe면 SAFETY_OUTPUT 실패.
+        story_draft = None
+        for _safety_attempt in range(3):  # 1 initial + 2 retries
+            story_draft = await run_step(
+                job_id=job_id,
+                step_name="generate_story",
+                progress=PROGRESS_STORY,
+                fn=lambda: generate_story(normalized_spec),
+                retries=2,
+                timeout_sec=settings.llm_timeout,
+                backoff=[2, 5],
+            )
+            if await moderate_output(story_draft, {}):
+                break
+            logger.warning(
+                "Output text failed moderation, regenerating story",
+                job_id=job_id,
+                attempt=_safety_attempt + 1,
+            )
+        else:
+            from src.core.errors import SafetyError
+
+            raise SafetyError(
+                message="생성된 이야기가 안전 기준을 통과하지 못했습니다",
+                is_input=False,
+            )
 
         # 스토리 저장
         await save_story_draft(job_id, story_draft)
@@ -415,23 +433,10 @@ async def start_book_generation(
             reference_image_url=face_reference_url,
         )
 
-        # G. 출력 안전성 검사 (이미지)
-        output_safe = await run_step(
-            job_id=job_id,
-            step_name="moderate_output",
-            progress=86,
-            fn=lambda: moderate_output(story_draft, image_urls),
-            retries=0,
-            timeout_sec=10,
-        )
-
-        if not output_safe:
-            from src.core.errors import SafetyError
-
-            raise SafetyError(
-                message="생성된 콘텐츠가 안전 기준을 통과하지 못했습니다",
-                is_input=False,
-            )
+        # G. 출력 안전성 검사(텍스트)는 스토리 생성 직후(C)에서 재시도와 함께 이미 수행했다
+        # (G16/M20: 이미지 비용 전에 검사·재생성). 이미지 콘텐츠 안전검사(vision 모더레이션)는
+        # provider safety 신호 부재로 별도 스코프(H24/M20 잔여) — 여기서 안전연극 훅을 두지 않는다.
+        await update_job_status(job_id, "moderate_output", 86)
 
         # G-2. 학습 자산 생성 (번역 + 어휘 + 질문)
         learning_assets = await run_step(

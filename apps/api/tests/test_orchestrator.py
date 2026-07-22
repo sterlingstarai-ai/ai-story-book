@@ -873,3 +873,79 @@ def test_orchestrator_step_names_are_stable_keys():
     # 한국어 진행 문구가 남아있지 않다.
     assert "이야기 쓰는 중" not in src
     assert "표지 그리는 중" not in src
+
+
+# ==================== M20/G16: SAFETY_OUTPUT 재시도 2회 ====================
+
+
+@pytest.mark.asyncio
+async def test_output_safety_retries_twice_then_fails(monkeypatch):
+    """M20/G16: 출력 텍스트가 계속 unsafe면 2회 재생성 후 SAFETY_OUTPUT 실패."""
+    from src.services import orchestrator as orch
+    from src.models.dto import BookSpec, ModerationResult
+
+    captured = {}
+
+    async def fake_mark_failed(job_id, code, msg):
+        captured["code"] = code
+
+    calls = {"gen": 0}
+
+    async def fake_generate_story(spec):
+        calls["gen"] += 1
+        return TestModerateOutput()._make_story(page_texts=["a", "b"])
+
+    async def always_unsafe(story, image_urls):
+        return False
+
+    monkeypatch.setattr(orch, "update_job_status", AsyncMock())
+    monkeypatch.setattr(orch, "mark_job_failed", fake_mark_failed)
+    monkeypatch.setattr(
+        orch, "moderate_input",
+        AsyncMock(return_value=ModerationResult(is_safe=True, reasons=[], suggestions=[])),
+    )
+    monkeypatch.setattr(orch, "generate_story", fake_generate_story)
+    monkeypatch.setattr(orch, "moderate_output", always_unsafe)
+    monkeypatch.setattr(orch, "save_story_draft", AsyncMock())
+
+    spec = BookSpec(topic="x", language="en", target_age="5-7", style="watercolor")
+    await orch.start_book_generation("j-so", spec, "u1")
+
+    assert captured["code"] == ErrorCode.SAFETY_OUTPUT
+    assert calls["gen"] == 3  # 1 initial + 2 retries
+
+
+@pytest.mark.asyncio
+async def test_output_safety_recovers_on_retry(monkeypatch):
+    """M20/G16: 재생성 후 safe해지면 실패하지 않고 진행(2번째 시도에서 통과)."""
+    from src.services import orchestrator as orch
+    from src.models.dto import BookSpec, ModerationResult
+
+    calls = {"gen": 0, "mod": 0}
+
+    async def fake_generate_story(spec):
+        calls["gen"] += 1
+        return TestModerateOutput()._make_story(page_texts=["a", "b"])
+
+    async def unsafe_then_safe(story, image_urls):
+        calls["mod"] += 1
+        return calls["mod"] >= 2  # 1st unsafe, 2nd safe
+
+    async def stop_after_story(*a, **k):
+        raise RuntimeError("stop-after-story")  # 스토리 통과 후 다음 단계에서 중단
+
+    monkeypatch.setattr(orch, "update_job_status", AsyncMock())
+    monkeypatch.setattr(orch, "mark_job_failed", AsyncMock())
+    monkeypatch.setattr(
+        orch, "moderate_input",
+        AsyncMock(return_value=ModerationResult(is_safe=True, reasons=[], suggestions=[])),
+    )
+    monkeypatch.setattr(orch, "generate_story", fake_generate_story)
+    monkeypatch.setattr(orch, "moderate_output", unsafe_then_safe)
+    monkeypatch.setattr(orch, "save_story_draft", stop_after_story)
+
+    spec = BookSpec(topic="x", language="en", target_age="5-7", style="watercolor")
+    await orch.start_book_generation("j-so2", spec, "u1")
+
+    # 2번째 생성에서 safe → 루프 탈출 후 save_story_draft 도달(=스토리 안전 통과).
+    assert calls["gen"] == 2
