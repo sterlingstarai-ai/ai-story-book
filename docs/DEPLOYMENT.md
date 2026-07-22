@@ -63,13 +63,26 @@ Common commands:
 ./scripts/deploy.sh --env-file infra/.env backup
 ```
 
-`deploy` performs:
+`deploy` performs (M26 order — **migrate before up**):
 1. env validation and compose detection
 2. image selection from the provided tag
-3. `docker compose pull`
-4. service restart
-5. Alembic migration
-6. liveness/readiness checks
+3. capture currently-running image tags (rollback target)
+4. `docker compose pull`
+5. Alembic migration — applied while the **old** stack is still serving, so the new
+   schema is in place before new code runs (no compose-down, no full downtime)
+6. rolling `docker compose up -d` (only changed containers recreate)
+7. liveness/readiness checks; **on failure, auto-rollback** to the captured previous
+   images and re-check. The deploy still exits non-zero (CI red) so the failure is visible.
+
+**Migration discipline (required by the migrate-before-up order): expand-then-contract.**
+Because old code briefly runs against the new schema, every Alembic revision MUST be
+backward-compatible: add columns as nullable / with defaults, add tables/indexes additively.
+Destructive changes (drop/rename column, tighten NOT NULL, remove table) are split into a
+later release, after all running code no longer references the old shape. A revision that
+breaks the old code will 500 the old stack during the migrate→up window.
+
+`cleanup` prunes containers/images/networks only — it never prunes volumes, so the
+`postgres-data`/`redis-data`/`minio-data` named volumes are safe.
 
 ## CI/CD expectations
 

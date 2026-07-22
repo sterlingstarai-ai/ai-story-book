@@ -11,6 +11,8 @@ COMPOSE_FILE="infra/docker-compose.prod.yml"
 ENV_FILE=""
 IMAGE_TAG_OVERRIDE=""
 COMPOSE_CMD=()
+PREV_API_IMAGE=""
+PREV_WORKER_IMAGE=""
 
 log_info() {
   echo -e "${GREEN}[INFO]${NC} $1"
@@ -29,7 +31,7 @@ print_help() {
 Usage: ./scripts/deploy.sh [--env-file PATH] [--compose-file PATH] [--image-tag TAG] <command>
 
 Commands:
-  deploy   Pull images, restart services, run migrations, run health checks
+  deploy   Pull images, migrate (before up), roll services, health-check (auto-rollback on failure)
   start    Start all services
   stop     Stop all services
   restart  Restart all services
@@ -176,9 +178,11 @@ show_status() {
 }
 
 cleanup() {
-  log_info "Cleaning up unused Docker resources..."
+  # M26: 앱 named volume(postgres-data/redis-data/minio-data)은 절대 삭제하지 않는다.
+  # 이전의 무조건 volume-prune 호출은 compose down 후 미참조 상태의 DB 볼륨을 구식
+  # 엔진에서 영구 삭제할 수 있어 제거했다. 컨테이너/이미지/네트워크만 정리(--volumes 미사용).
+  log_info "Cleaning up unused Docker resources (containers/images/networks only)..."
   docker system prune -f
-  docker volume prune -f
   log_info "Cleanup completed"
 }
 
@@ -208,6 +212,40 @@ health_check() {
   fi
 
   compose ps --format "table {{.Name}}\t{{.Status}}"
+}
+
+capture_running_images() {
+  # M26: 새 이미지를 올리기 전 현재 실행 중인 컨테이너의 이미지 태그를 저장(롤백 대상).
+  local api_cid worker_cid
+  api_cid="$(compose ps -q api 2>/dev/null | head -1 || true)"
+  worker_cid="$(compose ps -q worker 2>/dev/null | head -1 || true)"
+  if [ -n "$api_cid" ]; then
+    PREV_API_IMAGE="$(docker inspect --format '{{.Config.Image}}' "$api_cid" 2>/dev/null || true)"
+  fi
+  if [ -n "$worker_cid" ]; then
+    PREV_WORKER_IMAGE="$(docker inspect --format '{{.Config.Image}}' "$worker_cid" 2>/dev/null || true)"
+  fi
+  if [ -n "$PREV_API_IMAGE" ]; then
+    log_info "Captured current images for rollback: api=$PREV_API_IMAGE"
+  else
+    log_warn "No running api container found — rollback unavailable (fresh deploy)"
+  fi
+}
+
+rollback() {
+  log_error "Deployment health check failed — attempting rollback"
+  if [ -n "$PREV_API_IMAGE" ] && [ -n "$PREV_WORKER_IMAGE" ]; then
+    log_warn "Rolling back to api=$PREV_API_IMAGE worker=$PREV_WORKER_IMAGE"
+    API_IMAGE="$PREV_API_IMAGE" WORKER_IMAGE="$PREV_WORKER_IMAGE" compose up -d
+    if health_check; then
+      log_warn "Rollback restored health — investigate the failed release before retrying"
+      return 0
+    fi
+    log_error "Rollback health check also failed — manual intervention required"
+  else
+    log_error "No previous images captured — manual rollback required (check 'compose ps')"
+  fi
+  return 1
 }
 
 while [[ $# -gt 0 ]]; do
@@ -242,13 +280,22 @@ fi
 
 case "$COMMAND" in
   deploy)
+    # M26: migrate-before-up. 구 스택을 내리지 않고(다운타임 없음) 새 이미지를 pull한 뒤
+    # 마이그레이션을 먼저 적용(구 코드가 새 스키마와 잠깐 공존 — expand-then-contract 전제),
+    # 그다음 서비스를 롤링 재기동. health 실패 시 이전 이미지로 자동 롤백.
     check_requirements
+    capture_running_images
     pull_images
-    stop_services
-    start_services
     run_migrations
-    health_check
-    log_info "Deployment completed successfully!"
+    start_services
+    if health_check; then
+      log_info "Deployment completed successfully!"
+    else
+      if rollback; then
+        log_error "Release rolled back to previous images. Deployment marked failed."
+      fi
+      exit 1
+    fi
     ;;
   start)
     check_requirements
