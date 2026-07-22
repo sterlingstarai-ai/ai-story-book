@@ -3,7 +3,7 @@
 import pytest
 from sqlalchemy import select
 
-from src.models.db import Job
+from src.models.db import CreditTransaction, Job
 from tests.factories import make_book_rows
 
 H = {"X-User-Key": "33333333-3333-4333-8333-333333333333"}
@@ -143,3 +143,56 @@ async def test_get_today_story_race_absorbs_duplicate(db_session, monkeypatch):
         await db_session.execute(select(DailyStory).where(DailyStory.date == today_start))
     ).scalars().all()
     assert len(rows) == 1  # 중복 없음
+
+
+# ==================== M22: 오늘의 동화 book_id per-user ====================
+
+_M22_TODAY_STORY_CREDIT_DESC = "오늘의 동화 생성"
+
+
+def _today_story_credit(user_key: str, job_id: str) -> CreditTransaction:
+    """production use_credit이 남기는 '오늘의 동화 생성' usage 거래를 재현."""
+    return CreditTransaction(
+        user_key=user_key,
+        amount=-1,
+        balance_after=0,
+        transaction_type="usage",
+        description=_M22_TODAY_STORY_CREDIT_DESC,
+        reference_id=job_id,
+    )
+
+
+async def _complete_today_story(db_session, user_key: str, book_id: str) -> None:
+    """user_key가 '오늘' 완료한 오늘의 동화 책 1권(잡 done + 크레딧 마커)을 만든다."""
+    db_session.add_all(make_book_rows([(book_id, user_key)]))
+    db_session.add(_today_story_credit(user_key, f"job-{book_id}"))
+    await db_session.commit()
+
+
+@pytest.mark.asyncio
+async def test_today_book_id_null_before_generate(client, db_session):
+    """오늘의 동화를 아직 생성하지 않은 사용자는 book_id가 null(M22)."""
+    res = await client.get("/v1/streak/today", headers=H)
+    assert res.status_code == 200, res.text
+    assert res.json()["book_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_today_book_id_populated_after_generate(client, db_session):
+    """오늘 완료된 '오늘의 동화' 잡이 있으면 book_id가 그 책 id로 채워진다(M22)."""
+    await _complete_today_story(db_session, H["X-User-Key"], "today-book-A")
+    res = await client.get("/v1/streak/today", headers=H)
+    assert res.status_code == 200, res.text
+    assert res.json()["book_id"] == "today-book-A"
+
+
+@pytest.mark.asyncio
+async def test_today_book_id_isolated_per_user(client, db_session):
+    """user A의 오늘의 책이 user B의 GET /today book_id로 새어나가지 않는다(M22)."""
+    user_b = {"X-User-Key": "44444444-4444-4444-8444-444444444444"}
+    await _complete_today_story(db_session, H["X-User-Key"], "today-book-A")
+    res_a = await client.get("/v1/streak/today", headers=H)
+    assert res_a.json()["book_id"] == "today-book-A"
+    res_b = await client.get("/v1/streak/today", headers=user_b)
+    assert res_b.status_code == 200, res_b.text
+    assert res_b.json()["book_id"] is None

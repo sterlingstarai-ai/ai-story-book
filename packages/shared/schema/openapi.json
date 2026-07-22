@@ -7458,8 +7458,28 @@
     },
     "/v1/streak/today": {
       "get": {
-        "description": "오늘의 동화 조회\n\n- 매일 새로운 테마와 주제 제공\n- 날짜별로 고정된 테마/주제 (모든 사용자 동일)",
+        "description": "오늘의 동화 조회\n\n- 매일 새로운 테마와 주제 제공\n- 날짜별로 고정된 테마/주제 (모든 사용자 동일)\n- book_id: X-User-Key 가 있으면 그 사용자가 오늘 생성 완료한 오늘의 동화 책 id (없으면 null)",
         "operationId": "get_today_story_v1_streak_today_get",
+        "parameters": [
+          {
+            "description": "Optional user key; fills today's book_id when present",
+            "in": "header",
+            "name": "x-user-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional user key; fills today's book_id when present",
+              "title": "X-User-Key"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -7470,6 +7490,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Get Today Story",

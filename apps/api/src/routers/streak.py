@@ -5,7 +5,7 @@ Streak Router
 
 import uuid
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, Field
@@ -13,7 +13,7 @@ from typing import Literal, Optional
 import structlog
 
 from src.core.database import get_db
-from src.core.dependencies import get_profile_id, get_user_key
+from src.core.dependencies import _UUID_RE, get_profile_id, get_user_key
 from src.core.exceptions import ValidationError
 from src.core.utils import utcnow
 from src.models.db import ChildProfile, Job
@@ -136,17 +136,35 @@ async def get_streak_info(
     return StreakInfoResponse(**info)
 
 
+def get_optional_user_key(
+    x_user_key: Optional[str] = Header(
+        default=None, description="Optional user key; fills today's book_id when present"
+    ),
+) -> Optional[str]:
+    """익명 유지 엔드포인트용 선택적 user_key 추출(M22/G12).
+
+    GET /v1/streak/today 는 익명으로 유지하고, X-User-Key 가 유효 UUID로 제공될 때만
+    그 사용자의 오늘의 동화 book_id 를 채운다. 헤더 부재/무효 형식이면 None(익명 —
+    book_id 미채움)으로 조용히 강등해 기존 익명 접근을 깨지 않는다.
+    """
+    if not x_user_key or not _UUID_RE.match(x_user_key):
+        return None
+    return x_user_key
+
+
 @router.get("/today", response_model=TodayStoryResponse)
 async def get_today_story(
     db: AsyncSession = Depends(get_db),
+    user_key: Optional[str] = Depends(get_optional_user_key),
 ):
     """
     오늘의 동화 조회
 
     - 매일 새로운 테마와 주제 제공
     - 날짜별로 고정된 테마/주제 (모든 사용자 동일)
+    - book_id: X-User-Key 가 있으면 그 사용자가 오늘 생성 완료한 오늘의 동화 책 id (없으면 null)
     """
-    story = await streak_service.get_today_story(db)
+    story = await streak_service.get_today_story(db, user_key=user_key)
 
     # 테마 이름 추가
     theme_name = next(

@@ -10,7 +10,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
-from ..models.db import Book, DailyStreak, DailyStory, ReadingLog, UserSettings
+from ..models.db import (
+    Book,
+    CreditTransaction,
+    DailyStreak,
+    DailyStory,
+    Job,
+    ReadingLog,
+    UserSettings,
+)
 from ..core.utils import (
     DEFAULT_TZ,
     local_day_bounds_utc,
@@ -471,11 +479,63 @@ class StreakService:
 
         return milestones
 
-    async def get_today_story(self, db: AsyncSession) -> dict:
-        """오늘의 동화 정보 조회. 전역 회전이라 기본 tz(H2 결정). 하루 1행을 DB 유니크로 보장(H14)."""
+    # M22: 라우터가 '오늘의 동화 생성' 잡의 크레딧 차감 시 남기는 불변 마커. Job에 컬럼을
+    # 추가하지 않고 이 마커로 사용자의 오늘의 동화 잡을 식별한다(routers/streak.py와 정합).
+    TODAY_STORY_CREDIT_DESC = "오늘의 동화 생성"
+
+    async def _user_today_book_id(
+        self,
+        db: AsyncSession,
+        user_key: str,
+        today_start,
+        tomorrow_start,
+    ) -> Optional[str]:
+        """user_key가 '오늘'(로컬 하루) 생성 완료한 오늘의 동화 책 id(M22).
+
+        DailyStory는 전역 테이블(user_key 없음)이라 특정 사용자 book_id를 직접 쓰면
+        타 사용자에게 오귀속된다. 대신 '오늘의 동화 생성' 크레딧 마커가 붙은 done Job의
+        결과 Book을 사용자 단위로 조회(방어적 최근 1건 first(); 완료 전이면 None).
+        """
+        stmt = (
+            select(Book.id)
+            .join(Job, Book.job_id == Job.id)
+            .join(
+                CreditTransaction,
+                (CreditTransaction.reference_id == Job.id)
+                & (CreditTransaction.user_key == user_key)
+                & (CreditTransaction.description == self.TODAY_STORY_CREDIT_DESC)
+                & (CreditTransaction.transaction_type == "usage"),
+            )
+            .where(
+                Book.user_key == user_key,
+                Job.status == "done",
+                Job.created_at >= today_start,
+                Job.created_at < tomorrow_start,
+            )
+            .order_by(Book.created_at.desc())
+            .limit(1)
+        )
+        result = await db.execute(stmt)
+        return result.scalars().first()
+
+    async def get_today_story(
+        self, db: AsyncSession, user_key: Optional[str] = None
+    ) -> dict:
+        """오늘의 동화 정보 조회. 전역 회전이라 기본 tz(H2 결정). 하루 1행을 DB 유니크로 보장(H14).
+
+        M22: 테마/토픽은 전역 DailyStory에서, book_id는 user_key가 주어졌을 때만 '해당
+        사용자가 오늘 생성 완료한 오늘의 동화 책'으로 채운다(전역 오귀속 방지).
+        """
         # 전역 엔드포인트라 사용자 컨텍스트 없음 — 기본 tz로 하루 경계 판정(G10 결정).
         today = local_today()
         today_start, tomorrow_start = local_day_bounds_utc()
+
+        # M22: book_id는 사용자 단위(user_key 없으면 익명 → None 유지).
+        user_book_id = (
+            await self._user_today_book_id(db, user_key, today_start, tomorrow_start)
+            if user_key
+            else None
+        )
 
         async def _find_today():
             # 방어적 first(): 마이그레이션 이전 잔존 중복이 있어도 500 대신 첫 행 반환.
@@ -496,7 +556,7 @@ class StreakService:
                 "date": daily_story.date.isoformat(),
                 "theme": daily_story.theme,
                 "topic": daily_story.topic,
-                "book_id": daily_story.book_id,
+                "book_id": user_book_id,  # M22
             }
 
         # 없으면 오늘의 테마/주제 생성
@@ -526,7 +586,7 @@ class StreakService:
                     "date": existing.date.isoformat(),
                     "theme": existing.theme,
                     "topic": existing.topic,
-                    "book_id": existing.book_id,
+                    "book_id": user_book_id,  # M22
                 }
             raise
 
@@ -535,7 +595,7 @@ class StreakService:
             "theme": theme_data["theme"],
             "theme_name": theme_data["name"],
             "topic": topic,
-            "book_id": None,
+            "book_id": user_book_id,  # M22
         }
 
     async def get_reading_history(
