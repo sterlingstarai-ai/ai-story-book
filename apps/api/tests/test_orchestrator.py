@@ -786,3 +786,69 @@ async def test_regenerate_missing_draft_no_silent_noop(monkeypatch):
         )
     assert page.text == "원래 본문"  # 불변
     assert session.committed is False  # done 위장 커밋 없음
+
+
+# ==================== H23: 재작성 언어 전달 + 이중언어 컬럼 동기화 ====================
+
+
+@pytest.mark.asyncio
+async def test_rewrite_prompt_includes_target_language(monkeypatch):
+    """H23: call_text_rewrite가 책 언어(language_name)를 프롬프트에 전달(한국어 회귀 차단)."""
+    from src.services import llm as llm_module
+    from src.models.dto import BookSpec
+
+    captured = {}
+
+    async def fake_call_llm(system_prompt, user_prompt, **kw):
+        captured["system"] = system_prompt
+        captured["user"] = user_prompt
+        return '{"page":1,"revised_text":"x"}'
+
+    monkeypatch.setattr(llm_module, "call_llm", fake_call_llm)
+
+    story = TestModerateOutput()._make_story(
+        page_texts=["a story page", "another"],
+    )
+    spec = BookSpec(topic="t", language="en", target_age="5-7", style="watercolor")
+    await llm_module.call_text_rewrite(spec, story, 1, "make it shorter")
+
+    assert "English" in captured["system"]  # language_name 지시 존재
+    assert "language: en" in captured["user"]
+
+
+@pytest.mark.asyncio
+async def test_regenerate_page_syncs_and_invalidates_bilingual(monkeypatch):
+    """H23/G18: en 책 재작성 시 text_en 갱신·text_ko 무효화·오디오 무효화(최소안)."""
+    from types import SimpleNamespace
+
+    from src.services import orchestrator as orch
+    from src.services import llm as llm_module
+    from src.models.dto import Language, RewriteResult
+
+    book = SimpleNamespace(
+        id="b1", title="t", language="en", target_age="5-7", style="watercolor"
+    )
+    page = SimpleNamespace(
+        id="p1", text="en old", text_ko="ko stale", text_en="en old",
+        audio_url="a", audio_url_ko="ak", audio_url_en="ae",
+        page_number=1, image_prompt=None,
+    )
+    draft = TestModerateOutput()._make_story(language=Language.en)
+    draft_db = SimpleNamespace(draft=draft.model_dump())
+    session = _RegenSession([book, page, draft_db])
+    monkeypatch.setattr("src.core.database.AsyncSessionLocal", lambda: session)
+
+    async def fake_rewrite(spec, story, page_number, feedback):
+        return RewriteResult(page=1, revised_text="shorter en text")
+
+    monkeypatch.setattr(llm_module, "call_text_rewrite", fake_rewrite)
+
+    await orch.regenerate_page("job1", "b1", 1, "text", feedback="make it shorter")
+
+    assert page.text == "shorter en text"
+    assert page.text_en == "shorter en text"  # 책 언어 컬럼 동기화
+    assert page.text_ko is None  # 반대 언어 컬럼 무효화
+    # 본문과 어긋난 오디오 캐시 전부 무효화
+    assert page.audio_url is None
+    assert page.audio_url_ko is None
+    assert page.audio_url_en is None

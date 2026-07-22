@@ -1269,6 +1269,27 @@ async def regenerate_page(
                 )
             page.text = revised
 
+            # H23/G18: 이중언어 컬럼·오디오를 본문과 정합 유지. 책 언어 컬럼은 갱신하고,
+            # 반대 언어 컬럼(text_en/ko)과 기존 오디오는 stale이 되므로 무효화(None)만 한다
+            # (즉시 재번역·재TTS는 하지 않음 — 최소안).
+            book_lang = str(getattr(book, "language", "") or "").lower()
+            if book_lang == "ko":
+                page.text_ko = revised
+                page.text_en = None
+            elif book_lang == "en":
+                page.text_en = revised
+                page.text_ko = None
+            else:
+                # ja/zh/es: 이중언어 컬럼 미사용 — 기본 본문만 갱신.
+                page.text_ko = None
+                page.text_en = None
+            # 본문이 바뀌었으므로 모든 언어 오디오 캐시를 무효화(어긋난 낭독 방지).
+            page.audio_url = None
+            if hasattr(page, "audio_url_ko"):
+                page.audio_url_ko = None
+            if hasattr(page, "audio_url_en"):
+                page.audio_url_en = None
+
         if mode in ["image", "both"]:
             # Generate new image
             if page.image_prompt:

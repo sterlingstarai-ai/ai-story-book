@@ -588,8 +588,15 @@ async def call_text_rewrite(
     if not page:
         raise ValueError(f"Page {page_number} not found")
 
-    system_prompt = render_prompt("rewrite_page_text.system.jinja2")
+    # H23: 책 언어를 프롬프트에 전달(generate_story 패턴 미러) — 비한국어 책이 재작성 시
+    # 한국어로 회귀하던 문제 차단.
+    system_prompt = render_prompt(
+        "rewrite_page_text.system.jinja2",
+        language=spec.language.value,
+        language_name=language_display_name(spec.language.value),
+    )
     user_prompt = f"""입력:
+- language: {spec.language.value}
 - target_age: {spec.target_age.value}
 - forbidden_elements: {spec.forbidden_elements or []}
 - page: {page_number}
