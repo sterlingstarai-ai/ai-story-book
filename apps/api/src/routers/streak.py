@@ -350,39 +350,27 @@ async def get_streak_calendar(
     - 특정 월의 읽기 기록
     - 캘린더 UI용 데이터
     """
-    from datetime import date
     import calendar
 
-    # 해당 월의 시작과 끝
-    first_day = date(year, month, 1)
-    last_day = date(year, month, calendar.monthrange(year, month)[1])
+    last_day_num = calendar.monthrange(year, month)[1]
 
-    # 읽기 기록 조회
-    days_diff = (last_day - first_day).days + 1
+    # L7: 요청 월의 절대 경계로 직접 조회(상대 윈도우 제거) — 과거 달도 정확히 채운다.
     scoped_profile_id = await _validate_profile_ownership(db, user_key, profile_id)
-    history = await streak_service.get_reading_history(
-        db,
-        user_key,
-        days=days_diff + 30,
-        profile_id=scoped_profile_id,
+    month_reads = await streak_service.get_calendar_month(
+        db, user_key, year, month, profile_id=scoped_profile_id
     )
-
-    # 해당 월의 날짜만 필터링
-    month_history = {
-        h["date"]: h for h in history if h["date"].startswith(f"{year}-{month:02d}")
-    }
 
     # 캘린더 데이터 생성
     calendar_data = []
-    for day in range(1, last_day.day + 1):
+    for day in range(1, last_day_num + 1):
         date_str = f"{year}-{month:02d}-{day:02d}"
-        read_data = month_history.get(date_str)
+        books_count = month_reads.get(date_str, 0)
         calendar_data.append(
             {
                 "date": date_str,
                 "day": day,
-                "read": read_data is not None,
-                "books_count": read_data["books_read"] if read_data else 0,
+                "read": books_count > 0,
+                "books_count": books_count,
             }
         )
 
@@ -390,7 +378,7 @@ async def get_streak_calendar(
         "year": year,
         "month": month,
         "days": calendar_data,
-        "total_read_days": len(month_history),
+        "total_read_days": len(month_reads),
     }
 
 

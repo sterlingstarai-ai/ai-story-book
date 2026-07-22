@@ -22,6 +22,7 @@ from ..models.db import (
 from ..core.utils import (
     DEFAULT_TZ,
     local_day_bounds_utc,
+    local_month_range_utc,
     local_today,
     to_local_date,
     utcnow,
@@ -603,6 +604,41 @@ class StreakService:
             "topic": topic,
             "book_id": user_book_id,  # M22
         }
+
+    async def get_calendar_month(
+        self,
+        db: AsyncSession,
+        user_key: str,
+        year: int,
+        month: int,
+        profile_id: Optional[str] = None,
+    ) -> dict:
+        """요청 월(로컬)의 일별 읽기 집계 {YYYY-MM-DD: distinct_books_read}(L7).
+
+        '지금 기준 상대 윈도우'가 아니라 요청 월의 절대 UTC 경계로 직접 조회해, 2~3개월
+        이전 달도 정확히 채운다(이전엔 윈도우 밖이라 전부 read=false·0으로 growth와 모순).
+        """
+        tz = await load_user_tz(db, user_key)
+        start_utc, end_utc = local_month_range_utc(year, month, tz)
+        where = [
+            ReadingLog.user_key == user_key,
+            ReadingLog.read_date >= start_utc,
+            ReadingLog.read_date < end_utc,
+        ]
+        if profile_id is not None:
+            where.append(ReadingLog.profile_id == profile_id)
+        rows = (
+            await db.execute(
+                select(ReadingLog.read_date, ReadingLog.book_id).where(*where)
+            )
+        ).all()
+        by_date: dict = {}
+        for read_date, book_id in rows:
+            if read_date is None:
+                continue
+            d = to_local_date(read_date, tz).isoformat()
+            by_date.setdefault(d, set()).add(book_id)
+        return {d: len(books) for d, books in by_date.items()}
 
     async def get_reading_history(
         self,

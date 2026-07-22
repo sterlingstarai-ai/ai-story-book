@@ -65,6 +65,21 @@ def local_month_bounds_utc(dt=None, tz: str = DEFAULT_TZ) -> tuple:
     return _naive_utc(start_local), _naive_utc(end_local)
 
 
+def local_month_range_utc(year: int, month: int, tz: str = DEFAULT_TZ) -> tuple:
+    """임의의 (year, month) tz 로컬 '달'의 [시작, 끝) UTC 경계(DST 안전, L7).
+
+    캘린더가 '지금 기준 상대 윈도우'가 아니라 요청 월의 절대 경계로 조회하도록,
+    과거·미래 임의 달의 로컬 자정 경계를 UTC로 환산한다(read_date 범위 쿼리에 사용).
+    """
+    zone = ZoneInfo(tz)
+    start_local = datetime(year, month, 1, tzinfo=zone)
+    if month == 12:
+        end_local = datetime(year + 1, 1, 1, tzinfo=zone)
+    else:
+        end_local = datetime(year, month + 1, 1, tzinfo=zone)
+    return _naive_utc(start_local), _naive_utc(end_local)
+
+
 def derive_age_band(birth_year: int, birth_month: int, ref=None) -> str:
     """생년월 → 연령대(age_band). 부모 임의선택 대신 실제 나이로 1:1 결정.
 
