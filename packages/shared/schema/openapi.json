@@ -1442,6 +1442,17 @@
       },
       "FromPresetRequest": {
         "properties": {
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
           "name": {
             "anyOf": [
               {
@@ -4982,7 +4993,7 @@
     },
     "/v1/characters/from-preset": {
       "post": {
-        "description": "기본 캐릭터 프리셋으로 주인공 캐릭터를 생성한다(아이 이름 지정 가능).",
+        "description": "기본 캐릭터 프리셋으로 주인공 캐릭터를 생성한다(아이 이름 지정 가능).\n\n표시 텍스트(name/appearance/clothing/visual_style_notes)는 요청 언어로 저장하고,\nmaster_description 은 이미지 최적 영어로 고정 저장한다(G31 불변식).",
         "operationId": "create_character_from_preset_v1_characters_from_preset_post",
         "parameters": [
           {
@@ -5092,8 +5103,26 @@
     },
     "/v1/characters/presets": {
       "get": {
-        "description": "기본 제공 캐릭터 프리셋 목록(외형 묘사 + 썸네일 asset). '기본 이미지 선택' 경로.",
+        "description": "기본 제공 캐릭터 프리셋 목록(외형 묘사 + 썸네일 asset). '기본 이미지 선택' 경로.\n\nlanguage 로 표시 텍스트(name/appearance/clothing/visual_style_notes)를 로케일별로\n서빙한다(미지정·미지원은 ko 폴백). master_description 은 이미지 최적 영어로 고정.",
         "operationId": "list_character_presets_v1_characters_presets_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "language",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Language"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -5102,6 +5131,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "List Character Presets",

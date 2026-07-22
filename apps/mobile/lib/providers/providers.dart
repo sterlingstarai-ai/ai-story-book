@@ -831,9 +831,11 @@ final charactersProvider =
 );
 
 /// 기본 제공 캐릭터 프리셋 Provider ('우리 아이를 주인공으로' 기본 이미지 선택)
-final characterPresetsProvider =
-    FutureProvider<List<Map<String, dynamic>>>((ref) async {
-  return ref.read(apiClientProvider).getCharacterPresets();
+///
+/// 언어코드(앱 로케일)를 family 인자로 받아 표시 텍스트를 로케일별로 서빙받는다.
+final characterPresetsProvider = FutureProvider.family<
+    List<Map<String, dynamic>>, String>((ref, language) async {
+  return ref.read(apiClientProvider).getCharacterPresets(language: language);
 });
 
 class CharactersNotifier extends AsyncNotifier<List<Character>> {

@@ -278,9 +278,15 @@ class ApiClient {
   }
 
   /// 기본 제공 캐릭터 프리셋 목록 ('기본 이미지' 주인공 선택)
-  Future<List<Map<String, dynamic>>> getCharacterPresets() async {
+  ///
+  /// [language] 로 표시 텍스트(이름/외형)를 앱 로케일에 맞춰 서빙받는다
+  /// (master_description 은 서버가 이미지 최적 영어로 고정).
+  Future<List<Map<String, dynamic>>> getCharacterPresets({
+    String language = 'ko',
+  }) async {
     final response = await _dio.get(
       '/v1/characters/presets',
+      queryParameters: {'language': language},
       options: Options(headers: _headers),
     );
     final data = _asJsonMap(
@@ -297,15 +303,20 @@ class ApiClient {
   }
 
   /// 프리셋으로 주인공 캐릭터 생성 (아이 이름 지정 가능, character_id 반환)
+  ///
+  /// [language] 는 저장될 표시 텍스트(이름/외형)의 로케일을 결정한다
+  /// (master_description 은 서버가 이미지 최적 영어로 고정 저장).
   Future<String> createCharacterFromPreset({
     required String presetId,
     String? name,
+    String language = 'ko',
   }) async {
     final response = await _dio.post(
       '/v1/characters/from-preset',
       data: {
         'preset_id': presetId,
         if (name != null && name.isNotEmpty) 'name': name,
+        'language': language,
       },
       options: Options(headers: _headers),
     );

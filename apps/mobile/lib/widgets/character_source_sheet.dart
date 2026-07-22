@@ -83,11 +83,13 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
       return;
     }
     final l = AppLocalizations.of(context);
+    final language = Localizations.localeOf(context).languageCode;
     setState(() => _busy = true);
     try {
       final id = await ref.read(apiClientProvider).createCharacterFromPreset(
             presetId: preset['preset_id'].toString(),
             name: widget.childName,
+            language: language,
           );
       ref.invalidate(charactersProvider);
       if (mounted) {
@@ -163,7 +165,8 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
-    final presetsAsync = ref.watch(characterPresetsProvider);
+    final language = Localizations.localeOf(context).languageCode;
+    final presetsAsync = ref.watch(characterPresetsProvider(language));
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.all(AppSpacing.lg),

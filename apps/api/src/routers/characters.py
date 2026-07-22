@@ -7,8 +7,12 @@ import random
 import uuid
 import structlog
 
-from src.core.character_presets import CHARACTER_PRESETS, get_preset
+from src.core.character_presets import (
+    CHARACTER_PRESETS,
+    get_preset_localized,
+)
 from src.core.consent import require_photo_consent
+from src.core.i18n import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES
 from src.core.database import get_db
 from src.core.dependencies import get_user_key
 from src.models.dto import (
@@ -251,12 +255,28 @@ async def create_character(
 class FromPresetRequest(BaseModel):
     preset_id: str
     name: Optional[str] = None
+    language: Optional[str] = None
+
+
+def _normalize_language(language: Optional[str]) -> str:
+    """요청 언어를 지원 언어로 정규화(미지정·미지원은 기본 언어 ko 폴백)."""
+    if language and language in SUPPORTED_LANGUAGES:
+        return language
+    return DEFAULT_LANGUAGE
 
 
 @router.get("/presets")
-async def list_character_presets():
-    """기본 제공 캐릭터 프리셋 목록(외형 묘사 + 썸네일 asset). '기본 이미지 선택' 경로."""
-    return {"presets": CHARACTER_PRESETS}
+async def list_character_presets(language: Optional[str] = None):
+    """기본 제공 캐릭터 프리셋 목록(외형 묘사 + 썸네일 asset). '기본 이미지 선택' 경로.
+
+    language 로 표시 텍스트(name/appearance/clothing/visual_style_notes)를 로케일별로
+    서빙한다(미지정·미지원은 ko 폴백). master_description 은 이미지 최적 영어로 고정.
+    """
+    lang = _normalize_language(language)
+    presets = [
+        get_preset_localized(preset["preset_id"], lang) for preset in CHARACTER_PRESETS
+    ]
+    return {"presets": presets}
 
 
 @router.post("/from-preset", response_model=CharacterResponse)
@@ -265,8 +285,13 @@ async def create_character_from_preset(
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
 ):
-    """기본 캐릭터 프리셋으로 주인공 캐릭터를 생성한다(아이 이름 지정 가능)."""
-    preset = get_preset(request.preset_id)
+    """기본 캐릭터 프리셋으로 주인공 캐릭터를 생성한다(아이 이름 지정 가능).
+
+    표시 텍스트(name/appearance/clothing/visual_style_notes)는 요청 언어로 저장하고,
+    master_description 은 이미지 최적 영어로 고정 저장한다(G31 불변식).
+    """
+    lang = _normalize_language(request.language)
+    preset = get_preset_localized(request.preset_id, lang)
     if preset is None:
         raise NotFoundError("캐릭터 프리셋", request.preset_id)
 
