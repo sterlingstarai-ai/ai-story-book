@@ -196,3 +196,26 @@ async def test_today_book_id_isolated_per_user(client, db_session):
     res_b = await client.get("/v1/streak/today", headers=user_b)
     assert res_b.status_code == 200, res_b.text
     assert res_b.json()["book_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_today_response_includes_stable_topic_id(client, db_session):
+    """H25: GET /v1/streak/today가 안정 topic_id('theme_idx')를 제공(모바일 arb 표시)."""
+    import re as _re
+
+    res = await client.get("/v1/streak/today", headers=H)
+    assert res.status_code == 200, res.text
+    data = res.json()
+    assert data["topic_id"], "topic_id 존재"
+    assert _re.fullmatch(r"[a-z]+_[0-9]+", data["topic_id"]), data["topic_id"]
+    # theme는 안정 id(한국어 아님)
+    assert _re.fullmatch(r"[a-z]+", data["theme"]), data["theme"]
+
+
+def test_topic_id_for_reverse_maps():
+    """H25: topic_id_for가 theme+topic → 'theme_idx' 역매핑(미지 topic은 _0)."""
+    from src.services.streak import DAILY_THEMES, topic_id_for
+
+    t0 = DAILY_THEMES[0]
+    assert topic_id_for(t0["theme"], t0["topics"][2]) == f"{t0['theme']}_2"
+    assert topic_id_for("friendship", "존재하지않는토픽") == "friendship_0"

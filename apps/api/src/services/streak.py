@@ -114,6 +114,22 @@ DAILY_THEMES = [
 ]
 
 
+def topic_id_for(theme: str, topic: str) -> str:
+    """(theme id, topic 문자열) → 안정적 topic_id 'theme_idx'(H25).
+
+    '오늘의 동화'가 언어 무관 안정 키를 노출해 모바일이 arb로 로케일 표시하도록 한다
+    (서버는 한국어 topic 문자열을 하위호환으로 유지하되 표시엔 topic_id 사용).
+    """
+    for t in DAILY_THEMES:
+        if t["theme"] == theme:
+            try:
+                idx = t["topics"].index(topic)
+            except ValueError:
+                idx = 0
+            return f"{theme}_{idx}"
+    return f"{theme}_0"
+
+
 class StreakService:
     """스트릭 관리 서비스"""
 
@@ -572,6 +588,7 @@ class StreakService:
                 "date": daily_story.date.isoformat(),
                 "theme": daily_story.theme,
                 "topic": daily_story.topic,
+                "topic_id": topic_id_for(daily_story.theme, daily_story.topic),  # H25
                 "book_id": user_book_id,  # M22
             }
 
@@ -602,6 +619,7 @@ class StreakService:
                     "date": existing.date.isoformat(),
                     "theme": existing.theme,
                     "topic": existing.topic,
+                    "topic_id": topic_id_for(existing.theme, existing.topic),  # H25
                     "book_id": user_book_id,  # M22
                 }
             raise
@@ -611,6 +629,7 @@ class StreakService:
             "theme": theme_data["theme"],
             "theme_name": theme_data["name"],
             "topic": topic,
+            "topic_id": f"{theme_data['theme']}_{topic_index}",  # H25 안정 키
             "book_id": user_book_id,  # M22
         }
 

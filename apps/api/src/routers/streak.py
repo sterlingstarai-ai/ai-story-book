@@ -75,9 +75,10 @@ class StreakInfoResponse(BaseModel):
 
 class TodayStoryResponse(BaseModel):
     date: str
-    theme: str
+    theme: str  # H25: 안정 theme id(모바일 arb 표시키)
     theme_name: Optional[str]
     topic: str
+    topic_id: Optional[str] = None  # H25: 안정 topic 키 'theme_idx'(모바일 arb 표시)
     book_id: Optional[str]
 
 
@@ -177,6 +178,7 @@ async def get_today_story(
         theme=story["theme"],
         theme_name=theme_name,
         topic=story["topic"],
+        topic_id=story.get("topic_id"),  # H25: 안정 topic 키(모바일 arb 표시)
         book_id=story.get("book_id"),
     )
 
