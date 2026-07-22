@@ -22,6 +22,14 @@ services:
   # ===================
   api:
     image: ${API_IMAGE:-ghcr.io/sterlingstarai-ai/ai-story-book/api:latest}
+    # L15: 의존성 인지형 readiness 프로브로 오버라이드(이미지 기본 HEALTHCHECK의 /health는
+    # 무조건 200이라 DB/Redis가 죽어도 healthy — 병든 replica로 트래픽이 계속 감).
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
     environment:
       # Database
       - DATABASE_URL=postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}
@@ -229,8 +237,8 @@ services:
     volumes:
       - minio-data:/data
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 30s
