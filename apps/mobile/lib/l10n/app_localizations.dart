@@ -3916,6 +3916,12 @@ abstract class AppLocalizations {
   /// **'Couldn\'t fix that region.'**
   String get inpaintFailed;
 
+  /// No description provided for @inpaintApplyingRefreshLater.
+  ///
+  /// In en, this message translates to:
+  /// **'Applying your change. Please refresh in a moment.'**
+  String get inpaintApplyingRefreshLater;
+
   /// No description provided for @viewerRegenerateAll.
   ///
   /// In en, this message translates to:

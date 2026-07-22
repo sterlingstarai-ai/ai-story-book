@@ -2036,6 +2036,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get inpaintFailed => '부분 수정에 실패했어요.';
 
   @override
+  String get inpaintApplyingRefreshLater => '적용 중이에요. 잠시 후 새로고침 해주세요.';
+
+  @override
   String get viewerRegenerateAll => '모두';
 
   @override

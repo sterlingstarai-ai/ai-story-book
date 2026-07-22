@@ -2139,6 +2139,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get inpaintFailed => 'Couldn\'t fix that region.';
 
   @override
+  String get inpaintApplyingRefreshLater =>
+      'Applying your change. Please refresh in a moment.';
+
+  @override
   String get viewerRegenerateAll => 'All';
 
   @override

@@ -16,6 +16,9 @@ import '../utils/constants.dart';
 /// 어떻게 바꿀지 입력하면 마스크 영역만 다시 그린다.
 ///
 /// 결과: Navigator.pop(context, true)=성공(반영됨) / false=미지원→전체 재생성 폴백 권장.
+/// M25: 인페인트 잡의 최종 결과 — 실패/타임아웃을 성공으로 삼키지 않기 위한 구분.
+enum _InpaintOutcome { completed, failed, timeout }
+
 class InpaintScreen extends ConsumerStatefulWidget {
   const InpaintScreen({
     super.key,
@@ -118,10 +121,30 @@ class _InpaintScreenState extends ConsumerState<InpaintScreen> {
             file,
             prompt,
           );
-      await _waitForJob(newJobId);
+      // M25: 실패/타임아웃을 성공으로 오분류하지 않는다.
+      final outcome = await _waitForJob(newJobId);
       if (!mounted) return;
-      ref.invalidate(bookDetailProvider(widget.bookId));
-      Navigator.pop(context, true);
+      switch (outcome) {
+        case _InpaintOutcome.completed:
+          ref.invalidate(bookDetailProvider(widget.bookId));
+          Navigator.pop(context, true);
+          break;
+        case _InpaintOutcome.failed:
+          setState(() => _isLoading = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(l.inpaintFailed),
+              backgroundColor: AppColors.error,
+            ),
+          );
+          break;
+        case _InpaintOutcome.timeout:
+          setState(() => _isLoading = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(l.inpaintApplyingRefreshLater)),
+          );
+          break;
+      }
     } on InpaintUnsupportedException {
       if (!mounted) return;
       setState(() => _isLoading = false);
@@ -138,17 +161,22 @@ class _InpaintScreenState extends ConsumerState<InpaintScreen> {
     }
   }
 
-  Future<void> _waitForJob(String jobId) async {
+  Future<_InpaintOutcome> _waitForJob(String jobId) async {
     final api = ref.read(apiClientProvider);
-    for (var i = 0; i < 40 && mounted; i++) {
+    // M25: 예산을 이미지 타임아웃 스펙(90초×재시도)에 맞춰 확대(느린 성공 오분류 방지).
+    final startedAt = DateTime.now();
+    const budget = Duration(minutes: 3);
+    while (mounted && DateTime.now().difference(startedAt) < budget) {
       await Future.delayed(const Duration(seconds: 1));
       try {
         final js = await api.getBookStatus(jobId);
-        if (js.isComplete || js.isFailed) return;
+        if (js.isComplete) return _InpaintOutcome.completed;
+        if (js.isFailed) return _InpaintOutcome.failed;
       } catch (_) {
         // 일시적 오류는 무시하고 재시도
       }
     }
+    return _InpaintOutcome.timeout;
   }
 
   @override

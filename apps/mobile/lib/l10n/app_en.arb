@@ -936,6 +936,7 @@
   "inpaintApply": "Apply",
   "inpaintNeedRegionAndPrompt": "Paint a region and describe the change.",
   "inpaintFailed": "Couldn't fix that region.",
+  "inpaintApplyingRefreshLater": "Applying your change. Please refresh in a moment.",
   "viewerRegenerateAll": "All",
   "viewerRegenerateNotSupported": "This storybook doesn't support page regeneration",
   "viewerRegenerating": "Remaking the page...",

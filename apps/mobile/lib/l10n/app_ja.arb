@@ -649,6 +649,7 @@
   "inpaintApply": "適用",
   "inpaintNeedRegionAndPrompt": "領域と変更内容の両方を入力してください。",
   "inpaintFailed": "部分修正に失敗しました。",
+  "inpaintApplyingRefreshLater": "適用中です。しばらくしてから更新してください。",
   "viewerRegenerateAll": "すべて",
   "viewerRegenerateNotSupported": "この絵本はページの再生成に対応していません",
   "viewerRegenerating": "ページを作り直しています...",

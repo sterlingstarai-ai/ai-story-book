@@ -2037,6 +2037,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get inpaintFailed => '部分修正に失敗しました。';
 
   @override
+  String get inpaintApplyingRefreshLater => '適用中です。しばらくしてから更新してください。';
+
+  @override
   String get viewerRegenerateAll => 'すべて';
 
   @override
