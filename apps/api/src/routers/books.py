@@ -609,7 +609,7 @@ async def create_book(
         db=db,
         user_key=user_key,
         job_id=job_id,
-        current_step="대기 중",
+        current_step="queued",  # M32
         credit_description="책 생성",
         refund_description="잡 생성 실패 환불",
         idempotency_key=idempotency_key,

@@ -1246,6 +1246,12 @@ abstract class AppLocalizations {
   /// **'Wrapping things up'**
   String get loadingStepPackage;
 
+  /// No description provided for @loadingStepLearningAssets.
+  ///
+  /// In en, this message translates to:
+  /// **'Creating learning materials'**
+  String get loadingStepLearningAssets;
+
   /// No description provided for @loadingTip1.
   ///
   /// In en, this message translates to:

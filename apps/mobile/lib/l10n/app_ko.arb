@@ -204,6 +204,7 @@
   "loadingStepGenerateImages": "그림을 그리고 있어요",
   "loadingStepModerateOutput": "최종 검사 중이에요",
   "loadingStepPackage": "마무리하고 있어요",
+  "loadingStepLearningAssets": "학습 자료를 만들고 있어요",
   "loadingTip1": "아이에게 맞는 단어와 문장으로 이야기가 만들어져요",
   "loadingTip2": "캐릭터가 일관되게 그려지도록 AI가 신경 쓰고 있어요",
   "loadingTip3": "완성된 책은 서재에서 언제든지 다시 볼 수 있어요",

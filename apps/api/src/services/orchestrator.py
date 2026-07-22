@@ -258,7 +258,7 @@ async def mark_job_done(job_id: str):
             .values(
                 status="done",
                 progress=100,
-                current_step="완료",
+                current_step="done",
                 updated_at=utcnow(),
             )
         )
@@ -335,7 +335,7 @@ async def start_book_generation(
         # A. 입력 정규화
         normalized_spec = await run_step(
             job_id=job_id,
-            step_name="입력 확인 중...",
+            step_name="normalize",
             progress=PROGRESS_NORMALIZE,
             fn=lambda: normalize_input(spec),
             retries=0,
@@ -345,7 +345,7 @@ async def start_book_generation(
         # B. 입력 안전성 검사
         moderation = await run_step(
             job_id=job_id,
-            step_name="안전성 검사 중...",
+            step_name="moderate_input",
             progress=PROGRESS_MODERATE_INPUT,
             fn=lambda: moderate_input(normalized_spec),
             retries=0,
@@ -367,7 +367,7 @@ async def start_book_generation(
         # C. 스토리 생성
         story_draft = await run_step(
             job_id=job_id,
-            step_name="이야기 쓰는 중...",
+            step_name="generate_story",
             progress=PROGRESS_STORY,
             fn=lambda: generate_story(normalized_spec),
             retries=2,
@@ -381,7 +381,7 @@ async def start_book_generation(
         # D. 캐릭터 시트 생성
         character_sheet = await run_step(
             job_id=job_id,
-            step_name="캐릭터 만드는 중...",
+            step_name="generate_character_sheet",
             progress=PROGRESS_CHARACTER,
             fn=lambda: generate_character_sheet(normalized_spec, story_draft),
             retries=1,
@@ -392,7 +392,7 @@ async def start_book_generation(
         # E. 이미지 프롬프트 생성
         image_prompts = await run_step(
             job_id=job_id,
-            step_name="그림 준비 중...",
+            step_name="generate_image_prompts",
             progress=PROGRESS_IMAGE_PROMPTS,
             fn=lambda: generate_image_prompts(
                 normalized_spec, story_draft, character_sheet
@@ -418,7 +418,7 @@ async def start_book_generation(
         # G. 출력 안전성 검사 (이미지)
         output_safe = await run_step(
             job_id=job_id,
-            step_name="결과 확인 중...",
+            step_name="moderate_output",
             progress=86,
             fn=lambda: moderate_output(story_draft, image_urls),
             retries=0,
@@ -436,7 +436,7 @@ async def start_book_generation(
         # G-2. 학습 자산 생성 (번역 + 어휘 + 질문)
         learning_assets = await run_step(
             job_id=job_id,
-            step_name="학습 자료 만드는 중...",
+            step_name="learning_assets",
             progress=PROGRESS_LEARNING_ASSETS,
             fn=lambda: generate_learning_assets(story_draft),
             retries=1,
@@ -447,7 +447,7 @@ async def start_book_generation(
         # H. 패키징 및 저장
         book_result = await run_step(
             job_id=job_id,
-            step_name="마무리 중...",
+            step_name="package",
             progress=98,
             fn=lambda: package_book(
                 job_id,
@@ -717,7 +717,7 @@ async def generate_all_images(
     current_progress = PROGRESS_IMAGES_START
 
     # Generate cover
-    await update_job_status(job_id, "표지 그리는 중...", int(current_progress))
+    await update_job_status(job_id, "generate_images", int(current_progress))
     cover_url = await generate_image_with_retry(
         image_prompts.cover, job_id, 0, reference_image_url=reference_image_url
     )
@@ -729,9 +729,10 @@ async def generate_all_images(
 
     async def generate_with_semaphore(prompt, page_num):
         async with semaphore:
+            # M32: 안정 키로 통일(페이지 카운트는 progress 필드가 표현). 클라이언트가 l10n 매핑.
             await update_job_status(
                 job_id,
-                f"그림 그리는 중... ({page_num}/{len(image_prompts.pages)})",
+                "generate_images",
                 int(current_progress + (page_num * progress_per_image)),
             )
             return await generate_image_with_retry(

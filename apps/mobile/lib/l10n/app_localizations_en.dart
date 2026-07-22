@@ -631,6 +631,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get loadingStepPackage => 'Wrapping things up';
 
   @override
+  String get loadingStepLearningAssets => 'Creating learning materials';
+
+  @override
   String get loadingTip1 =>
       'The story is written with words and sentences suited to your child';
 

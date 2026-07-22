@@ -40,7 +40,7 @@ class Job(Base):
         String(20), nullable=False, default="queued"
     )  # queued, running, failed, done
     progress = Column(Integer, default=0)
-    current_step = Column(String(120), default="대기 중")
+    current_step = Column(String(120), default="queued")  # M32: 안정 키
     error_code = Column(String(60), nullable=True)
     error_message = Column(String(300), nullable=True)
     moderation_input = Column(JSON, nullable=True)

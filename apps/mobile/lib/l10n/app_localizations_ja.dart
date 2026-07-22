@@ -602,6 +602,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get loadingStepPackage => '仕上げをしています';
 
   @override
+  String get loadingStepLearningAssets => '学習教材を作成しています';
+
+  @override
   String get loadingTip1 => 'お子さまに合った言葉と文章で物語が作られます';
 
   @override

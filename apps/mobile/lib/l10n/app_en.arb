@@ -238,6 +238,7 @@
   "loadingStepGenerateImages": "Drawing the illustrations",
   "loadingStepModerateOutput": "Running the final check",
   "loadingStepPackage": "Wrapping things up",
+  "loadingStepLearningAssets": "Creating learning materials",
   "loadingTip1": "The story is written with words and sentences suited to your child",
   "loadingTip2": "The AI takes care to keep the character consistent",
   "loadingTip3": "You can revisit finished storybooks anytime in your library",

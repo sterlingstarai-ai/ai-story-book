@@ -204,6 +204,7 @@
   "loadingStepGenerateImages": "絵を描いています",
   "loadingStepModerateOutput": "最終チェック中です",
   "loadingStepPackage": "仕上げをしています",
+  "loadingStepLearningAssets": "学習教材を作成しています",
   "loadingTip1": "お子さまに合った言葉と文章で物語が作られます",
   "loadingTip2": "キャラクターが一貫して描かれるようAIが配慮しています",
   "loadingTip3": "完成した絵本はライブラリでいつでも見返せます",

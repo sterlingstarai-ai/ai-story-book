@@ -234,7 +234,7 @@ async def generate_today_story(
         db=db,
         user_key=user_key,
         job_id=job_id,
-        current_step="오늘의 동화 대기 중",
+        current_step="queued",  # M32
         credit_description="오늘의 동화 생성",
         refund_description="오늘의 동화 생성 실패 환불",
         idempotency_key=idempotency_key,

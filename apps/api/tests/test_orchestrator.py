@@ -852,3 +852,24 @@ async def test_regenerate_page_syncs_and_invalidates_bilingual(monkeypatch):
     assert page.audio_url is None
     assert page.audio_url_ko is None
     assert page.audio_url_en is None
+
+
+# ==================== M32: current_step 안정 키 ====================
+
+
+def test_orchestrator_step_names_are_stable_keys():
+    """M32: 모든 step_name/current_step이 한국어 표시 문자열이 아닌 안정 영문 키."""
+    import inspect
+    import re
+
+    from src.services import orchestrator as orch
+
+    src = inspect.getsource(orch)
+    for m in re.finditer(r'step_name="([^"]*)"', src):
+        assert re.fullmatch(r"[a-z_]+", m.group(1)), f"non-key step_name: {m.group(1)!r}"
+    # 주요 키 존재
+    assert 'current_step="done"' in src
+    assert '"generate_images"' in src
+    # 한국어 진행 문구가 남아있지 않다.
+    assert "이야기 쓰는 중" not in src
+    assert "표지 그리는 중" not in src

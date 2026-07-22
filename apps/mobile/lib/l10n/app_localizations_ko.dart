@@ -602,6 +602,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get loadingStepPackage => '마무리하고 있어요';
 
   @override
+  String get loadingStepLearningAssets => '학습 자료를 만들고 있어요';
+
+  @override
   String get loadingTip1 => '아이에게 맞는 단어와 문장으로 이야기가 만들어져요';
 
   @override

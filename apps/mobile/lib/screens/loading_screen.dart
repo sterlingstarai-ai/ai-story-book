@@ -266,6 +266,10 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
     if (step == null) return l.loadingStepPreparing;
 
     final descriptions = {
+      // M32: 백엔드 안정 키 → 로케일 문자열. 백엔드가 한국어 표시 문자열 대신 이 키를
+      // 보내므로 `?? step` 폴백이 더 이상 한국어 원문을 노출하지 않는다.
+      'queued': l.loadingStepWaiting,
+      'preparing': l.loadingStepPreparing,
       'normalize': l.loadingStepNormalize,
       'moderate_input': l.loadingStepModerateInput,
       'generate_story': l.loadingStepGenerateStory,
@@ -273,7 +277,9 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
       'generate_image_prompts': l.loadingStepGenerateImagePrompts,
       'generate_images': l.loadingStepGenerateImages,
       'moderate_output': l.loadingStepModerateOutput,
+      'learning_assets': l.loadingStepLearningAssets,
       'package': l.loadingStepPackage,
+      'done': l.loadingCompleted,
     };
 
     return descriptions[step] ?? step;
