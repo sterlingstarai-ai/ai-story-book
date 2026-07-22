@@ -7,6 +7,7 @@ import '../l10n/app_localizations.dart';
 import '../models/models.dart';
 import '../providers/providers.dart';
 import '../utils/constants.dart';
+import '../widgets/age_gate_dialog.dart';
 import '../widgets/app_shell.dart';
 import '../widgets/common_widgets.dart';
 
@@ -259,6 +260,10 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
     _CharacterCreationMode creationMode = _CharacterCreationMode.photo,
   }) async {
     try {
+      // M24: 사진 업로드 전 보호자 age gate(character_source_sheet와 동일 이중 보호).
+      if (!await ensureAgeGate(context, ref)) return;
+      if (!mounted) return;
+
       final XFile? image = await _picker.pickImage(
         source: source,
         maxWidth: 1024,

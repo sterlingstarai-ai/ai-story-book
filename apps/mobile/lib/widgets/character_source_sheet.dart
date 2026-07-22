@@ -104,12 +104,9 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
     }
     final l = AppLocalizations.of(context);
     // 아동 얼굴 사진 업로드는 보호자 게이트 뒤에서만(세션 내 검증되어 있으면 통과).
-    // 게이트 통과 → 사진 선택 → JIT 동의(아래) 순으로 이중 보호.
-    final parental = ref.read(parentalControlServiceProvider);
-    if (!parental.isAgeGateVerifiedForSession) {
-      if (!await showAgeGateDialog(context, ref)) {
-        return; // 보호자 확인 실패/취소 → 사진 업로드 중단
-      }
+    // 게이트 통과 → 사진 선택 → JIT 동의(아래) 순으로 이중 보호. M24: 공용 헬퍼 공유.
+    if (!await ensureAgeGate(context, ref)) {
+      return; // 보호자 확인 실패/취소 → 사진 업로드 중단
     }
     try {
       final XFile? image = await _picker.pickImage(

@@ -5,6 +5,19 @@ import '../l10n/app_localizations.dart';
 import '../providers/providers.dart';
 import '../utils/constants.dart';
 
+/// M24: 사진 업로드 등 민감 진입점의 공용 보호자 게이트.
+///
+/// 세션 내 이미 검증됐으면 통과, 아니면 age gate 다이얼로그를 띄운다. 통과 시 true.
+/// 두 사진 진입점(characters_screen._pickImage, character_source_sheet._usePhoto)이
+/// 동일 게이트를 공유해 '게이트→JIT 동의' 이중 보호가 한쪽에만 적용되던 불일치를 없앤다.
+Future<bool> ensureAgeGate(BuildContext context, WidgetRef ref) async {
+  final parental = ref.read(parentalControlServiceProvider);
+  if (parental.isAgeGateVerifiedForSession) {
+    return true;
+  }
+  return showAgeGateDialog(context, ref);
+}
+
 Future<bool> showAgeGateDialog(BuildContext context, WidgetRef ref) async {
   final parentalControl = ref.read(parentalControlServiceProvider);
   final challenge = parentalControl.createChallenge();
