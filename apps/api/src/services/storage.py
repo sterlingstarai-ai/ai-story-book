@@ -281,6 +281,34 @@ async def delete_book_files(book_id: str) -> list[str]:
     return await _delete_prefix_keys(f"books/{book_id}/")
 
 
+async def delete_keys(keys: list[str]) -> list[str]:
+    """명시된 S3 키들을 삭제하고 **삭제 실패한 키 목록**을 반환한다([] = 전건 성공, N1).
+
+    파이프라인 이미지가 books/{id}/ prefix 밖(images/{provider}/{uuid} 등)에 저장돼도
+    저장된 image_url에서 역산한 키로 직접 파기하기 위한 헬퍼. delete_objects는 1회 1000개
+    한도라 청크 분할하고, per-key Errors·ClientError를 H8 계약대로 실패로 표면화한다.
+    """
+    keys = [k for k in dict.fromkeys(keys) if k]  # 중복 제거 + 빈 값 제외(순서 보존)
+    if not keys:
+        return []
+    s3_client = get_s3_client()
+    failed: list[str] = []
+    for i in range(0, len(keys), 1000):
+        chunk = keys[i : i + 1000]
+        try:
+            del_resp = await _call_s3(
+                s3_client.delete_objects,
+                Bucket=settings.s3_bucket,
+                Delete={"Objects": [{"Key": k} for k in chunk]},
+            )
+            errors = del_resp.get("Errors", []) or []
+            failed.extend(e["Key"] for e in errors if e.get("Key"))
+        except ClientError as e:
+            logger.error("S3 delete_keys failed", count=len(chunk), error=str(e))
+            failed.extend(chunk)  # 삼키지 않는다 — 청크 전체를 실패로 표면화
+    return failed
+
+
 class StorageService:
     """Storage Service 클래스"""
 

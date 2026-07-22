@@ -317,3 +317,55 @@ async def test_account_deletion_reports_storage_failure_as_partial(
     body = r.json()
     assert body["status"] == "partial"
     assert body["storage_delete_failures"] > 0
+
+
+# ==================== N1: 파이프라인 이미지 삭제 추적성 ====================
+
+
+@pytest.mark.asyncio
+async def test_collect_book_image_keys_derives_from_url(db_session):
+    """N1: 표지·페이지 image_url(추적 불가 prefix 포함)에서 S3 키를 역산."""
+    from src.core.config import settings
+    from src.models.db import Page
+    from src.services.data_deletion import collect_book_image_keys
+
+    base = settings.s3_public_url.rstrip("/")
+    book_id = await _make_book(db_session)
+    book = (await db_session.execute(select(Book).where(Book.id == book_id))).scalar_one()
+    book.cover_image_url = f"{base}/images/replicate/cover-xyz.png"
+    db_session.add(Page(book_id=book_id, page_number=1, text="p1",
+                        image_url=f"{base}/images/fal/page1-abc.png"))
+    await db_session.commit()
+
+    keys = await collect_book_image_keys(db_session, [book_id])
+    assert "images/replicate/cover-xyz.png" in keys
+    assert "images/fal/page1-abc.png" in keys
+
+
+@pytest.mark.asyncio
+async def test_account_deletion_purges_pipeline_image_keys(client, db_session, monkeypatch):
+    """N1: 계정 삭제가 books/{id}/ prefix 밖 파이프라인 이미지 키를 실제로 파기한다."""
+    from src.core.config import settings
+    from src.models.db import Page
+    from src.routers import users as users_module
+
+    base = settings.s3_public_url.rstrip("/")
+    book_id = await _make_book(db_session)
+    book = (await db_session.execute(select(Book).where(Book.id == book_id))).scalar_one()
+    book.cover_image_url = f"{base}/images/replicate/cover-n1.png"
+    db_session.add(Page(book_id=book_id, page_number=1, text="p1",
+                        image_url=f"{base}/images/fal/page1-n1.png"))
+    await db_session.commit()
+
+    deleted = {}
+
+    async def spy_delete_keys(keys):
+        deleted["keys"] = list(keys)
+        return []
+
+    monkeypatch.setattr(users_module, "delete_keys", spy_delete_keys)
+
+    r = await client.delete("/v1/users/me", headers=OWNER_HEADERS)
+    assert r.status_code == 200, r.text
+    assert "images/replicate/cover-n1.png" in deleted.get("keys", [])
+    assert "images/fal/page1-n1.png" in deleted.get("keys", [])

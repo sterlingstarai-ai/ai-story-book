@@ -32,8 +32,8 @@ from src.models.db import (
     VoiceProfile,
     PronunciationLog,
 )
-from src.services.data_deletion import purge_book_children
-from src.services.storage import delete_book_files, storage_service
+from src.services.data_deletion import collect_book_image_keys, purge_book_children
+from src.services.storage import delete_book_files, delete_keys, storage_service
 
 router = APIRouter()
 logger = structlog.get_logger()
@@ -61,6 +61,8 @@ async def delete_my_data(
         select(Character.id).where(Character.user_key == user_key)
     )
     character_ids = [cid for (cid,) in chars_result.all()]
+    # N1: 파이프라인 표지·페이지 이미지 키를 image_url에서 역산 — 반드시 행 삭제 전에 수집.
+    image_keys = await collect_book_image_keys(db, book_ids)
 
     # FK 순서를 고려해 자식/로그 테이블부터 삭제. 책-자식(공유 링크/퀴즈응답/오늘의 동화
     # 참조 등)은 공용 헬퍼로 일괄 정리 — 누락 시 Postgres에서 erasure 트랜잭션이 abort된다.
@@ -110,6 +112,10 @@ async def delete_my_data(
 
     for book_id in book_ids:
         failed_keys.extend(await _purge(delete_book_files(book_id), book_id=book_id))
+    # N1: books/{id}/ prefix 밖에 저장된 파이프라인 이미지(images/{provider}/{uuid} 등)를
+    # image_url 역산 키로 직접 파기 — 아동 사진 파생 일러스트 잔존 방지(H8 실패 계약과 결합).
+    if image_keys:
+        failed_keys.extend(await _purge(delete_keys(image_keys)))
     # 아동 사진/그림 파생 캐릭터 원본 파기(PIPA/GDPR 삭제권 — revoke 경로와 동일)
     for character_id in character_ids:
         failed_keys.extend(await _purge(
