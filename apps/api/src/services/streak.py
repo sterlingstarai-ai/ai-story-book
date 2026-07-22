@@ -191,14 +191,20 @@ class StreakService:
         self,
         db: AsyncSession,
         user_key: str,
-        profile_id: str,
+        profile_id: Optional[str] = None,
     ) -> dict:
+        """ReadingLog 기반 스트릭 재계산.
+
+        L9: profile_id=None이면 user_key의 모든 ReadingLog(프로필 경유 포함)로 계정 단위
+        스트릭을 계산한다. 계정 성장 리포트가 daily_streaks(프로필 경유 읽기 미반영)를
+        읽어 books_read>0인데 streak=0으로 모순되던 문제를 ReadingLog 정본 통일로 해소.
+        """
+        where = [ReadingLog.user_key == user_key]
+        if profile_id is not None:
+            where.append(ReadingLog.profile_id == profile_id)
         result = await db.execute(
             select(ReadingLog.read_date)
-            .where(
-                ReadingLog.user_key == user_key,
-                ReadingLog.profile_id == profile_id,
-            )
+            .where(*where)
             .order_by(ReadingLog.read_date.asc())
         )
         rows = result.all()

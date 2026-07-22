@@ -15,7 +15,7 @@ from sqlalchemy import case, distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.exceptions import AuthorizationError, NotFoundError
-from src.models.db import Book, ChildProfile, DailyStreak, QuizAnswer, ReadingLog
+from src.models.db import Book, ChildProfile, QuizAnswer, ReadingLog
 
 # 연령대별 기준선 — 정규화 타깃 + 또래 표본 희소 시(또래 < MIN_PEERS_FOR_REAL) 폴백.
 # 한국 유아 읽기 습관의 보수적 추정치이며, 실제 또래 데이터가 쌓이면 그쪽을 쓴다.
@@ -243,24 +243,16 @@ class GrowthService:
         ).scalar() or 0
         completion = round(rl_completed / rl_total, 3) if rl_total else 0.0
 
-        # 스트릭: 프로필 지정 시 프로필 단위로(형제 합산 방지). DailyStreak 테이블은
-        # 계정 단위라 profile_id 컬럼이 없으므로, 프로필별은 ReadingLog 기반 재계산에 위임.
-        if profile_id:
-            from src.services.streak import streak_service
+        # 스트릭: ReadingLog 기반 재계산으로 통일(L9). 프로필 지정 시 그 프로필만, 계정
+        # 단위(profile_id=None)는 프로필 경유 포함 모든 ReadingLog로 계산한다. 이전엔 계정
+        # 분기가 daily_streaks(프로필 경유 읽기 미반영)를 읽어 books_read>0인데 streak=0으로
+        # 자기모순이었다 — 성장 리포트의 books_read/completion 정본(ReadingLog)과 정합.
+        from src.services.streak import streak_service
 
-            ps = await streak_service.get_streak_info(db, user_key, profile_id)
-            current_streak = ps["current_streak"]
-            longest_streak = ps["longest_streak"]
-            total_reading_days = ps["total_days"]
-        else:
-            streak = (
-                await db.execute(
-                    select(DailyStreak).where(DailyStreak.user_key == user_key)
-                )
-            ).scalar_one_or_none()
-            current_streak = streak.current_streak if streak else 0
-            longest_streak = streak.longest_streak if streak else 0
-            total_reading_days = streak.total_days if streak else 0
+        ps = await streak_service._get_profile_streak_info(db, user_key, profile_id)
+        current_streak = ps["current_streak"]
+        longest_streak = ps["longest_streak"]
+        total_reading_days = ps["total_days"]
 
         qa_where = [QuizAnswer.user_key == user_key]
         if profile_id:

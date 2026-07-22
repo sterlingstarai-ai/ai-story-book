@@ -343,3 +343,35 @@ async def test_peer_comparison_endpoint(client, db_session):
         "my", "peer_avg", "top_percent", "medal",
     ):
         assert k in body
+
+
+@pytest.mark.asyncio
+async def test_account_growth_streak_consistent_with_books(client, db_session):
+    """L9: 프로필 경유 읽기 후 계정 성장 리포트의 streak가 books_read와 모순되지 않는다."""
+    from datetime import timedelta
+
+    uk = H["X-User-Key"]
+    prof = _profile(uk, "5-7", 1)
+    db_session.add(prof)
+    await db_session.flush()
+
+    now = utcnow()
+    logs = [
+        ReadingLog(
+            user_key=uk,
+            profile_id=prof.id,
+            book_id=f"lb{i}",
+            read_date=now - timedelta(days=i),
+        )
+        for i in range(3)
+    ]
+    db_session.add_all(make_book_rows([(f"lb{i}", uk) for i in range(3)]) + logs)
+    await db_session.commit()
+
+    # 프로필 없이(계정 단위) 조회 — 이전엔 daily_streaks 기반이라 streak=0으로 모순.
+    res = await client.get("/v1/growth", headers={"X-User-Key": uk})
+    assert res.status_code == 200, res.text
+    data = res.json()
+    assert data["books_read"] >= 3
+    assert data["current_streak"] >= 1  # L9: books_read>0인데 streak=0 모순 제거
+    assert data["total_reading_days"] >= 3
