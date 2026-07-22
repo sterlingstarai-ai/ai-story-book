@@ -220,3 +220,41 @@ class TestErrorHandling:
         )
         assert response.status_code == 422
         assert "detail" in response.json()
+
+
+# ==================== M9: health 엔드포인트 노출 축소 ====================
+
+
+class TestHealthExposureM9:
+    """M9: /health/detailed 무인증 노출 + /ready missing_keys 상세 노출 차단."""
+
+    @pytest.mark.asyncio
+    async def test_detailed_health_requires_admin_key(self, client, monkeypatch):
+        from src.core.config import settings
+
+        monkeypatch.setattr(settings, "admin_api_key", "k-secret")
+        # 헤더 없음 → 403
+        r = await client.get("/health/detailed")
+        assert r.status_code == 403, r.text
+        # 잘못된 키 → 403
+        r2 = await client.get("/health/detailed", headers={"X-Admin-Key": "wrong"})
+        assert r2.status_code == 403
+        # 올바른 키 → 200 + 메트릭 노출
+        r3 = await client.get("/health/detailed", headers={"X-Admin-Key": "k-secret"})
+        assert r3.status_code == 200, r3.text
+
+    @pytest.mark.asyncio
+    async def test_ready_health_hides_missing_keys_detail(self, client, monkeypatch):
+        from src.core.config import settings
+
+        monkeypatch.setattr(settings, "testing", False)
+        monkeypatch.setattr(settings, "iap_verification_mode", "local")
+        monkeypatch.setattr(settings, "apple_iap_shared_secret", None)
+        monkeypatch.setattr(settings, "iap_webhook_secret", "")
+
+        r = await client.get("/health/ready")
+        assert r.status_code == 503  # 미설정 → not-ready
+        body = r.text
+        # 공개 응답에 상세 사유 문자열 미노출(provider_keys boolean만).
+        assert "iap_webhook_secret_missing" not in body
+        assert "missing_keys" not in r.json()
