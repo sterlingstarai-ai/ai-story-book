@@ -1046,9 +1046,23 @@ async def create_series_next(
         logger.info("Skipping series background task in testing mode", job_id=job_id)
     else:
         try:
-            background_tasks.add_task(
-                start_series_generation, job_id, request, user_key, character, prev_book
-            )
+            # M11: 프로덕션(USE_CELERY)에서는 워커 태스크로 enqueue(API 프로세스 in-process
+            # 실행 시 재시작 유실·API 지연). start_series_generation은 ORM 객체를 받아
+            # 직렬화 불가하므로 id만 넘기고 태스크가 재조회한다(create_book 대칭).
+            if settings.use_celery:
+                from src.services.tasks import generate_series_task
+
+                generate_series_task.delay(
+                    job_id,
+                    request.model_dump(),
+                    user_key,
+                    character.id if character else None,
+                    prev_book.id if prev_book else None,
+                )
+            else:
+                background_tasks.add_task(
+                    start_series_generation, job_id, request, user_key, character, prev_book
+                )
         except Exception as e:
             logger.error(
                 "Failed to enqueue series generation job",

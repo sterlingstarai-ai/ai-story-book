@@ -182,6 +182,104 @@ def generate_book_task(self, job_id: str, spec_dict: dict, user_key: str):
         raise
 
 
+async def _run_series_generation_async(
+    job_id: str,
+    request_dict: dict,
+    user_key: str,
+    character_id: Optional[str],
+    prev_book_id: Optional[str],
+):
+    """직렬화 가능한 id 인자로 character/prev_book을 DB 재조회 후 시리즈 생성 실행(M11).
+
+    start_series_generation은 ORM 객체 character·prev_book을 받아 Celery 직렬화가 불가하므로,
+    태스크는 id만 받아 워커 프로세스에서 재조회한다.
+    """
+    from sqlalchemy import select
+
+    from src.core.database import AsyncSessionLocal
+    from src.models.db import Book, Character
+    from src.models.dto import SeriesNextRequest
+    from src.services.orchestrator import start_series_generation
+
+    async with AsyncSessionLocal() as session:
+        character = None
+        if character_id:
+            character = (
+                await session.execute(
+                    select(Character).where(Character.id == character_id)
+                )
+            ).scalar_one_or_none()
+        prev_book = None
+        if prev_book_id:
+            prev_book = (
+                await session.execute(select(Book).where(Book.id == prev_book_id))
+            ).scalar_one_or_none()
+
+    request = SeriesNextRequest(**request_dict)
+    return await start_series_generation(
+        job_id, request, user_key, character, prev_book
+    )
+
+
+@shared_task(
+    bind=True,
+    max_retries=0,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    time_limit=720,
+    soft_time_limit=600,
+)
+def generate_series_task(
+    self,
+    job_id: str,
+    request_dict: dict,
+    user_key: str,
+    character_id: Optional[str] = None,
+    prev_book_id: Optional[str] = None,
+):
+    """Celery task for series ('다음 권') generation (M11).
+
+    이전엔 create_series_next가 무조건 API 프로세스 BackgroundTasks로 10분 파이프라인을
+    실행해 재시작 시 유실·API 지연이 있었다. 직렬화 가능한 id 인자로 워커에서 실행한다.
+    """
+    logger.info("Starting series generation task", job_id=job_id)
+
+    # M23 미러: 재전달 멱등 가드 — terminal 잡은 재실행하지 않는다(재큐 실패 루프 차단).
+    current_status = run_async(_get_job_status_async(job_id))
+    if is_redelivery_noop(current_status):
+        logger.info(
+            "Skipping redelivery of terminal series job",
+            job_id=job_id,
+            status=current_status,
+        )
+        return {"status": "skipped", "reason": "already_terminal", "job_id": job_id}
+
+    try:
+        result = run_async(
+            _run_series_generation_async(
+                job_id, request_dict, user_key, character_id, prev_book_id
+            )
+        )
+        logger.info("Series generation completed", job_id=job_id)
+        return {"status": "success", "book_id": result.book_id if result else None}
+
+    except IntegrityError as e:
+        logger.warning(
+            "Absorbing idempotent series redelivery collision",
+            job_id=job_id,
+            error=str(e),
+        )
+        return {"status": "skipped", "reason": "duplicate_redelivery", "job_id": job_id}
+
+    except Exception as e:
+        logger.error("Series generation failed", job_id=job_id, error=str(e))
+        try:
+            run_async(_mark_job_failed_async(job_id, str(e)))
+        except Exception as db_error:
+            logger.error("Failed to update job status", error=str(db_error))
+        raise
+
+
 @shared_task(
     bind=True,
     max_retries=2,
