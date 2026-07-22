@@ -11,6 +11,7 @@ from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.db import (
+    Book,
     BookShare,
     BranchStoryEdge,
     BranchStoryNode,
@@ -44,4 +45,10 @@ async def purge_book_children(db: AsyncSession, book_ids: list[str]) -> None:
     # 소프트 FK(nullable) — '오늘의 동화' 메타는 보존하되 책 참조만 해제.
     await db.execute(
         update(DailyStory).where(DailyStory.book_id.in_(book_ids)).values(book_id=None)
+    )
+    # M10: 연령 리텔 변형본의 원본 링크(self-FK) 해제 — 원본 삭제 시 고아 포인터·FK 위반 방지.
+    await db.execute(
+        update(Book)
+        .where(Book.retelling_source_book_id.in_(book_ids))
+        .values(retelling_source_book_id=None)
     )

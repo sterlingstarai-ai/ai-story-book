@@ -138,7 +138,8 @@ class Book(Base):
 
     # 연령 리텔(grow-with-child) 원본 책 — 같은 이야기의 다른 연령 변형을 묶는다
     retelling_source_book_id = Column(
-        String(60), ForeignKey("books.id"), nullable=True
+        # M10: 마이그레이션과 일치하도록 ondelete=SET NULL 명시(원본 삭제 시 변형 링크 해제).
+        String(60), ForeignKey("books.id", ondelete="SET NULL"), nullable=True
     )
 
     # 다국어 지원 (v0.3)

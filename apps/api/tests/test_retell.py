@@ -131,3 +131,37 @@ async def test_retell_output_moderation_blocks_unsafe(
         )
     ).scalars().all()
     assert new_books == []
+
+
+@pytest.mark.asyncio
+async def test_delete_original_nullifies_retell_link(
+    client: AsyncClient,
+    headers: dict,
+    db_session: AsyncSession,
+):
+    """M10: 원본 책 삭제 시 리텔 변형본의 retelling_source_book_id가 null화(고아·FK위반 방지)."""
+    await _seed_book(db_session, headers["X-User-Key"], "book-retell-origin")
+
+    retold = RetoldStory(title="쉬운", pages=["쉬운 1", "쉬운 2"])
+    with patch(
+        "src.services.llm.call_story_retext",
+        new=AsyncMock(return_value=retold),
+    ):
+        res = await client.post(
+            "/v1/books/book-retell-origin/retell",
+            json={"target_age": "3-5"},
+            headers=headers,
+        )
+    assert res.status_code == 200, res.text
+    variant_id = res.json()["book_id"]
+
+    variant = (await db_session.execute(select(Book).where(Book.id == variant_id))).scalar_one()
+    assert variant.retelling_source_book_id == "book-retell-origin"
+
+    # 원본 삭제 → 변형본 링크 null화(FK/purge 동작), 삭제 자체는 성공.
+    r = await client.delete("/v1/library/book-retell-origin", headers=headers)
+    assert r.status_code in (200, 204), r.text
+
+    db_session.expire_all()
+    variant = (await db_session.execute(select(Book).where(Book.id == variant_id))).scalar_one()
+    assert variant.retelling_source_book_id is None
