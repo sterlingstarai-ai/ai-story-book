@@ -147,7 +147,9 @@ class ApiClient {
   }) async {
     await _dio.post(
       '/v1/books/$jobId/pages/$pageNumber/regenerate',
-      data: {'regenerate_target': regenerateTarget},
+      // L14: 계약 정본 키는 'mode'(openapi RegeneratePageRequest, additionalProperties:false).
+      // 값(text/image/both)은 mode enum과 동일. 백엔드 alias는 구버전 앱 호환용으로만 존재.
+      data: {'mode': regenerateTarget},
       options: Options(headers: _headers),
     );
   }
@@ -183,7 +185,10 @@ class ApiClient {
       }
       return newJobId;
     } on DioException catch (e) {
-      if (e.response?.statusCode == 409) {
+      // L14: 다른 의미의 409를 인페인트 미지원으로 오해석하지 않도록 error code까지 확인.
+      final detail = e.response?.data is Map ? e.response!.data['detail'] : null;
+      final isUnsupported = detail is Map && detail['code'] == 'INPAINT_UNSUPPORTED';
+      if (e.response?.statusCode == 409 && isUnsupported) {
         throw const InpaintUnsupportedException();
       }
       rethrow;

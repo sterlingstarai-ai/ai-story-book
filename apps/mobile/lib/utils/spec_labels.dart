@@ -55,6 +55,8 @@ extension BookThemeL10n on BookTheme {
         return l.themeDailyHabits;
       case BookTheme.emotionalCoaching:
         return l.themeEmotionalCoaching;
+      case BookTheme.social:
+        return l.themeSocial;
       case BookTheme.friendship:
         return l.themeFriendship;
       case BookTheme.family:

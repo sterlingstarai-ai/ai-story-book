@@ -2501,6 +2501,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get themeEmotionalCoaching => '감정코칭';
 
   @override
+  String get themeSocial => '사회성';
+
+  @override
   String get themeFriendship => '우정';
 
   @override

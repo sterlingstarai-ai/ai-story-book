@@ -4775,6 +4775,12 @@ abstract class AppLocalizations {
   /// **'Emotional Coaching'**
   String get themeEmotionalCoaching;
 
+  /// No description provided for @themeSocial.
+  ///
+  /// In en, this message translates to:
+  /// **'Social Skills'**
+  String get themeSocial;
+
   /// No description provided for @themeFriendship.
   ///
   /// In en, this message translates to:

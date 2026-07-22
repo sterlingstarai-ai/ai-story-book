@@ -78,6 +78,7 @@ enum BookTheme {
   christmas('크리스마스', '크리스마스'),
   lifestyle('생활습관', '생활습관'),
   emotionalCoaching('감정코칭', '감정코칭'),
+  social('사회성', '사회성'),
   friendship('우정', '우정'),
   family('가족', '가족'),
   adventure('모험', '모험'),

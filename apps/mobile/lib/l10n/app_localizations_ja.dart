@@ -2503,6 +2503,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get themeEmotionalCoaching => '感情コーチング';
 
   @override
+  String get themeSocial => '社会性';
+
+  @override
   String get themeFriendship => '友情';
 
   @override

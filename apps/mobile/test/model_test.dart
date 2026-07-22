@@ -551,4 +551,11 @@ void main() {
       expect(response.total, equals(2));
     });
   });
+
+  group('BookTheme', () {
+    test('includes social theme — parity with backend Theme enum (L14)', () {
+      expect(BookTheme.social.value, equals('사회성'));
+      expect(BookTheme.values.any((t) => t.value == '사회성'), isTrue);
+    });
+  });
 }

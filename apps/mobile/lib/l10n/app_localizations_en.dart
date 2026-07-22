@@ -2630,6 +2630,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get themeEmotionalCoaching => 'Emotional Coaching';
 
   @override
+  String get themeSocial => 'Social Skills';
+
+  @override
   String get themeFriendship => 'Friendship';
 
   @override

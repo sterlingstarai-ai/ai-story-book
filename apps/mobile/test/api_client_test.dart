@@ -54,6 +54,97 @@ void main() {
       await requestHandled.future.timeout(const Duration(seconds: 1));
     });
 
+    test('regeneratePage sends mode key, not regenerate_target (L14)', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+
+      Map<String, dynamic>? captured;
+      final done = Completer<void>();
+      server.listen((request) async {
+        final body = await utf8.decoder.bind(request).join();
+        captured = jsonDecode(body) as Map<String, dynamic>;
+        request.response.statusCode = HttpStatus.ok;
+        await request.response.close();
+        done.complete();
+      });
+
+      final client = ApiClient(
+        baseUrl: 'http://${server.address.host}:${server.port}',
+        userKey: 'test-user',
+        enableLogging: false,
+      );
+
+      await client.regeneratePage('job1', 2, regenerateTarget: 'both');
+      await done.future.timeout(const Duration(seconds: 1));
+      expect(captured?['mode'], 'both');
+      expect(captured?.containsKey('regenerate_target'), isFalse);
+    });
+
+    test('inpaintPage rethrows a 409 that is not INPAINT_UNSUPPORTED (L14)',
+        () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      server.listen((request) async {
+        request.response.statusCode = 409;
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(
+          jsonEncode({
+            'detail': {'code': 'SOME_OTHER_CONFLICT'}
+          }),
+        );
+        await request.response.close();
+      });
+
+      final client = ApiClient(
+        baseUrl: 'http://${server.address.host}:${server.port}',
+        userKey: 'test-user',
+        enableLogging: false,
+      );
+      final tmp = File('${Directory.systemTemp.path}/mask_l14.png')
+        ..writeAsBytesSync([1, 2, 3]);
+      addTearDown(() {
+        if (tmp.existsSync()) tmp.deleteSync();
+      });
+
+      await expectLater(
+        client.inpaintPage('job1', 1, tmp, 'brighten'),
+        throwsA(isNot(isA<InpaintUnsupportedException>())),
+      );
+    });
+
+    test('inpaintPage throws InpaintUnsupportedException on the real 409 (L14)',
+        () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      server.listen((request) async {
+        request.response.statusCode = 409;
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(
+          jsonEncode({
+            'detail': {'code': 'INPAINT_UNSUPPORTED', 'message': 'nope'}
+          }),
+        );
+        await request.response.close();
+      });
+
+      final client = ApiClient(
+        baseUrl: 'http://${server.address.host}:${server.port}',
+        userKey: 'test-user',
+        enableLogging: false,
+      );
+      final tmp = File('${Directory.systemTemp.path}/mask_l14_ok.png')
+        ..writeAsBytesSync([1, 2, 3]);
+      addTearDown(() {
+        if (tmp.existsSync()) tmp.deleteSync();
+      });
+
+      // 정본 폴백 신호는 그대로 살아있어야 한다(narrowing이 happy path를 깨지 않음).
+      await expectLater(
+        client.inpaintPage('job1', 1, tmp, 'brighten'),
+        throwsA(isA<InpaintUnsupportedException>()),
+      );
+    });
+
     test('createShareLink posts to book share endpoint and parses url',
         () async {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
