@@ -22,7 +22,7 @@ class KakaoShareService {
   static const _nativeAppKey = String.fromEnvironment('KAKAO_NATIVE_APP_KEY');
   static const _webBaseUrl = String.fromEnvironment(
     'SHARE_WEB_BASE_URL',
-    defaultValue: 'https://aistorybook.app/books',
+    defaultValue: 'https://aistorybook.com/books',
   );
 
   Uri? get _shareBaseUri => Uri.tryParse(_webBaseUrl);

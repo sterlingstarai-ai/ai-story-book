@@ -1,0 +1,5 @@
+"CFBundleDisplayName" = "AI Story Book";
+"NSCameraUsageDescription" = "お子さまの写真からキャラクターを作成するためにカメラへのアクセスが必要です。";
+"NSPhotoLibraryUsageDescription" = "写真を絵本のキャラクターに変換するために写真へのアクセスが必要です。";
+"NSMicrophoneUsageDescription" = "発音練習と音声サンプルのアップロードのためにマイクへのアクセスが必要です。";
+"NSSpeechRecognitionUsageDescription" = "発音練習の結果を分析するために音声認識を使用します。";

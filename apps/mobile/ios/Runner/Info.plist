@@ -36,10 +36,6 @@
 	<string>발음 연습과 음성 샘플 업로드를 위해 마이크 접근이 필요합니다.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>발음 연습 결과를 분석하기 위해 음성 인식 기능을 사용합니다.</string>
-	<key>PrivacyPolicyURL</key>
-	<string>https://example.com/privacy-policy.ko.html</string>
-		<key>TermsOfServiceURL</key>
-		<string>https://example.com/terms-of-service.ko.html</string>
 		<key>UISupportedInterfaceOrientations</key>
 		<array>
 			<string>UIInterfaceOrientationPortrait</string>
@@ -61,5 +57,33 @@
 		<true/>
 		<key>UIViewControllerBasedStatusBarAppearance</key>
 		<false/>
+		<!-- H27: 카카오톡 공유 가능 판정(canOpenURL)을 위해 조회 스킴 선언. iOS는 미선언
+		     스킴에 canOpenURL이 항상 false를 반환 → 미선언 시 카카오 공유 100% 불능. -->
+		<key>LSApplicationQueriesSchemes</key>
+		<array>
+			<string>kakaokompassauth</string>
+			<string>kakaolink</string>
+			<string>kakaoplus</string>
+			<string>kakaostory</string>
+			<string>kakaotalk</string>
+			<string>storylink</string>
+		</array>
+		<!-- H27: 카카오 공유 리다이렉트 스킴. G28: 키 하드코딩 금지 — xcconfig/CI 빌드변수 주입. -->
+		<key>CFBundleURLTypes</key>
+		<array>
+			<dict>
+				<key>CFBundleURLName</key>
+				<string>com.storybook.ai_story_book.kakao</string>
+				<key>CFBundleURLSchemes</key>
+				<array>
+					<string>kakao$(KAKAO_NATIVE_APP_KEY)</string>
+				</array>
+			</dict>
+		</array>
+		<!-- H28(G27=a): 취침 오디오·수면모드가 화면 잠금 후에도 재생되도록 백그라운드 오디오. -->
+		<key>UIBackgroundModes</key>
+		<array>
+			<string>audio</string>
+		</array>
 	</dict>
 </plist>

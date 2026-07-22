@@ -10,6 +10,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:confetti/confetti.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:audio_session/audio_session.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:printing/printing.dart';
 import '../core/api_error.dart';
@@ -67,6 +68,17 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   String _selectedLanguage = 'ko'; // 책 언어로 초기화됨(H3). ko/en 토글은 이중언어 책용.
   bool _languageInitialized = false;
 
+  Future<void> _configureAudioSession() async {
+    // H28(G27=a): 취침 오디오가 화면 잠금(백그라운드)에서도 재생되도록 playback 카테고리
+    // 구성. UIBackgroundModes(audio)와 함께 동작. 플러그인 실패 시 조용히 폴백하되 로그.
+    try {
+      final session = await AudioSession.instance;
+      await session.configure(const AudioSessionConfiguration.music());
+    } catch (e, st) {
+      debugPrint('AudioSession configure failed: $e\n$st');
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -80,6 +92,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       params: {'book_id': widget.bookId},
     );
     unawaited(_loadViewerSettings());
+    unawaited(_configureAudioSession());
     // Store subscription to cancel later (memory leak fix)
     _playerStateSubscription = _audioPlayer.playerStateStream.listen((state) {
       if (mounted) {

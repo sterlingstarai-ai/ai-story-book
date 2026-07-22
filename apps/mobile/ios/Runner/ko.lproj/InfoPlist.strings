@@ -1,0 +1,5 @@
+"CFBundleDisplayName" = "AI 동화책";
+"NSCameraUsageDescription" = "아이 사진으로 캐릭터를 만들기 위해 카메라 접근이 필요합니다.";
+"NSPhotoLibraryUsageDescription" = "갤러리의 사진을 동화 캐릭터로 변환하기 위해 접근이 필요합니다.";
+"NSMicrophoneUsageDescription" = "발음 연습과 음성 샘플 업로드를 위해 마이크 접근이 필요합니다.";
+"NSSpeechRecognitionUsageDescription" = "발음 연습 결과를 분석하기 위해 음성 인식 기능을 사용합니다.";

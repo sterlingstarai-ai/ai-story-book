@@ -46,6 +46,8 @@ dependencies:
 
   # Audio Player
   just_audio: ^0.9.36
+  # H28(G27=a): AVAudioSession playback 카테고리 구성 — 취침 오디오 백그라운드 재생.
+  audio_session: ^0.1.21
   in_app_review: ^2.0.10
   in_app_purchase: ^3.2.0
   # Android 소모성 소비(consumePurchase) 명시 호출용 — in_app_purchase의 transitive
