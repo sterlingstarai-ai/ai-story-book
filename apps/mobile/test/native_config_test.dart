@@ -105,6 +105,16 @@ void main() {
     });
   });
 
+  // ─────────────────── L21: 카카오 딥링크 수신 제외 (G28=결정 B) ───────────────────
+  group('L21 kakao deep-link excluded', () {
+    test('FeedTemplate에 execution params가 없다 — 웹 공유만(딥오픈 1차 제외)', () {
+      final kakao =
+          File('lib/services/kakao_share_service.dart').readAsStringSync();
+      expect(kakao.contains('ExecutionParams'), isFalse,
+          reason: 'G28: 카카오 딥링크 수신 1차 제외 — 미배선 execution params 데드 의도 제거');
+    });
+  });
+
   // ─────────────────── L19: placeholder 도메인 제거 + 정본 통일 ───────────────────
   group('L19 domain consistency', () {
     test('Info.plist에 example.com placeholder가 없다', () {
