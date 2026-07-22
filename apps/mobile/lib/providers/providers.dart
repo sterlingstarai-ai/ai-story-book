@@ -582,6 +582,10 @@ class HomeStreakSnapshot {
   final bool readToday;
   final String todayThemeName;
   final String todayTopic;
+  // H25: 안정 키(서버 theme id + topic_id) — 모바일이 로케일별 arb로 표시. 서버 한국어
+  // theme_name/topic은 폴백으로 유지.
+  final String todayThemeId;
+  final String todayTopicId;
   final String? todayBookId;
   final Set<String> readDates;
 
@@ -592,6 +596,8 @@ class HomeStreakSnapshot {
     required this.readToday,
     required this.todayThemeName,
     required this.todayTopic,
+    this.todayThemeId = '',
+    this.todayTopicId = '',
     required this.todayBookId,
     required this.readDates,
   });
@@ -630,6 +636,8 @@ final homeStreakProvider = FutureProvider<HomeStreakSnapshot>((ref) async {
         _toStringValue(todayStory['theme_name'], fallback: '오늘의 추천'),
     todayTopic:
         _toStringValue(todayStory['topic'], fallback: '오늘의 동화를 만들어보세요!'),
+    todayThemeId: _toStringValue(todayStory['theme'], fallback: ''),
+    todayTopicId: _toStringValue(todayStory['topic_id'], fallback: ''),
     todayBookId: _toNullableString(todayStory['book_id']),
     readDates: readDates,
   );

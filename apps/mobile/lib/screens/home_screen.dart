@@ -11,6 +11,92 @@ import '../providers/providers.dart';
 import '../services/analytics.dart';
 
 /// 홈 화면
+/// H25: 서버가 내려주는 안정 theme id → 로케일 표시명(미지 id는 서버 폴백).
+String dailyThemeLabel(AppLocalizations l, String themeId, String fallback) {
+  switch (themeId) {
+    case 'friendship':
+      return l.dailyThemeFriendship;
+    case 'courage':
+      return l.dailyThemeCourage;
+    case 'kindness':
+      return l.dailyThemeKindness;
+    case 'family':
+      return l.dailyThemeFamily;
+    case 'nature':
+      return l.dailyThemeNature;
+    case 'growth':
+      return l.dailyThemeGrowth;
+    case 'imagination':
+      return l.dailyThemeImagination;
+    default:
+      return fallback.isNotEmpty ? fallback : themeId;
+  }
+}
+
+/// H25: 서버 topic_id('theme_idx') → 로케일 표시 토픽(미지 id는 서버 폴백).
+String dailyTopicLabel(AppLocalizations l, String topicId, String fallback) {
+  switch (topicId) {
+    case 'friendship_0':
+      return l.dailyTopicFriendship0;
+    case 'friendship_1':
+      return l.dailyTopicFriendship1;
+    case 'friendship_2':
+      return l.dailyTopicFriendship2;
+    case 'friendship_3':
+      return l.dailyTopicFriendship3;
+    case 'courage_0':
+      return l.dailyTopicCourage0;
+    case 'courage_1':
+      return l.dailyTopicCourage1;
+    case 'courage_2':
+      return l.dailyTopicCourage2;
+    case 'courage_3':
+      return l.dailyTopicCourage3;
+    case 'kindness_0':
+      return l.dailyTopicKindness0;
+    case 'kindness_1':
+      return l.dailyTopicKindness1;
+    case 'kindness_2':
+      return l.dailyTopicKindness2;
+    case 'kindness_3':
+      return l.dailyTopicKindness3;
+    case 'family_0':
+      return l.dailyTopicFamily0;
+    case 'family_1':
+      return l.dailyTopicFamily1;
+    case 'family_2':
+      return l.dailyTopicFamily2;
+    case 'family_3':
+      return l.dailyTopicFamily3;
+    case 'nature_0':
+      return l.dailyTopicNature0;
+    case 'nature_1':
+      return l.dailyTopicNature1;
+    case 'nature_2':
+      return l.dailyTopicNature2;
+    case 'nature_3':
+      return l.dailyTopicNature3;
+    case 'growth_0':
+      return l.dailyTopicGrowth0;
+    case 'growth_1':
+      return l.dailyTopicGrowth1;
+    case 'growth_2':
+      return l.dailyTopicGrowth2;
+    case 'growth_3':
+      return l.dailyTopicGrowth3;
+    case 'imagination_0':
+      return l.dailyTopicImagination0;
+    case 'imagination_1':
+      return l.dailyTopicImagination1;
+    case 'imagination_2':
+      return l.dailyTopicImagination2;
+    case 'imagination_3':
+      return l.dailyTopicImagination3;
+    default:
+      return fallback;
+  }
+}
+
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
@@ -432,8 +518,8 @@ class _StreakSummaryCard extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.md),
           _TodayStoryPanel(
-            themeName: data.todayThemeName,
-            topic: data.todayTopic,
+            themeName: dailyThemeLabel(l, data.todayThemeId, data.todayThemeName),
+            topic: dailyTopicLabel(l, data.todayTopicId, data.todayTopic),
             hasTodayBook: data.todayBookId != null,
             onTap: onTapPrimary,
           ),

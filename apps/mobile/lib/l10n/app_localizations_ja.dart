@@ -605,6 +605,111 @@ class AppLocalizationsJa extends AppLocalizations {
   String get loadingStepLearningAssets => '学習教材を作成しています';
 
   @override
+  String get dailyThemeFriendship => '友情';
+
+  @override
+  String get dailyTopicFriendship0 => '新しい友だちを作る';
+
+  @override
+  String get dailyTopicFriendship1 => '友だちと仲直り';
+
+  @override
+  String get dailyTopicFriendship2 => '分かち合う喜び';
+
+  @override
+  String get dailyTopicFriendship3 => '助け合う';
+
+  @override
+  String get dailyThemeCourage => '勇気';
+
+  @override
+  String get dailyTopicCourage0 => '恐れを乗りこえる';
+
+  @override
+  String get dailyTopicCourage1 => '新しい挑戦';
+
+  @override
+  String get dailyTopicCourage2 => '失敗しても大丈夫';
+
+  @override
+  String get dailyTopicCourage3 => '初めてのこと';
+
+  @override
+  String get dailyThemeKindness => '親切';
+
+  @override
+  String get dailyTopicKindness0 => '小さな親切の力';
+
+  @override
+  String get dailyTopicKindness1 => '助けが必要な友だち';
+
+  @override
+  String get dailyTopicKindness2 => '感謝の気持ち';
+
+  @override
+  String get dailyTopicKindness3 => '思いやりの心';
+
+  @override
+  String get dailyThemeFamily => '家族';
+
+  @override
+  String get dailyTopicFamily0 => 'パパママ大好き';
+
+  @override
+  String get dailyTopicFamily1 => 'きょうだいと一緒に';
+
+  @override
+  String get dailyTopicFamily2 => 'おじいちゃんおばあちゃんの家';
+
+  @override
+  String get dailyTopicFamily3 => '家族旅行';
+
+  @override
+  String get dailyThemeNature => '自然';
+
+  @override
+  String get dailyTopicNature0 => '森の探検';
+
+  @override
+  String get dailyTopicNature1 => '海のお話';
+
+  @override
+  String get dailyTopicNature2 => '春が来た';
+
+  @override
+  String get dailyTopicNature3 => '星空の夜';
+
+  @override
+  String get dailyThemeGrowth => '成長';
+
+  @override
+  String get dailyTopicGrowth0 => '一人でもできる';
+
+  @override
+  String get dailyTopicGrowth1 => '新しいことを学ぶ';
+
+  @override
+  String get dailyTopicGrowth2 => '失敗してもまた挑戦';
+
+  @override
+  String get dailyTopicGrowth3 => '夢に向かって';
+
+  @override
+  String get dailyThemeImagination => '想像';
+
+  @override
+  String get dailyTopicImagination0 => '魔法の世界';
+
+  @override
+  String get dailyTopicImagination1 => '雲の上の国';
+
+  @override
+  String get dailyTopicImagination2 => '動物たちの学校';
+
+  @override
+  String get dailyTopicImagination3 => 'おもちゃの秘密';
+
+  @override
   String get loadingTip1 => 'お子さまに合った言葉と文章で物語が作られます';
 
   @override

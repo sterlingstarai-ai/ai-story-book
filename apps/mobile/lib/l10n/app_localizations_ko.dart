@@ -605,6 +605,111 @@ class AppLocalizationsKo extends AppLocalizations {
   String get loadingStepLearningAssets => '학습 자료를 만들고 있어요';
 
   @override
+  String get dailyThemeFriendship => '우정';
+
+  @override
+  String get dailyTopicFriendship0 => '새 친구 사귀기';
+
+  @override
+  String get dailyTopicFriendship1 => '친구와 화해하기';
+
+  @override
+  String get dailyTopicFriendship2 => '함께 나누는 기쁨';
+
+  @override
+  String get dailyTopicFriendship3 => '서로 도와주기';
+
+  @override
+  String get dailyThemeCourage => '용기';
+
+  @override
+  String get dailyTopicCourage0 => '두려움 극복하기';
+
+  @override
+  String get dailyTopicCourage1 => '새로운 도전';
+
+  @override
+  String get dailyTopicCourage2 => '실수해도 괜찮아';
+
+  @override
+  String get dailyTopicCourage3 => '처음 해보는 일';
+
+  @override
+  String get dailyThemeKindness => '친절';
+
+  @override
+  String get dailyTopicKindness0 => '작은 친절의 힘';
+
+  @override
+  String get dailyTopicKindness1 => '도움이 필요한 친구';
+
+  @override
+  String get dailyTopicKindness2 => '감사한 마음';
+
+  @override
+  String get dailyTopicKindness3 => '배려하는 마음';
+
+  @override
+  String get dailyThemeFamily => '가족';
+
+  @override
+  String get dailyTopicFamily0 => '엄마 아빠 사랑해요';
+
+  @override
+  String get dailyTopicFamily1 => '동생과 함께';
+
+  @override
+  String get dailyTopicFamily2 => '할머니 할아버지 댁';
+
+  @override
+  String get dailyTopicFamily3 => '가족 여행';
+
+  @override
+  String get dailyThemeNature => '자연';
+
+  @override
+  String get dailyTopicNature0 => '숲속 탐험';
+
+  @override
+  String get dailyTopicNature1 => '바다 이야기';
+
+  @override
+  String get dailyTopicNature2 => '봄이 왔어요';
+
+  @override
+  String get dailyTopicNature3 => '별빛 가득한 밤';
+
+  @override
+  String get dailyThemeGrowth => '성장';
+
+  @override
+  String get dailyTopicGrowth0 => '혼자서도 할 수 있어요';
+
+  @override
+  String get dailyTopicGrowth1 => '새로운 것 배우기';
+
+  @override
+  String get dailyTopicGrowth2 => '실패해도 다시 도전';
+
+  @override
+  String get dailyTopicGrowth3 => '꿈을 향해';
+
+  @override
+  String get dailyThemeImagination => '상상';
+
+  @override
+  String get dailyTopicImagination0 => '마법의 세계';
+
+  @override
+  String get dailyTopicImagination1 => '구름 위 나라';
+
+  @override
+  String get dailyTopicImagination2 => '동물 친구들의 학교';
+
+  @override
+  String get dailyTopicImagination3 => '장난감의 비밀';
+
+  @override
   String get loadingTip1 => '아이에게 맞는 단어와 문장으로 이야기가 만들어져요';
 
   @override

@@ -634,6 +634,111 @@ class AppLocalizationsEn extends AppLocalizations {
   String get loadingStepLearningAssets => 'Creating learning materials';
 
   @override
+  String get dailyThemeFriendship => 'Friendship';
+
+  @override
+  String get dailyTopicFriendship0 => 'Making a new friend';
+
+  @override
+  String get dailyTopicFriendship1 => 'Making up with a friend';
+
+  @override
+  String get dailyTopicFriendship2 => 'The joy of sharing';
+
+  @override
+  String get dailyTopicFriendship3 => 'Helping each other';
+
+  @override
+  String get dailyThemeCourage => 'Courage';
+
+  @override
+  String get dailyTopicCourage0 => 'Overcoming fear';
+
+  @override
+  String get dailyTopicCourage1 => 'A new challenge';
+
+  @override
+  String get dailyTopicCourage2 => 'It\'s okay to make mistakes';
+
+  @override
+  String get dailyTopicCourage3 => 'Trying something new';
+
+  @override
+  String get dailyThemeKindness => 'Kindness';
+
+  @override
+  String get dailyTopicKindness0 => 'The power of small kindness';
+
+  @override
+  String get dailyTopicKindness1 => 'A friend who needs help';
+
+  @override
+  String get dailyTopicKindness2 => 'A grateful heart';
+
+  @override
+  String get dailyTopicKindness3 => 'A caring heart';
+
+  @override
+  String get dailyThemeFamily => 'Family';
+
+  @override
+  String get dailyTopicFamily0 => 'I love mom and dad';
+
+  @override
+  String get dailyTopicFamily1 => 'Together with my sibling';
+
+  @override
+  String get dailyTopicFamily2 => 'At grandma and grandpa\'s';
+
+  @override
+  String get dailyTopicFamily3 => 'A family trip';
+
+  @override
+  String get dailyThemeNature => 'Nature';
+
+  @override
+  String get dailyTopicNature0 => 'Exploring the forest';
+
+  @override
+  String get dailyTopicNature1 => 'A story of the sea';
+
+  @override
+  String get dailyTopicNature2 => 'Spring has come';
+
+  @override
+  String get dailyTopicNature3 => 'A starry night';
+
+  @override
+  String get dailyThemeGrowth => 'Growth';
+
+  @override
+  String get dailyTopicGrowth0 => 'I can do it myself';
+
+  @override
+  String get dailyTopicGrowth1 => 'Learning something new';
+
+  @override
+  String get dailyTopicGrowth2 => 'Try again after failing';
+
+  @override
+  String get dailyTopicGrowth3 => 'Toward my dream';
+
+  @override
+  String get dailyThemeImagination => 'Imagination';
+
+  @override
+  String get dailyTopicImagination0 => 'A magical world';
+
+  @override
+  String get dailyTopicImagination1 => 'A land above the clouds';
+
+  @override
+  String get dailyTopicImagination2 => 'The animal friends\' school';
+
+  @override
+  String get dailyTopicImagination3 => 'The toys\' secret';
+
+  @override
   String get loadingTip1 =>
       'The story is written with words and sentences suited to your child';
 

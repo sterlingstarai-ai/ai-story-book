@@ -1252,6 +1252,216 @@ abstract class AppLocalizations {
   /// **'Creating learning materials'**
   String get loadingStepLearningAssets;
 
+  /// No description provided for @dailyThemeFriendship.
+  ///
+  /// In en, this message translates to:
+  /// **'Friendship'**
+  String get dailyThemeFriendship;
+
+  /// No description provided for @dailyTopicFriendship0.
+  ///
+  /// In en, this message translates to:
+  /// **'Making a new friend'**
+  String get dailyTopicFriendship0;
+
+  /// No description provided for @dailyTopicFriendship1.
+  ///
+  /// In en, this message translates to:
+  /// **'Making up with a friend'**
+  String get dailyTopicFriendship1;
+
+  /// No description provided for @dailyTopicFriendship2.
+  ///
+  /// In en, this message translates to:
+  /// **'The joy of sharing'**
+  String get dailyTopicFriendship2;
+
+  /// No description provided for @dailyTopicFriendship3.
+  ///
+  /// In en, this message translates to:
+  /// **'Helping each other'**
+  String get dailyTopicFriendship3;
+
+  /// No description provided for @dailyThemeCourage.
+  ///
+  /// In en, this message translates to:
+  /// **'Courage'**
+  String get dailyThemeCourage;
+
+  /// No description provided for @dailyTopicCourage0.
+  ///
+  /// In en, this message translates to:
+  /// **'Overcoming fear'**
+  String get dailyTopicCourage0;
+
+  /// No description provided for @dailyTopicCourage1.
+  ///
+  /// In en, this message translates to:
+  /// **'A new challenge'**
+  String get dailyTopicCourage1;
+
+  /// No description provided for @dailyTopicCourage2.
+  ///
+  /// In en, this message translates to:
+  /// **'It\'s okay to make mistakes'**
+  String get dailyTopicCourage2;
+
+  /// No description provided for @dailyTopicCourage3.
+  ///
+  /// In en, this message translates to:
+  /// **'Trying something new'**
+  String get dailyTopicCourage3;
+
+  /// No description provided for @dailyThemeKindness.
+  ///
+  /// In en, this message translates to:
+  /// **'Kindness'**
+  String get dailyThemeKindness;
+
+  /// No description provided for @dailyTopicKindness0.
+  ///
+  /// In en, this message translates to:
+  /// **'The power of small kindness'**
+  String get dailyTopicKindness0;
+
+  /// No description provided for @dailyTopicKindness1.
+  ///
+  /// In en, this message translates to:
+  /// **'A friend who needs help'**
+  String get dailyTopicKindness1;
+
+  /// No description provided for @dailyTopicKindness2.
+  ///
+  /// In en, this message translates to:
+  /// **'A grateful heart'**
+  String get dailyTopicKindness2;
+
+  /// No description provided for @dailyTopicKindness3.
+  ///
+  /// In en, this message translates to:
+  /// **'A caring heart'**
+  String get dailyTopicKindness3;
+
+  /// No description provided for @dailyThemeFamily.
+  ///
+  /// In en, this message translates to:
+  /// **'Family'**
+  String get dailyThemeFamily;
+
+  /// No description provided for @dailyTopicFamily0.
+  ///
+  /// In en, this message translates to:
+  /// **'I love mom and dad'**
+  String get dailyTopicFamily0;
+
+  /// No description provided for @dailyTopicFamily1.
+  ///
+  /// In en, this message translates to:
+  /// **'Together with my sibling'**
+  String get dailyTopicFamily1;
+
+  /// No description provided for @dailyTopicFamily2.
+  ///
+  /// In en, this message translates to:
+  /// **'At grandma and grandpa\'s'**
+  String get dailyTopicFamily2;
+
+  /// No description provided for @dailyTopicFamily3.
+  ///
+  /// In en, this message translates to:
+  /// **'A family trip'**
+  String get dailyTopicFamily3;
+
+  /// No description provided for @dailyThemeNature.
+  ///
+  /// In en, this message translates to:
+  /// **'Nature'**
+  String get dailyThemeNature;
+
+  /// No description provided for @dailyTopicNature0.
+  ///
+  /// In en, this message translates to:
+  /// **'Exploring the forest'**
+  String get dailyTopicNature0;
+
+  /// No description provided for @dailyTopicNature1.
+  ///
+  /// In en, this message translates to:
+  /// **'A story of the sea'**
+  String get dailyTopicNature1;
+
+  /// No description provided for @dailyTopicNature2.
+  ///
+  /// In en, this message translates to:
+  /// **'Spring has come'**
+  String get dailyTopicNature2;
+
+  /// No description provided for @dailyTopicNature3.
+  ///
+  /// In en, this message translates to:
+  /// **'A starry night'**
+  String get dailyTopicNature3;
+
+  /// No description provided for @dailyThemeGrowth.
+  ///
+  /// In en, this message translates to:
+  /// **'Growth'**
+  String get dailyThemeGrowth;
+
+  /// No description provided for @dailyTopicGrowth0.
+  ///
+  /// In en, this message translates to:
+  /// **'I can do it myself'**
+  String get dailyTopicGrowth0;
+
+  /// No description provided for @dailyTopicGrowth1.
+  ///
+  /// In en, this message translates to:
+  /// **'Learning something new'**
+  String get dailyTopicGrowth1;
+
+  /// No description provided for @dailyTopicGrowth2.
+  ///
+  /// In en, this message translates to:
+  /// **'Try again after failing'**
+  String get dailyTopicGrowth2;
+
+  /// No description provided for @dailyTopicGrowth3.
+  ///
+  /// In en, this message translates to:
+  /// **'Toward my dream'**
+  String get dailyTopicGrowth3;
+
+  /// No description provided for @dailyThemeImagination.
+  ///
+  /// In en, this message translates to:
+  /// **'Imagination'**
+  String get dailyThemeImagination;
+
+  /// No description provided for @dailyTopicImagination0.
+  ///
+  /// In en, this message translates to:
+  /// **'A magical world'**
+  String get dailyTopicImagination0;
+
+  /// No description provided for @dailyTopicImagination1.
+  ///
+  /// In en, this message translates to:
+  /// **'A land above the clouds'**
+  String get dailyTopicImagination1;
+
+  /// No description provided for @dailyTopicImagination2.
+  ///
+  /// In en, this message translates to:
+  /// **'The animal friends\' school'**
+  String get dailyTopicImagination2;
+
+  /// No description provided for @dailyTopicImagination3.
+  ///
+  /// In en, this message translates to:
+  /// **'The toys\' secret'**
+  String get dailyTopicImagination3;
+
   /// No description provided for @loadingTip1.
   ///
   /// In en, this message translates to:
