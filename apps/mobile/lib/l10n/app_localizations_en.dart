@@ -2262,6 +2262,19 @@ class AppLocalizationsEn extends AppLocalizations {
       'Page regeneration has started. Please wait a moment.';
 
   @override
+  String get viewerRegenerateFeedbackTitle => 'How should we change it?';
+
+  @override
+  String get viewerRegenerateFeedbackHint => 'e.g. Make it shorter and simpler';
+
+  @override
+  String get viewerRegenerateFeedbackRequired =>
+      'Tell us what you\'d like changed';
+
+  @override
+  String get viewerRegenerateConfirm => 'Regenerate';
+
+  @override
   String get viewerRegenerateFailed =>
       'Regeneration failed. Please try again in a moment.';
 

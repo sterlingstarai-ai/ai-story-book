@@ -949,3 +949,96 @@ async def test_output_safety_recovers_on_retry(monkeypatch):
 
     # 2번째 생성에서 safe → 루프 탈출 후 save_story_draft 도달(=스토리 안전 통과).
     assert calls["gen"] == 2
+
+
+@pytest.mark.asyncio
+async def test_regenerate_ja_feedback_uses_llm_fallback(monkeypatch):
+    """#4: ja 책의 재생성 feedback은 키워드망을 통과해도 LLM 폴백이 차단해야 한다.
+
+    호출부 실배선 검증 — 헬퍼 단위 테스트만으로는 '게이트가 실제로 그 경로에 꽂혔는지'를
+    보증하지 못한다(ja/zh/es 안전망 우회가 바로 그 형태로 잠복했다).
+    """
+    from types import SimpleNamespace
+
+    from src.core.errors import SafetyError
+    from src.services import orchestrator as orch
+
+    book = SimpleNamespace(
+        id="b1", title="t", language="ja", target_age="5-7", style="watercolor"
+    )
+    page = SimpleNamespace(id="p1", text="元の本文", page_number=1)
+    monkeypatch.setattr(
+        "src.core.database.AsyncSessionLocal",
+        lambda: _RegenSession([book, page]),
+    )
+
+    seen = {}
+
+    class _Unsafe:
+        is_safe = False
+        reasons = ["violence"]
+
+    async def fake_call(text, language):
+        seen["language"] = language
+        return _Unsafe()
+
+    monkeypatch.setattr("src.services.llm.call_output_moderation", fake_call)
+
+    with pytest.raises(SafetyError) as ei:
+        await orch.regenerate_page(
+            "job1", "b1", 1, "text", feedback="オオカミがウサギを殺して血まみれにする"
+        )
+    assert ei.value.code == ErrorCode.SAFETY_INPUT
+    assert page.text == "元の本文"  # 무검사 커밋 없음
+    assert seen.get("language") is not None, "LLM 폴백이 호출되지 않았다(경로 미배선)"
+
+
+@pytest.mark.asyncio
+async def test_regenerate_purges_replaced_image_key(monkeypatch):
+    """#10(N1): 이미지 교체 후 구버전 키를 파기해야 영구 고아가 남지 않는다.
+
+    삭제 경로의 역산은 '현재 image_url'만 커버하므로, 교체 전 버전(아동 사진 파생 가능)은
+    계정/책/철회 어느 파기 경로로도 지워지지 않는다.
+    """
+    from types import SimpleNamespace
+
+    from src.services import orchestrator as orch
+
+    book = SimpleNamespace(
+        id="b1", title="t", language="ko", target_age="5-7", style="watercolor"
+    )
+    page = SimpleNamespace(
+        id="p1",
+        text="본문",
+        page_number=1,
+        image_prompt="a rabbit in the forest",
+        image_url="https://cdn.example.com/images/replicate/old-key.png",
+    )
+    monkeypatch.setattr(
+        "src.core.database.AsyncSessionLocal",
+        lambda: _RegenSession([book, page]),
+    )
+
+    async def fake_generate_image(prompt):
+        return "https://cdn.example.com/images/replicate/new-key.png"
+
+    # regenerate_page가 함수 내부에서 재임포트하므로 원본 모듈 경계를 패치한다.
+    monkeypatch.setattr("src.services.image.generate_image", fake_generate_image)
+
+    deleted = {}
+
+    async def fake_delete_keys(keys):
+        deleted["keys"] = list(keys)
+        return []
+
+    monkeypatch.setattr("src.services.storage.delete_keys", fake_delete_keys)
+    monkeypatch.setattr(
+        "src.services.storage.key_from_public_url",
+        lambda url: url.split("/", 3)[3] if url and "/" in url else None,
+    )
+
+    await orch.regenerate_page("job1", "b1", 1, "image")
+
+    assert page.image_url.endswith("new-key.png")
+    assert deleted.get("keys"), "교체된 구버전 이미지 키가 파기되지 않았다"
+    assert any("old-key.png" in k for k in deleted["keys"])

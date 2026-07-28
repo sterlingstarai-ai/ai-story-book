@@ -17,6 +17,7 @@ import math
 import uuid
 import structlog
 
+from src.core.audio_feature import require_audio_supported
 from src.core.database import get_db
 from src.core.book_assets import build_generation_warnings, build_page_asset_status
 from src.core.config import settings
@@ -1120,11 +1121,36 @@ async def retell_book(
     request: RetellRequest,
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
+    idempotency_key: Optional[str] = Depends(get_idempotency_key),
 ):
     """
     '아이와 함께 자라는' 리텔 — 같은 책을 다른 연령대 본문으로 다시 써서 새 책으로 저장한다.
     삽화(표지·페이지 이미지)는 그대로 재사용하므로 이미지 생성/크레딧 소모가 없다.
     """
+    # H17/G19: 요청 내에서 LLM 리텔을 동기 수행하므로 클라 타임아웃 후 서버는 완주한다
+    # (재시도 시 중복 리텔 책 생성 + LLM 비용). H18의 잡 멱등 패턴을 미러해 같은
+    # 시도키의 재요청은 기존 결과를 그대로 반환한다.
+    if idempotency_key:
+        existing_job = (
+            await db.execute(
+                select(Job).where(
+                    Job.idempotency_key == idempotency_key,
+                    Job.user_key == user_key,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing_job:
+            existing_book = (
+                await db.execute(
+                    select(Book).where(Book.job_id == existing_job.id)
+                )
+            ).scalar_one_or_none()
+            if existing_book:
+                return RetellResponse(
+                    book_id=existing_book.id,
+                    target_age=request.target_age,
+                )
+
     # 원본 책 로드 + 소유권 검증
     source = (
         await db.execute(select(Book).where(Book.id == book_id))
@@ -1153,12 +1179,12 @@ async def retell_book(
     )
 
     # M12: 리텔 결과 출력 모더레이션 — 최초 생성 G 게이트 파리티. 위반 시 저장·공유 전 차단.
-    from src.services.orchestrator import _moderate_text
+    from src.services.orchestrator import moderate_text_localized
 
     retold_text = " ".join(
         [retold.title or ""] + [p or "" for p in (retold.pages or [])]
     )
-    if not _moderate_text(retold_text):
+    if not await moderate_text_localized(retold_text, source.language):
         raise SafetyError(
             message="다시 쓴 이야기가 안전 기준을 통과하지 못했습니다",
             is_input=False,
@@ -1166,7 +1192,14 @@ async def retell_book(
 
     # 새 잡(크레딧 미소모) + 새 책 + 페이지(이미지 재사용)
     new_job_id = f"retell_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
-    db.add(Job(id=new_job_id, status="done", user_key=user_key))
+    db.add(
+        Job(
+            id=new_job_id,
+            status="done",
+            user_key=user_key,
+            idempotency_key=idempotency_key,  # H17/G19: 재시도 dedup 키
+        )
+    )
     await db.flush()
 
     new_book_id = f"book_{uuid.uuid4().hex[:16]}"
@@ -1300,7 +1333,27 @@ async def export_book_pdf(
     )
 
 
-@router.post("/{book_id}/audio")
+@router.post(
+    "/{book_id}/audio",
+    responses={
+        409: {
+            "description": (
+                "이 배포에서 오디오 기능이 비활성(H1/G9) — 클라이언트는 "
+                "/v1/config/capabilities의 audio_supported로 UI를 숨겨야 함."
+            ),
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": {
+                            "code": "AUDIO_NOT_SUPPORTED",
+                            "message": "이 배포에서는 오디오 기능을 사용할 수 없습니다.",
+                        }
+                    }
+                }
+            },
+        }
+    },
+)
 async def generate_book_audio(
     book_id: str,
     background_tasks: BackgroundTasks,
@@ -1314,6 +1367,9 @@ async def generate_book_audio(
     - 모든 페이지에 대해 TTS 오디오 생성
     - 비동기로 처리되며 완료 후 각 페이지의 audio_url 업데이트
     """
+    # H1/G9: 오디오 비활성 배포에서는 provider 해석 실패 500 대신 명시적 미지원으로 차단.
+    require_audio_supported()
+
     # Fetch book
     book_result = await db.execute(select(Book).where(Book.id == book_id))
     book = book_result.scalar_one_or_none()
@@ -1559,7 +1615,27 @@ async def _generate_audio_pages(
     return succeeded, failed_pages
 
 
-@router.get("/{book_id}/pages/{page_number}/audio")
+@router.get(
+    "/{book_id}/pages/{page_number}/audio",
+    responses={
+        409: {
+            "description": (
+                "이 배포에서 오디오 기능이 비활성(H1/G9) — 클라이언트는 "
+                "/v1/config/capabilities의 audio_supported로 UI를 숨겨야 함."
+            ),
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": {
+                            "code": "AUDIO_NOT_SUPPORTED",
+                            "message": "이 배포에서는 오디오 기능을 사용할 수 없습니다.",
+                        }
+                    }
+                }
+            },
+        }
+    },
+)
 async def get_page_audio(
     book_id: str,
     page_number: int,
@@ -1574,6 +1650,9 @@ async def get_page_audio(
     - 이미 생성된 오디오 URL 반환
     - 없으면 즉시 생성 후 반환
     """
+    # H1/G9: 오디오 비활성 배포에서는 provider 해석 실패 500 대신 명시적 미지원으로 차단.
+    require_audio_supported()
+
     # Fetch book
     book_result = await db.execute(select(Book).where(Book.id == book_id))
     book = book_result.scalar_one_or_none()

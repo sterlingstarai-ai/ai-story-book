@@ -30,6 +30,7 @@ from src.routers import (
     shares,
     config,
 )
+from src.core.audio_feature import audio_readiness_issues
 from src.core.database import get_db  # noqa: F401
 from src.core.rate_limit import check_rate_limit, rate_limiter
 from src.core.exceptions import (
@@ -389,30 +390,6 @@ def _iap_readiness_issues() -> list[str]:
     return issues
 
 
-def _audio_readiness_issues() -> list[str]:
-    """오디오 기능 ON 상태에서 TTS/STT가 라이브 미구성이면 사유 목록을 반환한다(H1).
-
-    mock/미지 provider는 무음 오디오·가짜 발음 점수를 성공으로 서빙하므로 readiness를 막는다.
-    """
-    issues: list[str] = []
-
-    tts = (settings.tts_provider or "").strip().lower()
-    if tts == "google":
-        if not settings.google_tts_api_key:
-            issues.append("tts_key")
-    elif tts == "elevenlabs":
-        if not settings.elevenlabs_api_key:
-            issues.append("tts_key")
-    else:
-        issues.append("tts_provider_not_live")
-
-    stt = (settings.stt_provider or "").strip().lower()
-    if stt not in {"openai", "google"}:
-        issues.append("stt_provider_not_live")
-
-    return issues
-
-
 async def _build_readiness_payload(
     *, include_metrics: bool, expose_missing_keys: bool = False
 ) -> dict:
@@ -477,7 +454,7 @@ async def _build_readiness_payload(
         # 오디오(TTS/STT): 기능이 켜져 있을 때만(G9 기본 비활성) 라이브 구성을 게이트.
         # mock/미지 provider가 무음 오디오·가짜 발음점수를 성공으로 서빙하는 것을 차단(H1).
         if settings.audio_feature_enabled:
-            missing_keys.extend(_audio_readiness_issues())
+            missing_keys.extend(audio_readiness_issues())
 
         if missing_keys:
             keys_status = "unhealthy"

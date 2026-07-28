@@ -26,7 +26,11 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   static const _uuid = Uuid();
   final ScrollController _scrollController = ScrollController();
   // H18: 시리즈 생성 시도-단위 멱등키(재시도 시 재사용, 성공 시 리셋).
+  // #20: 대상(시리즈/직전 권) 서명과 함께 보관한다. 서명 없이 '??='만 쓰면 실패 후
+  // '다른' 시리즈의 다음 권을 만들 때 이전 키가 재사용돼 서버가 이전 잡을 그대로 돌려준다
+  // (의도한 새 생성이 조용히 no-op). createBook의 _attemptSig 패턴과 동일.
   String? _seriesAttemptKey;
+  String? _seriesAttemptSig;
 
   Map<String, String> _sortLabels(AppLocalizations l) => {
         'newest': l.librarySortNewest,
@@ -480,7 +484,11 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
       if (!mounted || topic == null || topic.isEmpty) {
         return;
       }
-      _seriesAttemptKey ??= _uuid.v4();
+      final attemptSig = '${latest.seriesId ?? ''}|${latest.id}|$characterId|$topic';
+      if (_seriesAttemptKey == null || _seriesAttemptSig != attemptSig) {
+        _seriesAttemptKey = _uuid.v4();
+        _seriesAttemptSig = attemptSig;
+      }
       final response = await ref.read(apiClientProvider).createSeriesBook(
             characterId: characterId,
             topic: topic,
@@ -492,6 +500,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
             idempotencyKey: _seriesAttemptKey,
           );
       _seriesAttemptKey = null; // 성공 → 다음 생성은 새 키
+      _seriesAttemptSig = null;
       if (!mounted) {
         return;
       }

@@ -69,13 +69,14 @@ final apiClientProvider = Provider<ApiClient>((ref) {
   );
 });
 
-/// 배포 환경 기능 가용성(예: inpaint_supported) — UI 게이팅용. 실패 시 보수적으로 미지원.
+/// 배포 환경 기능 가용성(inpaint_supported·audio_supported) — UI 게이팅용.
+/// 실패 시 보수적으로 미지원(H1/G9: 오디오 비활성 배포에서 낭독/발음 탭마다 500 방지).
 final capabilitiesProvider = FutureProvider<Map<String, dynamic>>((ref) async {
   final api = ref.read(apiClientProvider);
   try {
     return await api.getCapabilities();
   } catch (_) {
-    return const {'inpaint_supported': false};
+    return const {'inpaint_supported': false, 'audio_supported': false};
   }
 });
 
@@ -909,6 +910,11 @@ final bookCreationProvider =
 // H18: 오늘의 동화 생성 시도-단위 멱등키(HomeScreen이 stateless라 provider로 보유).
 // 재시도 시 재사용, 성공 시 null로 리셋.
 final todayAttemptKeyProvider = StateProvider<String?>((ref) => null);
+
+/// #20: 오늘의 동화 멱등키가 '어느 날짜의 생성'인지 함께 보관한다. 날짜 서명 없이
+/// '??='만 쓰면 어제 실패한 키가 오늘 재사용돼 서버가 어제 잡을 그대로 돌려준다
+/// (오늘의 동화가 조용히 생성되지 않음).
+final todayAttemptSigProvider = StateProvider<String?>((ref) => null);
 
 class BookCreationNotifier extends AsyncNotifier<void> {
   static const _uuid = Uuid();

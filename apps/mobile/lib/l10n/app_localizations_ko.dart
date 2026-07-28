@@ -2156,6 +2156,18 @@ class AppLocalizationsKo extends AppLocalizations {
   String get viewerRegenerateStarted => '페이지 재생성이 시작되었어요. 잠시만 기다려주세요.';
 
   @override
+  String get viewerRegenerateFeedbackTitle => '어떻게 바꿀까요?';
+
+  @override
+  String get viewerRegenerateFeedbackHint => '예: 더 짧고 쉽게 써주세요';
+
+  @override
+  String get viewerRegenerateFeedbackRequired => '바꾸고 싶은 내용을 알려주세요';
+
+  @override
+  String get viewerRegenerateConfirm => '다시 만들기';
+
+  @override
   String get viewerRegenerateFailed => '재생성에 실패했어요. 잠시 후 다시 시도해주세요.';
 
   @override

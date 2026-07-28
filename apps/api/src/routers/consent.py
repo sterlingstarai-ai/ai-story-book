@@ -18,8 +18,8 @@ from src.core.database import get_db
 from src.core.dependencies import get_user_key
 from src.core.utils import utcnow
 from src.models.db import Book, Character, UserConsent
-from src.services.data_deletion import purge_book_children
-from src.services.storage import delete_book_files, storage_service
+from src.services.data_deletion import collect_book_image_keys, purge_book_children
+from src.services.storage import delete_book_files, delete_keys, storage_service
 
 logger = structlog.get_logger()
 
@@ -140,6 +140,7 @@ async def revoke_consent(
     # 캐릭터 행/원본만 지우면 책의 얼굴 이미지가 공개 URL에 영구 잔존하므로(PIPA/COPPA
     # 철회-파기 의무 위반), 그 책들을 자식 행·스토리지 파일까지 함께 파기한다.
     book_ids: list[str] = []
+    image_keys: list[str] = []
     if character_ids:
         books_result = await db.execute(
             select(Book.id).where(
@@ -148,6 +149,10 @@ async def revoke_consent(
             )
         )
         book_ids = [bid for (bid,) in books_result.all()]
+        # N1: 파이프라인 이미지(images/{provider}/…)는 books/{id}/ prefix 밖이라 아래
+        # delete_book_files로 지워지지 않는다. 행을 지우면 image_url이 사라져 역산도
+        # 불가능해지므로(아동 likeness 영구 잔존), 행 삭제 '전에' 키를 수집한다.
+        image_keys = await collect_book_image_keys(db, book_ids)
         await purge_book_children(db, book_ids)
         if book_ids:
             await db.execute(delete(Book).where(Book.id.in_(book_ids)))
@@ -184,5 +189,16 @@ async def revoke_consent(
                 )
         except Exception as e:  # pragma: no cover - 방어적
             logger.warning("book file delete failed on revoke", book_id=book_id, error=str(e))
+
+    # N1: prefix 밖 파이프라인 이미지(아동 likeness 렌더)를 역산 키로 파기.
+    if image_keys:
+        try:
+            failed = await delete_keys(image_keys)
+            if failed:
+                logger.warning(
+                    "pipeline image delete failures on revoke", failed_keys=failed
+                )
+        except Exception as e:  # pragma: no cover - 방어적
+            logger.warning("pipeline image delete failed on revoke", error=str(e))
 
     return _to_response(None)

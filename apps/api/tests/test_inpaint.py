@@ -54,7 +54,9 @@ async def test_inpaint_endpoint_409_when_provider_unsupported(
         headers=headers,
     )
     assert res.status_code == 409
-    assert "INPAINT_UNSUPPORTED" in res.text
+    # 봉투 위치까지 고정한다: 클라이언트는 error.code로 폴백을 판정하므로 부분문자열
+    # 매칭으로는 shape 드리프트(detail vs error.code)를 잡지 못한다(L14 회귀 재발 방지).
+    assert res.json()["error"]["code"] == "INPAINT_UNSUPPORTED"
 
 
 @pytest.mark.asyncio

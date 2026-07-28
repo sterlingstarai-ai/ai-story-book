@@ -676,6 +676,8 @@ class StreakService:
         profile_id: Optional[str] = None,
     ) -> list[dict]:
         """최근 읽기 기록 조회"""
+        # H2: 하루 귀속은 사용자 tz 기준(캘린더·스트릭과 동일 하루 정의).
+        tz = await load_user_tz(db, user_key)
         since = utcnow() - timedelta(days=days)
 
         result = await db.execute(
@@ -692,7 +694,7 @@ class StreakService:
         # 날짜별로 그룹화
         by_date = {}
         for log in logs:
-            date_key = to_local_date(log.read_date).isoformat()
+            date_key = to_local_date(log.read_date, tz).isoformat()
             if date_key not in by_date:
                 by_date[date_key] = {
                     "date": date_key,
@@ -716,8 +718,9 @@ class StreakService:
     ) -> dict:
         """읽기 통계 리포트 (주간/월간 대시보드용)"""
         report_days = max(1, min(days, 365))
-        # 주간/월간 추이도 KST 로컬 하루 경계로(한국 부모 기준 '오늘'이 맞도록).
-        today_start, _ = local_day_bounds_utc()
+        # H2: 주간/월간 추이도 사용자 tz 로컬 하루 경계로(스트릭·캘린더와 동일 하루 정의).
+        tz = await load_user_tz(db, user_key)
+        today_start, _ = local_day_bounds_utc(tz=tz)
         since = today_start - timedelta(days=report_days - 1)
 
         logs_result = await db.execute(
@@ -733,7 +736,7 @@ class StreakService:
 
         daily_map = {}
         for day_index in range(report_days):
-            day = to_local_date(since + timedelta(days=day_index))
+            day = to_local_date(since + timedelta(days=day_index), tz)
             key = day.isoformat()
             daily_map[key] = {
                 "date": key,
@@ -746,7 +749,7 @@ class StreakService:
         completed_sessions = 0
         unique_books = set()
         for log in logs:
-            key = to_local_date(log.read_date).isoformat()
+            key = to_local_date(log.read_date, tz).isoformat()
             if key not in daily_map:
                 continue
             minutes = max(0, int(round((log.reading_time or 0) / 60)))
@@ -793,8 +796,8 @@ class StreakService:
 
         return {
             "period_days": report_days,
-            "from_date": to_local_date(since).isoformat(),
-            "to_date": local_today().isoformat(),
+            "from_date": to_local_date(since, tz).isoformat(),
+            "to_date": local_today(tz).isoformat(),
             "total_books_read": len(unique_books),
             "total_sessions": total_sessions,
             "total_reading_minutes": int(round(total_read_seconds / 60)),

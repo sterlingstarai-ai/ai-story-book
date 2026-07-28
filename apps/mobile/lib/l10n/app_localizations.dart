@@ -4156,6 +4156,30 @@ abstract class AppLocalizations {
   /// **'Page regeneration has started. Please wait a moment.'**
   String get viewerRegenerateStarted;
 
+  /// No description provided for @viewerRegenerateFeedbackTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'How should we change it?'**
+  String get viewerRegenerateFeedbackTitle;
+
+  /// No description provided for @viewerRegenerateFeedbackHint.
+  ///
+  /// In en, this message translates to:
+  /// **'e.g. Make it shorter and simpler'**
+  String get viewerRegenerateFeedbackHint;
+
+  /// No description provided for @viewerRegenerateFeedbackRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Tell us what you\'d like changed'**
+  String get viewerRegenerateFeedbackRequired;
+
+  /// No description provided for @viewerRegenerateConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Regenerate'**
+  String get viewerRegenerateConfirm;
+
   /// No description provided for @viewerRegenerateFailed.
   ///
   /// In en, this message translates to:

@@ -58,3 +58,21 @@ def test_bash_syntax_valid():
         ["bash", "-n", str(DEPLOY_SH)], capture_output=True, text=True
     )
     assert result.returncode == 0, f"deploy.sh 구문 오류:\n{result.stderr}"
+
+
+def test_health_check_waits_for_service_to_listen():
+    """#5: up -d 직후 무대기 1회 curl은 사실상 항상 실패해 정상 릴리스를 자동 롤백시킨다.
+
+    compose up -d는 컨테이너 '기동 시작'에서 리턴하고 앱 리슨을 기다리지 않으며, api 재생성
+    중 nginx는 502를 반환한다. M26이 migrate를 앞으로 옮기며 우연한 암묵 대기가 사라졌고,
+    동시에 배선된 자동 롤백 때문에 실패의 결과가 치명적으로 커졌다.
+    """
+    text = DEPLOY_SH.read_text()
+    assert "wait_for_liveness" in text, "부팅 대기 루프가 있어야 함"
+    # health_check가 대기 루프를 실제로 호출하는지(정의만 하고 미사용 방지).
+    m = re.search(r"\nhealth_check\(\) \{\n(.*?)\n\}", text, re.DOTALL)
+    assert m, "health_check 함수를 찾을 수 없음"
+    assert "wait_for_liveness" in m.group(1), "health_check가 대기 루프를 호출해야 함"
+    # 롤백 경로도 같은 health_check를 재사용하므로 대기가 함께 적용된다.
+    rb = re.search(r"\nrollback\(\) \{\n(.*?)\n\}", text, re.DOTALL)
+    assert rb and "health_check" in rb.group(1)

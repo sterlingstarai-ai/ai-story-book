@@ -52,3 +52,61 @@ async def test_streak_not_broken_across_utc_midnight_for_us_user(db_session, mon
     holder["now"] = datetime(2026, 7, 7, 16, 0, 0)  # 화 09:00 PDT(익일 UTC)
     r2 = await streak_service.record_reading(db_session, uk, "tz-book")
     assert r2["current_streak"] == 2  # 연속 유지(수정 전 KST 기준 days_since=2로 리셋)
+
+
+# ── H2 잔여(감사 확정 #17): 리포트·이력도 사용자 tz로 하루를 귀속해야 한다 ──
+#
+# 스펙 H2 fix step 4는 get_reading_report/get_reading_history를 tz 스레딩 대상으로
+# 명시했으나 둘 다 KST 고정이었다. 같은 읽기가 캘린더에는 7/6, 주간 리포트에는 7/7로
+# 귀속되는 모순(부모 대시보드 신뢰 훼손)을 고정한다.
+
+
+@pytest.mark.asyncio
+async def test_reading_report_attributes_day_in_user_tz(db_session):
+    """LA 사용자의 07-06 09:00 PDT 읽기는 리포트에서도 07-06으로 귀속(KST면 07-07)."""
+    from src.models.db import ReadingLog
+
+    uk = "tz-report-user"
+    db_session.add(UserSettings(user_key=uk, language="en", timezone="America/Los_Angeles"))
+    db_session.add_all(make_book_rows([("tz-report-book", uk)]))
+    # 2026-07-06 16:00 UTC = LA 07-06 09:00 / KST 07-07 01:00
+    db_session.add(
+        ReadingLog(
+            user_key=uk,
+            book_id="tz-report-book",
+            read_date=datetime(2026, 7, 6, 16, 0, 0),
+            reading_time=600,
+            completed=True,
+        )
+    )
+    await db_session.commit()
+
+    report = await streak_service.get_reading_report(db_session, uk, days=365)
+    dated = {row["date"]: row for row in report["daily_breakdown"] if row["sessions"] > 0}
+    assert "2026-07-06" in dated, f"LA 기준 07-06에 귀속돼야 함: {sorted(dated)}"
+    assert "2026-07-07" not in dated
+
+
+@pytest.mark.asyncio
+async def test_reading_history_groups_day_in_user_tz(db_session):
+    """이력 그룹화도 사용자 tz 기준 하루로 묶인다(캘린더와 동일 하루 정의)."""
+    from src.models.db import ReadingLog
+
+    uk = "tz-history-user"
+    db_session.add(UserSettings(user_key=uk, language="en", timezone="America/Los_Angeles"))
+    db_session.add_all(make_book_rows([("tz-history-book", uk)]))
+    db_session.add(
+        ReadingLog(
+            user_key=uk,
+            book_id="tz-history-book",
+            read_date=datetime(2026, 7, 6, 16, 0, 0),
+            reading_time=600,
+            completed=True,
+        )
+    )
+    await db_session.commit()
+
+    history = await streak_service.get_reading_history(db_session, uk, days=3650)
+    dates = {row["date"] for row in history}
+    assert "2026-07-06" in dates, f"LA 기준 07-06으로 묶여야 함: {sorted(dates)}"
+    assert "2026-07-07" not in dates

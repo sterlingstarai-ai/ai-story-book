@@ -8,12 +8,25 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 
 # 테스트 환경 설정
 os.environ["TESTING"] = "true"
-os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test.db"
+# #12: 테스트 DB 파일을 프로세스별로 분리한다. 고정 경로(./test.db)를 공유하면 동시에
+# 도는 다른 pytest 프로세스(로컬 병렬 실행·백그라운드 회귀)의 create_all/drop_all이
+# 서로의 스키마를 지워 'no such table'로 무작위 실패한다 — GDPR/erasure 회귀 게이트가
+# flaky해지는 원인의 절반(나머지 절반인 실 S3 호출은 아래 _block_real_s3가 차단).
+os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///./test_{os.getpid()}.db"
 os.environ["LLM_PROVIDER"] = "mock"
 os.environ["IMAGE_PROVIDER"] = "mock"
 # IAP 기본값은 운영 안전을 위해 strict(fail-closed)이므로, 테스트는 로컬 검증 모드를
 # 명시 주입해 스토어 키 없이도 영수증 흐름을 검증한다(보안 기본값 변경과 한 세트).
 os.environ["IAP_VERIFICATION_MODE"] = "local"
+# H1/G9: 운영 GA 기본값은 오디오 비활성(audio_feature_enabled=False)이며, 그 구성에서
+# 오디오 엔드포인트는 명시적 409(AUDIO_NOT_SUPPORTED)를 반환한다. 오디오 엔드포인트를
+# 통해 '다른' 동작(404·무료플랜 게이트 등)을 검증하는 테스트가 그 게이트에 걸리지 않도록
+# 테스트 환경은 '오디오 라이브'로 선언한다. 게이트 자체는 플래그를 끄는
+# test_audio_feature_gate.py가 검증한다(프로덕션 코드에 테스트 특례를 두지 않음).
+os.environ["AUDIO_FEATURE_ENABLED"] = "true"
+os.environ["TTS_PROVIDER"] = "google"
+os.environ["GOOGLE_TTS_API_KEY"] = "test-tts-key"
+os.environ["STT_PROVIDER"] = "openai"
 # S3 credentials for testing (mock values)
 os.environ["S3_ACCESS_KEY"] = "test-access-key"
 os.environ["S3_SECRET_KEY"] = "test-secret-key"
@@ -24,7 +37,8 @@ from src.models.db import Base
 
 
 # 테스트용 DB 엔진
-TEST_DATABASE_URL = "sqlite+aiosqlite:///./test.db"
+TEST_DATABASE_URL = os.environ["DATABASE_URL"]
+_TEST_DB_FILE = TEST_DATABASE_URL.replace("sqlite+aiosqlite:///", "")
 test_engine = create_async_engine(TEST_DATABASE_URL, echo=False)
 
 
@@ -213,3 +227,75 @@ def mock_moderation_unsafe():
         "flags": ["violence"],
         "reason": "Content contains violent themes inappropriate for children",
     }
+
+
+# ── #12: 테스트에서 실 S3(boto3) 네트워크 호출 차단 ─────────────────────────────
+# erasure/삭제 테스트 다수가 storage를 mock하지 않아 실제 boto3가 localhost:9000으로
+# 나갔고(런당 수십 초 지연), 그 타이밍이 테스트 경계를 넘어 GDPR 회귀 게이트가 flaky해졌다
+# (실행마다 다른 테스트가 실패). S3 클라이언트 팩토리만 인메모리 페이크로 대체해
+# 키 계산·페이지네이션·에러 처리 등 storage 실로직은 그대로 통과시킨다.
+class _FakeS3Client:
+    def __init__(self):
+        self.objects: dict = {}
+
+    def head_bucket(self, **kwargs):
+        return {}
+
+    def create_bucket(self, **kwargs):
+        return {}
+
+    def put_object(self, **kwargs):
+        self.objects[kwargs.get("Key")] = kwargs.get("Body", b"")
+        return {}
+
+    def get_object(self, **kwargs):
+        key = kwargs.get("Key")
+        if key not in self.objects:
+            raise KeyError(key)
+        body = self.objects[key]
+
+        class _Body:
+            def read(self_inner):
+                return body
+
+        return {"Body": _Body(), "ContentType": "application/octet-stream"}
+
+    def list_objects_v2(self, **kwargs):
+        prefix = kwargs.get("Prefix", "")
+        keys = [k for k in self.objects if k.startswith(prefix)]
+        if not keys:
+            return {"KeyCount": 0}
+        return {
+            "KeyCount": len(keys),
+            "Contents": [{"Key": k} for k in keys],
+            "IsTruncated": False,
+        }
+
+    def delete_objects(self, **kwargs):
+        deleted = []
+        for obj in (kwargs.get("Delete") or {}).get("Objects", []):
+            self.objects.pop(obj["Key"], None)
+            deleted.append(obj)
+        return {"Deleted": deleted}
+
+
+@pytest.fixture(autouse=True)
+def _block_real_s3(monkeypatch, request):
+    """실 S3 호출 차단(기본). 실제 S3가 필요한 테스트는 @pytest.mark.real_s3로 예외."""
+    if request.node.get_closest_marker("real_s3"):
+        return
+    fake = _FakeS3Client()
+    monkeypatch.setattr("src.services.storage.get_s3_client", lambda: fake)
+    return fake
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _cleanup_test_db_file():
+    """프로세스별 테스트 DB 파일을 세션 종료 시 정리(작업 디렉터리 오염 방지)."""
+    yield
+    try:
+        path = _TEST_DB_FILE.lstrip("./")
+        if os.path.exists(path):
+            os.remove(path)
+    except OSError:
+        pass

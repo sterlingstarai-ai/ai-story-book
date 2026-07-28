@@ -10,8 +10,8 @@ from src.core.dependencies import get_profile_id, get_user_key
 from src.models.dto import LibraryResponse, BookSummary, TargetAge, Style
 from src.models.db import Book, ChildProfile
 from src.core.exceptions import NotFoundError, AuthorizationError, ValidationError
-from src.services.data_deletion import purge_book_children
-from src.services.storage import delete_book_files
+from src.services.data_deletion import collect_book_image_keys, purge_book_children
+from src.services.storage import delete_book_files, delete_keys
 
 router = APIRouter()
 logger = structlog.get_logger()
@@ -206,6 +206,11 @@ async def delete_book(
     if scoped_profile_id and book.profile_id != scoped_profile_id:
         raise AuthorizationError("선택한 프로필의 책이 아닙니다.")
 
+    # N1: 파이프라인 이미지(images/{provider}/…)는 books/{id}/ prefix 밖이라 prefix 삭제로
+    # 지워지지 않는다. 행을 지우면 image_url이 사라져 역산도 불가능해지므로(영구 고아),
+    # 반드시 행 삭제 '전에' 키를 수집한다(계정 삭제와 동일 순서).
+    image_keys = await collect_book_image_keys(db, [book_id])
+
     # 책을 참조하는 모든 자식 행(공유 링크/퀴즈응답/읽기로그/분기노드 등)을 먼저 제거한다.
     # 안 하면 Postgres에서 FK 위반으로 삭제가 실패한다(SQLite FK-off라 테스트만 통과).
     await purge_book_children(db, [book_id])
@@ -218,5 +223,20 @@ async def delete_book(
         await delete_book_files(book_id)
     except Exception as exc:
         logger.warning("Failed to delete book files", book_id=book_id, error=str(exc))
+
+    # H8 계약: 파기 실패 키는 삼키지 않고 관측 가능하게 남긴다(PII 잔존 추적).
+    if image_keys:
+        try:
+            failed = await delete_keys(image_keys)
+            if failed:
+                logger.warning(
+                    "book pipeline image delete failures",
+                    book_id=book_id,
+                    failed_keys=failed,
+                )
+        except Exception as exc:
+            logger.warning(
+                "Failed to delete pipeline images", book_id=book_id, error=str(exc)
+            )
 
     return {"message": "Book deleted successfully"}

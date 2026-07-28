@@ -117,7 +117,15 @@ class HomeScreen extends ConsumerWidget {
     final language = Localizations.localeOf(context).languageCode;
     // H18: 시도-단위 멱등키(재시도 시 재사용, 성공 시 리셋) → 재탭 이중 생성·차감 방지.
     final keyNotifier = ref.read(todayAttemptKeyProvider.notifier);
-    keyNotifier.state ??= const Uuid().v4();
+    final sigNotifier = ref.read(todayAttemptSigProvider.notifier);
+    // #20: 날짜가 바뀌면 새 키 — 어제 실패한 키로 오늘 요청하면 서버가 어제 잡을 반환한다.
+    final now = DateTime.now();
+    final todaySig =
+        '${now.year}-${now.month}-${now.day}|$language';
+    if (keyNotifier.state == null || sigNotifier.state != todaySig) {
+      keyNotifier.state = const Uuid().v4();
+      sigNotifier.state = todaySig;
+    }
     try {
       final jobId = await ref.read(apiClientProvider).generateTodayStory(
             targetAge: '5-7',
@@ -126,6 +134,7 @@ class HomeScreen extends ConsumerWidget {
             idempotencyKey: keyNotifier.state,
           );
       keyNotifier.state = null; // 성공 → 다음 생성은 새 키
+      sigNotifier.state = null;
       if (context.mounted) {
         Navigator.pushReplacementNamed(context, '/loading', arguments: jobId);
       }

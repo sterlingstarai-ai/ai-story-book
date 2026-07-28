@@ -3951,6 +3951,19 @@
             },
             "description": "Successful Response"
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": {
+                    "code": "AUDIO_NOT_SUPPORTED",
+                    "message": "이 배포에서는 오디오 기능을 사용할 수 없습니다."
+                  }
+                }
+              }
+            },
+            "description": "이 배포에서 오디오 기능이 비활성(H1/G9) — 클라이언트는 /v1/config/capabilities의 audio_supported로 UI를 숨겨야 함."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -4111,6 +4124,19 @@
             },
             "description": "Successful Response"
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": {
+                    "code": "AUDIO_NOT_SUPPORTED",
+                    "message": "이 배포에서는 오디오 기능을 사용할 수 없습니다."
+                  }
+                }
+              }
+            },
+            "description": "이 배포에서 오디오 기능이 비활성(H1/G9) — 클라이언트는 /v1/config/capabilities의 audio_supported로 UI를 숨겨야 함."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -4221,6 +4247,22 @@
               "description": "User identification key",
               "title": "X-User-Key",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Idempotency-Key"
             }
           }
         ],

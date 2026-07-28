@@ -2157,6 +2157,18 @@ class AppLocalizationsJa extends AppLocalizations {
   String get viewerRegenerateStarted => 'ページの再生成を開始しました。少々お待ちください。';
 
   @override
+  String get viewerRegenerateFeedbackTitle => 'どのように変えますか？';
+
+  @override
+  String get viewerRegenerateFeedbackHint => '例: もっと短くやさしく書いてください';
+
+  @override
+  String get viewerRegenerateFeedbackRequired => '変えたい内容を教えてください';
+
+  @override
+  String get viewerRegenerateConfirm => '作り直す';
+
+  @override
   String get viewerRegenerateFailed => '再生成に失敗しました。しばらくしてから再試行してください。';
 
   @override

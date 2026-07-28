@@ -40,23 +40,43 @@ def run_async(coro):
 
 
 async def _mark_job_failed_async(job_id: str, message: str) -> None:
-    """Best-effort async DB update for failed jobs from Celery context."""
-    from sqlalchemy import select
+    """Best-effort async DB update for failed jobs from Celery context.
+
+    H10 fence: orchestrator.mark_job_failed·job_monitor와 동일하게 queued/running일 때만
+    failed로 전이한다. 무조건 덮어쓰면 done 커밋 직후 SoftTimeLimitExceeded 등이 도달했을 때
+    배달된 책이 failed로 뒤집히고 환불까지 나가 '책 + 환불' 이중지급이 된다.
+    """
+    from sqlalchemy import select, update
 
     from src.core.database import AsyncSessionLocal
+    from src.core.utils import utcnow
     from src.models.db import Job
 
     async with AsyncSessionLocal() as session:
-        result = await session.execute(select(Job).where(Job.id == job_id))
-        job = result.scalar_one_or_none()
-        if not job:
+        result = await session.execute(
+            update(Job)
+            .where(Job.id == job_id, Job.status.in_(["queued", "running"]))
+            .values(
+                status="failed",
+                error_message=message[:300],
+                updated_at=utcnow(),
+            )
+        )
+        transitioned = result.rowcount == 1
+        await session.commit()
+
+        if not transitioned:
+            logger.warning(
+                "celery mark_job_failed skipped (job already terminal)", job_id=job_id
+            )
             return
 
+        job = (
+            await session.execute(select(Job).where(Job.id == job_id))
+        ).scalar_one_or_none()
+        if job is None:
+            return
         user_key = job.user_key  # 커밋 후 만료 대비 미리 캡처
-        job.status = "failed"
-        job.error_message = message[:300]
-        # 실패 상태를 먼저 영속화(MA3) 후 별도 트랜잭션으로 선차감 크레딧 환불(멱등).
-        await session.commit()
 
         try:
             from src.services.credits import credits_service

@@ -369,3 +369,99 @@ async def test_account_deletion_purges_pipeline_image_keys(client, db_session, m
     assert r.status_code == 200, r.text
     assert "images/replicate/cover-n1.png" in deleted.get("keys", [])
     assert "images/fal/page1-n1.png" in deleted.get("keys", [])
+
+
+# ── N1 확장: 단건 책 삭제·동의 철회도 파이프라인 이미지를 파기해야 한다 (감사 확정 #3) ──
+#
+# N1의 역산 파기가 계정 삭제에만 배선돼 있었다. 단건 삭제/동의 철회는 행(=image_url)을
+# 먼저 지워 역산 키까지 소실시키므로, 아동 likeness 일러스트가 공개 스토리지에 영구
+# 잔존하고 사후 배치로도 찾을 수 없다(PIPA/COPPA 파기 의무). 두 경로 각각 회귀 고정.
+
+
+async def _seed_pipeline_images(db, book_id: str, tag: str) -> tuple[str, str]:
+    """책 표지/페이지에 추적 불가 prefix(images/{provider}/…) 이미지 URL을 심는다."""
+    from src.core.config import settings
+    from src.models.db import Page
+
+    base = settings.s3_public_url.rstrip("/")
+    cover_key = f"images/replicate/cover-{tag}.png"
+    page_key = f"images/fal/page1-{tag}.png"
+
+    book = (await db.execute(select(Book).where(Book.id == book_id))).scalar_one()
+    book.cover_image_url = f"{base}/{cover_key}"
+    db.add(Page(book_id=book_id, page_number=1, text="p1", image_url=f"{base}/{page_key}"))
+    await db.commit()
+    return cover_key, page_key
+
+
+@pytest.mark.asyncio
+async def test_single_book_delete_purges_pipeline_image_keys(
+    client, db_session, monkeypatch
+):
+    """단건 책 삭제가 books/{id}/ prefix 밖 파이프라인 이미지를 파기한다."""
+    from src.routers import library as library_module
+
+    book_id = await _make_book(db_session)
+    cover_key, page_key = await _seed_pipeline_images(db_session, book_id, "libdel")
+
+    deleted: dict = {}
+
+    async def spy_delete_keys(keys):
+        deleted.setdefault("keys", []).extend(keys)
+        return []
+
+    async def noop_delete_book_files(bid):
+        return []
+
+    monkeypatch.setattr(library_module, "delete_keys", spy_delete_keys, raising=False)
+    monkeypatch.setattr(library_module, "delete_book_files", noop_delete_book_files)
+
+    r = await client.delete(f"/v1/library/{book_id}", headers=OWNER_HEADERS)
+    assert r.status_code == 200, r.text
+    assert cover_key in deleted.get("keys", [])
+    assert page_key in deleted.get("keys", [])
+
+
+@pytest.mark.asyncio
+async def test_consent_revoke_purges_pipeline_image_keys(client, db_session, monkeypatch):
+    """동의 철회(파기 의무의 최강 트리거)가 likeness 책의 파이프라인 이미지를 파기한다."""
+    from src.routers import consent as consent_module
+
+    character = Character(
+        id=f"char_{uuid.uuid4().hex[:8]}",
+        user_key=OWNER,
+        name="아이 캐릭터",
+        master_description="a child character derived from a photo",
+        appearance={},
+        clothing={},
+        personality_traits=[],
+        from_photo=True,
+    )
+    db_session.add(character)
+    await db_session.flush()
+
+    book_id = await _make_book(db_session, character_id=character.id)
+    cover_key, page_key = await _seed_pipeline_images(db_session, book_id, "revoke")
+
+    deleted: dict = {}
+
+    async def spy_delete_keys(keys):
+        deleted.setdefault("keys", []).extend(keys)
+        return []
+
+    async def noop_delete_book_files(bid):
+        return []
+
+    async def noop_delete_prefix(prefix):
+        return []
+
+    monkeypatch.setattr(consent_module, "delete_keys", spy_delete_keys, raising=False)
+    monkeypatch.setattr(consent_module, "delete_book_files", noop_delete_book_files)
+    monkeypatch.setattr(
+        consent_module.storage_service, "delete_prefix", noop_delete_prefix
+    )
+
+    r = await client.post("/v1/consent/revoke", headers=OWNER_HEADERS)
+    assert r.status_code == 200, r.text
+    assert cover_key in deleted.get("keys", [])
+    assert page_key in deleted.get("keys", [])

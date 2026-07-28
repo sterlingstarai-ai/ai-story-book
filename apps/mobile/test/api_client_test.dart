@@ -80,6 +80,34 @@ void main() {
       expect(captured?.containsKey('regenerate_target'), isFalse);
     });
 
+    test('regeneratePage sends feedback for text mode (M12 서버 필수값)', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+
+      Map<String, dynamic>? captured;
+      final done = Completer<void>();
+      server.listen((request) async {
+        final body = await utf8.decoder.bind(request).join();
+        captured = jsonDecode(body) as Map<String, dynamic>;
+        request.response.statusCode = HttpStatus.ok;
+        await request.response.close();
+        done.complete();
+      });
+
+      final client = ApiClient(
+        baseUrl: 'http://${server.address.host}:${server.port}',
+        userKey: 'test-user',
+        enableLogging: false,
+      );
+
+      await client.regeneratePage('job1', 1,
+          regenerateTarget: 'text', feedback: '더 짧고 쉽게 써주세요');
+      await done.future.timeout(const Duration(seconds: 1));
+      // feedback 미전송 시 서버가 422로 거절 → 메뉴가 100% 실패한다.
+      expect(captured?['feedback'], '더 짧고 쉽게 써주세요');
+      expect(captured?['mode'], 'text');
+    });
+
     test('inpaintPage rethrows a 409 that is not INPAINT_UNSUPPORTED (L14)',
         () async {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -88,8 +116,10 @@ void main() {
         request.response.statusCode = 409;
         request.response.headers.contentType = ContentType.json;
         request.response.write(
+          // 실제 서버 에러 봉투(core/exceptions.py _build_error_content) 그대로.
           jsonEncode({
-            'detail': {'code': 'SOME_OTHER_CONFLICT'}
+            'detail': '요청 처리 중 오류가 발생했습니다.',
+            'error': {'code': 'SOME_OTHER_CONFLICT', 'message': '충돌'},
           }),
         );
         await request.response.close();
@@ -120,8 +150,13 @@ void main() {
         request.response.statusCode = 409;
         request.response.headers.contentType = ContentType.json;
         request.response.write(
+          // 실제 서버 에러 봉투 — code는 detail이 아니라 error.code에 온다.
           jsonEncode({
-            'detail': {'code': 'INPAINT_UNSUPPORTED', 'message': 'nope'}
+            'detail': '현재 이미지 제공자는 부분 재생성을 지원하지 않습니다.',
+            'error': {
+              'code': 'INPAINT_UNSUPPORTED',
+              'message': '현재 이미지 제공자는 부분 재생성을 지원하지 않습니다.',
+            },
           }),
         );
         await request.response.close();

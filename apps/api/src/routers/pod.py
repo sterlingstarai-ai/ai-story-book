@@ -21,9 +21,11 @@ from src.core.exceptions import NotFoundError, ValidationError
 from src.core.utils import utcnow
 from src.models.db import Book, PodOrder
 from src.routers.books import get_idempotency_key
-from src.services.pod_provider import pod_provider_service
+from src.services.pod_provider import PodSubmitUnknown, pod_provider_service
 
 # 사용자 표시·조회 시 종결(더 이상 변하지 않는) 상태 — provider 통지로 역행하지 않게 sticky(L6).
+# #16: 외부 미제출 상태 — 멱등 재요청을 '접수 성공'으로 위장하지 않고 재제출을 시도한다.
+_POD_RESUBMITTABLE_STATUSES = {"pending_submit", "pending_provider"}
 _TERMINAL_POD_STATUSES = {"fulfilled", "shipped", "delivered", "canceled", "cancelled", "refunded"}
 
 router = APIRouter()
@@ -158,6 +160,8 @@ async def create_pod_order(
     total_price = (unit_price * request.quantity) + shipping_fee
 
     # H6: 멱등 — 같은 (user_key, idempotency_key) 주문이 이미 있으면 재요청에 그대로 반환.
+    order = None
+    order_id = None
     if idempotency_key:
         existing = (
             await db.execute(
@@ -168,43 +172,51 @@ async def create_pod_order(
             )
         ).scalar_one_or_none()
         if existing:
-            return _order_create_response(existing, sync_source="idempotent")
+            # #16: pending_submit/pending_provider는 '외부에 아직 제출되지 않은' 상태다.
+            # 이걸 그대로 200으로 돌려주면 사용자는 실물 주문이 접수됐다고 믿지만 provider엔
+            # 영원히 제출되지 않는다(재제출·대사 경로 부재 = 영구 미이행 주문). 재요청을
+            # 재제출 기회로 삼아 같은 행을 재사용해 외부 제출을 다시 시도한다.
+            if existing.status not in _POD_RESUBMITTABLE_STATUSES:
+                return _order_create_response(existing, sync_source="idempotent")
+            order = existing
+            order_id = existing.id
 
-    order_id = f"pod_{utcnow().strftime('%Y%m%d')}_{uuid.uuid4().hex[:8]}"
+    if order is None:
+        order_id = f"pod_{utcnow().strftime('%Y%m%d')}_{uuid.uuid4().hex[:8]}"
 
-    # H6: 외부 호출 전에 로컬 fail-closed 레코드를 먼저 commit(orphan draft 방지). 동시 더블탭은
-    # (user_key, idempotency_key) 부분 유니크에서 IntegrityError → 기존 행 재조회 반환.
-    order = PodOrder(
-        id=order_id,
-        user_key=user_key,
-        book_id=request.book_id,
-        idempotency_key=idempotency_key,
-        provider=settings.pod_provider,
-        status="pending_submit",
-        quantity=request.quantity,
-        unit_price=unit_price,
-        shipping_fee=shipping_fee,
-        total_price=total_price,
-        currency=region_currency,
-        shipping_address=shipping_address,
-        provider_order_id=None,
-    )
-    db.add(order)
-    try:
-        await db.commit()
-    except IntegrityError:
-        await db.rollback()
-        existing = (
-            await db.execute(
-                select(PodOrder).where(
-                    PodOrder.user_key == user_key,
-                    PodOrder.idempotency_key == idempotency_key,
+        # H6: 외부 호출 전에 로컬 fail-closed 레코드를 먼저 commit(orphan draft 방지). 동시
+        # 더블탭은 (user_key, idempotency_key) 부분 유니크에서 IntegrityError → 기존 행 재조회.
+        order = PodOrder(
+            id=order_id,
+            user_key=user_key,
+            book_id=request.book_id,
+            idempotency_key=idempotency_key,
+            provider=settings.pod_provider,
+            status="pending_submit",
+            quantity=request.quantity,
+            unit_price=unit_price,
+            shipping_fee=shipping_fee,
+            total_price=total_price,
+            currency=region_currency,
+            shipping_address=shipping_address,
+            provider_order_id=None,
+        )
+        db.add(order)
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+            existing = (
+                await db.execute(
+                    select(PodOrder).where(
+                        PodOrder.user_key == user_key,
+                        PodOrder.idempotency_key == idempotency_key,
+                    )
                 )
-            )
-        ).scalar_one_or_none()
-        if existing:
-            return _order_create_response(existing, sync_source="idempotent")
-        raise
+            ).scalar_one_or_none()
+            if existing:
+                return _order_create_response(existing, sync_source="idempotent")
+            raise
 
     # 외부 제출. provider 결과로 같은 행을 갱신(지역 견적 total_price/currency는 유지).
     provider_result = await pod_provider_service.create_order(
@@ -271,8 +283,10 @@ async def get_pod_order(
             sync_source = status_result.sync_source
             new_status = status_result.status
             new_tracking = status_result.tracking_number
-    except ValidationError:
-        # L6: provider 장애 시 조회를 400으로 실패시키지 않고 로컬 스냅샷을 반환한다.
+    except (ValidationError, PodSubmitUnknown):
+        # L6/#15: provider 장애 시 조회를 실패시키지 않고 로컬 스냅샷을 반환한다.
+        # 타임아웃은 _printful_request가 GET/POST 구분 없이 PodSubmitUnknown으로 변환하므로
+        # ValidationError만 잡으면 상태 조회가 미처리 500이 된다(장애의 최빈 형태).
         sync_source = "local_snapshot"
 
     # L6: 종결 상태는 sticky(역행 금지). 변경이 있을 때만 커밋(불필요 write 생략).

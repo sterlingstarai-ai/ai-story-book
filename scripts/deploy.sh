@@ -195,8 +195,33 @@ backup_db() {
   log_info "Database backed up to $backup_file"
 }
 
+# #5: 앱이 리슨할 때까지 대기한다. `compose up -d`는 컨테이너 '기동 시작'에서 리턴할 뿐
+# 앱 리슨을 기다리지 않고(FastAPI 임포트에 수 초), api 재생성 중 nginx는 502를 반환한다.
+# 구 흐름은 up→migrate→health라 migrate 실행 시간이 우연히 대기 역할을 했는데, M26이
+# migrate를 앞으로 옮기며 그 암묵 대기가 사라졌다 — 무대기 1회 curl은 사실상 항상 실패하고
+# 새로 배선된 자동 롤백까지 발동해 정상 릴리스가 매번 롤백된다.
+: "${HEALTH_WAIT_RETRIES:=30}"
+: "${HEALTH_WAIT_INTERVAL:=2}"
+
+wait_for_liveness() {
+  local attempt=1
+  while [ "$attempt" -le "$HEALTH_WAIT_RETRIES" ]; do
+    if curl -fsS http://localhost/health/live >/dev/null 2>&1; then
+      log_info "Service is live (attempt $attempt)"
+      return 0
+    fi
+    sleep "$HEALTH_WAIT_INTERVAL"
+    attempt=$((attempt + 1))
+  done
+  log_error "Service did not become live within $((HEALTH_WAIT_RETRIES * HEALTH_WAIT_INTERVAL))s"
+  return 1
+}
+
 health_check() {
   log_info "Running health checks..."
+  if ! wait_for_liveness; then
+    return 1
+  fi
   if curl -fsS http://localhost/health/live >/dev/null; then
     log_info "Liveness check passed"
   else

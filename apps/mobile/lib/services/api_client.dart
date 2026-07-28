@@ -144,12 +144,18 @@ class ApiClient {
     String jobId,
     int pageNumber, {
     required String regenerateTarget,
+    String? feedback,
   }) async {
     await _dio.post(
       '/v1/books/$jobId/pages/$pageNumber/regenerate',
       // L14: 계약 정본 키는 'mode'(openapi RegeneratePageRequest, additionalProperties:false).
       // 값(text/image/both)은 mode enum과 동일. 백엔드 alias는 구버전 앱 호환용으로만 존재.
-      data: {'mode': regenerateTarget},
+      // M12: mode=text/both는 서버가 feedback을 필수로 요구한다(미전송 시 422).
+      data: {
+        'mode': regenerateTarget,
+        if (feedback != null && feedback.trim().isNotEmpty)
+          'feedback': feedback.trim(),
+      },
       options: Options(headers: _headers),
     );
   }
@@ -186,9 +192,11 @@ class ApiClient {
       return newJobId;
     } on DioException catch (e) {
       // L14: 다른 의미의 409를 인페인트 미지원으로 오해석하지 않도록 error code까지 확인.
-      final detail = e.response?.data is Map ? e.response!.data['detail'] : null;
-      final isUnsupported = detail is Map && detail['code'] == 'INPAINT_UNSUPPORTED';
-      if (e.response?.statusCode == 409 && isUnsupported) {
+      // 서버 봉투는 {"detail": "<메시지>", "error": {"code": ...}} 이므로 코드는 error.code에
+      // 있다. detail을 Map으로 읽던 이전 구현은 실제 응답에서 항상 false여서 폴백이 죽어
+      // 있었다 — 봉투 파싱은 ApiError(정본 파서) 하나만 쓴다.
+      if (e.response?.statusCode == 409 &&
+          ApiError.fromDioException(e).code == 'INPAINT_UNSUPPORTED') {
         throw const InpaintUnsupportedException();
       }
       rethrow;

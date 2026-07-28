@@ -641,8 +641,16 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     return path;
   }
 
+  /// H1/G9: 이 배포에서 오디오(낭독·발음)를 제공하는가.
+  /// 미지원이면 UI를 숨긴다 — 비활성 배포에서 탭마다 에러가 나던 문제 차단.
+  /// 미확정(로딩 중)은 노출하고 서버 409로 폴백(인페인트 게이팅과 동일 정책).
+  bool _audioSupportedFrom(Map<String, dynamic>? caps) =>
+      caps == null ? true : caps['audio_supported'] == true;
+
   Widget _buildControls(BookResult book, int totalPages) {
     final l = AppLocalizations.of(context);
+    final audioOk =
+        _audioSupportedFrom(ref.watch(capabilitiesProvider).valueOrNull);
     return Column(
       children: [
         // 상단 바
@@ -771,8 +779,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                       );
                     },
                   ),
-                  // 오디오 재생 버튼 (페이지에서만)
-                  if (_currentPage > 0)
+                  // 오디오 재생 버튼 (페이지에서만, 오디오 지원 배포에서만)
+                  if (_currentPage > 0 && audioOk)
                     _AudioButton(
                       isPlaying: _isPlaying,
                       isLoading: _isLoadingAudio,
@@ -1156,6 +1164,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
 
   void _showOptionsMenu(BookResult book) {
     final l = AppLocalizations.of(context);
+    final audioOk =
+        _audioSupportedFrom(ref.read(capabilitiesProvider).valueOrNull);
     final hasBilingualText = book.pages.any(
       (page) =>
           (page.textKo?.isNotEmpty ?? false) &&
@@ -1259,7 +1269,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                   _showParentGuide(book);
                 },
               ),
-            if (_currentPage > 0)
+            if (_currentPage > 0 && audioOk)
               ListTile(
                 leading: const Icon(Icons.record_voice_over_outlined),
                 title: Text(l.viewerPronunciationTitle),
@@ -1553,6 +1563,37 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     }
   }
 
+  /// M12: 서버는 mode=text/both에 feedback을 필수로 요구한다(없으면 422). 어떻게 바꿀지
+  /// 입력받아 전달한다 — 입력 UI가 없어 '텍스트만/모두' 메뉴가 100% 실패하던 문제 수정.
+  Future<String?> _askRegenerateFeedback() async {
+    final l = AppLocalizations.of(context);
+    final controller = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(l.viewerRegenerateFeedbackTitle),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 200,
+          decoration: InputDecoration(hintText: l.viewerRegenerateFeedbackHint),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(l.viewerCancel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: Text(l.viewerRegenerateConfirm),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    return result;
+  }
+
   Future<void> _regeneratePage(
       BookResult book, int pageNumber, String target) async {
     final l = AppLocalizations.of(context);
@@ -1563,6 +1604,22 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       return;
     }
 
+    String? feedback;
+    if (target == 'text' || target == 'both') {
+      feedback = await _askRegenerateFeedback();
+      if (feedback == null) {
+        return; // 사용자가 취소
+      }
+      if (feedback.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(l.viewerRegenerateFeedbackRequired)),
+        );
+        return;
+      }
+    }
+    if (!mounted) return;
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(l.viewerRegenerating)),
     );
@@ -1570,7 +1627,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     try {
       final apiClient = ref.read(apiClientProvider);
       await apiClient.regeneratePage(book.jobId!, pageNumber,
-          regenerateTarget: target);
+          regenerateTarget: target, feedback: feedback);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

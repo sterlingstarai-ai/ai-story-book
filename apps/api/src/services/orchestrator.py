@@ -896,6 +896,38 @@ def _moderate_text(text: str) -> bool:
     return True
 
 
+async def moderate_text_localized(text: str, language) -> bool:
+    """키워드망(ko/en) 검사 후, 망 밖 언어(ja/zh/es)는 LLM 출력 모더레이션으로 폴백한다.
+
+    M12가 배선한 재생성·리텔·인페인트 게이트는 _moderate_text(ko/en 키워드)만 사용해
+    ja/zh/es 텍스트가 입력·출력 모두 무조건 통과했다 — H24가 메인 파이프라인에서 확립한
+    '키워드망 밖 언어 = fail-open 금지' 불변식과 정면 모순(출시 5개 언어 중 3종에서 아동
+    안전망 우회). 그 폴백을 동일하게 재사용해 파리티를 맞춘다.
+    """
+    if not _moderate_text(text):
+        return False
+
+    try:
+        lang = language if isinstance(language, Language) else Language(language)
+    except ValueError:
+        # 알 수 없는 언어 코드는 키워드망만으로 판정(폴백 대상 불명).
+        return True
+
+    if lang in _KEYWORD_COVERED_LANGUAGES:
+        return True
+
+    from src.services.llm import call_output_moderation
+
+    result = await call_output_moderation(text, lang)
+    if not result.is_safe:
+        logger.warning(
+            "Moderation failed (LLM fallback)",
+            language=lang.value,
+            reasons=result.reasons,
+        )
+    return result.is_safe
+
+
 async def moderate_output(story: StoryDraft, image_urls: dict) -> bool:
     """G. 출력 안전성 검사 - 생성된 콘텐츠 검증.
 
@@ -1162,24 +1194,48 @@ async def package_book(
 
 
 async def save_story_draft(job_id: str, story: StoryDraft):
-    """스토리 초안 저장"""
+    """스토리 초안 저장 — job_id 기준 멱등(M23).
+
+    Celery 재전달(acks_late)로 파이프라인이 중간부터 다시 도는 경우 plain INSERT는
+    unique(job_id) 충돌을 내고, 그 IntegrityError는 start_book_generation의 전역
+    except가 먼저 잡아 UNKNOWN 실패 + 환불로 확정시킨다(복구 가능한 재전달이 영구
+    실패가 됨). 있으면 갱신해 재실행이 이어서 진행되게 한다.
+    """
+    from sqlalchemy import select
+
     from src.core.database import AsyncSessionLocal
     from src.models.db import StoryDraftDB
 
     async with AsyncSessionLocal() as session:
-        draft = StoryDraftDB(job_id=job_id, draft=story.model_dump())
-        session.add(draft)
+        existing = (
+            await session.execute(
+                select(StoryDraftDB).where(StoryDraftDB.job_id == job_id)
+            )
+        ).scalar_one_or_none()
+        if existing:
+            existing.draft = story.model_dump()
+        else:
+            session.add(StoryDraftDB(job_id=job_id, draft=story.model_dump()))
         await session.commit()
 
 
 async def save_image_prompts(job_id: str, prompts: ImagePrompts):
-    """이미지 프롬프트 저장"""
+    """이미지 프롬프트 저장 — job_id 기준 멱등(M23, save_story_draft와 동일 이유)."""
+    from sqlalchemy import select
+
     from src.core.database import AsyncSessionLocal
     from src.models.db import ImagePromptsDB
 
     async with AsyncSessionLocal() as session:
-        prompts_db = ImagePromptsDB(job_id=job_id, prompts=prompts.model_dump())
-        session.add(prompts_db)
+        existing = (
+            await session.execute(
+                select(ImagePromptsDB).where(ImagePromptsDB.job_id == job_id)
+            )
+        ).scalar_one_or_none()
+        if existing:
+            existing.prompts = prompts.model_dump()
+        else:
+            session.add(ImagePromptsDB(job_id=job_id, prompts=prompts.model_dump()))
         await session.commit()
 
 
@@ -1224,7 +1280,7 @@ async def regenerate_page(
 
             # M12: feedback 입력 모더레이션 — 최초 생성 B 게이트 파리티. 부적절 요청은
             # LLM에 전달하기 전에 SAFETY_INPUT으로 차단(page.text 불변).
-            if feedback and not _moderate_text(feedback):
+            if feedback and not await moderate_text_localized(feedback, book.language):
                 raise SafetyError(
                     message="부적절한 재생성 요청입니다", is_input=True
                 )
@@ -1268,7 +1324,7 @@ async def regenerate_page(
                     message="재생성 텍스트가 비어 있습니다",
                 )
             # M12: 재생성 출력 모더레이션 — 최초 생성 G 게이트 파리티.
-            if not _moderate_text(revised):
+            if not await moderate_text_localized(revised, book.language):
                 raise SafetyError(
                     message="재생성된 내용이 안전 기준을 통과하지 못했습니다",
                     is_input=False,
@@ -1296,6 +1352,10 @@ async def regenerate_page(
             if hasattr(page, "audio_url_en"):
                 page.audio_url_en = None
 
+        # N1/#10: 교체된 구버전 이미지 키를 커밋 후 파기하기 위해 캡처.
+        replaced_image_url = None
+        new_image_url = None
+
         if mode in ["image", "both"]:
             # Generate new image
             if page.image_prompt:
@@ -1312,14 +1372,41 @@ async def regenerate_page(
                 )
                 image_url = await generate_image(regen_prompt)
                 if image_url:
+                    replaced_image_url = page.image_url
+                    new_image_url = image_url
                     page.image_url = image_url
 
         page.updated_at = utcnow()
         await session.commit()
 
+    # N1/#10: 커밋 성공 후에만 구버전 키 파기(커밋 실패 시 살아있는 이미지를 지우지 않도록).
+    await _purge_replaced_image(replaced_image_url, new_image_url)
+
     logger.info(
         "Page regeneration complete", book_id=book_id, page=page_number, mode=mode
     )
+
+
+async def _purge_replaced_image(previous_url, new_url) -> None:
+    """이미지 교체 커밋 후 이전 버전의 스토리지 키를 파기한다(N1/#10).
+
+    교체만 하고 이전 키를 지우지 않으면, 삭제 경로(계정/책/동의철회)의 역산은 '현재
+    image_url'만 커버하므로 구버전 일러스트(아동 사진 파생 가능)가 어떤 파기 경로로도
+    지워지지 않는 영구 고아가 된다. 파기 실패는 warning으로만 남긴다(교체 자체는 성공).
+    """
+    if not previous_url or previous_url == new_url:
+        return
+    try:
+        from src.services.storage import delete_keys, key_from_public_url
+
+        key = key_from_public_url(previous_url)
+        if not key:
+            return
+        failed = await delete_keys([key])
+        if failed:
+            logger.warning("replaced image delete failures", failed_keys=failed)
+    except Exception as exc:  # pragma: no cover - 방어적
+        logger.warning("replaced image delete failed", error=str(exc))
 
 
 async def inpaint_page(
@@ -1359,7 +1446,7 @@ async def inpaint_page(
         # M12: region_prompt 입력 모더레이션 — 무검사 결합 전에 SAFETY_INPUT으로 차단.
         from src.core.errors import SafetyError
 
-        if not _moderate_text(region_prompt):
+        if not await moderate_text_localized(region_prompt, book.language):
             raise SafetyError(
                 message="부적절한 부분 재생성 요청입니다", is_input=True
             )
@@ -1380,11 +1467,16 @@ async def inpaint_page(
             mask_url=mask_url,
         )
         image_url = await generate_image(inpaint_prompt)
+        replaced_image_url = None
         if image_url:
+            replaced_image_url = page.image_url
             page.image_url = image_url
 
         page.updated_at = utcnow()
         await session.commit()
+
+    # N1/#10: 인페인트도 새 키에 저장되므로 이전 버전이 고아가 된다 — 커밋 후 파기.
+    await _purge_replaced_image(replaced_image_url, image_url)
 
     logger.info("Page inpaint complete", book_id=book_id, page=page_number)
 

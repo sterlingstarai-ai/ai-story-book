@@ -223,27 +223,126 @@ async def test_previous_owner_subscription_expired_on_restore(client, db_session
     assert await credits_service.get_active_subscription(db_session, new_user) is not None
 
 
+# ── C1/MA1 실경로 회귀 (verify_purchase 통째 mock 금지 — HTTP 경계만 mock) ──
+#
+# 구 테스트는 verify_purchase 전체를 monkeypatch해 expires_date_ms를 주입했기 때문에,
+# 실제 Apple 검증 경로가 만료 시각을 추출하지 않아도 green이었다(false-green이 치명
+# 결함을 은폐). 아래 테스트들은 최하위 I/O 경계인 _post_json(HTTP POST)만 mock하고
+# verify_purchase → _verify_apple → _post_apple_receipt → _find_apple_transaction →
+# 만료 추출까지 전부 실코드로 통과시킨다.
+
+_APPLE_EXPIRED_MS = 1_600_000_000_000  # 2020-09 — 확정 과거
+_APPLE_FUTURE_MS = 4_100_000_000_000  # 2099-xx — 확정 미래
+
+
+def _apple_receipt_response(*, product_id: str, transaction_id: str, expires_date_ms: int) -> dict:
+    """Apple verifyReceipt 성공 응답(자동갱신 구독). 만료 구독도 status=0으로 온다."""
+    return {
+        "status": 0,
+        "environment": "Production",
+        "receipt": {"bundle_id": "com.storybook.ai_story_book", "in_app": []},
+        "latest_receipt_info": [
+            {
+                "product_id": product_id,
+                "transaction_id": transaction_id,
+                "original_transaction_id": transaction_id,
+                # Apple은 ms epoch을 문자열로 준다.
+                "expires_date_ms": str(expires_date_ms),
+                "bid": "com.storybook.ai_story_book",
+            }
+        ],
+    }
+
+
+def _use_strict_apple(monkeypatch, response: dict) -> None:
+    """strict 모드 실 Apple 검증을 태우되 네트워크만 차단(_post_json = 유일한 mock)."""
+    monkeypatch.setattr(settings, "iap_verification_mode", "strict")
+    monkeypatch.setattr(settings, "apple_iap_shared_secret", "test-shared-secret")
+
+    async def fake_post_json(url, payload):  # 인스턴스 속성이라 self 없음
+        return response
+
+    monkeypatch.setattr(iap_verifier, "_post_json", fake_post_json)
+
+
+@pytest.mark.asyncio
+async def test_apple_verification_extracts_expires_date_ms(monkeypatch):
+    """C1/MA1: strict Apple 실검증이 만료 시각을 결과에 실어야 한다.
+
+    이 값이 None이면 라우터의 _subscription_expired 가드가 항상 통과해 만료 영수증
+    재제출로 active 구독이 재생성되고 periodic_credits가 영구 리필한다(무한 수익화).
+    """
+    _use_strict_apple(
+        monkeypatch,
+        _apple_receipt_response(
+            product_id="subscription_premium",
+            transaction_id="apple-expired-tx",
+            expires_date_ms=_APPLE_EXPIRED_MS,
+        ),
+    )
+
+    result = await iap_verifier.verify_purchase(
+        platform="apple",
+        product_id="subscription_premium",
+        transaction_id="apple-expired-tx",
+        receipt_data="AAAA",
+        is_subscription=True,
+    )
+
+    assert result.verified is True
+    assert result.source == "apple_store"
+    assert result.expires_date_ms == _APPLE_EXPIRED_MS
+
+
 @pytest.mark.asyncio
 async def test_expired_receipt_restore_creates_no_active_sub(client, db_session, monkeypatch):
-    """MA1: 스토어 만료 영수증 restore는 active 구독을 생성하지 않는다(무한 리필 차단)."""
+    """MA1 실경로: 만료 Apple 영수증 restore는 active 구독을 생성하지 않는다."""
     _seed_owner_receipt_and_sub(db_session, "old-owner-3", "STORE-EXPIRED")
     await db_session.commit()
 
-    async def fake_verify(**kwargs):
-        # expires_date_ms를 과거로 → 만료 영수증.
-        return _fake_verification(kwargs["product_id"], "STORE-EXPIRED", expires_date_ms=1)
-
-    monkeypatch.setattr(iap_verifier, "verify_purchase", fake_verify)
+    _use_strict_apple(
+        monkeypatch,
+        _apple_receipt_response(
+            product_id="subscription_premium",
+            transaction_id="STORE-EXPIRED",
+            expires_date_ms=_APPLE_EXPIRED_MS,
+        ),
+    )
 
     new_user = "55555555-6666-7777-8888-999999999999"
     body = {
         "platform": "apple", "product_id": "subscription_premium",
-        "transaction_id": "expired-tx", "receipt_data": "AAAA", "is_subscription": True,
+        "transaction_id": "STORE-EXPIRED", "receipt_data": "AAAA", "is_subscription": True,
     }
     r = await client.post("/v1/iap/verify", json=body, headers={"X-User-Key": new_user})
     assert r.status_code == 200, r.text
     # 만료 영수증 → 새 사용자에게 active 구독 미생성.
     assert await credits_service.get_active_subscription(db_session, new_user) is None
+
+
+@pytest.mark.asyncio
+async def test_unexpired_receipt_restore_still_activates_sub(client, db_session, monkeypatch):
+    """만료 가드가 정당한(미만료) 복원까지 막지 않는다 — 과잉 차단 회귀 방지."""
+    _seed_owner_receipt_and_sub(db_session, "old-owner-4", "STORE-LIVE")
+    await db_session.commit()
+
+    _use_strict_apple(
+        monkeypatch,
+        _apple_receipt_response(
+            product_id="subscription_premium",
+            transaction_id="STORE-LIVE",
+            expires_date_ms=_APPLE_FUTURE_MS,
+        ),
+    )
+
+    new_user = "66666666-7777-8888-9999-aaaaaaaaaaaa"
+    body = {
+        "platform": "apple", "product_id": "subscription_premium",
+        "transaction_id": "STORE-LIVE", "receipt_data": "AAAA", "is_subscription": True,
+    }
+    r = await client.post("/v1/iap/verify", json=body, headers={"X-User-Key": new_user})
+    assert r.status_code == 200, r.text
+    assert await credits_service.get_active_subscription(db_session, new_user) is not None
 
 
 # ───────────────────────── N1: 환불 ─────────────────────────
@@ -748,3 +847,158 @@ async def test_webhook_requires_matching_token_when_secret_set(client, monkeypat
     )
     # 인증 통과 — 미지의 transaction_id는 'ignored'로 처리되나 인증 자체는 성공.
     assert ok.status_code == 200, ok.text
+
+
+# ── 감사 #14/#7: 만료 영수증 restore의 부작용 2종 ──
+
+
+@pytest.mark.asyncio
+async def test_expired_restore_keeps_previous_owner_subscription(
+    client, db_session, monkeypatch
+):
+    """#14: 만료 영수증 restore가 이전 소유자의 정당한 active 구독을 죽이면 안 된다.
+
+    만료 영수증은 아무 권한도 이전하지 않는데, expire 호출이 만료 검사보다 먼저 실행돼
+    이전 소유자가 그 사이 신규 결제한 같은 plan 구독까지 소멸시켰다.
+    """
+    _seed_owner_receipt_and_sub(db_session, "old-owner-5", "STORE-EXP-KEEP")
+    await db_session.commit()
+
+    _use_strict_apple(
+        monkeypatch,
+        _apple_receipt_response(
+            product_id="subscription_premium",
+            transaction_id="STORE-EXP-KEEP",
+            expires_date_ms=_APPLE_EXPIRED_MS,
+        ),
+    )
+
+    new_user = "77777777-8888-9999-aaaa-bbbbbbbbbbbb"
+    body = {
+        "platform": "apple", "product_id": "subscription_premium",
+        "transaction_id": "STORE-EXP-KEEP", "receipt_data": "AAAA", "is_subscription": True,
+    }
+    r = await client.post("/v1/iap/verify", json=body, headers={"X-User-Key": new_user})
+    assert r.status_code == 200, r.text
+
+    old_sub = (
+        await db_session.execute(
+            select(Subscription).where(Subscription.user_key == "old-owner-5")
+        )
+    ).scalar_one()
+    assert old_sub.status == "active", "만료 영수증 restore가 이전 소유자 구독을 만료시키면 안 됨"
+
+
+@pytest.mark.asyncio
+async def test_expired_restore_clears_previous_owner_subscription_ref(
+    client, db_session, monkeypatch
+):
+    """#7(H5): 만료 restore 후에도 남는 타인 구독 참조가 이전 소유자의 계정 삭제를 막는다.
+
+    receipt.user_key만 새 사용자로 넘어가고 subscription_id는 이전 소유자 구독을 가리킨 채
+    남으면, 그 소유자의 DELETE /v1/users/me가 FK 위반으로 500 — 법적 삭제권이 봉쇄된다.
+    """
+    _seed_owner_receipt_and_sub(db_session, "old-owner-6", "STORE-EXP-FK")
+    await db_session.commit()
+
+    # 영수증을 소유자의 구독에 실제로 연결(H5 배선 재현).
+    old_sub = (
+        await db_session.execute(
+            select(Subscription).where(Subscription.user_key == "old-owner-6")
+        )
+    ).scalar_one()
+    receipt = (
+        await db_session.execute(
+            select(IAPReceipt).where(IAPReceipt.store_transaction_id == "STORE-EXP-FK")
+        )
+    ).scalar_one()
+    receipt.subscription_id = old_sub.id
+    await db_session.commit()
+
+    _use_strict_apple(
+        monkeypatch,
+        _apple_receipt_response(
+            product_id="subscription_premium",
+            transaction_id="STORE-EXP-FK",
+            expires_date_ms=_APPLE_EXPIRED_MS,
+        ),
+    )
+
+    new_user = "88888888-9999-aaaa-bbbb-cccccccccccc"
+    body = {
+        "platform": "apple", "product_id": "subscription_premium",
+        "transaction_id": "STORE-EXP-FK", "receipt_data": "AAAA", "is_subscription": True,
+    }
+    r = await client.post("/v1/iap/verify", json=body, headers={"X-User-Key": new_user})
+    assert r.status_code == 200, r.text
+
+    db_session.expire_all()
+    moved = (
+        await db_session.execute(
+            select(IAPReceipt).where(IAPReceipt.store_transaction_id == "STORE-EXP-FK")
+        )
+    ).scalar_one()
+    assert moved.user_key == new_user
+    assert moved.subscription_id is None, (
+        "만료 restore 후 타인 구독 참조가 남으면 이전 소유자 계정 삭제가 FK로 실패한다"
+    )
+
+
+@pytest.mark.asyncio
+async def test_orphan_google_suffix_refund_reapplies_on_verify(
+    client, db_session, monkeypatch
+):
+    """#6(H4): 접미사 orderId(..0)로 선도착한 환불 orphan이 base verify에서 재적용돼야 한다.
+
+    재적용되지 않으면 환불된 구독이 active로 남아 periodic_credits가 매월 리필한다 —
+    H4가 막으려던 buy→refund 무한 무료 크레딧이 Google 접미사 케이스에서 그대로 재현.
+    provider는 200을 받았으므로 재전송도 없어 결정이 영구 유실된다.
+    """
+    base_order = "GPA.1234-5678-9012-34567"
+
+    # 1) 환불 웹훅이 갱신 접미사가 붙은 orderId로 먼저 도착 → orphan 적재.
+    wh = await client.post(
+        "/v1/iap/webhook/google",
+        json={"transaction_id": f"{base_order}..0", "status": "refunded", "payload": {}},
+        headers={"X-IAP-Webhook-Secret": settings.iap_webhook_secret or ""},
+    )
+    assert wh.status_code in (200, 202), wh.text
+    assert wh.json()["status"] == "accepted_orphan", wh.text
+
+    # 2) 이후 사용자가 verify(스토어는 base orderId 반환).
+    async def fake_verify(**kwargs):
+        return IAPVerificationResult(
+            verified=True,
+            source="google_play",
+            environment="production",
+            store_transaction_id=base_order,
+            store_product_id=kwargs["product_id"],
+            raw={},
+        )
+
+    monkeypatch.setattr(iap_verifier, "verify_purchase", fake_verify)
+
+    user = "99999999-aaaa-bbbb-cccc-dddddddddddd"
+    r = await client.post(
+        "/v1/iap/verify",
+        json={
+            "platform": "google", "product_id": "subscription_premium",
+            "transaction_id": base_order, "purchase_token": "tok", "is_subscription": True,
+        },
+        headers={"X-User-Key": user},
+    )
+    assert r.status_code == 200, r.text
+
+    # 3) 선도착 환불 결정이 반영돼 active 구독이 남아 있으면 안 된다.
+    db_session.expire_all()
+    assert await credits_service.get_active_subscription(db_session, user) is None, (
+        "접미사 orderId 환불 orphan이 재적용되지 않아 환불된 구독이 active로 남았다"
+    )
+    event = (
+        await db_session.execute(
+            select(IapWebhookEvent).where(
+                IapWebhookEvent.transaction_id == f"{base_order}..0"
+            )
+        )
+    ).scalar_one()
+    assert event.applied is True

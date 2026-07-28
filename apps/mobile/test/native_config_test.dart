@@ -95,6 +95,27 @@ void main() {
       }
     });
 
+    test('pbxproj가 InfoPlist.strings를 리소스로 참조한다 (#13)', () {
+      // 파일과 knownRegions만 있고 프로젝트에 미참조면 어떤 빌드에도 번들되지 않아
+      // en/ja 지역화가 코드 상태로는 절대 발효하지 않는다(가드가 false-green이었음).
+      final text = File('ios/Runner.xcodeproj/project.pbxproj').readAsStringSync();
+      expect(text.contains('InfoPlist.strings'), isTrue,
+          reason: 'InfoPlist.strings가 pbxproj에 등록돼야 함');
+      expect(text.contains('PBXVariantGroup'), isTrue);
+      // variant group에 3개 로케일이 자식으로 등록됐는지.
+      final vg = RegExp(
+        r'isa = PBXVariantGroup;\s*children = \(([^)]*)\);\s*name = InfoPlist\.strings;',
+        multiLine: true,
+      ).firstMatch(text);
+      expect(vg, isNotNull, reason: 'InfoPlist.strings variant group이 있어야 함');
+      for (final locale in ['ko', 'en', 'ja']) {
+        expect(vg!.group(1)!.contains('/* $locale */'), isTrue,
+            reason: 'variant group에 $locale 누락');
+      }
+      // Resources 빌드 페이즈에 포함돼야 실제로 번들된다.
+      expect(text.contains('InfoPlist.strings in Resources'), isTrue);
+    });
+
     test('pbxproj knownRegions에 ko·ja가 등록된다', () {
       final text = File('ios/Runner.xcodeproj/project.pbxproj').readAsStringSync();
       final m = RegExp(r'knownRegions = \(([^)]*)\)').firstMatch(text);

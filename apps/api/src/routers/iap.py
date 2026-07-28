@@ -233,14 +233,21 @@ async def verify_iap(
         existing.payload = _build_payload({"restored_from_user_key": previous_user_key})
         try:
             if plan:
-                # 권한 이전: 이전 소유자의 해당 plan active 구독만 만료(cancelled 잔여기간 보존, G2).
-                if previous_user_key != user_key:
-                    await credits_service.expire_active_subscription_for_plan(
-                        db, previous_user_key, plan, commit=False
-                    )
-                # 복원은 월간 크레딧을 재지급하지 않는다(G1). 만료 영수증(MA1)은 active 구독을
-                # 재활성하지 않는다 — 만료 영수증 1건 restore로 영구 리필되는 무한 수익화 차단.
-                if not _subscription_expired(verification):
+                # 만료 영수증(MA1)은 어떤 권한도 이전하지 않는다 — active 구독 재활성 금지로
+                # 무한 리필을 막고, 그 연장선에서 부작용 두 가지도 함께 차단한다:
+                #  · 이전 소유자의 expire를 건너뛴다. 만료 영수증은 아무것도 이전하지 않는데
+                #    expire만 실행되면, 그 사이 새로 결제한 같은 plan 구독까지 소멸한다(#14).
+                #  · 이전 소유자 구독을 가리키던 참조를 끊는다. 남겨두면 그 소유자의 계정
+                #    삭제가 FK 위반으로 500이 되어 법적 삭제권이 봉쇄된다(#7/H5).
+                if _subscription_expired(verification):
+                    existing.subscription_id = None
+                else:
+                    # 권한 이전: 이전 소유자의 해당 plan active 구독만 만료(cancelled 잔여기간 보존, G2).
+                    if previous_user_key != user_key:
+                        await credits_service.expire_active_subscription_for_plan(
+                            db, previous_user_key, plan, commit=False
+                        )
+                    # 복원은 월간 크레딧을 재지급하지 않는다(G1).
                     restored_sub = await credits_service.create_subscription(
                         db, user_key, plan, commit=False, grant_credits=False
                     )
@@ -479,16 +486,32 @@ async def _reapply_orphan_events(db: AsyncSession, receipt: IAPReceipt) -> None:
     선도착·store 식별자 환불/취소 통지가 유실되지 않고 여기서 반영된다. created_at 순 +
     _apply_status_to_receipt의 sticky 우선순위로 정합.
     """
+    match_clauses = [
+        IapWebhookEvent.transaction_id == receipt.transaction_id,
+        IapWebhookEvent.transaction_id == receipt.store_transaction_id,
+    ]
+    if receipt.platform == "google":
+        # H4/#6: Google 갱신 주문 orderId는 base에 '..N' 접미가 붙는다. 접미사가 붙은
+        # orderId로 선도착한 환불/취소 웹훅은 base로 verify된 영수증과 원문 등호로는
+        # 절대 매칭되지 않아 결정이 영구 유실된다(환불된 구독이 active로 남아 매월 리필).
+        # 양방향(이벤트에 접미 / 영수증에 접미)을 모두 정규화해 맞춘다.
+        for ident in (receipt.store_transaction_id, receipt.transaction_id):
+            if not ident:
+                continue
+            base = _strip_google_order_suffix(ident)
+            escaped = base.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            match_clauses.append(IapWebhookEvent.transaction_id == base)
+            match_clauses.append(
+                IapWebhookEvent.transaction_id.like(f"{escaped}..%", escape="\\")
+            )
+
     events = (
         await db.execute(
             select(IapWebhookEvent)
             .where(
                 IapWebhookEvent.platform == receipt.platform,
                 IapWebhookEvent.applied.is_(False),
-                or_(
-                    IapWebhookEvent.transaction_id == receipt.transaction_id,
-                    IapWebhookEvent.transaction_id == receipt.store_transaction_id,
-                ),
+                or_(*match_clauses),
             )
             .order_by(IapWebhookEvent.created_at.asc(), IapWebhookEvent.id.asc())
         )
