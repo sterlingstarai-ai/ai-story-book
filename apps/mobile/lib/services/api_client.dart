@@ -391,6 +391,7 @@ class ApiClient {
     File photo, {
     String? name,
     String style = 'cartoon',
+    String? idempotencyKey,
   }) async {
     final formData = FormData.fromMap({
       'photo': await MultipartFile.fromFile(
@@ -401,11 +402,18 @@ class ApiClient {
       'style': style,
     });
 
+    // H17/G19: 요청 안에서 vision 분석을 동기 수행해 오래 걸린다. 타임아웃 후 재시도가
+    // 중복 캐릭터를 만들지 않도록 시도-단위 키를 보낸다(서버가 기존 결과를 반환).
+    final headers = Map<String, String>.from(_headers);
+    if (idempotencyKey != null) {
+      headers['X-Idempotency-Key'] = idempotencyKey;
+    }
+
     final response = await _dio.post(
       '/v1/characters/from-photo',
       data: formData,
       options: Options(
-        headers: _headers,
+        headers: headers,
         contentType: 'multipart/form-data',
         receiveTimeout: kLongSyncReceiveTimeout, // H17
       ),
@@ -421,6 +429,7 @@ class ApiClient {
     String? name,
     String style = 'storybook_crayon',
     bool generateSheet = true,
+    String? idempotencyKey,
   }) async {
     final formData = FormData.fromMap({
       'drawing': await MultipartFile.fromFile(
@@ -432,11 +441,17 @@ class ApiClient {
       'generate_sheet': generateSheet,
     });
 
+    // H17/G19: 그림 분석 + 시트 이미지 3장을 동기 수행 — 재시도 중복 방지 시도키.
+    final headers = Map<String, String>.from(_headers);
+    if (idempotencyKey != null) {
+      headers['X-Idempotency-Key'] = idempotencyKey;
+    }
+
     final response = await _dio.post(
       '/v1/characters/from-drawing',
       data: formData,
       options: Options(
-        headers: _headers,
+        headers: headers,
         contentType: 'multipart/form-data',
         receiveTimeout: kLongSyncReceiveTimeout, // H17
       ),

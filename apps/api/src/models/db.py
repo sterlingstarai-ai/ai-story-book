@@ -200,6 +200,21 @@ class Page(Base):
 
 class Character(Base):
     __tablename__ = "characters"
+    __table_args__ = (
+        # H17/G19: 사진·그림 캐릭터 생성은 요청 안에서 vision 분석 + 시트 이미지를 동기로
+        # 수행해 최대 수분이 걸린다. 클라 타임아웃 후 서버는 완주하므로 재시도가 중복
+        # 캐릭터를 만든다(서재 오염 + vision·이미지 비용 이중 지출). 동일
+        # (user_key, idempotency_key)를 DB 레벨에서 차단 — Job/PodOrder 멱등 인프라와
+        # 동일 패턴(키가 NULL인 캐릭터는 제약 대상 아님).
+        Index(
+            "uq_characters_user_idempotency",
+            "user_key",
+            "idempotency_key",
+            unique=True,
+            sqlite_where=text("idempotency_key IS NOT NULL"),
+            postgresql_where=text("idempotency_key IS NOT NULL"),
+        ),
+    )
 
     id = Column(String(60), primary_key=True)
     name = Column(String(40), nullable=False)
@@ -216,6 +231,8 @@ class Character(Base):
     # 원본 사진/그림 URL — 얼굴 보존 이미지 생성(gemini)의 레퍼런스로 사용
     source_image_url = Column(String(500), nullable=True)
     user_key = Column(String(80), nullable=False, index=True)
+    # 클라이언트 시도-단위 멱등키(H17/G19). 재시도 시 기존 캐릭터를 반환해 재분석을 막는다.
+    idempotency_key = Column(String(80), nullable=True)
     created_at = Column(DateTime, default=utcnow)
 
     # Relationships

@@ -180,6 +180,39 @@ void main() {
       );
     });
 
+    test('createCharacterFromPhoto/Drawing send X-Idempotency-Key (#9)', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+
+      final seenKeys = <String, String?>{};
+      server.listen((request) async {
+        seenKeys[request.uri.path] =
+            request.headers.value('x-idempotency-key');
+        await utf8.decoder.bind(request).join(); // 본문 소비
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({'character_id': 'char-1'}));
+        await request.response.close();
+      });
+
+      final client = ApiClient(
+        baseUrl: 'http://${server.address.host}:${server.port}',
+        userKey: 'test-user',
+        enableLogging: false,
+      );
+      final tmp = File('${Directory.systemTemp.path}/char_idem.png')
+        ..writeAsBytesSync([1, 2, 3]);
+      addTearDown(() {
+        if (tmp.existsSync()) tmp.deleteSync();
+      });
+
+      await client.createCharacterFromPhoto(tmp, idempotencyKey: 'attempt-1');
+      await client.createCharacterFromDrawing(tmp, idempotencyKey: 'attempt-2');
+
+      // 키를 보내지 않으면 서버가 dedup할 수 없어 타임아웃 재시도가 중복 캐릭터를 만든다.
+      expect(seenKeys['/v1/characters/from-photo'], 'attempt-1');
+      expect(seenKeys['/v1/characters/from-drawing'], 'attempt-2');
+    });
+
     test('createShareLink posts to book share endpoint and parses url',
         () async {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);

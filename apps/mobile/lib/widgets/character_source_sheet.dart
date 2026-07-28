@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../core/api_error.dart';
@@ -67,6 +68,9 @@ class CharacterSourceSheet extends ConsumerStatefulWidget {
 
 class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
   bool _busy = false;
+  // H17/G19: 사진 캐릭터 생성 시도-단위 멱등키.
+  String? _attemptKey;
+  String? _attemptSig;
   final ImagePicker _picker = ImagePicker();
 
   void _showError(String message) {
@@ -129,10 +133,19 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
         return;
       }
       setState(() => _busy = true);
+      // H17/G19: 타임아웃 후 재시도가 중복 캐릭터를 만들지 않도록 시도-단위 키를 재사용.
+      final attemptSig = '${image.path}|${widget.childName ?? ''}';
+      if (_attemptKey == null || _attemptSig != attemptSig) {
+        _attemptKey = const Uuid().v4();
+        _attemptSig = attemptSig;
+      }
       final result = await api.createCharacterFromPhoto(
         File(image.path),
         name: widget.childName,
+        idempotencyKey: _attemptKey,
       );
+      _attemptKey = null; // 성공 → 다음 생성은 새 키
+      _attemptSig = null;
       ref.invalidate(charactersProvider);
       if (!mounted) {
         return;

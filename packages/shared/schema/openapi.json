@@ -4979,7 +4979,7 @@
     },
     "/v1/characters/from-drawing": {
       "post": {
-        "description": "아이 그림을 캐릭터로 변환한다.\n\n- 그림 분석으로 캐릭터 외형/성격 추론\n- 캐릭터 레코드 저장\n- 선택적으로 캐릭터 시트 이미지(포즈 3종) 생성",
+        "description": "아이 그림을 캐릭터로 변환한다.\n\n- 그림 분석으로 캐릭터 외형/성격 추론\n- 캐릭터 레코드 저장\n- 선택적으로 캐릭터 시트 이미지(포즈 3종) 생성\n- `X-Idempotency-Key`를 보내면 재시도가 기존 캐릭터를 반환한다(재분석·시트 재생성 없음).\n  시트 URL은 생성 시점 provider 반환값이라 재현 불가 — 재시도 응답에서는 빈 배열이다.",
         "operationId": "create_character_from_drawing_v1_characters_from_drawing_post",
         "parameters": [
           {
@@ -4991,6 +4991,22 @@
               "description": "User identification key",
               "title": "X-User-Key",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Idempotency-Key"
             }
           }
         ],
@@ -5032,7 +5048,7 @@
     },
     "/v1/characters/from-photo": {
       "post": {
-        "description": "사진에서 캐릭터 생성\n\n- 사진을 분석하여 캐릭터 특성 추출\n- AI가 동화 스타일로 변환\n- 자동으로 캐릭터 시트 생성",
+        "description": "사진에서 캐릭터 생성\n\n- 사진을 분석하여 캐릭터 특성 추출\n- AI가 동화 스타일로 변환\n- 자동으로 캐릭터 시트 생성\n- `X-Idempotency-Key`를 보내면 재시도가 기존 캐릭터를 그대로 반환한다(재분석 없음)",
         "operationId": "create_character_from_photo_v1_characters_from_photo_post",
         "parameters": [
           {
@@ -5044,6 +5060,22 @@
               "description": "User identification key",
               "title": "X-User-Key",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Idempotency-Key"
             }
           }
         ],

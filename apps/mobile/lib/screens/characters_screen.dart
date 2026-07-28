@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:uuid/uuid.dart';
 import '../core/photo_consent.dart';
 import '../l10n/app_localizations.dart';
 import '../models/models.dart';
@@ -27,6 +28,9 @@ class CharactersScreen extends ConsumerStatefulWidget {
 class _CharactersScreenState extends ConsumerState<CharactersScreen> {
   final ImagePicker _picker = ImagePicker();
   bool _isCreatingCharacter = false;
+  // H17/G19: 사진·그림 캐릭터 생성의 시도-단위 멱등키(재시도 재사용, 성공 시 리셋).
+  String? _characterAttemptKey;
+  String? _characterAttemptSig;
 
   @override
   Widget build(BuildContext context) {
@@ -391,6 +395,14 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
 
     try {
       final apiClient = ref.read(apiClientProvider);
+      // H17/G19: 시도-단위 멱등키. 타임아웃 후 같은 사진/모드로 재시도하면 같은 키를
+      // 재사용해 서버가 기존 캐릭터를 반환한다(중복 캐릭터·vision 비용 이중 지출 차단).
+      // 대상 서명이 바뀌면 새 키(#20 — 무스코프 키가 다른 대상 생성을 no-op으로 만드는 결함 방지).
+      final attemptSig = '${photo.path}|${creationMode.name}|${name ?? ''}';
+      if (_characterAttemptKey == null || _characterAttemptSig != attemptSig) {
+        _characterAttemptKey = const Uuid().v4();
+        _characterAttemptSig = attemptSig;
+      }
       late final Map<String, dynamic> result;
       if (creationMode == _CharacterCreationMode.drawing) {
         result = await apiClient.createCharacterFromDrawing(
@@ -398,14 +410,19 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
           name: name,
           style: 'storybook_crayon',
           generateSheet: true,
+          idempotencyKey: _characterAttemptKey,
         );
       } else {
         result = await apiClient.createCharacterFromPhoto(
           photo,
           name: name,
           style: 'cartoon',
+          idempotencyKey: _characterAttemptKey,
         );
       }
+      // 성공 → 다음 생성은 새 키.
+      _characterAttemptKey = null;
+      _characterAttemptSig = null;
 
       if (mounted) {
         final l = AppLocalizations.of(context);
