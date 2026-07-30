@@ -117,7 +117,7 @@ jobs:
 
       - name: Upload API logs on failure
         if: failure()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: api-test-logs
           path: apps/api/test-output.log
@@ -183,7 +183,7 @@ jobs:
 
       - name: Upload Flutter logs on failure
         if: failure()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: flutter-test-logs
           path: |
@@ -308,7 +308,7 @@ jobs:
 
       - name: Upload phase gate logs on failure
         if: failure()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: phase-gate-logs
           path: |
