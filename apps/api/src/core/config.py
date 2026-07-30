@@ -124,6 +124,10 @@ class Settings(BaseSettings):
 
     # Guardrails
     daily_job_limit_per_user: int = 20  # Max jobs per user per day
+    # S4: 전역 일일 생성 예산(전 사용자 합계). X-User-Key 로테이션으로 per-user 통제가
+    # 모두 우회되므로, 개별 식별자와 무관한 상한으로 LLM/이미지 청구서 폭증을 막는다.
+    # 0 이하 = 비활성. 운영은 실측 트래픽 기준으로 넉넉히 잡고 알림으로 조기 인지한다.
+    daily_generation_budget: int = 0
     max_pending_jobs: int = 100  # Max pending jobs in queue before rejecting
 
     # Free plan enforcement

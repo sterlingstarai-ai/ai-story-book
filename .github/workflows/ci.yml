@@ -122,7 +122,7 @@ jobs:
 
       - name: Upload API logs on failure
         if: failure()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: api-test-logs
           path: apps/api/test-output.log
@@ -130,7 +130,7 @@ jobs:
 
       - name: Upload API coverage
         if: success()
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5
         with:
           files: apps/api/coverage.xml
           flags: api
@@ -143,7 +143,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
@@ -194,7 +194,7 @@ jobs:
 
       - name: Upload Flutter logs on failure
         if: failure()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: flutter-test-logs
           path: |
@@ -204,7 +204,7 @@ jobs:
 
       - name: Upload Flutter coverage
         if: success()
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5
         with:
           files: apps/mobile/coverage/lcov.info
           flags: flutter
@@ -255,7 +255,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
@@ -319,7 +319,7 @@ jobs:
 
       - name: Upload phase gate logs on failure
         if: failure()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: phase-gate-logs
           path: |
@@ -345,17 +345,19 @@ jobs:
           fetch-depth: 0
 
       - name: Run Trivy vulnerability scanner (repo)
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@6e7b7d1fd3e4fef0c5fa8cce1229c54b2c9bd0d8 # v0.24.0
         with:
           scan-type: 'fs'
           scan-ref: '.'
-          # G30: CRITICAL은 릴리스 blocking(HIGH는 소음 회피 위해 image SARIF로만 가시화).
-          severity: 'CRITICAL'
+          # S2: CRITICAL만 차단하던 정책이 CVE-2024-53981(python-multipart, HIGH 7.5 —
+          # near-unauth 업로드 DoS)을 통과시켰다. 의존성(fs) 스캔은 HIGH도 blocking으로
+          # 올린다. 이미지 스캔은 베이스 이미지 전이 HIGH 소음이 커 CRITICAL 유지.
+          severity: 'CRITICAL,HIGH'
           format: 'table'
           exit-code: '1'
 
       - name: Run Gitleaks
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -373,10 +375,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Login to Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -385,7 +387,7 @@ jobs:
       # M7: 이미지를 먼저 로컬로 빌드(push:false·load:true)해 스캔 통과 후에만 게시한다.
       # '외부 부작용 먼저 → 검증 나중' 방지 — 취약 이미지가 :latest로 공개되는 창 제거.
       - name: Build API image (local, no push)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: apps/api
           file: apps/api/Dockerfile
@@ -398,7 +400,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build Worker image (local, no push)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: apps/api
           file: apps/api/Dockerfile.worker
@@ -412,7 +414,7 @@ jobs:
 
       # M2·M7: CRITICAL은 blocking(exit-code 1). severity는 G30(CRITICAL 차단)과 통일.
       - name: Scan API image (blocking, pre-push)
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@6e7b7d1fd3e4fef0c5fa8cce1229c54b2c9bd0d8 # v0.24.0
         with:
           image-ref: 'ghcr.io/${{ github.repository }}/api:${{ github.sha }}'
           format: 'sarif'
@@ -421,7 +423,7 @@ jobs:
           exit-code: '1'
 
       - name: Scan Worker image (blocking, pre-push)
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@6e7b7d1fd3e4fef0c5fa8cce1229c54b2c9bd0d8 # v0.24.0
         with:
           image-ref: 'ghcr.io/${{ github.repository }}/worker:${{ github.sha }}'
           format: 'sarif'
@@ -430,13 +432,13 @@ jobs:
           exit-code: '1'
 
       - name: Upload Trivy API scan results
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@4187e74d05793876e9989daffde9c3e66b4acd07 # v3
         if: always()
         with:
           sarif_file: 'trivy-api-results.sarif'
 
       - name: Upload Trivy Worker scan results
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@4187e74d05793876e9989daffde9c3e66b4acd07 # v3
         if: always()
         with:
           sarif_file: 'trivy-worker-results.sarif'
@@ -464,7 +466,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Deploy to server
-        uses: appleboy/ssh-action@v1.2.5
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}

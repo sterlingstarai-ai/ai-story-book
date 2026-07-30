@@ -18,6 +18,7 @@ import uuid
 import structlog
 
 from src.core.audio_feature import require_audio_supported
+from src.core.cost_budget import consume_daily_generation_budget
 from src.core.database import get_db
 from src.core.book_assets import build_generation_warnings, build_page_asset_status
 from src.core.config import settings
@@ -462,6 +463,23 @@ async def check_guardrails(db: AsyncSession, user_key: str):
         )
     )
     daily_job_count = daily_jobs_result.scalar() or 0
+
+    # S4: per-user 통제는 X-User-Key 로테이션으로 전부 우회되므로, 개별 식별자와 무관한
+    # 전역 일일 생성 예산으로 총비용을 상한한다(초과 시 429). Redis 장애 시엔 fail-open이나
+    # '가드레일 비활성' error 로그가 남는다(cost_budget 모듈).
+    budget_ok, budget_used = await consume_daily_generation_budget()
+    if not budget_ok:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": "service_budget_exceeded",
+                "message": "오늘 생성 가능한 전체 한도에 도달했어요. 잠시 후 다시 시도해주세요.",
+                "limit": settings.daily_generation_budget,
+                "used": budget_used,
+                "retry_after": 3600,
+            },
+            headers={"Retry-After": "3600"},
+        )
 
     if daily_job_count >= settings.daily_job_limit_per_user:
         retry_after = max(1, math.ceil((next_day_start - now).total_seconds()))

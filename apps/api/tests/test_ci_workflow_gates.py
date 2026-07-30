@@ -201,3 +201,57 @@ def test_repo_and_image_same_ref(ci_data):
     script = _deploy_script(ci_data)
     assert script.count("$GITHUB_SHA") >= 2, "리포 체크아웃과 --image-tag가 모두 $GITHUB_SHA여야 함"
     assert '--image-tag "$GITHUB_SHA"' in script
+
+
+# ── S2/S3: 공급망(액션 SHA 핀) + 의존성 CVE 게이트 강도 ──
+
+
+def test_third_party_actions_are_sha_pinned(ci_text):
+    """S3: 서드파티 액션은 전체 커밋 SHA로 핀해야 한다.
+
+    가변 태그는 메인테이너 계정 탈취·악성 리태그 시 다음 CI 실행에서 임의 코드가 러너에서
+    돈다. deploy 잡의 appleboy/ssh-action은 프로덕션 SSH 개인키를 주입받으므로 침해 시
+    배포 파이프라인이 통째로 넘어간다.
+    """
+    import re
+
+    # GitHub 공식(actions/*)은 이번 스코프 밖 — 서드파티만 강제.
+    third_party = re.findall(r"uses:\s+((?!actions/)[\w.-]+/[\w./-]+)@(\S+)", ci_text)
+    assert third_party, "서드파티 액션을 찾지 못함(패턴 확인 필요)"
+
+    unpinned = [
+        f"{repo}@{ref}"
+        for repo, ref in third_party
+        if not re.fullmatch(r"[0-9a-f]{40}", ref)
+    ]
+    assert not unpinned, f"SHA 핀이 아닌 서드파티 액션: {unpinned}"
+
+
+def test_deploy_ssh_action_is_sha_pinned(ci_data):
+    """프로덕션 SSH 키를 다루는 액션은 반드시 SHA 핀(최소 조건)."""
+    import re
+
+    for step in ci_data["jobs"]["deploy"]["steps"]:
+        uses = step.get("uses", "")
+        if "ssh-action" in uses:
+            ref = uses.split("@", 1)[1]
+            assert re.fullmatch(r"[0-9a-f]{40}", ref), f"ssh-action 미핀: {uses}"
+            return
+    raise AssertionError("deploy 잡에서 ssh-action 스텝을 찾지 못함")
+
+
+def test_dependency_scan_blocks_high_severity(ci_data):
+    """S2: 의존성(fs) 스캔이 HIGH도 차단해야 한다.
+
+    CRITICAL만 차단하던 정책이 CVE-2024-53981(python-multipart, HIGH 7.5 —
+    near-unauth 업로드 DoS)을 그대로 통과시켰다.
+    """
+    for step in ci_data["jobs"]["security-scan"]["steps"]:
+        with_ = step.get("with") or {}
+        if "trivy-action" in step.get("uses", "") and with_.get("scan-type") == "fs":
+            assert with_["exit-code"] == "1"
+            assert "HIGH" in with_["severity"], (
+                f"의존성 스캔이 HIGH를 차단하지 않음: {with_['severity']}"
+            )
+            return
+    raise AssertionError("repo(fs) Trivy 스캔 스텝을 찾지 못함")
