@@ -436,6 +436,12 @@ jobs:
       # (CVE-2026-57433·CVE-2026-13221, Fixed Version 없음)으로 영구 red — 행동 불가능한
       # CVE는 게이트가 아니라 노이즈다. 가시성은 SARIF 업로드(code scanning)로 유지되고,
       # 수정본이 나오면 pull:true가 다음 빌드에서 자동 수용 + 그때부터는 미적용 시 차단된다.
+      # limit-severities-for-sarif: trivy-action은 format=sarif일 때 이 플래그 없이는
+      # severity 입력을 **무시하고 전 심각도를 스캔**해, exit-code 1이 CRITICAL이 아니라
+      # 아무 취약점(수정본 있는 HIGH/MEDIUM 포함)에 발동한다(2026-08-01 main 2차 red의 실원인 —
+      # 실행 로그의 trivy 옵션에 --severity가 빠져 있음). 이 플래그가 있어야 G30(CRITICAL 차단)
+      # 의미론이 실제로 적용된다. 이미지의 HIGH 이하 가시성은 fs 스캔(Security Scan 잡,
+      # CRITICAL+HIGH 블로킹)과 출시 후 이미지 리포트 태스크가 담당.
       - name: Scan API image (blocking, pre-push)
         uses: aquasecurity/trivy-action@6e7b7d1fd3e4fef0c5fa8cce1229c54b2c9bd0d8 # v0.24.0
         with:
@@ -445,6 +451,7 @@ jobs:
           severity: 'CRITICAL'
           exit-code: '1'
           ignore-unfixed: true
+          limit-severities-for-sarif: true
 
       - name: Scan Worker image (blocking, pre-push)
         uses: aquasecurity/trivy-action@6e7b7d1fd3e4fef0c5fa8cce1229c54b2c9bd0d8 # v0.24.0
@@ -455,16 +462,19 @@ jobs:
           severity: 'CRITICAL'
           exit-code: '1'
           ignore-unfixed: true
+          limit-severities-for-sarif: true
 
+      # hashFiles 가드: 선행 스캔이 red면 해당 SARIF가 없어 업로드가 'Path does not exist'로
+      # 이중 실패를 만든다(진짜 원인을 가리는 red-herring — 두 라운드 연속 진단을 방해).
       - name: Upload Trivy API scan results
         uses: github/codeql-action/upload-sarif@4187e74d05793876e9989daffde9c3e66b4acd07 # v3
-        if: always()
+        if: always() && hashFiles('trivy-api-results.sarif') != ''
         with:
           sarif_file: 'trivy-api-results.sarif'
 
       - name: Upload Trivy Worker scan results
         uses: github/codeql-action/upload-sarif@4187e74d05793876e9989daffde9c3e66b4acd07 # v3
-        if: always()
+        if: always() && hashFiles('trivy-worker-results.sarif') != ''
         with:
           sarif_file: 'trivy-worker-results.sarif'
 
