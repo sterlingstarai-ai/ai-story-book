@@ -466,17 +466,22 @@ jobs:
 
       # hashFiles 가드: 선행 스캔이 red면 해당 SARIF가 없어 업로드가 'Path does not exist'로
       # 이중 실패를 만든다(진짜 원인을 가리는 red-herring — 두 라운드 연속 진단을 방해).
+      # category: 같은 잡에서 같은 툴(Trivy)의 SARIF를 2회 업로드하려면 category가 서로
+      # 달라야 한다(미지정 시 두 번째 업로드가 'only one run per job per tool/category'로
+      # abort — 이전 런들에선 워커 업로드가 파일 부재로 먼저 죽어 이 규칙에 도달한 적이 없었음).
       - name: Upload Trivy API scan results
         uses: github/codeql-action/upload-sarif@4187e74d05793876e9989daffde9c3e66b4acd07 # v3
         if: always() && hashFiles('trivy-api-results.sarif') != ''
         with:
           sarif_file: 'trivy-api-results.sarif'
+          category: trivy-image-api
 
       - name: Upload Trivy Worker scan results
         uses: github/codeql-action/upload-sarif@4187e74d05793876e9989daffde9c3e66b4acd07 # v3
         if: always() && hashFiles('trivy-worker-results.sarif') != ''
         with:
           sarif_file: 'trivy-worker-results.sarif'
+          category: trivy-image-worker
 
       # 스캔을 통과한 경우에만 도달 — 스캔이 exit-code 1로 red면 이 스텝은 건너뛴다.
       - name: Push images to registry
