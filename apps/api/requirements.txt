@@ -1,9 +1,11 @@
 # FastAPI
 fastapi==0.115.0
 uvicorn[standard]==0.32.0
-# CVE-2024-53981(GHSA-59g5-xgcq-4qw3, <0.0.18): 악의적 multipart boundary 파싱이 CPU를
-# 과소모해 async 이벤트루프를 블록 — 업로드 3개 엔드포인트가 near-unauth 도달 가능.
-python-multipart==0.0.20
+# 업로드 파싱 런타임 의존(pronunciation·voice-profiles·인페인트·characters 4경로).
+# 수정 이력: CVE-2024-53981(boundary DoS, <0.0.18) · CVE-2026-24486(경로순회 임의 파일쓰기,
+# fix 0.0.22) · CVE-2026-42561(헤더 과다 DoS, fix 0.0.27) · CVE-2026-53539(form-urlencoded DoS,
+# fix 0.0.30). 0.0.22+ 는 requires_python>=3.10 — CI Python 3.11 기준 충족.
+python-multipart==0.0.32
 
 # Database
 sqlalchemy==2.0.36
@@ -35,7 +37,7 @@ google-auth==2.40.0
 jinja2==3.1.6
 
 # Utils
-python-dotenv==1.2.1
+python-dotenv==1.2.2
 structlog==24.4.0
 
 # PDF Generation

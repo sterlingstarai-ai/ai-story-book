@@ -193,11 +193,23 @@ void main() {
       300,
       scrollable: find.byType(Scrollable).first,
     );
-    await tester.tap(growthCard);
+    // 홈은 AppShell(하단 네비게이션)로 감싸져 있어, scrollUntilVisible이 카드를 화면
+    // 최하단 가장자리에 '겨우 보이는' 상태로 남기면 탭 좌표가 네비바에 떨어져 전환이
+    // 일어나지 않는다(러너 화면 메트릭에 따라 갈림). 중앙으로 끌어와 탭 지점을 안정화한다.
+    await tester.ensureVisible(growthCard);
     await tester.pumpAndSettle();
+    await tester.tap(growthCard);
+
+    // 성장 화면은 진입 후 비동기 조회 결과로 hero를 렌더한다. pumpAndSettle은 프레임이
+    // 멎으면 반환하므로 네트워크 대기 중에는 조기 반환할 수 있다 — 키가 나타날 때까지
+    // 유한 대기(최대 ~4초)한다. 조용한 스킵이 아니라 아래 expect가 최종 판정한다.
+    final hero = find.byKey(const Key('growth_level_hero'));
+    for (var i = 0; i < 40 && hero.evaluate().isEmpty; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
 
     // 성장 리포트 화면 도달(부모 게이트는 prefs 세션으로 통과)
     expect(find.byType(ReadingGrowthScreen), findsOneWidget);
-    expect(find.byKey(const Key('growth_level_hero')), findsOneWidget);
+    expect(hero, findsOneWidget);
   });
 }
