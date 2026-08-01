@@ -62,3 +62,30 @@ CI-2로 ruff를 핀하면 그 뒤 `safety check` 스텝이 처음 실행되며 2
 2. `pip install -r requirements.txt` 클린 + **전체 pytest 675 회귀 0** 확인.
 3. fresh install 환경에서 aiohttp 부재 확인 → Trivy 스캔에서 aiohttp CVE 전부 소멸(CI-1 블로커 해소).
 4. (선택) safety/Trivy 지적 다른 패키지도 orphan(import 0·역의존 0)이면 동일 제거 — 과범위 금지.
+
+---
+
+## CI 재실행 라운드 2 (CTO, 2026-08-01) — CI 수정은 성공, 살아난 게이트가 새 실질 이슈 3건 노출
+
+세 CI 수정(aiohttp 제거·ruff 핀+config·flutter -d) 모두 실효 확인. 그러나 이제 작동하는 게이트들이 진짜 이슈를 잡음.
+
+### ⚠ CTO 정정 (선행): safety 수정본은 유령이 아니라 실존
+이전 "safety unsatisfiable → advisory" 판단은 stale `pip index` 캐시(0.0.20까지)에 근거한 **오판**이었다. PyPI 직접 조회 결과 python-multipart 0.0.30/0.0.31/0.0.32·pytest 9.x·python-dotenv 1.2.2 **전부 실존**. 즉 safety/Trivy 발견은 **수정 가능한 실제 취약점**이다. (Trivy 블로킹이 HIGH를 독립으로 잡아 실무 피해는 제한적이었으나 근거는 정정한다.)
+
+### R1 (Security Scan, Trivy 블로킹 — 진짜 CVE) — python-multipart 상향
+- **진단**: `requirements.txt`의 `python-multipart==0.0.20`에 실제 HIGH CVE 3건 — CVE-2026-24486(경로순회 임의 파일쓰기, fix 0.0.22)·CVE-2026-42561(헤더 과다 DoS, fix 0.0.27)·CVE-2026-53539(form-urlencoded DoS, fix 0.0.30). **PyPI 최신 0.0.32.**
+- **fix**: `python-multipart>=0.0.30`(권장 최신 0.0.32)로 상향. **런타임 의존(업로드 파싱, pronunciation·voice-profiles·인페인트·characters 4경로)이라 0.0.20→0.0.32 전체 pytest 675 회귀 0 반드시 확인**(파서 API 변경 여부). starlette/fastapi 호환도 확인.
+- **safety 재평가(정정 반영)**: python-multipart 상향으로 그 건은 해소. python-dotenv는 1.2.1→1.2.2(마이너, 저위험) 상향 권장. **pytest는 8.3.0→9.x 메이저 bump = breaking 위험 크고 test-only(프로덕션 미배포)** — bump하려면 전체 스위트 회귀로 신중히, 아니면 test-scope·미배포 근거로 Accepted-Risk 문서화(둘 중 택, CTO 확인). **safety를 블로킹으로 되돌릴지는 실 CVE bump 후 재결정** — Trivy는 계속 블로킹 정본.
+- **DoD**: Trivy fs가 python-multipart로 더는 red 아님 + 675 회귀 0.
+
+### R2 (API Tests, Live E2E) — 오디오 게이트 402→409 (우리 G9 동작이 옳음)
+- **진단**: `apps/api/scripts/e2e_journey.py:139-156`이 무료 5-7 오디오 차단을 **402로 단언**하는데, H1/G9(오디오 기능 비활성)로 이제 **409 AUDIO_NOT_SUPPORTED**가 반환(402 크레딧 체크보다 먼저). 우리 409가 정확 — E2E 기대가 낡았다.
+- **fix**: e2e_journey.py의 해당 check를 **AUDIO_FEATURE_ENABLED에 따라 분기** — 비활성(CI/GA 기본)이면 409 AUDIO_NOT_SUPPORTED 기대, 활성이면 402(무료 크레딧 게이트) 기대. 또는 최소한 409를 유효 결과로 수용. `scripts/check-env.sh`가 이미 AUDIO_FEATURE_ENABLED를 인지하니 정합.
+- **DoD**: Live E2E 30/30 통과.
+
+### R3 (Flutter integration) — 성장 화면 네비 미완료
+- **진단**: `-d flutter-tester` 수정으로 이제 실제 실행(1통과/1실패). `apps/mobile/integration_test/app_flow_test.dart:200` — '읽기 성장 보기' 카드 탭 후 `expect(find.byType(ReadingGrowthScreen), findsOneWidget)`이 **0위젯**(헤드리스에서 탭→네비게이션 미완료). tap 대상은 찾았으나(1 widget) 화면 전환 미도달.
+- **fix**: **로컬에서 `flutter test integration_test/ -d flutter-tester`로 동일 재현** 후 원인 규명 — pumpAndSettle 타임아웃/스크롤 타이밍(헤드리스에서 애니메이션·라우팅 지연) 또는 실제 네비 결함. 재현 없이 추정 수정 금지. growth_level_hero 키 도달까지 안정적으로 대기하도록.
+- **DoD**: integration 2/2 통과(로컬 -d flutter-tester + CI).
+
+### 진행: R1→R2→R3, 각 로컬 게이트 회귀 0(특히 R1은 전체 pytest), per-fix 커밋(오너 푸시)→PR CI 재가동. 착수 전 R1 python-multipart 호환 확인 + R3 로컬 재현 결과를 3–5줄 먼저 제시.
