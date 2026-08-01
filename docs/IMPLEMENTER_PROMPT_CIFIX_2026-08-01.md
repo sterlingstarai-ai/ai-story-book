@@ -34,3 +34,17 @@
 3. 끝나면 CTO에 요약(각 수정·로컬 게이트·aiohttp 회귀 확인) 제출. CTO가 CI 재실행 결과로 재감사.
 
 **착수 전 CI-1 aiohttp 사용처 grep 결과 + CI-2/3 수정 방침을 3–5줄로 먼저 제시**하고 진행하세요.
+
+---
+
+## CI-2 후속 결정 (CTO, 2026-08-01) — safety 게이트 처리
+
+CI-2로 ruff를 핀하면 그 뒤 `safety check` 스텝이 처음 실행되며 20건을 보고하는데, **수정 버전이 PyPI에 존재하지 않는 유령 findings가 대부분**임을 CTO가 실측 확인:
+- python-multipart 주장 0.0.31(실제 최신 0.0.20, 우리 0.0.20=CVE 해소) · pytest 주장 9.0.3(실제 최신 8.4.2) · python-dotenv 주장 1.2.2(**우리 1.2.1이 이미 최신**). → 존재하지 않는 버전으로는 올릴 수 없어 **게이트가 충족 불가능**.
+
+**결정: B — safety를 advisory로 낮추고 Trivy를 블로킹 정본으로.** (safety 무료 DB 품질 문제; Trivy는 aquasec DB로 aiohttp CVE를 실존 수정본과 함께 정확히 잡음.)
+
+구현 조건(필수):
+1. `ci.yml`의 safety 스텝에 **`continue-on-error: true`**를 명시하되 **출력은 그대로 보이게**(`|| true`/`|| echo`로 삼키지 말 것 — 원 감사 M2 'silent safety' 반복 금지). 실패가 노란색으로 표시되되 잡을 막지는 않음.
+2. **Trivy fs는 CRITICAL+HIGH 하드 블로킹 유지**(S2대로). aiohttp(CI-1)는 이 게이트로 여전히 반드시 수정.
+3. safety 스텝 주석에 사유 명기: "safety 무료 DB가 존재하지 않는 fix 버전을 보고(unsatisfiable)해 advisory로 둠. 블로킹 정본은 Trivy(aquasec DB). 출시 후 재평가."
