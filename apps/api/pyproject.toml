@@ -1,0 +1,16 @@
+# ruff 린트 설정 (CI-2).
+#
+# 이 파일이 없으면 ruff는 **버전마다 다른 기본 rule set**을 쓴다. 실제로 0.14.14의 기본은
+# E+F 2개 접두였는데 0.16.1은 36개 접두(UP/B/BLE/SIM/DTZ/I…)로 넓어져, 같은 코드가 로컬은
+# clean이고 CI는 726 errors가 됐다(PR #58 API Tests-linting 실패의 근본 원인).
+#
+# 여기서 select를 명시해 "우리가 강제하기로 한 규칙"을 도구 버전과 무관하게 고정한다.
+# 현재 값은 통과 중인 계약(=0.14.14 기본)을 그대로 문서화한 것이고, 규칙 확대(UP/B/SIM 등
+# 726건 정리)는 출시 후 스타일 작업으로 별도 진행한다 — 이번 스코프에서 규칙을 넓히지 않는다.
+[tool.ruff]
+target-version = "py39"
+line-length = 100
+
+[tool.ruff.lint]
+# E(pycodestyle) + F(pyflakes) — 버전 간 기본값 드리프트를 막기 위한 명시 선언.
+select = ["E4", "E7", "E9", "F"]

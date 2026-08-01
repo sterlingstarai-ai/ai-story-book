@@ -57,9 +57,27 @@ def test_build_job_not_cancellable(ci_data):
 # ── M2: 취약점 스캔 게이트 실질화 ────────────────────────────────────────────
 
 
-def test_safety_step_not_soft_failed(ci_text):
-    # safety 스텝이 `|| echo`로 종료코드를 0으로 삼키면 안 된다.
-    assert "|| echo" not in ci_text, "safety/security 스텝이 실패를 성공으로 위장하면 안 됨"
+def test_safety_step_not_soft_failed(ci_data):
+    """보안 스캔 스텝이 실패를 '성공으로 위장'하지 않아야 한다.
+
+    금지: run에서 `|| echo`로 종료코드를 0으로 삼키는 것(감사 M2 'silent safety').
+    허용: advisory 정책이면 `continue-on-error: true`를 **명시** — 실패가 노란색으로 보인다.
+    (파일 전체 문자열 검색은 설명 주석에도 걸리므로 실제 run 명령만 본다.)
+    """
+    steps = _steps(ci_data, "api-test")
+    safety_steps = [s for s in steps if "safety" in (s.get("run") or "")]
+    assert safety_steps, "safety 스캔 스텝을 찾지 못함"
+
+    for step in safety_steps:
+        run = step["run"]
+        assert "|| echo" not in run, (
+            f"'{step.get('name')}'이 || echo로 종료코드를 삼킴 — 실패가 성공으로 위장됨"
+        )
+        if step.get("continue-on-error") is not True:
+            # blocking이면 그대로 두고, advisory라면 반드시 명시적이어야 한다.
+            assert "|| true" not in run and "; true" not in run, (
+                f"'{step.get('name')}'이 암묵적으로 실패를 무시함"
+            )
 
 
 def test_trivy_repo_scan_blocking(ci_data):

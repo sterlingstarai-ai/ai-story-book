@@ -66,14 +66,26 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install ruff safety coverage
+          # CI-2: 미핀 설치는 로컬(0.14.14)보다 최신 ruff를 끌어와 기본 rule set이
+          # 달라진다(0.16은 기본 접두가 2→36개 → 같은 코드가 726 errors). 도구 버전을
+          # 로컬과 일치시키고, 규칙 자체는 apps/api/pyproject.toml [tool.ruff]가 고정한다.
+          pip install ruff==0.14.14 safety coverage
 
       - name: Run linting
         working-directory: apps/api
         run: ruff check src/ tests/
 
-      - name: Check for security vulnerabilities
+      - name: Check for security vulnerabilities (advisory)
         working-directory: apps/api
+        # CI-1 후속: safety 무료 DB가 **존재하지 않는 수정 버전**을 요구해 게이트가 원리적으로
+        # 충족 불가하다(실측: python-multipart→0.0.31, pytest→9.0.3, python-dotenv→1.2.2 모두
+        # PyPI 미존재. dotenv는 이미 최신 1.2.1인데도 상향을 요구). 실제 취약점이 아니라 DB 품질
+        # 문제이므로 advisory로 낮춘다.
+        #
+        # 중요(감사 M2 'silent safety' 재발 방지): `|| echo`로 종료코드를 삼키지 않는다 —
+        # continue-on-error로 **실패가 노란색으로 보이게** 두고, 차단 정본은 Trivy fs
+        # (CRITICAL+HIGH 하드 블로킹)가 담당한다. 출시 후 safety DB 품질을 재평가한다.
+        continue-on-error: true
         run: safety check -r requirements.txt --output text
 
       - name: Check env example files exist
@@ -165,12 +177,14 @@ jobs:
           flutter test --coverage 2>&1 | tee test-output.log
 
       - name: Run integration tests (headless flutter_tester)
-        # 멀티화면 라우팅 여정(StartupGate→동의→온보딩→홈, 홈→읽기성장)을 디바이스 없이
-        # flutter_tester로 구동. 연결된 디바이스가 없으면 헤드리스로 실행된다.
+        # 멀티화면 라우팅 여정(StartupGate→동의→온보딩→홈, 홈→읽기성장)을 디바이스 없이 구동.
+        # CI-3: `flutter test integration_test/`는 디바이스를 자동 선택하지 않아 러너에서
+        # "No devices are connected"로 실패한다(로컬에서도 동일 재현). 헤드리스 디바이스를
+        # 명시해야 한다 — 조용한 스킵 대신 실제로 실행되는 게이트로 유지.
         working-directory: apps/mobile
         run: |
           set -o pipefail
-          flutter test integration_test/ 2>&1 | tee integration-output.log
+          flutter test integration_test/ -d flutter-tester 2>&1 | tee integration-output.log
 
       - name: Check Flutter coverage threshold
         run: |
