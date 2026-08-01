@@ -27,6 +27,9 @@ class IAPVerificationResult:
     store_transaction_id: Optional[str]
     store_product_id: Optional[str]
     raw: dict
+    # 구독 만료 시각(ms epoch). 만료된 영수증의 restore로 영구 active 구독이 생기는
+    # 무한 리필을 막기 위해 사용(C1/MA1). 크레딧팩·미지원 시 None.
+    expires_date_ms: Optional[int] = None
 
 
 class IAPVerifierService:
@@ -135,6 +138,11 @@ class IAPVerifierService:
             environment=environment,
             store_transaction_id=_coerce_str(matched.get("transaction_id")),
             store_product_id=_coerce_str(matched.get("product_id")),
+            # C1/MA1: Apple은 만료된 자동갱신 구독도 status=0 + latest_receipt_info로 돌려준다.
+            # 만료 시각을 싣지 않으면 라우터의 _subscription_expired 가드가 항상 통과해,
+            # 만료 영수증 재제출만으로 active 구독이 재생성되고 영구 리필된다(무한 수익화).
+            # 소비성 크레딧팩 항목엔 이 필드가 없어 None이며, 가드는 구독(plan)에서만 참조된다.
+            expires_date_ms=_parse_int(matched.get("expires_date_ms")),
             raw={
                 "status": apple_data.get("status"),
                 "environment": environment,
@@ -214,6 +222,9 @@ class IAPVerifierService:
             environment="production",
             store_transaction_id=_coerce_str(google_data.get("orderId")),
             store_product_id=product_id,
+            # Apple과 동일 필드로 일관화(C1/MA1). Google은 _assert_google_purchase_valid에서
+            # 만료를 이미 raise로 막지만, 라우터 가드가 플랫폼과 무관하게 동작하도록 싣는다.
+            expires_date_ms=_parse_int(google_data.get("expiryTimeMillis")),
             raw={
                 "kind": google_data.get("kind"),
                 "purchase_state": google_data.get("purchaseState"),

@@ -14,6 +14,7 @@
 종료코드 0=전부 통과, 1=실패.
 """
 
+import os
 import sys
 import time
 import uuid
@@ -136,7 +137,10 @@ def main():
         check("baseline 등수 미노출(show_ranking=False)", p.get("show_ranking") is False,
               str(p.get("show_ranking")))
 
-        # 9. 무료 플랜 오디오 게이트 — 5-7 책 페이지 오디오는 차단(402)
+        # 9. 오디오 게이트 — 기대 코드는 오디오 기능 플래그에 따라 갈린다.
+        #   · 비활성(H1/G9 GA 기본): 라우터가 크레딧 체크 '전에' 409 AUDIO_NOT_SUPPORTED로 차단.
+        #   · 활성: 무료 플랜 크레딧 게이트가 402로 차단.
+        # 둘 다 '무료 사용자가 오디오를 받지 못한다'는 같은 계약이므로 플래그로 분기한다.
         r = c.post("/v1/books", headers=h(A),
                    json={"topic": "도서관의 비밀", "language": "ko",
                          "target_age": "5-7", "style": "watercolor", "page_count": 8})
@@ -153,8 +157,23 @@ def main():
             if bid2:
                 ra = c.get(f"/v1/books/{bid2}/pages/1/audio",
                            headers=h(A), params={"language": "ko"})
-                check("무료 5-7 오디오 차단(402)", ra.status_code == 402,
-                      f"got {ra.status_code}")
+                audio_on = os.getenv("AUDIO_FEATURE_ENABLED", "false").strip().lower() in (
+                    "1", "true", "yes", "on"
+                )
+                expected = 402 if audio_on else 409
+                label = (
+                    "무료 5-7 오디오 차단(402, 오디오 활성)"
+                    if audio_on
+                    else "오디오 비활성 차단(409 AUDIO_NOT_SUPPORTED)"
+                )
+                ok = ra.status_code == expected
+                if not audio_on and ok:
+                    # 코드뿐 아니라 사유까지 확인 — 다른 의미의 409를 통과로 세지 않는다.
+                    body = ra.json() if ra.headers.get("content-type", "").startswith(
+                        "application/json"
+                    ) else {}
+                    ok = (body.get("error") or {}).get("code") == "AUDIO_NOT_SUPPORTED"
+                check(label, ok, f"got {ra.status_code}: {ra.text[:120]}")
         else:
             check("두번째 책 생성(오디오 게이트용)", False, r.text[:120])
 

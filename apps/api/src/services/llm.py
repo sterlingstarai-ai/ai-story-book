@@ -10,7 +10,7 @@ import structlog
 
 from src.core.config import settings
 from src.core.errors import LLMError, ErrorCode
-from src.core.i18n import language_display_name
+from src.core.i18n import SUPPORTED_LANGUAGES, language_display_name
 from src.models.dto import (
     BookSpec,
     StoryDraft,
@@ -20,6 +20,7 @@ from src.models.dto import (
     LearningAssets,
     Language,
     RetoldStory,
+    RewriteResult,
 )
 
 logger = structlog.get_logger()
@@ -257,8 +258,10 @@ async def _call_mock(
         # 요청된 언어/연령을 user_prompt 에서 감지(mock 충실도). 프롬프트는
         # "- language: en" / "- target_age: 7-9" 형태로 spec 을 그대로 담고 있어
         # 골든 하니스가 spec→story 전파를 구조 단계에서 검증할 수 있게 한다.
+        # M34: 하드코딩('en','ja','ko') 대신 i18n.SUPPORTED_LANGUAGES 단일출처 — zh/es 골든이
+        # mock에서 ko로 폴백해 language_matches_spec이 실패하던 false-green 제거.
         _mock_language = "ko"
-        for _cand in ("en", "ja", "ko"):
+        for _cand in SUPPORTED_LANGUAGES:
             if f"language: {_cand}" in user_prompt:
                 _mock_language = _cand
                 break
@@ -418,7 +421,12 @@ def parse_json_response(text: str, expected_type: type):
 
 async def call_moderation(spec: BookSpec) -> ModerationResult:
     """입력 안전성 검사"""
-    system_prompt = render_prompt("moderate_input.system.jinja2")
+    # M29: 사용자 언어로 reasons/suggestions를 생성하도록 language_name 전달
+    # (비한국어 사용자에게 한국어 차단 사유가 노출되던 문제 해소).
+    system_prompt = render_prompt(
+        "moderate_input.system.jinja2",
+        language_name=language_display_name(spec.language.value),
+    )
     user_prompt = render_prompt(
         "moderate_input.user.jinja2",
         topic=spec.topic,
@@ -430,6 +438,28 @@ async def call_moderation(spec: BookSpec) -> ModerationResult:
 
     response = await call_llm(
         system_prompt, user_prompt, max_tokens=500, temperature=0.3
+    )
+    return parse_json_response(response, ModerationResult)
+
+
+async def call_output_moderation(text: str, language: Language) -> ModerationResult:
+    """출력(생성된 책 텍스트) 안전성 검사 — LLM 기반.
+
+    H24: orchestrator의 ko/en 키워드망이 커버하지 못하는 언어(ja/zh/es)에서
+    출력 안전 게이트가 fail-open하던 공백을 메우는 폴백. mock 프로바이더는
+    안전 기본값(is_safe=True)을 반환해 테스트 결정성을 유지한다.
+    """
+    system_prompt = render_prompt(
+        "moderate_output.system.jinja2",
+        language_name=language_display_name(language.value),
+    )
+    user_prompt = render_prompt(
+        "moderate_output.user.jinja2",
+        text=text,
+        language=language.value,
+    )
+    response = await call_llm(
+        system_prompt, user_prompt, max_tokens=500, temperature=0.2
     )
     return parse_json_response(response, ModerationResult)
 
@@ -558,8 +588,15 @@ async def call_text_rewrite(
     if not page:
         raise ValueError(f"Page {page_number} not found")
 
-    system_prompt = render_prompt("rewrite_page_text.system.jinja2")
+    # H23: 책 언어를 프롬프트에 전달(generate_story 패턴 미러) — 비한국어 책이 재작성 시
+    # 한국어로 회귀하던 문제 차단.
+    system_prompt = render_prompt(
+        "rewrite_page_text.system.jinja2",
+        language=spec.language.value,
+        language_name=language_display_name(spec.language.value),
+    )
     user_prompt = f"""입력:
+- language: {spec.language.value}
 - target_age: {spec.target_age.value}
 - forbidden_elements: {spec.forbidden_elements or []}
 - page: {page_number}
@@ -574,7 +611,9 @@ async def call_text_rewrite(
     response = await call_llm(
         system_prompt, user_prompt, max_tokens=1000, temperature=0.7
     )
-    return json.loads(response)
+    # M31: raw json.loads(펜스·검증 없음) 대신 parse_json_response로 마크다운 펜스 제거 +
+    # RewriteResult 스키마 검증. revised_text 누락은 LLM_JSON_INVALID로 명시 실패(조용한 no-op 제거).
+    return parse_json_response(response, RewriteResult)
 
 
 async def call_story_retext(
@@ -617,15 +656,9 @@ async def call_learning_assets(
     Returns:
         LearningAssets: 학습 자산 (번역, 어휘, 질문, 퀴즈, 부모 가이드)
     """
-    # 언어 이름 매핑
-    language_names = {
-        Language.ko: "한국어",
-        Language.en: "English",
-        Language.ja: "日本語",
-    }
-
-    source_lang_name = language_names.get(source_language, source_language.value)
-    target_lang_name = language_names.get(target_language, target_language.value)
+    # 언어 표시명은 i18n 단일출처를 사용(중복 맵 제거, L16). zh/es도 中文/Español로 정상 표기.
+    source_lang_name = language_display_name(source_language.value)
+    target_lang_name = language_display_name(target_language.value)
 
     system_prompt = render_prompt(
         "generate_learning_assets.system.jinja2",

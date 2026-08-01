@@ -3,6 +3,7 @@
 
 규칙:
 - 결과는 JSON만 출력
+- reasons와 suggestions는 반드시 {{ language_name | default('한국어', true) }}로 작성한다(사용자에게 그대로 노출됨, M29).
 - is_safe가 false이면, reasons에 간단하고 구체적인 이유를 1~3개로 적는다.
 - suggestions에는 사용자가 수정할 수 있도록 대체 표현 예시를 1~3개 제시한다.
 - target_age가 3-9인 경우 더 엄격하게 판단한다.

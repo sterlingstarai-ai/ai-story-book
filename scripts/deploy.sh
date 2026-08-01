@@ -11,6 +11,8 @@ COMPOSE_FILE="infra/docker-compose.prod.yml"
 ENV_FILE=""
 IMAGE_TAG_OVERRIDE=""
 COMPOSE_CMD=()
+PREV_API_IMAGE=""
+PREV_WORKER_IMAGE=""
 
 log_info() {
   echo -e "${GREEN}[INFO]${NC} $1"
@@ -29,7 +31,7 @@ print_help() {
 Usage: ./scripts/deploy.sh [--env-file PATH] [--compose-file PATH] [--image-tag TAG] <command>
 
 Commands:
-  deploy   Pull images, restart services, run migrations, run health checks
+  deploy   Pull images, migrate (before up), roll services, health-check (auto-rollback on failure)
   start    Start all services
   stop     Stop all services
   restart  Restart all services
@@ -176,9 +178,11 @@ show_status() {
 }
 
 cleanup() {
-  log_info "Cleaning up unused Docker resources..."
+  # M26: 앱 named volume(postgres-data/redis-data/minio-data)은 절대 삭제하지 않는다.
+  # 이전의 무조건 volume-prune 호출은 compose down 후 미참조 상태의 DB 볼륨을 구식
+  # 엔진에서 영구 삭제할 수 있어 제거했다. 컨테이너/이미지/네트워크만 정리(--volumes 미사용).
+  log_info "Cleaning up unused Docker resources (containers/images/networks only)..."
   docker system prune -f
-  docker volume prune -f
   log_info "Cleanup completed"
 }
 
@@ -191,8 +195,33 @@ backup_db() {
   log_info "Database backed up to $backup_file"
 }
 
+# #5: 앱이 리슨할 때까지 대기한다. `compose up -d`는 컨테이너 '기동 시작'에서 리턴할 뿐
+# 앱 리슨을 기다리지 않고(FastAPI 임포트에 수 초), api 재생성 중 nginx는 502를 반환한다.
+# 구 흐름은 up→migrate→health라 migrate 실행 시간이 우연히 대기 역할을 했는데, M26이
+# migrate를 앞으로 옮기며 그 암묵 대기가 사라졌다 — 무대기 1회 curl은 사실상 항상 실패하고
+# 새로 배선된 자동 롤백까지 발동해 정상 릴리스가 매번 롤백된다.
+: "${HEALTH_WAIT_RETRIES:=30}"
+: "${HEALTH_WAIT_INTERVAL:=2}"
+
+wait_for_liveness() {
+  local attempt=1
+  while [ "$attempt" -le "$HEALTH_WAIT_RETRIES" ]; do
+    if curl -fsS http://localhost/health/live >/dev/null 2>&1; then
+      log_info "Service is live (attempt $attempt)"
+      return 0
+    fi
+    sleep "$HEALTH_WAIT_INTERVAL"
+    attempt=$((attempt + 1))
+  done
+  log_error "Service did not become live within $((HEALTH_WAIT_RETRIES * HEALTH_WAIT_INTERVAL))s"
+  return 1
+}
+
 health_check() {
   log_info "Running health checks..."
+  if ! wait_for_liveness; then
+    return 1
+  fi
   if curl -fsS http://localhost/health/live >/dev/null; then
     log_info "Liveness check passed"
   else
@@ -208,6 +237,40 @@ health_check() {
   fi
 
   compose ps --format "table {{.Name}}\t{{.Status}}"
+}
+
+capture_running_images() {
+  # M26: 새 이미지를 올리기 전 현재 실행 중인 컨테이너의 이미지 태그를 저장(롤백 대상).
+  local api_cid worker_cid
+  api_cid="$(compose ps -q api 2>/dev/null | head -1 || true)"
+  worker_cid="$(compose ps -q worker 2>/dev/null | head -1 || true)"
+  if [ -n "$api_cid" ]; then
+    PREV_API_IMAGE="$(docker inspect --format '{{.Config.Image}}' "$api_cid" 2>/dev/null || true)"
+  fi
+  if [ -n "$worker_cid" ]; then
+    PREV_WORKER_IMAGE="$(docker inspect --format '{{.Config.Image}}' "$worker_cid" 2>/dev/null || true)"
+  fi
+  if [ -n "$PREV_API_IMAGE" ]; then
+    log_info "Captured current images for rollback: api=$PREV_API_IMAGE"
+  else
+    log_warn "No running api container found — rollback unavailable (fresh deploy)"
+  fi
+}
+
+rollback() {
+  log_error "Deployment health check failed — attempting rollback"
+  if [ -n "$PREV_API_IMAGE" ] && [ -n "$PREV_WORKER_IMAGE" ]; then
+    log_warn "Rolling back to api=$PREV_API_IMAGE worker=$PREV_WORKER_IMAGE"
+    API_IMAGE="$PREV_API_IMAGE" WORKER_IMAGE="$PREV_WORKER_IMAGE" compose up -d
+    if health_check; then
+      log_warn "Rollback restored health — investigate the failed release before retrying"
+      return 0
+    fi
+    log_error "Rollback health check also failed — manual intervention required"
+  else
+    log_error "No previous images captured — manual rollback required (check 'compose ps')"
+  fi
+  return 1
 }
 
 while [[ $# -gt 0 ]]; do
@@ -242,13 +305,22 @@ fi
 
 case "$COMMAND" in
   deploy)
+    # M26: migrate-before-up. 구 스택을 내리지 않고(다운타임 없음) 새 이미지를 pull한 뒤
+    # 마이그레이션을 먼저 적용(구 코드가 새 스키마와 잠깐 공존 — expand-then-contract 전제),
+    # 그다음 서비스를 롤링 재기동. health 실패 시 이전 이미지로 자동 롤백.
     check_requirements
+    capture_running_images
     pull_images
-    stop_services
-    start_services
     run_migrations
-    health_check
-    log_info "Deployment completed successfully!"
+    start_services
+    if health_check; then
+      log_info "Deployment completed successfully!"
+    else
+      if rollback; then
+        log_error "Release rolled back to previous images. Deployment marked failed."
+      fi
+      exit 1
+    fi
     ;;
   start)
     check_requirements

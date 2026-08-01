@@ -22,6 +22,14 @@ services:
   # ===================
   api:
     image: ${API_IMAGE:-ghcr.io/sterlingstarai-ai/ai-story-book/api:latest}
+    # L15: 의존성 인지형 readiness 프로브로 오버라이드(이미지 기본 HEALTHCHECK의 /health는
+    # 무조건 200이라 DB/Redis가 죽어도 healthy — 병든 replica로 트래픽이 계속 감).
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
     environment:
       # Database
       - DATABASE_URL=postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}
@@ -39,14 +47,20 @@ services:
       # Image
       - IMAGE_PROVIDER=${IMAGE_PROVIDER}
       - IMAGE_API_KEY=${IMAGE_API_KEY}
+      - IMAGE_MODEL=${IMAGE_MODEL:-dall-e-3}
       - IMAGE_TIMEOUT=${IMAGE_TIMEOUT:-90}
       - IMAGE_MAX_CONCURRENT=${IMAGE_MAX_CONCURRENT:-3}
       - IMAGE_MAX_RETRIES=${IMAGE_MAX_RETRIES:-3}
-      # TTS
-      - TTS_PROVIDER=${TTS_PROVIDER:-mock}
+      # 오디오(TTS/STT) — G9/H1: mock 기본값 금지. 미설정이면 readiness(테스트 아님)에서
+      # tts_provider_not_live/stt_provider_not_live로 잡혀 무음 오디오 배포를 차단한다.
+      - AUDIO_FEATURE_ENABLED=${AUDIO_FEATURE_ENABLED:-false}
+      - TTS_PROVIDER=${TTS_PROVIDER}
       - GOOGLE_TTS_API_KEY=${GOOGLE_TTS_API_KEY:-}
       - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
       - ELEVENLABS_VOICE_ID=${ELEVENLABS_VOICE_ID:-21m00Tcm4TlvDq8ikWAM}
+      - STT_PROVIDER=${STT_PROVIDER}
+      - STT_API_KEY=${STT_API_KEY:-}
+      - GOOGLE_STT_API_KEY=${GOOGLE_STT_API_KEY:-}
       # Storage
       - S3_ENDPOINT=${S3_ENDPOINT}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY}
@@ -54,8 +68,18 @@ services:
       - S3_BUCKET=${S3_BUCKET:-ai-story-book}
       - S3_PUBLIC_URL=${S3_PUBLIC_URL:-}
       - S3_REGION=${S3_REGION:-us-east-1}
+      # POD (실물 인쇄 주문 — Printful)
+      - POD_MODE=${POD_MODE:-local}
+      - POD_PROVIDER=${POD_PROVIDER:-printful}
+      - PRINTFUL_API_KEY=${PRINTFUL_API_KEY:-}
+      - PRINTFUL_STORE_ID=${PRINTFUL_STORE_ID:-}
+      - PRINTFUL_SYNC_VARIANT_ID=${PRINTFUL_SYNC_VARIANT_ID:-}
+      - PRINTFUL_BASE_URL=${PRINTFUL_BASE_URL:-https://api.printful.com}
       # CORS
       - CORS_ORIGINS=${CORS_ORIGINS}
+      # App (관리 API 인증 · 공유 링크 베이스 URL) — api 전용
+      - ADMIN_API_KEY=${ADMIN_API_KEY:-}
+      - SHARE_BASE_URL=${SHARE_BASE_URL:-}
       # Rate Limiting
       - RATE_LIMIT_REQUESTS=${RATE_LIMIT_REQUESTS:-10}
       - RATE_LIMIT_WINDOW=${RATE_LIMIT_WINDOW:-60}
@@ -103,14 +127,20 @@ services:
       # Image
       - IMAGE_PROVIDER=${IMAGE_PROVIDER}
       - IMAGE_API_KEY=${IMAGE_API_KEY}
+      - IMAGE_MODEL=${IMAGE_MODEL:-dall-e-3}
       - IMAGE_TIMEOUT=${IMAGE_TIMEOUT:-90}
       - IMAGE_MAX_CONCURRENT=${IMAGE_MAX_CONCURRENT:-3}
       - IMAGE_MAX_RETRIES=${IMAGE_MAX_RETRIES:-3}
-      # TTS
-      - TTS_PROVIDER=${TTS_PROVIDER:-mock}
+      # 오디오(TTS/STT) — G9/H1: mock 기본값 금지. 미설정이면 readiness(테스트 아님)에서
+      # tts_provider_not_live/stt_provider_not_live로 잡혀 무음 오디오 배포를 차단한다.
+      - AUDIO_FEATURE_ENABLED=${AUDIO_FEATURE_ENABLED:-false}
+      - TTS_PROVIDER=${TTS_PROVIDER}
       - GOOGLE_TTS_API_KEY=${GOOGLE_TTS_API_KEY:-}
       - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
       - ELEVENLABS_VOICE_ID=${ELEVENLABS_VOICE_ID:-21m00Tcm4TlvDq8ikWAM}
+      - STT_PROVIDER=${STT_PROVIDER}
+      - STT_API_KEY=${STT_API_KEY:-}
+      - GOOGLE_STT_API_KEY=${GOOGLE_STT_API_KEY:-}
       # Storage
       - S3_ENDPOINT=${S3_ENDPOINT}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY}
@@ -118,6 +148,13 @@ services:
       - S3_BUCKET=${S3_BUCKET:-ai-story-book}
       - S3_PUBLIC_URL=${S3_PUBLIC_URL:-}
       - S3_REGION=${S3_REGION:-us-east-1}
+      # POD (실물 인쇄 주문 — Printful)
+      - POD_MODE=${POD_MODE:-local}
+      - POD_PROVIDER=${POD_PROVIDER:-printful}
+      - PRINTFUL_API_KEY=${PRINTFUL_API_KEY:-}
+      - PRINTFUL_STORE_ID=${PRINTFUL_STORE_ID:-}
+      - PRINTFUL_SYNC_VARIANT_ID=${PRINTFUL_SYNC_VARIANT_ID:-}
+      - PRINTFUL_BASE_URL=${PRINTFUL_BASE_URL:-https://api.printful.com}
       # IAP (worker도 환불 회수/구독 동기화 경로에서 동일 설정 필요).
       - IAP_VERIFICATION_MODE=${IAP_VERIFICATION_MODE:-strict}
       - APPLE_IAP_SHARED_SECRET=${APPLE_IAP_SHARED_SECRET:-}
@@ -200,8 +237,8 @@ services:
     volumes:
       - minio-data:/data
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 30s

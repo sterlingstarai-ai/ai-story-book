@@ -12,7 +12,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          characterPresetsProvider.overrideWith((ref) async => [
+          characterPresetsProvider('ko').overrideWith((ref) async => [
                 {'preset_id': 'bright_girl', 'name': '햇살이'},
                 {'preset_id': 'brave_boy', 'name': '씩씩이'},
               ]),
@@ -39,7 +39,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          characterPresetsProvider.overrideWith((ref) async => const []),
+          characterPresetsProvider('ko').overrideWith((ref) async => const []),
         ],
         child: const MaterialApp(
           locale: Locale('ko'),

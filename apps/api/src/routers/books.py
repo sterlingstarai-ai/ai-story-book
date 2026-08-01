@@ -17,6 +17,8 @@ import math
 import uuid
 import structlog
 
+from src.core.audio_feature import require_audio_supported
+from src.core.cost_budget import consume_daily_generation_budget
 from src.core.database import get_db
 from src.core.book_assets import build_generation_warnings, build_page_asset_status
 from src.core.config import settings
@@ -47,7 +49,7 @@ from src.services.tts import tts_service
 from src.services.storage import storage_service
 from src.services.credits import credits_service
 from src.core.utils import local_day_bounds_utc, local_month_bounds_utc, utcnow
-from src.core.errors import ErrorCode
+from src.core.errors import ErrorCode, SafetyError, StoryBookError
 from src.core.exceptions import (
     AuthorizationError,
     InternalServerError,
@@ -91,8 +93,11 @@ async def _resolve_effective_plan(db: AsyncSession, user_key: str) -> str:
 
 
 async def _count_monthly_book_creations(db: AsyncSession, user_key: str) -> int:
-    # '이번 달'도 KST 로컬 기준(일일 한도·스트릭과 일관).
-    month_start, month_end = local_month_bounds_utc()
+    # '이번 달'도 사용자 tz 로컬 기준(일일 한도·스트릭과 일관, H2).
+    from src.services.streak import load_user_tz
+
+    tz = await load_user_tz(db, user_key)
+    month_start, month_end = local_month_bounds_utc(tz=tz)
     result = await db.execute(
         select(func.count(Job.id)).where(
             Job.user_key == user_key,
@@ -408,13 +413,17 @@ async def _run_regeneration_job(
             feedback=feedback,
         )
     except Exception as e:
+        # M12: SafetyError 등 도메인 에러 코드(SAFETY_INPUT/OUTPUT)를 UNKNOWN으로 뭉개지 않는다.
+        error_code = (
+            e.code.value if isinstance(e, StoryBookError) else ErrorCode.UNKNOWN.value
+        )
         await _set_regen_job_status(
             regen_job_id,
             status="failed",
             progress=100,
             current_step="재생성 실패",
-            error_code=ErrorCode.UNKNOWN.value,
-            error_message=str(e)[:300],
+            error_code=error_code,
+            error_message=str(getattr(e, "message", e))[:300],
         )
         logger.error(
             "Regeneration job failed",
@@ -438,10 +447,12 @@ async def check_guardrails(db: AsyncSession, user_key: str):
     Check system guardrails before creating a new job.
     Raises HTTPException if guardrails are violated.
     """
-    # Check daily job limit per user — '하루' 경계는 KST 로컬 기준(스트릭/오늘읽음과 일관).
-    # UTC 자정으로 두면 한국 부모에게 한도가 오전 9시에 리셋되는 혼란이 생긴다.
+    # Check daily job limit per user — '하루' 경계는 사용자 tz 로컬 기준(스트릭/오늘읽음과 일관, H2).
+    from src.services.streak import load_user_tz
+
     now = utcnow()
-    today_start, next_day_start = local_day_bounds_utc(now)
+    tz = await load_user_tz(db, user_key)
+    today_start, next_day_start = local_day_bounds_utc(now, tz=tz)
     daily_jobs_result = await db.execute(
         select(func.count(Job.id)).where(
             and_(
@@ -452,6 +463,23 @@ async def check_guardrails(db: AsyncSession, user_key: str):
         )
     )
     daily_job_count = daily_jobs_result.scalar() or 0
+
+    # S4: per-user 통제는 X-User-Key 로테이션으로 전부 우회되므로, 개별 식별자와 무관한
+    # 전역 일일 생성 예산으로 총비용을 상한한다(초과 시 429). Redis 장애 시엔 fail-open이나
+    # '가드레일 비활성' error 로그가 남는다(cost_budget 모듈).
+    budget_ok, budget_used = await consume_daily_generation_budget()
+    if not budget_ok:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": "service_budget_exceeded",
+                "message": "오늘 생성 가능한 전체 한도에 도달했어요. 잠시 후 다시 시도해주세요.",
+                "limit": settings.daily_generation_budget,
+                "used": budget_used,
+                "retry_after": 3600,
+            },
+            headers={"Retry-After": "3600"},
+        )
 
     if daily_job_count >= settings.daily_job_limit_per_user:
         retry_after = max(1, math.ceil((next_day_start - now).total_seconds()))
@@ -600,7 +628,7 @@ async def create_book(
         db=db,
         user_key=user_key,
         job_id=job_id,
-        current_step="대기 중",
+        current_step="queued",  # M32
         credit_description="책 생성",
         refund_description="잡 생성 실패 환불",
         idempotency_key=idempotency_key,
@@ -819,13 +847,17 @@ async def _run_inpaint_job(
             region_prompt=region_prompt,
         )
     except Exception as e:
+        # M12: 도메인 에러 코드(SAFETY_INPUT 등)를 보존.
+        error_code = (
+            e.code.value if isinstance(e, StoryBookError) else ErrorCode.UNKNOWN.value
+        )
         await _set_regen_job_status(
             inpaint_job_id,
             status="failed",
             progress=100,
             current_step="부분 재생성 실패",
-            error_code=ErrorCode.UNKNOWN.value,
-            error_message=str(e)[:300],
+            error_code=error_code,
+            error_message=str(getattr(e, "message", e))[:300],
         )
         logger.error(
             "Inpaint job failed",
@@ -845,7 +877,26 @@ async def _run_inpaint_job(
 
 
 @router.post(
-    "/{job_id}/pages/{page_number}/inpaint", response_model=RegeneratePageResponse
+    "/{job_id}/pages/{page_number}/inpaint",
+    response_model=RegeneratePageResponse,
+    responses={
+        409: {
+            "description": (
+                "이미지 제공자가 부분 재생성(인페인트)을 지원하지 않음 — "
+                "클라이언트는 전체 재생성으로 폴백해야 함(L14 계약 명세)."
+            ),
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": {
+                            "code": "INPAINT_UNSUPPORTED",
+                            "message": "현재 이미지 제공자는 부분 재생성을 지원하지 않습니다.",
+                        }
+                    }
+                }
+            },
+        }
+    },
 )
 async def inpaint_book_page(
     job_id: str,
@@ -943,6 +994,7 @@ async def create_series_next(
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
     profile_id: Optional[str] = Depends(get_profile_id),
+    idempotency_key: Optional[str] = Depends(get_idempotency_key),
 ):
     """
     시리즈 다음 권 생성
@@ -953,6 +1005,24 @@ async def create_series_next(
     # Check guardrails (daily limit, system load)
     await check_guardrails(db, user_key)
     scoped_profile_id = await _validate_profile_ownership(db, user_key, profile_id)
+
+    # H18: 재시도(타임아웃 후 재탭) 이중 생성·이중 차감 방지 — 기존 잡 반환.
+    if idempotency_key:
+        existing_job = (
+            await db.execute(
+                select(Job).where(
+                    Job.idempotency_key == idempotency_key,
+                    Job.user_key == user_key,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing_job:
+            _assert_job_profile_scope(existing_job, scoped_profile_id)
+            return CreateBookResponse(
+                job_id=existing_job.id,
+                status=JobState(existing_job.status),
+                estimated_time_seconds=120,
+            )
 
     from src.models.db import Character
 
@@ -984,7 +1054,13 @@ async def create_series_next(
         if prev_book.user_key != user_key:
             raise AuthorizationError()
 
-    await _enforce_free_plan_create_limits(db, user_key, request.style)
+    # H19: style 미지정 시 원작(prev_book) 스타일을 상속해 무료플랜 한도 검사(무결성 유지).
+    from src.models.dto import Style as _Style
+
+    effective_style = request.style
+    if effective_style is None and prev_book and prev_book.style in {s.value for s in _Style}:
+        effective_style = _Style(prev_book.style)
+    await _enforce_free_plan_create_limits(db, user_key, effective_style)
 
     # Create new job for series
     job_id = f"series_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
@@ -996,6 +1072,7 @@ async def create_series_next(
         current_step="시리즈 생성 대기 중",
         credit_description="시리즈 생성",
         refund_description="시리즈 잡 생성 실패 환불",
+        idempotency_key=idempotency_key,
         profile_id=scoped_profile_id,
     )
 
@@ -1007,9 +1084,23 @@ async def create_series_next(
         logger.info("Skipping series background task in testing mode", job_id=job_id)
     else:
         try:
-            background_tasks.add_task(
-                start_series_generation, job_id, request, user_key, character, prev_book
-            )
+            # M11: 프로덕션(USE_CELERY)에서는 워커 태스크로 enqueue(API 프로세스 in-process
+            # 실행 시 재시작 유실·API 지연). start_series_generation은 ORM 객체를 받아
+            # 직렬화 불가하므로 id만 넘기고 태스크가 재조회한다(create_book 대칭).
+            if settings.use_celery:
+                from src.services.tasks import generate_series_task
+
+                generate_series_task.delay(
+                    job_id,
+                    request.model_dump(),
+                    user_key,
+                    character.id if character else None,
+                    prev_book.id if prev_book else None,
+                )
+            else:
+                background_tasks.add_task(
+                    start_series_generation, job_id, request, user_key, character, prev_book
+                )
         except Exception as e:
             logger.error(
                 "Failed to enqueue series generation job",
@@ -1048,11 +1139,36 @@ async def retell_book(
     request: RetellRequest,
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
+    idempotency_key: Optional[str] = Depends(get_idempotency_key),
 ):
     """
     '아이와 함께 자라는' 리텔 — 같은 책을 다른 연령대 본문으로 다시 써서 새 책으로 저장한다.
     삽화(표지·페이지 이미지)는 그대로 재사용하므로 이미지 생성/크레딧 소모가 없다.
     """
+    # H17/G19: 요청 내에서 LLM 리텔을 동기 수행하므로 클라 타임아웃 후 서버는 완주한다
+    # (재시도 시 중복 리텔 책 생성 + LLM 비용). H18의 잡 멱등 패턴을 미러해 같은
+    # 시도키의 재요청은 기존 결과를 그대로 반환한다.
+    if idempotency_key:
+        existing_job = (
+            await db.execute(
+                select(Job).where(
+                    Job.idempotency_key == idempotency_key,
+                    Job.user_key == user_key,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing_job:
+            existing_book = (
+                await db.execute(
+                    select(Book).where(Book.job_id == existing_job.id)
+                )
+            ).scalar_one_or_none()
+            if existing_book:
+                return RetellResponse(
+                    book_id=existing_book.id,
+                    target_age=request.target_age,
+                )
+
     # 원본 책 로드 + 소유권 검증
     source = (
         await db.execute(select(Book).where(Book.id == book_id))
@@ -1080,9 +1196,28 @@ async def retell_book(
         language=source.language,
     )
 
+    # M12: 리텔 결과 출력 모더레이션 — 최초 생성 G 게이트 파리티. 위반 시 저장·공유 전 차단.
+    from src.services.orchestrator import moderate_text_localized
+
+    retold_text = " ".join(
+        [retold.title or ""] + [p or "" for p in (retold.pages or [])]
+    )
+    if not await moderate_text_localized(retold_text, source.language):
+        raise SafetyError(
+            message="다시 쓴 이야기가 안전 기준을 통과하지 못했습니다",
+            is_input=False,
+        )
+
     # 새 잡(크레딧 미소모) + 새 책 + 페이지(이미지 재사용)
     new_job_id = f"retell_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
-    db.add(Job(id=new_job_id, status="done", user_key=user_key))
+    db.add(
+        Job(
+            id=new_job_id,
+            status="done",
+            user_key=user_key,
+            idempotency_key=idempotency_key,  # H17/G19: 재시도 dedup 키
+        )
+    )
     await db.flush()
 
     new_book_id = f"book_{uuid.uuid4().hex[:16]}"
@@ -1216,7 +1351,27 @@ async def export_book_pdf(
     )
 
 
-@router.post("/{book_id}/audio")
+@router.post(
+    "/{book_id}/audio",
+    responses={
+        409: {
+            "description": (
+                "이 배포에서 오디오 기능이 비활성(H1/G9) — 클라이언트는 "
+                "/v1/config/capabilities의 audio_supported로 UI를 숨겨야 함."
+            ),
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": {
+                            "code": "AUDIO_NOT_SUPPORTED",
+                            "message": "이 배포에서는 오디오 기능을 사용할 수 없습니다.",
+                        }
+                    }
+                }
+            },
+        }
+    },
+)
 async def generate_book_audio(
     book_id: str,
     background_tasks: BackgroundTasks,
@@ -1230,6 +1385,9 @@ async def generate_book_audio(
     - 모든 페이지에 대해 TTS 오디오 생성
     - 비동기로 처리되며 완료 후 각 페이지의 audio_url 업데이트
     """
+    # H1/G9: 오디오 비활성 배포에서는 provider 해석 실패 500 대신 명시적 미지원으로 차단.
+    require_audio_supported()
+
     # Fetch book
     book_result = await db.execute(select(Book).where(Book.id == book_id))
     book = book_result.scalar_one_or_none()
@@ -1251,6 +1409,24 @@ async def generate_book_audio(
     if not pages:
         raise NotFoundError("Pages", book_id)
 
+    # L5: fire-and-forget였던 배치 오디오를 audio_ Job 행으로 관측 가능하게 한다. 실패/타임아웃이
+    # 잡 상태(done/failed)로 표면화되고 GET /v1/books/{job_id}로 폴링 가능(형제 regen/inpaint와 대칭).
+    audio_job_id = f"audio_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    audio_job = Job(
+        id=audio_job_id,
+        status="running",
+        progress=0,
+        current_step="오디오 생성 대기 중",
+        user_key=user_key,
+    )
+    db.add(audio_job)
+    try:
+        await db.commit()
+    except Exception as e:
+        await db.rollback()
+        logger.error("Failed to create audio job", book_id=book_id, error=str(e))
+        raise InternalServerError("오디오 작업 생성에 실패했습니다.") from e
+
     # Start background task for audio generation
     background_tasks.add_task(
         _generate_audio_for_book,
@@ -1267,9 +1443,14 @@ async def generate_book_audio(
         ],
         book.target_age,
         book.language,
+        audio_job_id,
     )
 
-    return {"status": "processing", "message": "오디오 생성이 시작되었습니다."}
+    return {
+        "status": "processing",
+        "job_id": audio_job_id,
+        "message": "오디오 생성이 시작되었습니다.",
+    }
 
 
 async def _generate_audio_for_book(
@@ -1277,12 +1458,17 @@ async def _generate_audio_for_book(
     pages: list[dict],
     target_age: str,
     default_language: str,
+    audio_job_id: Optional[str] = None,
 ):
-    """책 오디오 생성 백그라운드 태스크 (5분 타임아웃)"""
+    """책 오디오 생성 백그라운드 태스크 (5분 타임아웃).
+
+    L5: 결과를 audio_ Job 상태로 표면화 — 타임아웃/전체 실패는 failed(에러코드 포함),
+    부분/전체 성공은 done. audio_job_id가 없으면(구 호출 경로) 로그만 남긴다.
+    """
     import asyncio
 
     try:
-        await asyncio.wait_for(
+        succeeded, failed_pages = await asyncio.wait_for(
             _generate_audio_pages(
                 book_id=book_id,
                 pages=pages,
@@ -1293,6 +1479,52 @@ async def _generate_audio_for_book(
         )
     except asyncio.TimeoutError:
         logger.error("Audio generation timed out", book_id=book_id, total_pages=len(pages))
+        if audio_job_id:
+            await _set_regen_job_status(
+                audio_job_id,
+                status="failed",
+                progress=100,
+                current_step="오디오 생성 타임아웃",
+                error_code="AUDIO_TIMEOUT",
+                error_message="오디오 생성이 시간 내에 완료되지 않았습니다.",
+            )
+        return
+    except Exception as e:
+        logger.error("Audio generation failed", book_id=book_id, error=str(e))
+        if audio_job_id:
+            await _set_regen_job_status(
+                audio_job_id,
+                status="failed",
+                progress=100,
+                current_step="오디오 생성 실패",
+                error_code="AUDIO_FAILED",
+                error_message=str(e),
+            )
+        return
+
+    if not audio_job_id:
+        return
+    if succeeded == 0 and failed_pages:
+        await _set_regen_job_status(
+            audio_job_id,
+            status="failed",
+            progress=100,
+            current_step="오디오 생성 실패",
+            error_code="AUDIO_FAILED",
+            error_message=f"모든 페이지 오디오 생성 실패(pages={failed_pages})",
+        )
+    else:
+        step = (
+            "오디오 생성 완료"
+            if not failed_pages
+            else f"오디오 부분 생성(실패 페이지: {failed_pages})"
+        )
+        await _set_regen_job_status(
+            audio_job_id,
+            status="done",
+            progress=100,
+            current_step=step,
+        )
 
 
 async def _generate_audio_pages(
@@ -1310,14 +1542,24 @@ async def _generate_audio_pages(
     async with AsyncSessionLocal() as db:
         for page_data in pages:
             try:
-                # ko/en 모두 존재하면 각각 생성, 없으면 기본 텍스트로 생성
+                # H3: 책 언어 기반 오디오 생성. ko/en 이중 텍스트는 각 슬롯에, 그 외
+                # 스토리 언어(ja/zh/es)는 책 언어 보이스로 1건 생성해 기본 슬롯(audio_url)에
+                # 저장한다(MA5: 한국어 슬롯 교차 오염·매 요청 재합성 방지).
                 generated_urls = {}
-                text_by_language = {
-                    "ko": page_data.get("text_ko") or page_data.get("text"),
-                    "en": page_data.get("text_en"),
-                }
+                base_lang = (default_language or "ko").lower().strip()
+                if base_lang in ("ko", "en"):
+                    text_by_language = {
+                        "ko": page_data.get("text_ko") or page_data.get("text"),
+                        "en": page_data.get("text_en"),
+                    }
+                    languages = ("ko", "en")
+                else:
+                    text_by_language = {
+                        base_lang: page_data.get("text") or page_data.get("text_ko"),
+                    }
+                    languages = (base_lang,)
 
-                for language in ("ko", "en"):
+                for language in languages:
                     source_text = text_by_language.get(language)
                     if not source_text:
                         continue
@@ -1344,9 +1586,9 @@ async def _generate_audio_pages(
                         page.audio_url_ko = generated_urls["ko"]
                     if "en" in generated_urls:
                         page.audio_url_en = generated_urls["en"]
-                    # 하위 호환: 기본 언어 audio_url 유지
-                    if default_language == "en" and "en" in generated_urls:
-                        page.audio_url = generated_urls["en"]
+                    # 기본 슬롯: 책 언어 오디오 우선(비 ko/en 언어는 여기에만 저장됨).
+                    if base_lang in generated_urls:
+                        page.audio_url = generated_urls[base_lang]
                     elif "ko" in generated_urls:
                         page.audio_url = generated_urls["ko"]
                     elif generated_urls:
@@ -1387,12 +1629,35 @@ async def _generate_audio_pages(
             total_pages=succeeded,
         )
 
+    # L5: 호출자(_generate_audio_for_book)가 잡 상태(done/failed)를 결정할 수 있도록 결과 반환.
+    return succeeded, failed_pages
 
-@router.get("/{book_id}/pages/{page_number}/audio")
+
+@router.get(
+    "/{book_id}/pages/{page_number}/audio",
+    responses={
+        409: {
+            "description": (
+                "이 배포에서 오디오 기능이 비활성(H1/G9) — 클라이언트는 "
+                "/v1/config/capabilities의 audio_supported로 UI를 숨겨야 함."
+            ),
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": {
+                            "code": "AUDIO_NOT_SUPPORTED",
+                            "message": "이 배포에서는 오디오 기능을 사용할 수 없습니다.",
+                        }
+                    }
+                }
+            },
+        }
+    },
+)
 async def get_page_audio(
     book_id: str,
     page_number: int,
-    language: str = Query(default="ko", pattern="^(ko|en)$"),
+    language: str = Query(default="ko", pattern="^(ko|en|ja|zh|es)$"),
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
     profile_id: Optional[str] = Depends(get_profile_id),
@@ -1403,6 +1668,9 @@ async def get_page_audio(
     - 이미 생성된 오디오 URL 반환
     - 없으면 즉시 생성 후 반환
     """
+    # H1/G9: 오디오 비활성 배포에서는 provider 해석 실패 500 대신 명시적 미지원으로 차단.
+    require_audio_supported()
+
     # Fetch book
     book_result = await db.execute(select(Book).where(Book.id == book_id))
     book = book_result.scalar_one_or_none()
@@ -1423,10 +1691,19 @@ async def get_page_audio(
     if not page:
         raise NotFoundError("Page", str(page_number))
 
+    from src.services.tts import SUPPORTED_AUDIO_LANGUAGES
+
     if not isinstance(language, str):
         language = getattr(language, "default", "ko")
-    if language not in {"ko", "en"}:
-        language = "ko"
+    language = language.lower().strip()
+    book_language = str(getattr(book, "language", "") or "ko").lower().strip()
+
+    # H3: 미지원 언어는 조용한 'ko' 강제(=한국어 보이스 오합성) 대신 명시 차단(fail-open 제거).
+    if language not in SUPPORTED_AUDIO_LANGUAGES:
+        raise ValidationError(
+            f"오디오가 지원하지 않는 언어입니다: {language} "
+            f"(지원: {', '.join(SUPPORTED_AUDIO_LANGUAGES)})"
+        )
 
     audio_url_en = getattr(page, "audio_url_en", None)
     audio_url_ko = getattr(page, "audio_url_ko", None)
@@ -1438,7 +1715,10 @@ async def get_page_audio(
         return {"audio_url": audio_url_en}
     if language == "ko" and audio_url_ko:
         return {"audio_url": audio_url_ko}
-    if audio_url_default and language == "ko":
+    if language == "ko" and audio_url_default and book_language == "ko":
+        return {"audio_url": audio_url_default}
+    # H3/MA5: ja/zh/es는 책 언어와 일치할 때 기본 슬롯(audio_url)에서 캐시 반환.
+    if language not in ("ko", "en") and language == book_language and audio_url_default:
         return {"audio_url": audio_url_default}
 
     # 신규 합성(비용 발생)은 유료 기능. 단, 비독자 저연령(3-5)은 오디오가 책을 소비하는
@@ -1451,8 +1731,11 @@ async def get_page_audio(
     try:
         if language == "en":
             source_text = getattr(page, "text_en", None) or page.text
-        else:
+        elif language == "ko":
             source_text = getattr(page, "text_ko", None) or page.text
+        else:
+            # H3: ja/zh/es는 책 본문(page.text)을 책 언어 보이스로 합성.
+            source_text = page.text
         audio_bytes = await tts_service.synthesize_page(
             source_text,
             target_age=getattr(book, "target_age", None),
@@ -1465,12 +1748,15 @@ async def get_page_audio(
             audio_bytes, audio_key, content_type="audio/mpeg"
         )
 
-        # DB 업데이트
+        # DB 업데이트 — H3/MA5: 언어별 슬롯. 비 ko/en 책 언어는 기본 슬롯(audio_url)에만
+        # 저장하고, ko companion은 책 언어가 ko일 때만 기본 슬롯을 덮어쓴다(교차 오염 방지).
         if language == "en":
             page.audio_url_en = audio_url
-        else:
+        elif language == "ko":
             page.audio_url_ko = audio_url
-        if language == "ko":
+            if book_language == "ko":
+                page.audio_url = audio_url
+        else:
             page.audio_url = audio_url
         await db.commit()
 

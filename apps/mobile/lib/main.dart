@@ -117,7 +117,8 @@ class _AIStoryBookAppState extends ConsumerState<AIStoryBookApp>
     final themeMode = ref.watch(appThemeModeProvider);
     final screenTime = ref.watch(screenTimeStateProvider);
     return MaterialApp(
-      title: 'AI 동화책',
+      // M15: 작업 전환기/웹 탭 타이틀을 로케일별로(한국어 하드코딩 제거).
+      onGenerateTitle: (context) => AppLocalizations.of(context).appTitle,
       debugShowCheckedModeBanner: false,
       theme: _buildTheme(Brightness.light),
       darkTheme: _buildTheme(Brightness.dark),
@@ -416,11 +417,16 @@ Route<dynamic> buildAppRoute(RouteSettings settings) {
           pageNumber <= 0) {
         return _homeRoute();
       }
+      final pronunciationLanguage = args?['language']?.toString();
       return MaterialPageRoute(
         builder: (_) => PronunciationPracticeScreen(
           bookId: bookId,
           pageNumber: pageNumber,
           expectedText: expectedText,
+          language: (pronunciationLanguage != null &&
+                  pronunciationLanguage.isNotEmpty)
+              ? pronunciationLanguage
+              : 'ko',
         ),
       );
 

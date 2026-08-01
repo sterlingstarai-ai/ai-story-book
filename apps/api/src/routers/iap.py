@@ -7,9 +7,9 @@ from datetime import timedelta
 import hmac
 from typing import Optional, Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Header, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
@@ -19,9 +19,9 @@ from src.core.database import get_db
 from src.core.dependencies import get_user_key
 from src.core.exceptions import AuthorizationError, ValidationError
 from src.core.utils import utcnow
-from src.models.db import IAPReceipt, Subscription
-from src.services.credits import credits_service
-from src.services.iap_verifier import iap_verifier
+from src.models.db import IAPReceipt, IapWebhookEvent, Subscription
+from src.services.credits import SUBSCRIPTION_PLANS, credits_service
+from src.services.iap_verifier import _strip_google_order_suffix, iap_verifier
 
 router = APIRouter()
 logger = structlog.get_logger()
@@ -61,6 +61,20 @@ SUBSCRIPTION_PRODUCTS = {
     "subscription_basic": "basic",
     "subscription_premium": "premium",
 }
+
+
+def _review_sandbox_allowlist() -> set:
+    raw = settings.review_sandbox_allowlist or ""
+    return {p.strip() for p in raw.split(",") if p.strip()}
+
+
+def _subscription_expired(verification) -> bool:
+    """스토어 만료 시각이 과거인 구독 영수증인지(MA1). 만료 영수증으로 active 구독을
+    재활성하면 periodic_credits가 영구 리필하므로 지급/재활성을 막는다."""
+    expires_ms = getattr(verification, "expires_date_ms", None)
+    if not expires_ms:
+        return False
+    return expires_ms < int(utcnow().timestamp() * 1000)
 
 
 def _validate_verify_payload(
@@ -147,6 +161,18 @@ async def verify_iap(
     if not verification.verified:
         raise ValidationError("스토어 검증에 실패했습니다.")
 
+    # L10/G8: 운영에서 Sandbox 영수증(Apple 21007 폴백)은 무결제 테스터 영수증이므로 지급
+    # 차단한다. 앱스토어 리뷰/TestFlight용 REVIEW_SANDBOX_ALLOWLIST 상품만 예외.
+    if (
+        not settings.testing
+        and verification.environment == "Sandbox"
+        and product_id not in _review_sandbox_allowlist()
+    ):
+        raise ValidationError(
+            "샌드박스 영수증은 운영에서 지급되지 않습니다.",
+            details={"code": "sandbox_not_allowed"},
+        )
+
     if (
         verification.store_product_id
         and verification.store_product_id != product_id
@@ -177,12 +203,15 @@ async def verify_iap(
             base.update(extra)
         return base
 
+    # with_for_update로 동시 복원을 직렬화(SQLite에선 no-op이라 실질 방어는 M17 부분 유니크).
     existing = (
         await db.execute(
-            select(IAPReceipt).where(
+            select(IAPReceipt)
+            .where(
                 IAPReceipt.platform == request.platform,
                 IAPReceipt.store_transaction_id == store_txn,
             )
+            .with_for_update()
         )
     ).scalar_one_or_none()
 
@@ -202,9 +231,42 @@ async def verify_iap(
         existing.user_key = user_key
         existing.status = "restored"
         existing.payload = _build_payload({"restored_from_user_key": previous_user_key})
-        if plan:
-            await credits_service.create_subscription(db, user_key, plan, commit=False)
-        await db.commit()
+        try:
+            if plan:
+                # 만료 영수증(MA1)은 어떤 권한도 이전하지 않는다 — active 구독 재활성 금지로
+                # 무한 리필을 막고, 그 연장선에서 부작용 두 가지도 함께 차단한다:
+                #  · 이전 소유자의 expire를 건너뛴다. 만료 영수증은 아무것도 이전하지 않는데
+                #    expire만 실행되면, 그 사이 새로 결제한 같은 plan 구독까지 소멸한다(#14).
+                #  · 이전 소유자 구독을 가리키던 참조를 끊는다. 남겨두면 그 소유자의 계정
+                #    삭제가 FK 위반으로 500이 되어 법적 삭제권이 봉쇄된다(#7/H5).
+                if _subscription_expired(verification):
+                    existing.subscription_id = None
+                else:
+                    # 권한 이전: 이전 소유자의 해당 plan active 구독만 만료(cancelled 잔여기간 보존, G2).
+                    if previous_user_key != user_key:
+                        await credits_service.expire_active_subscription_for_plan(
+                            db, previous_user_key, plan, commit=False
+                        )
+                    # 복원은 월간 크레딧을 재지급하지 않는다(G1).
+                    restored_sub = await credits_service.create_subscription(
+                        db, user_key, plan, commit=False, grant_credits=False
+                    )
+                    existing.subscription_id = restored_sub.id  # H5
+            await db.commit()
+        except IntegrityError:
+            # 동시 복원 경쟁 패자 — 현재 상태 재조회 후 멱등 반환.
+            await db.rollback()
+            active = await credits_service.get_active_subscription(db, user_key)
+            return IAPVerifyResponse(
+                status="restored",
+                transaction_id=transaction_id,
+                product_id=product_id,
+                credits_added=0,
+                plan=active.plan if active else plan,
+                verification_source=verification.source,
+            )
+        # 선도착 환불/취소 웹훅(orphan)을 이 영수증에 sticky 재적용(H4).
+        await _reapply_orphan_events(db, existing)
         logger.info(
             "IAP entitlement restored to new user_key",
             platform=request.platform,
@@ -232,13 +294,18 @@ async def verify_iap(
                 store_transaction_id=store_txn,
                 purchase_token=purchase_token,
                 status="already_subscribed",
+                subscription_id=active_subscription.id,  # H5
                 payload=_build_payload(),
             )
             db.add(receipt)
+            committed = True
             try:
                 await db.commit()
             except IntegrityError:
                 await db.rollback()
+                committed = False
+            if committed:
+                await _reapply_orphan_events(db, receipt)
             return IAPVerifyResponse(
                 status="already_subscribed",
                 transaction_id=transaction_id,
@@ -252,8 +319,13 @@ async def verify_iap(
     # 동시 요청 중 패자는 store_transaction_id UNIQUE 위반으로 IntegrityError → 전체
     # 롤백되어 보상도 함께 취소된다.
     try:
+        new_sub = None
         if plan:
-            await credits_service.create_subscription(db, user_key, plan, commit=False)
+            # 만료 영수증(MA1)은 active 구독을 만들지 않는다(무한 리필 차단). 영수증만 기록.
+            if not _subscription_expired(verification):
+                new_sub = await credits_service.create_subscription(
+                    db, user_key, plan, commit=False
+                )
         elif credits_to_add > 0:
             await credits_service.add_credits(
                 db=db,
@@ -273,6 +345,8 @@ async def verify_iap(
             store_transaction_id=store_txn,
             purchase_token=purchase_token,
             status="verified",
+            # H5: 웹훅이 이 영수증의 구독만 갱신하도록 연결.
+            subscription_id=new_sub.id if new_sub else None,
             payload=_build_payload(),
         )
         db.add(receipt)
@@ -292,6 +366,9 @@ async def verify_iap(
             credits_added=0,
             plan=None,
         )
+
+    # 선도착 환불/취소 웹훅(orphan)을 이 영수증에 sticky 재적용(H4).
+    await _reapply_orphan_events(db, receipt)
 
     logger.info(
         "IAP receipt verified",
@@ -314,57 +391,68 @@ async def verify_iap(
     )
 
 
-async def _apply_webhook_status(
+# 상태 우선순위(sticky): 터미널(refunded/expired) > cancelled > 그 외. 낮은 순위로 되돌리지
+# 않는다 — 환불/만료된 영수증이 이후 active 통지로 뒤집히지 않게 한다(H4).
+_STATUS_RANK = {"refunded": 3, "expired": 3, "cancelled": 2}
+
+
+def _status_rank(status: Optional[str]) -> int:
+    return _STATUS_RANK.get(status or "", 1)
+
+
+async def _apply_status_to_receipt(
     *,
-    request: IAPWebhookRequest,
-    platform: str,
+    receipt: IAPReceipt,
+    status: str,
+    payload: Optional[dict],
     db: AsyncSession,
-) -> dict:
-    result = await db.execute(
-        select(IAPReceipt).where(
-            IAPReceipt.platform == platform,
-            IAPReceipt.transaction_id == request.transaction_id,
-        )
-    )
-    receipt = result.scalar_one_or_none()
+) -> None:
+    """웹훅/재적용 상태를 영수증·구독·크레딧에 반영(sticky). 커밋은 호출자 책임."""
+    # sticky: 이미 더 높은 우선순위(터미널) 상태면 낮은 상태로 되돌리지 않는다.
+    if _status_rank(status) < _status_rank(receipt.status):
+        return
 
-    if not receipt:
-        return {
-            "status": "ignored",
-            "message": "Unknown transaction",
-            "transaction_id": request.transaction_id,
-        }
-
-    receipt.status = request.status
+    receipt.status = status
     receipt.payload = {
         **(receipt.payload or {}),
-        "webhook_status": request.status,
-        "webhook_payload": request.payload,
+        "webhook_status": status,
+        "webhook_payload": payload,
         "updated_at": utcnow().isoformat(),
     }
 
     # 구독 취소/만료/환불 동기화. 'refunded'를 누락하면 환불된 구독이 active로 남아
     # periodic_credits가 매월 영구 리필 → buy→consume→refund 무한 무료 크레딧.
-    if receipt.product_id in SUBSCRIPTION_PRODUCTS and request.status in {
+    if receipt.product_id in SUBSCRIPTION_PRODUCTS and status in {
         "cancelled",
         "expired",
         "refunded",
     }:
-        sub_result = await db.execute(
-            select(Subscription)
-            .where(Subscription.user_key == receipt.user_key)
-            .order_by(Subscription.created_at.desc())
-        )
-        subscription = sub_result.scalars().first()
+        # H5: 이 영수증이 개설한 구독만 갱신한다. subscription_id가 없는 레거시 영수증은
+        # '최신 구독' 임의 매칭 대신 product_id의 plan과 일치하는 구독으로 한정한다 —
+        # 업그레이드 후 옛 영수증 통지가 방금 결제한 다른 plan 구독을 죽이지 않게.
+        subscription = None
+        if receipt.subscription_id is not None:
+            subscription = await db.get(Subscription, receipt.subscription_id)
+        else:
+            legacy_plan = SUBSCRIPTION_PRODUCTS.get(receipt.product_id)
+            sub_result = await db.execute(
+                select(Subscription)
+                .where(
+                    Subscription.user_key == receipt.user_key,
+                    Subscription.plan == legacy_plan,
+                )
+                .order_by(Subscription.created_at.desc())
+            )
+            subscription = sub_result.scalars().first()
         if subscription:
             # cancelled는 기간 만료까지 사용 유지, expired/refunded는 즉시 권한 종료.
-            subscription.status = "cancelled" if request.status == "cancelled" else "expired"
-            if request.status in {"expired", "refunded"}:
+            subscription.status = "cancelled" if status == "cancelled" else "expired"
+            if status in {"expired", "refunded"}:
                 subscription.current_period_end = utcnow() - timedelta(seconds=1)
 
     # 소비성 크레딧팩 환불 → 지급했던 크레딧 회수(멱등). add_credits가 사용한 것과 같은
     # reference_id(store_transaction_id 우선)로 회수해 이중 처리하지 않는다.
-    if request.status == "refunded" and receipt.product_id in CREDIT_PACK_PRODUCTS:
+    if status == "refunded" and receipt.product_id in CREDIT_PACK_PRODUCTS:
         clawback_amount = CREDIT_PACK_PRODUCTS[receipt.product_id]
         clawback_ref = receipt.store_transaction_id or receipt.transaction_id
         await credits_service.clawback_credits(
@@ -376,6 +464,119 @@ async def _apply_webhook_status(
             commit=False,
         )
 
+    # M14: 구독 상품 환불도 지급된 월간 크레딧을 회수(0클램프·멱등). 회수 안 하면
+    # buy→30크레딧→refund 사이클마다 무비용 적립된다.
+    if status == "refunded" and receipt.product_id in SUBSCRIPTION_PRODUCTS:
+        plan = SUBSCRIPTION_PRODUCTS[receipt.product_id]
+        clawback_amount = SUBSCRIPTION_PLANS[plan]["credits_per_month"]
+        clawback_ref = receipt.store_transaction_id or receipt.transaction_id
+        await credits_service.clawback_credits(
+            db=db,
+            user_key=receipt.user_key,
+            amount=clawback_amount,
+            reference_id=clawback_ref,
+            description="구독 환불 회수",
+            commit=False,
+        )
+
+
+async def _reapply_orphan_events(db: AsyncSession, receipt: IAPReceipt) -> None:
+    """verify/restore 직후, 이 영수증에 매칭되는 미적용 웹훅 이벤트를 sticky 재적용한다(H4).
+
+    선도착·store 식별자 환불/취소 통지가 유실되지 않고 여기서 반영된다. created_at 순 +
+    _apply_status_to_receipt의 sticky 우선순위로 정합.
+    """
+    match_clauses = [
+        IapWebhookEvent.transaction_id == receipt.transaction_id,
+        IapWebhookEvent.transaction_id == receipt.store_transaction_id,
+    ]
+    if receipt.platform == "google":
+        # H4/#6: Google 갱신 주문 orderId는 base에 '..N' 접미가 붙는다. 접미사가 붙은
+        # orderId로 선도착한 환불/취소 웹훅은 base로 verify된 영수증과 원문 등호로는
+        # 절대 매칭되지 않아 결정이 영구 유실된다(환불된 구독이 active로 남아 매월 리필).
+        # 양방향(이벤트에 접미 / 영수증에 접미)을 모두 정규화해 맞춘다.
+        for ident in (receipt.store_transaction_id, receipt.transaction_id):
+            if not ident:
+                continue
+            base = _strip_google_order_suffix(ident)
+            escaped = base.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            match_clauses.append(IapWebhookEvent.transaction_id == base)
+            match_clauses.append(
+                IapWebhookEvent.transaction_id.like(f"{escaped}..%", escape="\\")
+            )
+
+    events = (
+        await db.execute(
+            select(IapWebhookEvent)
+            .where(
+                IapWebhookEvent.platform == receipt.platform,
+                IapWebhookEvent.applied.is_(False),
+                or_(*match_clauses),
+            )
+            .order_by(IapWebhookEvent.created_at.asc(), IapWebhookEvent.id.asc())
+        )
+    ).scalars().all()
+    if not events:
+        return
+    for event in events:
+        await _apply_status_to_receipt(
+            receipt=receipt, status=event.status, payload=event.payload, db=db
+        )
+        event.applied = True
+    await db.commit()
+
+
+async def _apply_webhook_status(
+    *,
+    request: IAPWebhookRequest,
+    platform: str,
+    db: AsyncSession,
+) -> dict:
+    # 매칭: 클라이언트 transaction_id 또는 스토어 store_transaction_id 양쪽(Google은
+    # order suffix 정규화). 스토어가 store 식별자로만 보내는 환불 통지의 유실을 막는다.
+    normalized = (
+        _strip_google_order_suffix(request.transaction_id)
+        if platform == "google"
+        else request.transaction_id
+    )
+    result = await db.execute(
+        select(IAPReceipt).where(
+            IAPReceipt.platform == platform,
+            or_(
+                IAPReceipt.transaction_id == request.transaction_id,
+                IAPReceipt.store_transaction_id == request.transaction_id,
+                IAPReceipt.store_transaction_id == normalized,
+            ),
+        )
+    )
+    receipt = result.scalars().first()
+
+    if not receipt:
+        # 미기록 트랜잭션(선도착·store 식별자): 200 ignored로 재시도를 죽이면 결정이 유실된다.
+        # IapWebhookEvent로 적재(멱등)해 결정을 보존하고 verify 시 sticky 재적용한다. 적재
+        # 실패(IntegrityError 외)는 재시도 유도 위해 5xx로 전파.
+        db.add(
+            IapWebhookEvent(
+                platform=platform,
+                transaction_id=request.transaction_id,
+                status=request.status,
+                payload=request.payload,
+                applied=False,
+            )
+        )
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()  # 중복 웹훅 — 이미 보존됨(멱등)
+        return {
+            "status": "accepted_orphan",
+            "message": "Persisted for reconciliation at verify time",
+            "transaction_id": request.transaction_id,
+        }
+
+    await _apply_status_to_receipt(
+        receipt=receipt, status=request.status, payload=request.payload, db=db
+    )
     await db.commit()
 
     logger.info(
@@ -393,11 +594,15 @@ async def _apply_webhook_status(
     }
 
 
-async def _require_webhook_secret(token: str = Query(default="")):
-    """IAP 웹훅 인증: iap_webhook_secret이 설정되면 ?token=과 일치해야 한다.
+async def _require_webhook_secret(
+    token: str = Query(default=""),
+    x_webhook_token: Optional[str] = Header(default=None, alias="X-Webhook-Token"),
+):
+    """IAP 웹훅 인증: iap_webhook_secret이 설정되면 토큰이 일치해야 한다.
 
     Apple/Google이 호출하는 공개 엔드포인트가 무인증이면 알려진 transaction id로 구독
-    상태를 변조(취소성 공격)할 수 있다. 운영에선 시크릿을 설정하고 웹훅 URL에 토큰을 담는다.
+    상태를 변조(취소성 공격)할 수 있다. 토큰은 X-Webhook-Token 헤더 우선, 미제공 시
+    ?token= 쿼리로 폴백(하위호환·쿼리는 로그/리퍼러 노출 위험이라 헤더 권장, L10).
     시크릿 미설정 시 운영(testing=False)에서는 무인증 상태변조를 막기 위해 거부한다
     (fail-closed). dev/test에서만 통과해 기존 동작을 유지한다.
     """
@@ -406,7 +611,8 @@ async def _require_webhook_secret(token: str = Query(default="")):
         if not settings.testing:
             raise AuthorizationError("웹훅 인증이 구성되지 않았습니다.")
         return
-    if not hmac.compare_digest(token, secret):
+    provided = x_webhook_token if x_webhook_token is not None else token
+    if not hmac.compare_digest(provided, secret):
         raise AuthorizationError("유효하지 않은 웹훅 토큰입니다.")
 
 

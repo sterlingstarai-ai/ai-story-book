@@ -213,3 +213,33 @@ async def test_structural_checks_have_teeth(golden_db):
             f"불량 변형이 {check_name} 를 떨어뜨리지 못함(rubber-stamp 위험): "
             f"got {outcomes.get(check_name)}"
         )
+
+
+def test_golden_prompts_cover_all_supported_languages():
+    """M34: 골든 프롬프트가 5개 지원 언어 전부 커버(ja/zh/es 게이트 배선)."""
+    import json
+
+    from src.core.i18n import SUPPORTED_LANGUAGES
+
+    entries = json.loads(GOLDEN_PATH.read_text(encoding="utf-8"))
+    langs = {e["language"] for e in entries}
+    missing = set(SUPPORTED_LANGUAGES) - langs
+    assert not missing, f"golden 미커버 언어: {missing}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("lang", ["zh", "es"])
+async def test_mock_reflects_zh_es_language(golden_db, lang):
+    """M34: mock이 zh/es 요청을 ko로 폴백하지 않고 반영(language_matches_spec 통과 전제)."""
+    entry = {
+        "id": f"m34-{lang}",
+        "language": lang,
+        "target_age": "5-7",
+        "style": "watercolor",
+        "theme": "우정",
+        "topic": "테스트 토픽",
+    }
+    spec = build_book_spec(entry)
+    gen = await _generate_one(spec, str(uuid.uuid4()))
+    assert gen["result"] is not None, f"생성 실패: {gen}"
+    assert gen["result"].language.value == lang

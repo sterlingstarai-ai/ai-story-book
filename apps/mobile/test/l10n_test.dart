@@ -31,4 +31,13 @@ void main() {
         AppLocalizations.supportedLocales.map((l) => l.languageCode).toSet();
     expect(codes.containsAll({'ko', 'en', 'ja'}), isTrue);
   });
+
+  testWidgets('loading step keys localize (M32)', (tester) async {
+    for (final code in ['ko', 'en', 'ja']) {
+      final l = await AppLocalizations.delegate.load(Locale(code));
+      // 신규 키가 3로케일 모두에 존재(백엔드 learning_assets 키 매핑용).
+      expect(l.loadingStepLearningAssets.isNotEmpty, isTrue);
+      expect(l.loadingStepGenerateStory.isNotEmpty, isTrue);
+    }
+  });
 }

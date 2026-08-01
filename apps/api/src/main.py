@@ -1,4 +1,6 @@
-from fastapi import FastAPI, Request, Depends, HTTPException
+from typing import Optional
+
+from fastapi import FastAPI, Request, Depends, Header, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -28,6 +30,7 @@ from src.routers import (
     shares,
     config,
 )
+from src.core.audio_feature import audio_readiness_issues
 from src.core.database import get_db  # noqa: F401
 from src.core.rate_limit import check_rate_limit, rate_limiter
 from src.core.exceptions import (
@@ -387,8 +390,15 @@ def _iap_readiness_issues() -> list[str]:
     return issues
 
 
-async def _build_readiness_payload(*, include_metrics: bool) -> dict:
-    """Build readiness payload with dependency state."""
+async def _build_readiness_payload(
+    *, include_metrics: bool, expose_missing_keys: bool = False
+) -> dict:
+    """Build readiness payload with dependency state.
+
+    M9: 공개 /health/ready는 provider_keys boolean만 노출하고 missing_keys 상세(빠진
+    보안설정 목록: iap_webhook_secret_missing 등)는 감춘다(정찰 표면 축소). 상세는
+    인증된 /health/detailed(expose_missing_keys=True)에만 노출한다.
+    """
     from src.services.job_monitor import get_job_metrics
 
     jobs_status = "healthy"
@@ -441,6 +451,11 @@ async def _build_readiness_payload(*, include_metrics: bool) -> dict:
         iap_issues = _iap_readiness_issues()
         missing_keys.extend(iap_issues)
 
+        # 오디오(TTS/STT): 기능이 켜져 있을 때만(G9 기본 비활성) 라이브 구성을 게이트.
+        # mock/미지 provider가 무음 오디오·가짜 발음점수를 성공으로 서빙하는 것을 차단(H1).
+        if settings.audio_feature_enabled:
+            missing_keys.extend(audio_readiness_issues())
+
         if missing_keys:
             keys_status = "unhealthy"
 
@@ -467,7 +482,8 @@ async def _build_readiness_payload(*, include_metrics: bool) -> dict:
             "image_provider": settings.image_provider,
         },
     }
-    if missing_keys:
+    # M9: 상세 missing_keys는 인증된 detailed에만. 공개 ready는 provider_keys boolean만.
+    if missing_keys and expose_missing_keys:
         payload["missing_keys"] = missing_keys
     if include_metrics:
         payload["jobs"] = job_metrics
@@ -506,9 +522,24 @@ async def ready_health_check():
 
 
 @app.get("/health/detailed")
-async def detailed_health_check():
-    """Detailed health check with job metrics and external API status"""
-    return await _build_readiness_payload(include_metrics=True)
+async def detailed_health_check(
+    x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key"),
+):
+    """Detailed health check with job metrics and external API status.
+
+    M9: 내부 메트릭·config·missing_keys(빠진 보안설정 목록)를 노출하므로 X-Admin-Key
+    인증을 요구한다(무인증 정찰 차단). admin_api_key 미설정이면 detailed 미제공(403).
+    """
+    import hmac
+
+    admin_key = getattr(settings, "admin_api_key", None)
+    if not admin_key or not x_admin_key or not hmac.compare_digest(
+        x_admin_key, admin_key
+    ):
+        return JSONResponse(status_code=403, content={"detail": "Forbidden"})
+    return await _build_readiness_payload(
+        include_metrics=True, expose_missing_keys=True
+    )
 
 
 # Include routers with rate limiting

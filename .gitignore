@@ -58,3 +58,6 @@ results/
 .aisb_workings.json
 .playwright-mcp/
 apps/mobile/macos/Podfile.lock
+
+# Claude Code local scratch (worktrees, session state)
+.claude/

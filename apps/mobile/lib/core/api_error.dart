@@ -1,5 +1,7 @@
 import 'package:dio/dio.dart';
 
+import '../l10n/app_localizations.dart';
+
 /// Standardized API error
 class ApiError implements Exception {
   final String code;
@@ -191,6 +193,41 @@ class ApiError implements Exception {
       case 'CONNECTION_ERROR':
         return message;
       default:
+        return message;
+    }
+  }
+
+  /// M15: 로케일별 사용자 메시지. code(안정 키)를 l10n으로 매핑해 en/ja 사용자에게
+  /// 한국어 스낵바가 노출되지 않게 한다. 서버 메시지가 이미 사용자 언어인 코드
+  /// (NOT_FOUND/BAD_REQUEST 등)는 message를 그대로 사용한다.
+  String localizedMessage(AppLocalizations l) {
+    switch (code) {
+      case 'VALIDATION_ERROR':
+        return l.errorValidation;
+      case 'UNAUTHORIZED':
+        return l.errorUnauthorized;
+      case 'FORBIDDEN':
+        return l.errorForbidden;
+      // PAYMENT_REQUIRED(402)는 무료플랜 한도 등 서버가 구체 사유를 담으므로 message 유지
+      // (서버측 402 로컬라이즈는 M15 서버 잔여). 여기서 일반화하면 의미가 소실된다.
+      case 'INTERNAL_ERROR':
+        return l.errorInternal;
+      case 'RATE_LIMIT_EXCEEDED':
+        return l.errorRateLimit;
+      case 'BAD_GATEWAY':
+      case 'SERVICE_UNAVAILABLE':
+      case 'GATEWAY_TIMEOUT':
+        return l.errorServiceUnavailable;
+      case 'TIMEOUT':
+        return l.errorTimeout;
+      case 'CONNECTION_ERROR':
+        return l.errorConnection;
+      case 'NETWORK_ERROR':
+        return l.errorNetwork;
+      case 'CANCELLED':
+        return l.errorCancelled;
+      default:
+        // NOT_FOUND/BAD_REQUEST 등: 서버가 내려준 사용자 언어 메시지 사용.
         return message;
     }
   }

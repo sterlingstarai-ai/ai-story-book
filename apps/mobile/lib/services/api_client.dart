@@ -12,6 +12,11 @@ class InpaintUnsupportedException implements Exception {
   const InpaintUnsupportedException();
 }
 
+/// H17: 요청 내에서 이미지/오디오를 동기 처리하는 장시간 엔드포인트(retell·사진/그림
+/// 캐릭터 생성·페이지 오디오)의 per-call receiveTimeout. 기본 30초는 이들에 부족해
+/// 클라 타임아웃 후 서버는 완주 → orphan 리소스가 생겼다.
+const Duration kLongSyncReceiveTimeout = Duration(seconds: 180);
+
 /// API 클라이언트
 class ApiClient {
   static const Uuid _uuid = Uuid();
@@ -139,10 +144,18 @@ class ApiClient {
     String jobId,
     int pageNumber, {
     required String regenerateTarget,
+    String? feedback,
   }) async {
     await _dio.post(
       '/v1/books/$jobId/pages/$pageNumber/regenerate',
-      data: {'regenerate_target': regenerateTarget},
+      // L14: 계약 정본 키는 'mode'(openapi RegeneratePageRequest, additionalProperties:false).
+      // 값(text/image/both)은 mode enum과 동일. 백엔드 alias는 구버전 앱 호환용으로만 존재.
+      // M12: mode=text/both는 서버가 feedback을 필수로 요구한다(미전송 시 422).
+      data: {
+        'mode': regenerateTarget,
+        if (feedback != null && feedback.trim().isNotEmpty)
+          'feedback': feedback.trim(),
+      },
       options: Options(headers: _headers),
     );
   }
@@ -178,7 +191,12 @@ class ApiClient {
       }
       return newJobId;
     } on DioException catch (e) {
-      if (e.response?.statusCode == 409) {
+      // L14: 다른 의미의 409를 인페인트 미지원으로 오해석하지 않도록 error code까지 확인.
+      // 서버 봉투는 {"detail": "<메시지>", "error": {"code": ...}} 이므로 코드는 error.code에
+      // 있다. detail을 Map으로 읽던 이전 구현은 실제 응답에서 항상 false여서 폴백이 죽어
+      // 있었다 — 봉투 파싱은 ApiError(정본 파서) 하나만 쓴다.
+      if (e.response?.statusCode == 409 &&
+          ApiError.fromDioException(e).code == 'INPAINT_UNSUPPORTED') {
         throw const InpaintUnsupportedException();
       }
       rethrow;
@@ -204,18 +222,30 @@ class ApiClient {
     String? theme,
     String? seriesId,
     String? previousBookId,
+    String? style,
+    String? targetAge,
+    String? language,
+    String? idempotencyKey,
   }) async {
+    final headers = Map<String, String>.from(_headers);
+    if (idempotencyKey != null) {
+      headers['X-Idempotency-Key'] = idempotencyKey; // H18
+    }
     final response = await _dio.post(
       '/v1/books/series',
       data: {
         'character_id': characterId,
         'topic': topic,
         if (theme != null) 'theme': theme,
+        // H19: 원작 스타일·연령대·언어를 전달(미전송 시 watercolor/5-7로 깨지던 문제).
+        if (style != null) 'style': style,
+        if (targetAge != null) 'target_age': targetAge,
+        if (language != null) 'language': language,
         // 기존 시리즈 연결(없으면 백엔드가 새 시리즈 생성)
         if (seriesId != null) 'series_id': seriesId,
         if (previousBookId != null) 'previous_book_id': previousBookId,
       },
-      options: Options(headers: _headers),
+      options: Options(headers: headers),
     );
 
     return CreateBookResponse.fromJson(
@@ -229,7 +259,10 @@ class ApiClient {
     final response = await _dio.post(
       '/v1/books/$bookId/retell',
       data: {'target_age': targetAge},
-      options: Options(headers: _headers),
+      options: Options(
+        headers: _headers,
+        receiveTimeout: kLongSyncReceiveTimeout, // H17
+      ),
     );
     final map = _asJsonMap(
       response.data,
@@ -258,9 +291,15 @@ class ApiClient {
   }
 
   /// 기본 제공 캐릭터 프리셋 목록 ('기본 이미지' 주인공 선택)
-  Future<List<Map<String, dynamic>>> getCharacterPresets() async {
+  ///
+  /// [language] 로 표시 텍스트(이름/외형)를 앱 로케일에 맞춰 서빙받는다
+  /// (master_description 은 서버가 이미지 최적 영어로 고정).
+  Future<List<Map<String, dynamic>>> getCharacterPresets({
+    String language = 'ko',
+  }) async {
     final response = await _dio.get(
       '/v1/characters/presets',
+      queryParameters: {'language': language},
       options: Options(headers: _headers),
     );
     final data = _asJsonMap(
@@ -277,15 +316,20 @@ class ApiClient {
   }
 
   /// 프리셋으로 주인공 캐릭터 생성 (아이 이름 지정 가능, character_id 반환)
+  ///
+  /// [language] 는 저장될 표시 텍스트(이름/외형)의 로케일을 결정한다
+  /// (master_description 은 서버가 이미지 최적 영어로 고정 저장).
   Future<String> createCharacterFromPreset({
     required String presetId,
     String? name,
+    String language = 'ko',
   }) async {
     final response = await _dio.post(
       '/v1/characters/from-preset',
       data: {
         'preset_id': presetId,
         if (name != null && name.isNotEmpty) 'name': name,
+        'language': language,
       },
       options: Options(headers: _headers),
     );
@@ -347,6 +391,7 @@ class ApiClient {
     File photo, {
     String? name,
     String style = 'cartoon',
+    String? idempotencyKey,
   }) async {
     final formData = FormData.fromMap({
       'photo': await MultipartFile.fromFile(
@@ -357,12 +402,20 @@ class ApiClient {
       'style': style,
     });
 
+    // H17/G19: 요청 안에서 vision 분석을 동기 수행해 오래 걸린다. 타임아웃 후 재시도가
+    // 중복 캐릭터를 만들지 않도록 시도-단위 키를 보낸다(서버가 기존 결과를 반환).
+    final headers = Map<String, String>.from(_headers);
+    if (idempotencyKey != null) {
+      headers['X-Idempotency-Key'] = idempotencyKey;
+    }
+
     final response = await _dio.post(
       '/v1/characters/from-photo',
       data: formData,
       options: Options(
-        headers: _headers,
+        headers: headers,
         contentType: 'multipart/form-data',
+        receiveTimeout: kLongSyncReceiveTimeout, // H17
       ),
     );
 
@@ -376,6 +429,7 @@ class ApiClient {
     String? name,
     String style = 'storybook_crayon',
     bool generateSheet = true,
+    String? idempotencyKey,
   }) async {
     final formData = FormData.fromMap({
       'drawing': await MultipartFile.fromFile(
@@ -387,12 +441,19 @@ class ApiClient {
       'generate_sheet': generateSheet,
     });
 
+    // H17/G19: 그림 분석 + 시트 이미지 3장을 동기 수행 — 재시도 중복 방지 시도키.
+    final headers = Map<String, String>.from(_headers);
+    if (idempotencyKey != null) {
+      headers['X-Idempotency-Key'] = idempotencyKey;
+    }
+
     final response = await _dio.post(
       '/v1/characters/from-drawing',
       data: formData,
       options: Options(
-        headers: _headers,
+        headers: headers,
         contentType: 'multipart/form-data',
+        receiveTimeout: kLongSyncReceiveTimeout, // H17
       ),
     );
 
@@ -547,7 +608,10 @@ class ApiClient {
     final response = await _dio.get(
       '/v1/books/$bookId/pages/$pageNumber/audio',
       queryParameters: {'language': language},
-      options: Options(headers: _headers),
+      options: Options(
+        headers: _headers,
+        receiveTimeout: kLongSyncReceiveTimeout, // H17: 요청 내 TTS 합성
+      ),
     );
 
     final data = _asJsonMap(
@@ -869,7 +933,12 @@ class ApiClient {
     required String style,
     String? protagonistName,
     String language = 'ko',
+    String? idempotencyKey,
   }) async {
+    final headers = Map<String, String>.from(_headers);
+    if (idempotencyKey != null) {
+      headers['X-Idempotency-Key'] = idempotencyKey; // H18
+    }
     final response = await _dio.post(
       '/v1/streak/today/generate',
       data: {
@@ -879,7 +948,7 @@ class ApiClient {
         if (protagonistName != null && protagonistName.isNotEmpty)
           'protagonist_name': protagonistName,
       },
-      options: Options(headers: _headers),
+      options: Options(headers: headers),
     );
 
     final data = _asJsonMap(
@@ -1185,7 +1254,13 @@ class ApiClient {
     required String bookId,
     required int quantity,
     required Map<String, dynamic> shippingAddress,
+    String? idempotencyKey,
   }) async {
+    // 재시도(타임아웃 후 재탭) 시 같은 멱등키로 이중 주문/외부 draft 이중 생성을 막는다(H6).
+    final headers = Map<String, String>.from(_headers);
+    if (idempotencyKey != null) {
+      headers['X-Idempotency-Key'] = idempotencyKey;
+    }
     final response = await _dio.post(
       '/v1/pod/orders',
       data: {
@@ -1193,12 +1268,25 @@ class ApiClient {
         'quantity': quantity,
         'shipping_address': shippingAddress,
       },
-      options: Options(headers: _headers),
+      options: Options(headers: headers),
     );
     return _asJsonMap(
       response.data,
       context: '/v1/pod/orders response',
     );
+  }
+
+  /// POD 지역 견적(단가·배송비·통화) — 서버가 산출(표시-청구 일치 단일 소스, H20).
+  Future<Map<String, dynamic>> getPodQuote({
+    required String country,
+    required int quantity,
+  }) async {
+    final response = await _dio.get(
+      '/v1/pod/quote',
+      queryParameters: {'country': country, 'quantity': quantity},
+      options: Options(headers: _headers),
+    );
+    return _asJsonMap(response.data, context: '/v1/pod/quote response');
   }
 
   /// POD 주문 조회

@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/providers.dart';
+import '../services/timezone_sync.dart';
 import 'home_screen.dart';
 
 class StartupGateScreen extends ConsumerStatefulWidget {
@@ -33,6 +36,9 @@ class _StartupGateScreenState extends ConsumerState<StartupGateScreen> {
       Navigator.pushReplacementNamed(context, '/consent');
       return;
     }
+
+    // H2/G10: 기기 타임존을 서버에 동기화(변경 없으면 no-op). 실패해도 부팅을 막지 않는다.
+    unawaited(TimezoneSync.sync(api: ref.read(apiClientProvider), prefs: prefs));
 
     final doneOnboarding = await parental.hasSeenOnboarding(prefs);
     if (!doneOnboarding) {

@@ -48,8 +48,10 @@ async def test_detailed_health_check_healthy():
         ), patch(
             "src.services.job_monitor.get_job_metrics",
             new=AsyncMock(return_value={"queued": 0, "running": 0}),
-        ):
-            response = await client.get("/health/detailed")
+        ), patch("src.main.settings.admin_api_key", "testadminkey"):
+            response = await client.get(
+                "/health/detailed", headers={"X-Admin-Key": "testadminkey"}
+            )
             assert response.status_code == 200
             data = response.json()
             assert data["services"]["redis"] == "healthy"
@@ -68,8 +70,10 @@ async def test_detailed_health_check_redis_degraded():
         ), patch(
             "src.services.job_monitor.get_job_metrics",
             new=AsyncMock(return_value={"queued": 0, "running": 0}),
-        ):
-            response = await client.get("/health/detailed")
+        ), patch("src.main.settings.admin_api_key", "testadminkey"):
+            response = await client.get(
+                "/health/detailed", headers={"X-Admin-Key": "testadminkey"}
+            )
             assert response.status_code == 200
             data = response.json()
             assert data["services"]["redis"] == "unhealthy"
@@ -86,8 +90,10 @@ async def test_detailed_health_check_job_metrics_failure_degraded():
         ), patch(
             "src.services.job_monitor.get_job_metrics",
             new=AsyncMock(side_effect=RuntimeError("job monitor down")),
-        ):
-            response = await client.get("/health/detailed")
+        ), patch("src.main.settings.admin_api_key", "testadminkey"):
+            response = await client.get(
+                "/health/detailed", headers={"X-Admin-Key": "testadminkey"}
+            )
             assert response.status_code == 200
             data = response.json()
             assert data["services"]["job_monitor"] == "unhealthy"

@@ -527,6 +527,42 @@ class AppLocalizationsJa extends AppLocalizations {
   String get loadingUnknownError => '不明なエラー';
 
   @override
+  String get loadingTimeoutMessage => '生成に想定より時間がかかっています。ステータスをもう一度ご確認ください。';
+
+  @override
+  String get errorValidation => '入力内容をご確認ください。';
+
+  @override
+  String get errorUnauthorized => 'ログインが必要です。';
+
+  @override
+  String get errorForbidden => 'アクセス権限がありません。';
+
+  @override
+  String get errorInternal => 'サーバーエラーが発生しました。しばらくしてからもう一度お試しください。';
+
+  @override
+  String get errorRateLimit => 'リクエストが多すぎます。しばらくしてからもう一度お試しください。';
+
+  @override
+  String get errorServiceUnavailable => 'サーバーが一時的に不安定です。しばらくしてからもう一度お試しください。';
+
+  @override
+  String get errorTimeout => 'リクエストがタイムアウトしました。もう一度お試しください。';
+
+  @override
+  String get errorConnection => 'インターネット接続をご確認ください。';
+
+  @override
+  String get errorNetwork => 'ネットワークエラーが発生しました。';
+
+  @override
+  String get errorCancelled => 'リクエストがキャンセルされました。';
+
+  @override
+  String get loadingSafetyBlockedPrefix => '入力が安全ではありません:';
+
+  @override
   String get loadingRetryButton => '再試行';
 
   @override
@@ -564,6 +600,114 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get loadingStepPackage => '仕上げをしています';
+
+  @override
+  String get loadingStepLearningAssets => '学習教材を作成しています';
+
+  @override
+  String get dailyThemeFriendship => '友情';
+
+  @override
+  String get dailyTopicFriendship0 => '新しい友だちを作る';
+
+  @override
+  String get dailyTopicFriendship1 => '友だちと仲直り';
+
+  @override
+  String get dailyTopicFriendship2 => '分かち合う喜び';
+
+  @override
+  String get dailyTopicFriendship3 => '助け合う';
+
+  @override
+  String get dailyThemeCourage => '勇気';
+
+  @override
+  String get dailyTopicCourage0 => '恐れを乗りこえる';
+
+  @override
+  String get dailyTopicCourage1 => '新しい挑戦';
+
+  @override
+  String get dailyTopicCourage2 => '失敗しても大丈夫';
+
+  @override
+  String get dailyTopicCourage3 => '初めてのこと';
+
+  @override
+  String get dailyThemeKindness => '親切';
+
+  @override
+  String get dailyTopicKindness0 => '小さな親切の力';
+
+  @override
+  String get dailyTopicKindness1 => '助けが必要な友だち';
+
+  @override
+  String get dailyTopicKindness2 => '感謝の気持ち';
+
+  @override
+  String get dailyTopicKindness3 => '思いやりの心';
+
+  @override
+  String get dailyThemeFamily => '家族';
+
+  @override
+  String get dailyTopicFamily0 => 'パパママ大好き';
+
+  @override
+  String get dailyTopicFamily1 => 'きょうだいと一緒に';
+
+  @override
+  String get dailyTopicFamily2 => 'おじいちゃんおばあちゃんの家';
+
+  @override
+  String get dailyTopicFamily3 => '家族旅行';
+
+  @override
+  String get dailyThemeNature => '自然';
+
+  @override
+  String get dailyTopicNature0 => '森の探検';
+
+  @override
+  String get dailyTopicNature1 => '海のお話';
+
+  @override
+  String get dailyTopicNature2 => '春が来た';
+
+  @override
+  String get dailyTopicNature3 => '星空の夜';
+
+  @override
+  String get dailyThemeGrowth => '成長';
+
+  @override
+  String get dailyTopicGrowth0 => '一人でもできる';
+
+  @override
+  String get dailyTopicGrowth1 => '新しいことを学ぶ';
+
+  @override
+  String get dailyTopicGrowth2 => '失敗してもまた挑戦';
+
+  @override
+  String get dailyTopicGrowth3 => '夢に向かって';
+
+  @override
+  String get dailyThemeImagination => '想像';
+
+  @override
+  String get dailyTopicImagination0 => '魔法の世界';
+
+  @override
+  String get dailyTopicImagination1 => '雲の上の国';
+
+  @override
+  String get dailyTopicImagination2 => '動物たちの学校';
+
+  @override
+  String get dailyTopicImagination3 => 'おもちゃの秘密';
 
   @override
   String get loadingTip1 => 'お子さまに合った言葉と文章で物語が作られます';
@@ -869,9 +1013,24 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
-  String podOrderEstimatedTotal(Object amount) {
-    return '見込み $amountウォン';
+  String podOrderEstimatedTotal(Object amount, Object currency) {
+    return '見込み $amount $currency';
   }
+
+  @override
+  String get podOrderCityLabel => '市区町村';
+
+  @override
+  String get podOrderCityError => '市区町村を入力してください。';
+
+  @override
+  String get podOrderStateLabel => '州/都道府県';
+
+  @override
+  String get podOrderStateError => 'US/CAは州の入力が必要です。';
+
+  @override
+  String get podOrderAddressLine2Label => '住所2（任意）';
 
   @override
   String get podOrderSubmitting => '注文処理中...';
@@ -913,8 +1072,8 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
-  String podOrderPaymentAmount(Object amount) {
-    return '決済金額: $amountウォン';
+  String podOrderPaymentAmount(Object amount, Object currency) {
+    return '決済金額: $amount $currency';
   }
 
   @override
@@ -1197,7 +1356,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get settingsFinalConfirmTitle => '最終確認';
 
   @override
-  String get settingsFinalConfirmPrompt => '削除を進めるには、下に「삭제」と入力してください。';
+  String settingsFinalConfirmPrompt(Object keyword) {
+    return '削除を進めるには、下に「$keyword」と入力してください。';
+  }
 
   @override
   String get settingsDeleteKeyword => '削除';
@@ -1411,6 +1572,24 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get creditsPlanFallbackName => 'プラン';
+
+  @override
+  String get planFree => '無料';
+
+  @override
+  String get planBasic => 'ベーシック';
+
+  @override
+  String get planPremium => 'プレミアム';
+
+  @override
+  String get planFeaturesFree => '月2冊作成|水彩・カートゥーンスタイル|音声/PDF非対応';
+
+  @override
+  String get planFeaturesBasic => '月10冊作成|すべてのスタイル|PDF|基本TTS';
+
+  @override
+  String get planFeaturesPremium => '月30冊作成|すべての機能|プレミアムTTS|優先処理';
 
   @override
   String get creditsCurrentPlan => '現在のプラン';
@@ -1963,6 +2142,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get inpaintFailed => '部分修正に失敗しました。';
 
   @override
+  String get inpaintApplyingRefreshLater => '適用中です。しばらくしてから更新してください。';
+
+  @override
   String get viewerRegenerateAll => 'すべて';
 
   @override
@@ -1973,6 +2155,18 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get viewerRegenerateStarted => 'ページの再生成を開始しました。少々お待ちください。';
+
+  @override
+  String get viewerRegenerateFeedbackTitle => 'どのように変えますか？';
+
+  @override
+  String get viewerRegenerateFeedbackHint => '例: もっと短くやさしく書いてください';
+
+  @override
+  String get viewerRegenerateFeedbackRequired => '変えたい内容を教えてください';
+
+  @override
+  String get viewerRegenerateConfirm => '作り直す';
 
   @override
   String get viewerRegenerateFailed => '再生成に失敗しました。しばらくしてから再試行してください。';
@@ -2272,6 +2466,15 @@ class AppLocalizationsJa extends AppLocalizations {
       'お子さまの写真は絵本キャラクターの作成にのみ使用します。· 提供先：AIコンテンツ処理事業者（米国など国外を含む）· 項目：お子さまの顔写真 · 目的：絵本キャラクターの作成 · 保有・利用期間：キャラクターの一貫性を保つためサービス利用期間中保管し、同意の撤回・削除のご請求時に直ちに破棄します。· 運営者が写真を直接閲覧することはありません。· 拒否権：同意しなくても写真以外の機能はそのままご利用いただけます（任意）。';
 
   @override
+  String get photoConsentAgree => '同意';
+
+  @override
+  String get photoConsentCancel => 'キャンセル';
+
+  @override
+  String get photoConsentLoadFailed => '同意情報を読み込めませんでした。しばらくしてからもう一度お試しください。';
+
+  @override
   String get consentDataProcessingRequired => 'データの処理・保存ポリシーに同意（必須）';
 
   @override
@@ -2310,6 +2513,9 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get themeEmotionalCoaching => '感情コーチング';
+
+  @override
+  String get themeSocial => '社会性';
 
   @override
   String get themeFriendship => '友情';

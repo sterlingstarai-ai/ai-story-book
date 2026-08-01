@@ -12,6 +12,54 @@ import '../utils/constants.dart';
 import '../widgets/age_gate_dialog.dart';
 import '../widgets/common_widgets.dart';
 
+/// M15: 구독 플랜명을 안정 키(plan id)로 로컬라이즈한다. 서버는 한국어 name을
+/// 내려주지만(하위호환) en/ja 사용자에게 '베이직' 등을 노출하지 않도록 id→l10n.
+String localizedPlanName(
+  AppLocalizations l,
+  String planId,
+  String fallback,
+) {
+  switch (planId) {
+    case 'free':
+      return l.planFree;
+    case 'basic':
+      return l.planBasic;
+    case 'premium':
+      return l.planPremium;
+    default:
+      return fallback;
+  }
+}
+
+/// M15: 플랜 features를 로컬라이즈. arb에는 '|' 구분 문자열로 저장하고 분리한다.
+/// 매핑 없는 플랜은 서버 features로 폴백(하위호환).
+List<String> localizedPlanFeatures(
+  AppLocalizations l,
+  String planId,
+  List<String> fallback,
+) {
+  String? joined;
+  switch (planId) {
+    case 'free':
+      joined = l.planFeaturesFree;
+      break;
+    case 'basic':
+      joined = l.planFeaturesBasic;
+      break;
+    case 'premium':
+      joined = l.planFeaturesPremium;
+      break;
+  }
+  if (joined == null || joined.isEmpty) {
+    return fallback;
+  }
+  return joined
+      .split('|')
+      .map((s) => s.trim())
+      .where((s) => s.isNotEmpty)
+      .toList();
+}
+
 /// 크레딧 및 구독 화면
 class CreditsScreen extends ConsumerStatefulWidget {
   const CreditsScreen({super.key});
@@ -438,10 +486,18 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
   Widget _buildPlanCard(Map<String, dynamic> plan) {
     final l = AppLocalizations.of(context);
     final planId = _coerceText(plan['id']) ?? '';
-    final planName = _coerceText(plan['name']) ?? l.creditsPlanFallbackName;
+    final planName = localizedPlanName(
+      l,
+      planId,
+      _coerceText(plan['name']) ?? l.creditsPlanFallbackName,
+    );
     final price = _parseAmount(plan['price']);
     final creditsPerMonth = _parseAmount(plan['credits_per_month']);
-    final features = _asList(plan['features']);
+    final features = localizedPlanFeatures(
+      l,
+      planId,
+      _asList(plan['features']).map((f) => f.toString()).toList(),
+    );
     final isCurrentPlan =
         _coerceText(_asMap(_creditsStatus?['subscription'])['plan']) == planId;
 
@@ -720,10 +776,15 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
 
     final transactionId = purchase.purchaseID ??
         '${purchase.productID}-${DateTime.now().millisecondsSinceEpoch}';
+    // 검증 진행 중인 동일 트랜잭션의 중복 스트림 이벤트는 drop한다(MI2). 여기서 complete를
+    // 호출하면 원 이벤트의 검증 결과와 무관하게 트랜잭션이 마무리돼 대금 유실 위험이 있다.
     if (_verifyingTransactions.contains(transactionId)) {
-      await iapService.completePurchase(purchase);
       return;
     }
+
+    final isSubscription =
+        _subscriptionProductMap.containsValue(purchase.productID);
+    final consumable = !isSubscription;
 
     _verifyingTransactions.add(transactionId);
     try {
@@ -734,8 +795,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
         'platform': platform,
         'product_id': purchase.productID,
         'transaction_id': transactionId,
-        'is_subscription':
-            _subscriptionProductMap.containsValue(purchase.productID),
+        'is_subscription': isSubscription,
       };
       final serverData = purchase.verificationData.serverVerificationData;
       if (platform == 'apple') {
@@ -745,6 +805,10 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
       }
 
       final result = await apiClient.verifyIap(payload);
+      // 서버 검증 성공 후에만 스토어 트랜잭션을 마무리(Android 소모성은 consume). 검증
+      // 전에 마무리하면 미지급 상태로 대금이 영구 유실된다(C3). 실패 시(catch) 마무리하지
+      // 않아 pending으로 남기고 다음 실행 purchaseStream 재전달로 재검증되게 한다.
+      await iapService.finishPurchase(purchase, consumable: consumable);
       await _loadCreditsStatus();
 
       if (mounted) {
@@ -760,6 +824,8 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
         );
       }
     } catch (_) {
+      // 검증 실패: completePurchase/consume를 호출하지 않아 트랜잭션을 pending 유지 →
+      // 다음 앱 실행 시 재검증. 기존 문구가 '잠시 후 다시 시도' 취지라 그대로 재사용.
       if (mounted) {
         final l = AppLocalizations.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -768,7 +834,6 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
       }
     } finally {
       _verifyingTransactions.remove(transactionId);
-      await iapService.completePurchase(purchase);
     }
   }
 

@@ -341,6 +341,22 @@ class TestPageRegeneration:
         )
         assert response.status_code == 422
 
+    @pytest.mark.asyncio
+    async def test_regenerate_page_accepts_canonical_mode_key(
+        self, client: AsyncClient, headers: dict
+    ):
+        """L14: 계약 정본 키 'mode'가 수락된다(unknown-field 422가 아님).
+
+        image 모드는 feedback 불필요(M12 검증)라 body가 유효 → 존재하지 않는 잡으로 404.
+        'mode'가 거부되면(additionalProperties/unknown) 422가 된다.
+        """
+        response = await client.post(
+            "/v1/books/non-existent-job/pages/1/regenerate",
+            json={"mode": "image"},
+            headers=headers,
+        )
+        assert response.status_code == 404
+
 
 class TestSeriesBook:
     """Series book creation tests."""

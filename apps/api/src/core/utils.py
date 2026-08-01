@@ -2,11 +2,12 @@
 
 from datetime import date as _date
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
-# 서비스 표시·날짜경계 기준 타임존. 한국(KST=UTC+9) 사용자에게 스트릭/오늘읽음/주간추이가
-# UTC 자정(KST 오전 9시)에 어긋나지 않게 '하루' 판정은 KST 로컬 날짜로 한다.
-# (저장은 naive UTC 유지 — Postgres 호환 보존.)
-LOCAL_TZ_OFFSET = timedelta(hours=9)
+# 하루/월 경계 판정의 기본 타임존. 글로벌 제품이므로 사용자별 IANA timezone(user_settings)을
+# 헬퍼에 넘겨 경계를 계산한다(H2/G10). 미전달 호출부는 기본 Asia/Seoul로 기존 동작 보존(점진 이관).
+# DST는 zoneinfo로 안전 처리(고정 offset 덧셈 금지). 저장은 naive UTC 유지(Postgres 호환).
+DEFAULT_TZ = "Asia/Seoul"
 
 
 def utcnow() -> datetime:
@@ -19,39 +20,64 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-def to_local_date(dt: datetime) -> _date:
-    """naive UTC datetime → KST(UTC+9) 로컬 날짜. 스트릭/오늘 판정용."""
-    return (dt + LOCAL_TZ_OFFSET).date()
+def _to_aware_local(dt: datetime, tz: str) -> datetime:
+    """naive UTC datetime → 대상 tz의 aware datetime(DST 반영)."""
+    return dt.replace(tzinfo=timezone.utc).astimezone(ZoneInfo(tz))
 
 
-def local_today() -> _date:
-    """현재 KST 로컬 날짜."""
-    return to_local_date(utcnow())
+def _naive_utc(aware: datetime) -> datetime:
+    return aware.astimezone(timezone.utc).replace(tzinfo=None)
 
 
-def local_day_bounds_utc(dt=None) -> tuple:
-    """주어진 시각(naive UTC, 기본=현재)이 속한 KST 로컬 '하루'의 [시작, 끝) UTC 경계.
+def to_local_date(dt: datetime, tz: str = DEFAULT_TZ) -> _date:
+    """naive UTC datetime → 사용자 tz의 로컬 날짜. 스트릭/오늘 판정용(DST 안전)."""
+    return _to_aware_local(dt, tz).date()
 
-    DB의 read_date(naive UTC) 범위 쿼리에 그대로 쓸 수 있다(KST 자정 기준 하루).
+
+def local_today(tz: str = DEFAULT_TZ) -> _date:
+    """현재 사용자 tz의 로컬 날짜."""
+    return to_local_date(utcnow(), tz)
+
+
+def local_day_bounds_utc(dt=None, tz: str = DEFAULT_TZ) -> tuple:
+    """주어진 시각(naive UTC, 기본=현재)이 속한 tz 로컬 '하루'의 [시작, 끝) UTC 경계.
+
+    DB의 read_date(naive UTC) 범위 쿼리에 그대로 쓸 수 있다(로컬 자정 기준 하루, DST 안전).
     """
-    local_d = to_local_date(dt if dt is not None else utcnow())
-    start_local = datetime(local_d.year, local_d.month, local_d.day)
-    start_utc = start_local - LOCAL_TZ_OFFSET
-    return start_utc, start_utc + timedelta(days=1)
+    zone = ZoneInfo(tz)
+    local_d = to_local_date(dt if dt is not None else utcnow(), tz)
+    next_d = local_d + timedelta(days=1)
+    start_local = datetime(local_d.year, local_d.month, local_d.day, tzinfo=zone)
+    # 다음 '로컬 자정'을 절대 24h 덧셈이 아니라 다음 날짜 자정으로 계산(DST 정확).
+    end_local = datetime(next_d.year, next_d.month, next_d.day, tzinfo=zone)
+    return _naive_utc(start_local), _naive_utc(end_local)
 
 
-def local_month_bounds_utc(dt=None) -> tuple:
-    """현재(또는 dt) 시각이 속한 KST 로컬 '달'의 [시작, 끝) UTC 경계.
-
-    월간 책 생성 한도 등 '이번 달' 판정을 KST 기준으로(일일 한도·스트릭과 일관).
-    """
-    base_local = (dt if dt is not None else utcnow()) + LOCAL_TZ_OFFSET
-    start_local = datetime(base_local.year, base_local.month, 1)
-    if start_local.month == 12:
-        end_local = datetime(start_local.year + 1, 1, 1)
+def local_month_bounds_utc(dt=None, tz: str = DEFAULT_TZ) -> tuple:
+    """현재(또는 dt) 시각이 속한 tz 로컬 '달'의 [시작, 끝) UTC 경계(DST 안전)."""
+    zone = ZoneInfo(tz)
+    base = to_local_date(dt if dt is not None else utcnow(), tz)
+    start_local = datetime(base.year, base.month, 1, tzinfo=zone)
+    if base.month == 12:
+        end_local = datetime(base.year + 1, 1, 1, tzinfo=zone)
     else:
-        end_local = datetime(start_local.year, start_local.month + 1, 1)
-    return start_local - LOCAL_TZ_OFFSET, end_local - LOCAL_TZ_OFFSET
+        end_local = datetime(base.year, base.month + 1, 1, tzinfo=zone)
+    return _naive_utc(start_local), _naive_utc(end_local)
+
+
+def local_month_range_utc(year: int, month: int, tz: str = DEFAULT_TZ) -> tuple:
+    """임의의 (year, month) tz 로컬 '달'의 [시작, 끝) UTC 경계(DST 안전, L7).
+
+    캘린더가 '지금 기준 상대 윈도우'가 아니라 요청 월의 절대 경계로 조회하도록,
+    과거·미래 임의 달의 로컬 자정 경계를 UTC로 환산한다(read_date 범위 쿼리에 사용).
+    """
+    zone = ZoneInfo(tz)
+    start_local = datetime(year, month, 1, tzinfo=zone)
+    if month == 12:
+        end_local = datetime(year + 1, 1, 1, tzinfo=zone)
+    else:
+        end_local = datetime(year, month + 1, 1, tzinfo=zone)
+    return _naive_utc(start_local), _naive_utc(end_local)
 
 
 def derive_age_band(birth_year: int, birth_month: int, ref=None) -> str:

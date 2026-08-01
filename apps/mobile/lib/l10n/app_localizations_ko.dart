@@ -527,6 +527,42 @@ class AppLocalizationsKo extends AppLocalizations {
   String get loadingUnknownError => '알 수 없는 오류';
 
   @override
+  String get loadingTimeoutMessage => '생성이 예상보다 오래 걸리고 있어요. 상태를 다시 확인해 주세요.';
+
+  @override
+  String get errorValidation => '입력 정보를 확인해주세요.';
+
+  @override
+  String get errorUnauthorized => '로그인이 필요합니다.';
+
+  @override
+  String get errorForbidden => '접근 권한이 없습니다.';
+
+  @override
+  String get errorInternal => '서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.';
+
+  @override
+  String get errorRateLimit => '요청이 너무 많습니다. 잠시 후 다시 시도해주세요.';
+
+  @override
+  String get errorServiceUnavailable => '서버가 일시적으로 불안정합니다. 잠시 후 다시 시도해주세요.';
+
+  @override
+  String get errorTimeout => '요청 시간이 초과되었습니다. 다시 시도해주세요.';
+
+  @override
+  String get errorConnection => '인터넷 연결을 확인해주세요.';
+
+  @override
+  String get errorNetwork => '네트워크 오류가 발생했습니다.';
+
+  @override
+  String get errorCancelled => '요청이 취소되었습니다.';
+
+  @override
+  String get loadingSafetyBlockedPrefix => '입력이 안전하지 않습니다:';
+
+  @override
   String get loadingRetryButton => '다시 시도';
 
   @override
@@ -564,6 +600,114 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get loadingStepPackage => '마무리하고 있어요';
+
+  @override
+  String get loadingStepLearningAssets => '학습 자료를 만들고 있어요';
+
+  @override
+  String get dailyThemeFriendship => '우정';
+
+  @override
+  String get dailyTopicFriendship0 => '새 친구 사귀기';
+
+  @override
+  String get dailyTopicFriendship1 => '친구와 화해하기';
+
+  @override
+  String get dailyTopicFriendship2 => '함께 나누는 기쁨';
+
+  @override
+  String get dailyTopicFriendship3 => '서로 도와주기';
+
+  @override
+  String get dailyThemeCourage => '용기';
+
+  @override
+  String get dailyTopicCourage0 => '두려움 극복하기';
+
+  @override
+  String get dailyTopicCourage1 => '새로운 도전';
+
+  @override
+  String get dailyTopicCourage2 => '실수해도 괜찮아';
+
+  @override
+  String get dailyTopicCourage3 => '처음 해보는 일';
+
+  @override
+  String get dailyThemeKindness => '친절';
+
+  @override
+  String get dailyTopicKindness0 => '작은 친절의 힘';
+
+  @override
+  String get dailyTopicKindness1 => '도움이 필요한 친구';
+
+  @override
+  String get dailyTopicKindness2 => '감사한 마음';
+
+  @override
+  String get dailyTopicKindness3 => '배려하는 마음';
+
+  @override
+  String get dailyThemeFamily => '가족';
+
+  @override
+  String get dailyTopicFamily0 => '엄마 아빠 사랑해요';
+
+  @override
+  String get dailyTopicFamily1 => '동생과 함께';
+
+  @override
+  String get dailyTopicFamily2 => '할머니 할아버지 댁';
+
+  @override
+  String get dailyTopicFamily3 => '가족 여행';
+
+  @override
+  String get dailyThemeNature => '자연';
+
+  @override
+  String get dailyTopicNature0 => '숲속 탐험';
+
+  @override
+  String get dailyTopicNature1 => '바다 이야기';
+
+  @override
+  String get dailyTopicNature2 => '봄이 왔어요';
+
+  @override
+  String get dailyTopicNature3 => '별빛 가득한 밤';
+
+  @override
+  String get dailyThemeGrowth => '성장';
+
+  @override
+  String get dailyTopicGrowth0 => '혼자서도 할 수 있어요';
+
+  @override
+  String get dailyTopicGrowth1 => '새로운 것 배우기';
+
+  @override
+  String get dailyTopicGrowth2 => '실패해도 다시 도전';
+
+  @override
+  String get dailyTopicGrowth3 => '꿈을 향해';
+
+  @override
+  String get dailyThemeImagination => '상상';
+
+  @override
+  String get dailyTopicImagination0 => '마법의 세계';
+
+  @override
+  String get dailyTopicImagination1 => '구름 위 나라';
+
+  @override
+  String get dailyTopicImagination2 => '동물 친구들의 학교';
+
+  @override
+  String get dailyTopicImagination3 => '장난감의 비밀';
 
   @override
   String get loadingTip1 => '아이에게 맞는 단어와 문장으로 이야기가 만들어져요';
@@ -869,9 +1013,24 @@ class AppLocalizationsKo extends AppLocalizations {
   }
 
   @override
-  String podOrderEstimatedTotal(Object amount) {
-    return '예상 $amount원';
+  String podOrderEstimatedTotal(Object amount, Object currency) {
+    return '예상 $amount $currency';
   }
+
+  @override
+  String get podOrderCityLabel => '도시';
+
+  @override
+  String get podOrderCityError => '도시를 입력해주세요.';
+
+  @override
+  String get podOrderStateLabel => '주/State';
+
+  @override
+  String get podOrderStateError => 'US/CA는 주/State를 입력해주세요.';
+
+  @override
+  String get podOrderAddressLine2Label => '상세주소(선택)';
 
   @override
   String get podOrderSubmitting => '주문 처리 중...';
@@ -913,8 +1072,8 @@ class AppLocalizationsKo extends AppLocalizations {
   }
 
   @override
-  String podOrderPaymentAmount(Object amount) {
-    return '결제금액: $amount원';
+  String podOrderPaymentAmount(Object amount, Object currency) {
+    return '결제금액: $amount $currency';
   }
 
   @override
@@ -1195,7 +1354,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get settingsFinalConfirmTitle => '최종 확인';
 
   @override
-  String get settingsFinalConfirmPrompt => '삭제를 진행하려면 아래에 \"삭제\"를 입력하세요.';
+  String settingsFinalConfirmPrompt(Object keyword) {
+    return '삭제를 진행하려면 아래에 \"$keyword\"를 입력하세요.';
+  }
 
   @override
   String get settingsDeleteKeyword => '삭제';
@@ -1410,6 +1571,24 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get creditsPlanFallbackName => '플랜';
+
+  @override
+  String get planFree => '무료';
+
+  @override
+  String get planBasic => '베이직';
+
+  @override
+  String get planPremium => '프리미엄';
+
+  @override
+  String get planFeaturesFree => '월 2권 생성|watercolor/cartoon 스타일|오디오/PDF 미지원';
+
+  @override
+  String get planFeaturesBasic => '월 10권 생성|모든 스타일|PDF|기본 TTS';
+
+  @override
+  String get planFeaturesPremium => '월 30권 생성|모든 기능|프리미엄 TTS|우선 처리';
 
   @override
   String get creditsCurrentPlan => '현재 플랜';
@@ -1962,6 +2141,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get inpaintFailed => '부분 수정에 실패했어요.';
 
   @override
+  String get inpaintApplyingRefreshLater => '적용 중이에요. 잠시 후 새로고침 해주세요.';
+
+  @override
   String get viewerRegenerateAll => '모두';
 
   @override
@@ -1972,6 +2154,18 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get viewerRegenerateStarted => '페이지 재생성이 시작되었어요. 잠시만 기다려주세요.';
+
+  @override
+  String get viewerRegenerateFeedbackTitle => '어떻게 바꿀까요?';
+
+  @override
+  String get viewerRegenerateFeedbackHint => '예: 더 짧고 쉽게 써주세요';
+
+  @override
+  String get viewerRegenerateFeedbackRequired => '바꾸고 싶은 내용을 알려주세요';
+
+  @override
+  String get viewerRegenerateConfirm => '다시 만들기';
 
   @override
   String get viewerRegenerateFailed => '재생성에 실패했어요. 잠시 후 다시 시도해주세요.';
@@ -2271,6 +2465,15 @@ class AppLocalizationsKo extends AppLocalizations {
       '아이 사진은 동화 캐릭터 생성에만 쓰입니다. · 받는 곳: AI 콘텐츠 처리 업체(미국 등 국외) · 항목: 아이 얼굴 사진 · 목적: 동화 캐릭터 생성 · 보유·이용기간: 캐릭터 일관성 유지를 위해 서비스 이용 기간 동안 보관, 동의 철회·삭제 요청 시 즉시 파기 · 운영자는 사진을 직접 열람하지 않습니다. · 거부권: 동의하지 않아도 사진 외 기능은 그대로 이용할 수 있어요(선택).';
 
   @override
+  String get photoConsentAgree => '동의';
+
+  @override
+  String get photoConsentCancel => '취소';
+
+  @override
+  String get photoConsentLoadFailed => '동의 정보를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.';
+
+  @override
   String get consentDataProcessingRequired => '데이터 처리 및 저장 정책에 동의 (필수)';
 
   @override
@@ -2308,6 +2511,9 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get themeEmotionalCoaching => '감정코칭';
+
+  @override
+  String get themeSocial => '사회성';
 
   @override
   String get themeFriendship => '우정';

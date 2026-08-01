@@ -1442,6 +1442,17 @@
       },
       "FromPresetRequest": {
         "properties": {
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
           "name": {
             "anyOf": [
               {
@@ -2666,12 +2677,24 @@
             "title": "Series Title"
           },
           "style": {
-            "$ref": "#/components/schemas/Style",
-            "default": "watercolor"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Style"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "target_age": {
-            "$ref": "#/components/schemas/TargetAge",
-            "default": "5-7"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TargetAge"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "theme": {
             "anyOf": [
@@ -2806,6 +2829,18 @@
               }
             ],
             "title": "Sleep Mode Default Minutes"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone"
           }
         },
         "title": "SettingsPatchRequest",
@@ -3067,6 +3102,10 @@
           "가족",
           "모험",
           "자연",
+          "용기",
+          "친절",
+          "성장",
+          "상상",
           "과학",
           "시간여행",
           "동물",
@@ -3156,6 +3195,17 @@
           "topic": {
             "title": "Topic",
             "type": "string"
+          },
+          "topic_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic Id"
           }
         },
         "required": [
@@ -3461,8 +3511,26 @@
     },
     "/health/detailed": {
       "get": {
-        "description": "Detailed health check with job metrics and external API status",
+        "description": "Detailed health check with job metrics and external API status.\n\nM9: 내부 메트릭·config·missing_keys(빠진 보안설정 목록)를 노출하므로 X-Admin-Key\n인증을 요구한다(무인증 정찰 차단). admin_api_key 미설정이면 detailed 미제공(403).",
         "operationId": "detailed_health_check_health_detailed_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Admin-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-Key"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -3471,6 +3539,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Detailed Health Check"
@@ -3764,6 +3842,22 @@
               "description": "Optional active child profile id",
               "title": "X-Profile-Id"
             }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Idempotency-Key"
+            }
           }
         ],
         "requestBody": {
@@ -3856,6 +3950,19 @@
               }
             },
             "description": "Successful Response"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": {
+                    "code": "AUDIO_NOT_SUPPORTED",
+                    "message": "이 배포에서는 오디오 기능을 사용할 수 없습니다."
+                  }
+                }
+              }
+            },
+            "description": "이 배포에서 오디오 기능이 비활성(H1/G9) — 클라이언트는 /v1/config/capabilities의 audio_supported로 UI를 숨겨야 함."
           },
           "422": {
             "content": {
@@ -3973,7 +4080,7 @@
             "required": false,
             "schema": {
               "default": "ko",
-              "pattern": "^(ko|en)$",
+              "pattern": "^(ko|en|ja|zh|es)$",
               "title": "Language",
               "type": "string"
             }
@@ -4016,6 +4123,19 @@
               }
             },
             "description": "Successful Response"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": {
+                    "code": "AUDIO_NOT_SUPPORTED",
+                    "message": "이 배포에서는 오디오 기능을 사용할 수 없습니다."
+                  }
+                }
+              }
+            },
+            "description": "이 배포에서 오디오 기능이 비활성(H1/G9) — 클라이언트는 /v1/config/capabilities의 audio_supported로 UI를 숨겨야 함."
           },
           "422": {
             "content": {
@@ -4127,6 +4247,22 @@
               "description": "User identification key",
               "title": "X-User-Key",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Idempotency-Key"
             }
           }
         ],
@@ -4427,6 +4563,19 @@
               }
             },
             "description": "Successful Response"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": {
+                    "code": "INPAINT_UNSUPPORTED",
+                    "message": "현재 이미지 제공자는 부분 재생성을 지원하지 않습니다."
+                  }
+                }
+              }
+            },
+            "description": "이미지 제공자가 부분 재생성(인페인트)을 지원하지 않음 — 클라이언트는 전체 재생성으로 폴백해야 함(L14 계약 명세)."
           },
           "422": {
             "content": {
@@ -4830,7 +4979,7 @@
     },
     "/v1/characters/from-drawing": {
       "post": {
-        "description": "아이 그림을 캐릭터로 변환한다.\n\n- 그림 분석으로 캐릭터 외형/성격 추론\n- 캐릭터 레코드 저장\n- 선택적으로 캐릭터 시트 이미지(포즈 3종) 생성",
+        "description": "아이 그림을 캐릭터로 변환한다.\n\n- 그림 분석으로 캐릭터 외형/성격 추론\n- 캐릭터 레코드 저장\n- 선택적으로 캐릭터 시트 이미지(포즈 3종) 생성\n- `X-Idempotency-Key`를 보내면 재시도가 기존 캐릭터를 반환한다(재분석·시트 재생성 없음).\n  시트 URL은 생성 시점 provider 반환값이라 재현 불가 — 재시도 응답에서는 빈 배열이다.",
         "operationId": "create_character_from_drawing_v1_characters_from_drawing_post",
         "parameters": [
           {
@@ -4842,6 +4991,22 @@
               "description": "User identification key",
               "title": "X-User-Key",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Idempotency-Key"
             }
           }
         ],
@@ -4883,7 +5048,7 @@
     },
     "/v1/characters/from-photo": {
       "post": {
-        "description": "사진에서 캐릭터 생성\n\n- 사진을 분석하여 캐릭터 특성 추출\n- AI가 동화 스타일로 변환\n- 자동으로 캐릭터 시트 생성",
+        "description": "사진에서 캐릭터 생성\n\n- 사진을 분석하여 캐릭터 특성 추출\n- AI가 동화 스타일로 변환\n- 자동으로 캐릭터 시트 생성\n- `X-Idempotency-Key`를 보내면 재시도가 기존 캐릭터를 그대로 반환한다(재분석 없음)",
         "operationId": "create_character_from_photo_v1_characters_from_photo_post",
         "parameters": [
           {
@@ -4895,6 +5060,22 @@
               "description": "User identification key",
               "title": "X-User-Key",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Idempotency-Key"
             }
           }
         ],
@@ -4938,7 +5119,7 @@
     },
     "/v1/characters/from-preset": {
       "post": {
-        "description": "기본 캐릭터 프리셋으로 주인공 캐릭터를 생성한다(아이 이름 지정 가능).",
+        "description": "기본 캐릭터 프리셋으로 주인공 캐릭터를 생성한다(아이 이름 지정 가능).\n\n표시 텍스트(name/appearance/clothing/visual_style_notes)는 요청 언어로 저장하고,\nmaster_description 은 이미지 최적 영어로 고정 저장한다(G31 불변식).",
         "operationId": "create_character_from_preset_v1_characters_from_preset_post",
         "parameters": [
           {
@@ -5048,8 +5229,26 @@
     },
     "/v1/characters/presets": {
       "get": {
-        "description": "기본 제공 캐릭터 프리셋 목록(외형 묘사 + 썸네일 asset). '기본 이미지 선택' 경로.",
+        "description": "기본 제공 캐릭터 프리셋 목록(외형 묘사 + 썸네일 asset). '기본 이미지 선택' 경로.\n\nlanguage 로 표시 텍스트(name/appearance/clothing/visual_style_notes)를 로케일별로\n서빙한다(미지정·미지원은 ko 폴백). master_description 은 이미지 최적 영어로 고정.",
         "operationId": "list_character_presets_v1_characters_presets_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "language",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Language"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -5058,6 +5257,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "List Character Presets",
@@ -5975,6 +6184,22 @@
               "title": "Token",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "X-Webhook-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Webhook-Token"
+            }
           }
         ],
         "requestBody": {
@@ -6025,6 +6250,22 @@
               "default": "",
               "title": "Token",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Webhook-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Webhook-Token"
             }
           }
         ],
@@ -6385,6 +6626,22 @@
               "title": "X-User-Key",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Idempotency-Key"
+            }
           }
         ],
         "requestBody": {
@@ -6469,6 +6726,68 @@
           }
         },
         "summary": "Get Pod Order",
+        "tags": [
+          "POD"
+        ]
+      }
+    },
+    "/v1/pod/quote": {
+      "get": {
+        "description": "지역 견적(단가·배송비·통화)을 서버가 산출해 반환(H20). create_pod_order와 동일한\n_pod_pricing_for를 재사용해 표시-청구 통화·금액 일치를 보장한다(클라 가격 미신뢰).",
+        "operationId": "get_pod_quote_v1_pod_quote_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "country",
+            "required": true,
+            "schema": {
+              "title": "Country",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "quantity",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "title": "Quantity",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "User identification key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "User identification key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Pod Quote",
         "tags": [
           "POD"
         ]
@@ -7265,8 +7584,28 @@
     },
     "/v1/streak/today": {
       "get": {
-        "description": "오늘의 동화 조회\n\n- 매일 새로운 테마와 주제 제공\n- 날짜별로 고정된 테마/주제 (모든 사용자 동일)",
+        "description": "오늘의 동화 조회\n\n- 매일 새로운 테마와 주제 제공\n- 날짜별로 고정된 테마/주제 (모든 사용자 동일)\n- book_id: X-User-Key 가 있으면 그 사용자가 오늘 생성 완료한 오늘의 동화 책 id (없으면 null)",
         "operationId": "get_today_story_v1_streak_today_get",
+        "parameters": [
+          {
+            "description": "Optional user key; fills today's book_id when present",
+            "in": "header",
+            "name": "x-user-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional user key; fills today's book_id when present",
+              "title": "X-User-Key"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -7277,6 +7616,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Get Today Story",
@@ -7317,6 +7666,22 @@
               ],
               "description": "Optional active child profile id",
               "title": "X-Profile-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Idempotency-Key"
             }
           }
         ],

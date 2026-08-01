@@ -42,21 +42,34 @@ PRODUCTION_REQUIRED_VARS=(
   "S3_SECRET_KEY"
   "S3_BUCKET"
   "CORS_ORIGINS"
+  # IAP: strict 모드·웹훅 서명 시크릿은 운영 필수(readiness도 최종 게이트).
+  "IAP_VERIFICATION_MODE"
+  "IAP_WEBHOOK_SECRET"
 )
 
 LOCAL_OPTIONAL_VARS=(
   "LLM_API_KEY"
   "IMAGE_API_KEY"
+  "AUDIO_FEATURE_ENABLED"
   "TTS_PROVIDER"
+  "STT_PROVIDER"
   "ADMIN_API_KEY"
 )
 
+# H1/G9: 오디오는 GA에서 기본 비활성(AUDIO_FEATURE_ENABLED=false)이라 TTS/STT를
+# 무조건 필수로 두지 않는다. AUDIO_FEATURE_ENABLED=true로 켜면 TTS_PROVIDER(google/
+# elevenlabs)·STT_PROVIDER(openai/google) 라이브 구성이 필수가 되며, 이는 런타임
+# /health/ready(tts_provider_not_live / stt_provider_not_live)가 최종 게이트한다.
 PRODUCTION_OPTIONAL_VARS=(
   "LLM_API_KEY"
   "IMAGE_API_KEY"
+  "AUDIO_FEATURE_ENABLED"
   "TTS_PROVIDER"
+  "STT_PROVIDER"
   "S3_PUBLIC_URL"
   "ADMIN_API_KEY"
+  "APPLE_IAP_SHARED_SECRET"
+  "GOOGLE_PLAY_PACKAGE_NAME"
 )
 
 print_help() {

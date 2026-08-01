@@ -22,7 +22,7 @@ class KakaoShareService {
   static const _nativeAppKey = String.fromEnvironment('KAKAO_NATIVE_APP_KEY');
   static const _webBaseUrl = String.fromEnvironment(
     'SHARE_WEB_BASE_URL',
-    defaultValue: 'https://aistorybook.app/books',
+    defaultValue: 'https://aistorybook.com/books',
   );
 
   Uri? get _shareBaseUri => Uri.tryParse(_webBaseUrl);
@@ -81,11 +81,10 @@ class KakaoShareService {
 
     ensureInitialized();
     // 공개 토큰 페이지(/share/{token})를 링크로 사용한다. 예전의 {base}/books/{bookId}는
-    // 공개 페이지로 해석되지 않아(404) 수신자가 책을 볼 수 없었다. bookId는 앱 설치 시
-    // 딥링크로 바로 책을 여는 execution params 로만 쓴다.
+    // 공개 페이지로 해석되지 않아(404) 수신자가 책을 볼 수 없었다. L21/G28: 카카오 딥링크
+    // 수신은 1차 출시 제외 — execution params 없이 공개 공유 웹페이지로만 연다(미배선 데드 제거).
     final webUrl = Uri.tryParse(shareUrl) ??
         Uri.parse('${_shareBaseUri.toString()}/$bookId');
-    final appParams = {'book_id': bookId};
 
     final template = FeedTemplate(
       content: Content(
@@ -95,8 +94,6 @@ class KakaoShareService {
         link: Link(
           webUrl: webUrl,
           mobileWebUrl: webUrl,
-          androidExecutionParams: appParams,
-          iosExecutionParams: appParams,
         ),
       ),
       buttons: [
@@ -105,8 +102,6 @@ class KakaoShareService {
           link: Link(
             webUrl: webUrl,
             mobileWebUrl: webUrl,
-            androidExecutionParams: appParams,
-            iosExecutionParams: appParams,
           ),
         ),
       ],

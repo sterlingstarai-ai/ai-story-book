@@ -51,6 +51,63 @@ async def test_paid_subscribe_allowed_in_testing(client, headers):
     assert r.status_code == 200, r.text
 
 
+# ── M13: 활성 유료 구독 보유 시 free 전환 거부 + 잔여기간 보존 ──
+@pytest.mark.asyncio
+async def test_free_subscribe_rejected_when_active_paid_sub(
+    client, db_session, headers, user_key, monkeypatch
+):
+    monkeypatch.setattr(settings, "testing", False)
+    monkeypatch.setattr(settings, "allow_unverified_subscribe", False)
+    from src.services.credits import credits_service
+
+    await credits_service.create_subscription(db_session, user_key, "premium")
+    before = await credits_service.get_active_subscription(db_session, user_key)
+    before_end = before.current_period_end
+
+    r = await client.post(
+        "/v1/credits/subscribe", json={"plan": "free"}, headers=headers
+    )
+    assert r.status_code == 400, r.text  # 거부(현재는 free가 유료 구독 즉시 소멸)
+
+    db_session.expire_all()
+    after = await credits_service.get_active_subscription(db_session, user_key)
+    assert after is not None
+    assert after.plan == "premium"
+    assert after.status == "active"
+    assert after.current_period_end == before_end  # 잔여기간 미소멸
+
+
+@pytest.mark.asyncio
+async def test_create_subscription_keeps_prev_period_end(db_session):
+    from sqlalchemy import select
+
+    from src.models.db import Subscription
+    from src.services.credits import credits_service
+
+    basic = await credits_service.create_subscription(db_session, "m13u", "basic")
+    basic_id = basic.id
+    basic_end = basic.current_period_end
+
+    await credits_service.create_subscription(db_session, "m13u", "premium")
+
+    db_session.expire_all()
+    basic_row = await db_session.get(Subscription, basic_id)
+    assert basic_row.status == "cancelled"
+    assert basic_row.current_period_end == basic_end  # now로 즉시 소멸되지 않음
+
+    active = await credits_service.get_active_subscription(db_session, "m13u")
+    assert active is not None and active.plan == "premium"
+    # 업그레이드 경로 정합: active 구독은 여전히 정확히 1행
+    actives = (
+        await db_session.execute(
+            select(Subscription).where(
+                Subscription.user_key == "m13u", Subscription.status == "active"
+            )
+        )
+    ).scalars().all()
+    assert len(actives) == 1
+
+
 # ── IAP 웹훅 인증 ──
 @pytest.mark.asyncio
 async def test_iap_webhook_requires_secret_when_configured(client, monkeypatch):

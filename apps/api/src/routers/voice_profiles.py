@@ -20,7 +20,7 @@ from src.core.dependencies import get_user_key
 from src.core.exceptions import InternalServerError, NotFoundError, ValidationError
 from src.core.utils import utcnow
 from src.models.db import VoiceProfile
-from src.services.storage import storage_service
+from src.services.storage import delete_keys, key_from_public_url, storage_service
 
 router = APIRouter()
 logger = structlog.get_logger()
@@ -236,12 +236,25 @@ async def update_voice_profile(
         setattr(profile, key, value)
 
     # 동의 철회 시 활성 해제 + 공급자 음성 키 제거
+    # S1: 철회 의미는 revoke-consent와 동일하므로 원본 오디오도 같은 계약으로 파기한다.
+    purge_url: Optional[str] = None
     if request.consented is False:
         profile.active = False
         profile.provider_voice_id = None
+        purge_url = profile.sample_audio_url
+        profile.sample_audio_url = ""
 
     await db.commit()
     await db.refresh(profile)
+
+    if purge_url:
+        failed_keys = await _purge_sample_audio(purge_url)
+        if failed_keys:
+            logger.warning(
+                "Voice sample purge failures on consent withdrawal",
+                profile_id=profile.id,
+                failed_keys=failed_keys,
+            )
     logger.info(
         "Voice profile updated",
         profile_id=profile.id,
@@ -249,6 +262,26 @@ async def update_voice_profile(
         consented=profile.consented,
     )
     return _serialize(profile)
+
+
+
+async def _purge_sample_audio(sample_audio_url: Optional[str]) -> list[str]:
+    """음성 샘플 원본을 스토리지에서 파기하고 **실패한 키 목록**을 반환한다(S1).
+
+    가족 음성은 biometric-adjacent PII이고 sample_audio_url은 만료 없는 안정 공개 URL이라,
+    행만 지우면 링크 유출·캐시 시 계속 접근 가능하다. 계정 삭제(users.py)·캐릭터 단건
+    삭제(characters.py)와 동일하게 '삭제/철회 = 원본 즉시 파기'를 집행한다.
+    실패는 삼키지 않고 반환해 호출부가 status=partial로 표면화한다(H8 계약).
+    """
+    key = key_from_public_url(sample_audio_url)
+    if not key:
+        # 우리 버킷이 아닌 외부 URL(역산 불가) — 파기 대상 아님.
+        return []
+    try:
+        return await delete_keys([key])
+    except Exception as exc:  # pragma: no cover - 방어적
+        logger.warning("voice sample purge failed", error=str(exc))
+        return [key]
 
 
 @router.post("/{profile_id}/revoke-consent")
@@ -267,11 +300,24 @@ async def revoke_voice_profile_consent(
     if not profile:
         raise NotFoundError("음성 프로필", profile_id)
 
+    # S1: 동의 철회는 삭제보다 강한 파기 트리거다(PIPA 철회-파기 의무). 원본 오디오를
+    # 남기면 '철회했는데 목소리는 그대로'가 된다 — 파기 후 행의 참조도 끊는다.
+    sample_audio_url = profile.sample_audio_url
+
     profile.consented = False
     profile.active = False
     profile.provider_voice_id = None
+    profile.sample_audio_url = ""
     await db.commit()
     await db.refresh(profile)
+
+    failed_keys = await _purge_sample_audio(sample_audio_url)
+    if failed_keys:
+        logger.warning(
+            "Voice sample purge failures on consent revoke",
+            profile_id=profile.id,
+            failed_keys=failed_keys,
+        )
 
     logger.info(
         "Voice profile consent revoked",
@@ -279,8 +325,9 @@ async def revoke_voice_profile_consent(
     )
 
     return {
-        "status": "success",
+        "status": "partial" if failed_keys else "success",
         "profile": _serialize(profile),
+        **({"failed_keys": failed_keys} if failed_keys else {}),
     }
 
 
@@ -300,8 +347,20 @@ async def delete_voice_profile(
     if not profile:
         raise NotFoundError("음성 프로필", profile_id)
 
+    # S1: 행을 지우면 sample_audio_url이 사라져 키 역산이 불가능해진다(영구 고아).
+    # 계정 삭제·캐릭터 삭제와 동일 순서 — 삭제 전 캡처, 커밋 후 파기.
+    sample_audio_url = profile.sample_audio_url
+
     await db.delete(profile)
     await db.commit()
+
+    failed_keys = await _purge_sample_audio(sample_audio_url)
+    if failed_keys:
+        logger.warning(
+            "Voice sample delete failures",
+            profile_id=profile_id,
+            failed_keys=failed_keys,
+        )
 
     logger.info(
         "Voice profile deleted",
@@ -309,6 +368,7 @@ async def delete_voice_profile(
     )
 
     return {
-        "status": "success",
+        "status": "partial" if failed_keys else "success",
         "profile_id": profile_id,
+        **({"failed_keys": failed_keys} if failed_keys else {}),
     }

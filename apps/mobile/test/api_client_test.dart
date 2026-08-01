@@ -54,6 +54,165 @@ void main() {
       await requestHandled.future.timeout(const Duration(seconds: 1));
     });
 
+    test('regeneratePage sends mode key, not regenerate_target (L14)', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+
+      Map<String, dynamic>? captured;
+      final done = Completer<void>();
+      server.listen((request) async {
+        final body = await utf8.decoder.bind(request).join();
+        captured = jsonDecode(body) as Map<String, dynamic>;
+        request.response.statusCode = HttpStatus.ok;
+        await request.response.close();
+        done.complete();
+      });
+
+      final client = ApiClient(
+        baseUrl: 'http://${server.address.host}:${server.port}',
+        userKey: 'test-user',
+        enableLogging: false,
+      );
+
+      await client.regeneratePage('job1', 2, regenerateTarget: 'both');
+      await done.future.timeout(const Duration(seconds: 1));
+      expect(captured?['mode'], 'both');
+      expect(captured?.containsKey('regenerate_target'), isFalse);
+    });
+
+    test('regeneratePage sends feedback for text mode (M12 서버 필수값)', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+
+      Map<String, dynamic>? captured;
+      final done = Completer<void>();
+      server.listen((request) async {
+        final body = await utf8.decoder.bind(request).join();
+        captured = jsonDecode(body) as Map<String, dynamic>;
+        request.response.statusCode = HttpStatus.ok;
+        await request.response.close();
+        done.complete();
+      });
+
+      final client = ApiClient(
+        baseUrl: 'http://${server.address.host}:${server.port}',
+        userKey: 'test-user',
+        enableLogging: false,
+      );
+
+      await client.regeneratePage('job1', 1,
+          regenerateTarget: 'text', feedback: '더 짧고 쉽게 써주세요');
+      await done.future.timeout(const Duration(seconds: 1));
+      // feedback 미전송 시 서버가 422로 거절 → 메뉴가 100% 실패한다.
+      expect(captured?['feedback'], '더 짧고 쉽게 써주세요');
+      expect(captured?['mode'], 'text');
+    });
+
+    test('inpaintPage rethrows a 409 that is not INPAINT_UNSUPPORTED (L14)',
+        () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      server.listen((request) async {
+        request.response.statusCode = 409;
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(
+          // 실제 서버 에러 봉투(core/exceptions.py _build_error_content) 그대로.
+          jsonEncode({
+            'detail': '요청 처리 중 오류가 발생했습니다.',
+            'error': {'code': 'SOME_OTHER_CONFLICT', 'message': '충돌'},
+          }),
+        );
+        await request.response.close();
+      });
+
+      final client = ApiClient(
+        baseUrl: 'http://${server.address.host}:${server.port}',
+        userKey: 'test-user',
+        enableLogging: false,
+      );
+      final tmp = File('${Directory.systemTemp.path}/mask_l14.png')
+        ..writeAsBytesSync([1, 2, 3]);
+      addTearDown(() {
+        if (tmp.existsSync()) tmp.deleteSync();
+      });
+
+      await expectLater(
+        client.inpaintPage('job1', 1, tmp, 'brighten'),
+        throwsA(isNot(isA<InpaintUnsupportedException>())),
+      );
+    });
+
+    test('inpaintPage throws InpaintUnsupportedException on the real 409 (L14)',
+        () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      server.listen((request) async {
+        request.response.statusCode = 409;
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(
+          // 실제 서버 에러 봉투 — code는 detail이 아니라 error.code에 온다.
+          jsonEncode({
+            'detail': '현재 이미지 제공자는 부분 재생성을 지원하지 않습니다.',
+            'error': {
+              'code': 'INPAINT_UNSUPPORTED',
+              'message': '현재 이미지 제공자는 부분 재생성을 지원하지 않습니다.',
+            },
+          }),
+        );
+        await request.response.close();
+      });
+
+      final client = ApiClient(
+        baseUrl: 'http://${server.address.host}:${server.port}',
+        userKey: 'test-user',
+        enableLogging: false,
+      );
+      final tmp = File('${Directory.systemTemp.path}/mask_l14_ok.png')
+        ..writeAsBytesSync([1, 2, 3]);
+      addTearDown(() {
+        if (tmp.existsSync()) tmp.deleteSync();
+      });
+
+      // 정본 폴백 신호는 그대로 살아있어야 한다(narrowing이 happy path를 깨지 않음).
+      await expectLater(
+        client.inpaintPage('job1', 1, tmp, 'brighten'),
+        throwsA(isA<InpaintUnsupportedException>()),
+      );
+    });
+
+    test('createCharacterFromPhoto/Drawing send X-Idempotency-Key (#9)', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+
+      final seenKeys = <String, String?>{};
+      server.listen((request) async {
+        seenKeys[request.uri.path] =
+            request.headers.value('x-idempotency-key');
+        await utf8.decoder.bind(request).join(); // 본문 소비
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({'character_id': 'char-1'}));
+        await request.response.close();
+      });
+
+      final client = ApiClient(
+        baseUrl: 'http://${server.address.host}:${server.port}',
+        userKey: 'test-user',
+        enableLogging: false,
+      );
+      final tmp = File('${Directory.systemTemp.path}/char_idem.png')
+        ..writeAsBytesSync([1, 2, 3]);
+      addTearDown(() {
+        if (tmp.existsSync()) tmp.deleteSync();
+      });
+
+      await client.createCharacterFromPhoto(tmp, idempotencyKey: 'attempt-1');
+      await client.createCharacterFromDrawing(tmp, idempotencyKey: 'attempt-2');
+
+      // 키를 보내지 않으면 서버가 dedup할 수 없어 타임아웃 재시도가 중복 캐릭터를 만든다.
+      expect(seenKeys['/v1/characters/from-photo'], 'attempt-1');
+      expect(seenKeys['/v1/characters/from-drawing'], 'attempt-2');
+    });
+
     test('createShareLink posts to book share endpoint and parses url',
         () async {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -324,6 +483,56 @@ void main() {
       await requestHandled.future.timeout(const Duration(seconds: 1));
     });
 
+    test('createPodOrder sends X-Idempotency-Key header (H6)', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+
+      String? seenKey;
+      server.listen((request) async {
+        seenKey = request.headers.value('x-idempotency-key');
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({'order_id': 'pod_1', 'status': 'created'}));
+        await request.response.close();
+      });
+
+      final client = ApiClient(
+        baseUrl: 'http://${server.address.host}:${server.port}',
+        userKey: 'test-user',
+        enableLogging: false,
+      );
+      await client.createPodOrder(
+        bookId: 'book-1',
+        quantity: 1,
+        shippingAddress: const {'name': 'A', 'line1': 'B', 'city': 'C',
+          'postal_code': '1', 'country': 'KR'},
+        idempotencyKey: 'pod-key-1',
+      );
+      expect(seenKey, 'pod-key-1');
+    });
+
+    test('getPodQuote parses region price and currency (H20)', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+
+      server.listen((request) async {
+        expect(request.uri.path, '/v1/pod/quote');
+        expect(request.uri.queryParameters['country'], 'US');
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({
+          'unit_price': 20, 'shipping_fee': 5, 'total_price': 25, 'currency': 'USD'}));
+        await request.response.close();
+      });
+
+      final client = ApiClient(
+        baseUrl: 'http://${server.address.host}:${server.port}',
+        userKey: 'test-user',
+        enableLogging: false,
+      );
+      final quote = await client.getPodQuote(country: 'US', quantity: 1);
+      expect(quote['total_price'], 25);
+      expect(quote['currency'], 'USD');
+    });
+
     test('getBookStatus parses generation warnings and page asset status',
         () async {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -515,6 +724,33 @@ void main() {
       expect(result['status'], 'success');
       expect(result['score'], 88.5);
       await requestHandled.future.timeout(const Duration(seconds: 1));
+    });
+
+    test('createSeriesBook sends style/target_age/language (H19)', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+
+      Map<String, dynamic>? seen;
+      server.listen((request) async {
+        final body = await utf8.decoder.bind(request).join();
+        seen = jsonDecode(body) as Map<String, dynamic>;
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({'job_id': 'j1', 'status': 'queued'}));
+        await request.response.close();
+      });
+
+      final client = ApiClient(
+        baseUrl: 'http://${server.address.host}:${server.port}',
+        userKey: 'test-user',
+        enableLogging: false,
+      );
+      await client.createSeriesBook(
+        characterId: 'c1', topic: 't', previousBookId: 'b0',
+        style: '3d', targetAge: '7-9', language: 'en',
+      );
+      expect(seen!['style'], '3d');
+      expect(seen!['target_age'], '7-9');
+      expect(seen!['language'], 'en');
     });
   });
 }

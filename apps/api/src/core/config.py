@@ -7,6 +7,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 API_ROOT = Path(__file__).resolve().parents[2]
 API_ENV_FILE = API_ROOT / ".env"
 
+# 앱 버전은 코드가 정본(GA 1.0.0 통일). APP_VERSION env·구버전 .env 잔재가 런타임
+# info.version을 흔들어 계약 신선도 테스트를 소음화하지 않도록, pydantic 필드가 아니라
+# 모듈 상수 + property로 노출해 env 오버라이드 대상에서 제외한다(M8).
+APP_VERSION = "1.0.0"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -17,10 +22,12 @@ class Settings(BaseSettings):
 
     # App
     app_name: str = "AI Story Book API"
-    # 기본값을 커밋된 OpenAPI 계약·.env와 일치시켜, .env 부재(CI Phase Gate)에서도
-    # info.version이 흔들리지 않게 한다(계약 테스트 환경 비의존).
-    app_version: str = "1.0.0"
     debug: bool = False  # Must be False in production
+
+    @property
+    def app_version(self) -> str:
+        """코드 정본 버전(APP_VERSION env로 오버라이드 불가)."""
+        return APP_VERSION
     testing: bool = False  # Set to True in test environment
 
     # Database
@@ -59,6 +66,10 @@ class Settings(BaseSettings):
     # 인페인트(부분 재생성) — replicate(SDXL, image+mask 입력 지원) / fal에서만 동작.
     # FAL 인페인트 엔드포인트(배포 환경에서 확정 가능, 기본값 overridable).
     image_inpaint_fal_endpoint: str = "https://fal.run/fal-ai/flux-lora/inpainting"
+
+    # 오디오(낭독·발음) 기능 플래그 — G9: GA에서 명시적 비활성으로 출시(원격 config로 전환).
+    # False면 /health/ready가 TTS/STT 라이브 구성을 게이트하지 않는다(기능이 꺼져 있으므로).
+    audio_feature_enabled: bool = False
 
     # TTS (Text-to-Speech)
     tts_provider: str = "mock"  # mock, google, elevenlabs
@@ -113,6 +124,10 @@ class Settings(BaseSettings):
 
     # Guardrails
     daily_job_limit_per_user: int = 20  # Max jobs per user per day
+    # S4: 전역 일일 생성 예산(전 사용자 합계). X-User-Key 로테이션으로 per-user 통제가
+    # 모두 우회되므로, 개별 식별자와 무관한 상한으로 LLM/이미지 청구서 폭증을 막는다.
+    # 0 이하 = 비활성. 운영은 실측 트래픽 기준으로 넉넉히 잡고 알림으로 조기 인지한다.
+    daily_generation_budget: int = 0
     max_pending_jobs: int = 100  # Max pending jobs in queue before rejecting
 
     # Free plan enforcement
@@ -130,6 +145,9 @@ class Settings(BaseSettings):
     allow_unverified_subscribe: bool = False
     # 설정 시 IAP 웹훅에 ?token= 일치를 요구(미설정=무검증 — 운영에선 반드시 설정).
     iap_webhook_secret: str = ""
+    # 앱스토어 리뷰/TestFlight 심사용 Sandbox 영수증을 운영에서 지급 허용할 상품 id 목록
+    # (콤마 구분). 이 목록 외 Sandbox 영수증은 운영에서 지급 차단(L10/G8).
+    review_sandbox_allowlist: str = ""
 
     # 공유 링크 기본 도메인(예: https://share.aistorybook.app). 미설정 시 요청 호스트에서 구성.
     share_base_url: str = ""

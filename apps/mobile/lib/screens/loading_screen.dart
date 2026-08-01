@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../l10n/app_localizations.dart';
@@ -5,6 +7,27 @@ import '../models/models.dart';
 import '../providers/providers.dart';
 import '../utils/constants.dart';
 import '../widgets/common_widgets.dart';
+
+/// M29: 실패 잡의 표시 텍스트 조합.
+///
+/// 안전 차단(SAFETY_INPUT)은 서버가 사용자 언어로 생성된 reasons만 담아 오므로,
+/// 클라이언트가 로컬라이즈된 접두어를 붙여 표시한다(한국어 접두어 하드코딩 제거).
+/// 그 외 에러 코드는 서버 메시지를 원문 그대로 사용한다.
+String composeJobErrorText(
+  AppLocalizations l,
+  String? errorCode,
+  String? errorMessage,
+) {
+  // H17: 폴링 타임아웃은 로컬라이즈된 안내로(TimeoutException 원문 미노출).
+  if (errorCode == 'TIMEOUT') {
+    return l.loadingTimeoutMessage;
+  }
+  final message = errorMessage ?? l.loadingUnknownError;
+  if (errorCode == 'SAFETY_INPUT') {
+    return '${l.loadingSafetyBlockedPrefix} $message';
+  }
+  return message;
+}
 
 /// 로딩 화면 (책 생성 진행 상황)
 class LoadingScreen extends ConsumerStatefulWidget {
@@ -73,15 +96,22 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
                 currentStep: l.loadingStepWaiting,
               ),
             ),
-            error: (error, _) => _buildErrorContent(
-              context,
-              JobStatus(
-                jobId: widget.jobId,
-                status: JobState.failed,
-                progress: 0,
-                errorMessage: error.toString(),
-              ),
-            ),
+            error: (error, _) {
+              // H17: 폴링 타임아웃은 서버 실패와 구분한다. 원문(TimeoutException…
+              // 한국어) 노출 대신 로컬라이즈 문구로, 주 액션은 신규 생성이 아니라
+              // 현재 잡 재조회로(크레딧 재차감·서재 중복 방지).
+              final isTimeout = error is TimeoutException;
+              return _buildErrorContent(
+                context,
+                JobStatus(
+                  jobId: widget.jobId,
+                  status: JobState.failed,
+                  progress: 0,
+                  errorCode: isTimeout ? 'TIMEOUT' : null,
+                  errorMessage: isTimeout ? null : error.toString(),
+                ),
+              );
+            },
           ),
         ),
       ),
@@ -189,23 +219,39 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            status.errorMessage ?? l.loadingUnknownError,
+            composeJobErrorText(l, status.errorCode, status.errorMessage),
             style: AppTextStyles.bodySmall,
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: AppSpacing.xl),
-          PrimaryButton(
-            text: l.loadingRetryButton,
-            isFullWidth: false,
-            onPressed: () {
-              Navigator.pushReplacementNamed(context, '/create');
-            },
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          TextButton(
-            onPressed: () => ref.invalidate(jobPollingProvider(widget.jobId)),
-            child: Text(l.loadingCheckStatusButton),
-          ),
+          // H17: 타임아웃이면 주 액션은 '상태 다시 확인'(현재 잡 재조회) — 신규 생성으로
+          // 직행하면 크레딧 재차감·서재 중복이 발생한다. 진짜 서버 실패에서만 신규 생성.
+          if (status.errorCode == 'TIMEOUT') ...[
+            PrimaryButton(
+              text: l.loadingCheckStatusButton,
+              isFullWidth: false,
+              onPressed: () => ref.invalidate(jobPollingProvider(widget.jobId)),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            TextButton(
+              onPressed: () =>
+                  Navigator.pushReplacementNamed(context, '/create'),
+              child: Text(l.loadingRetryButton),
+            ),
+          ] else ...[
+            PrimaryButton(
+              text: l.loadingRetryButton,
+              isFullWidth: false,
+              onPressed: () {
+                Navigator.pushReplacementNamed(context, '/create');
+              },
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            TextButton(
+              onPressed: () => ref.invalidate(jobPollingProvider(widget.jobId)),
+              child: Text(l.loadingCheckStatusButton),
+            ),
+          ],
           const SizedBox(height: AppSpacing.md),
           TextButton(
             onPressed: () => Navigator.pushReplacementNamed(context, '/'),
@@ -220,6 +266,10 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
     if (step == null) return l.loadingStepPreparing;
 
     final descriptions = {
+      // M32: 백엔드 안정 키 → 로케일 문자열. 백엔드가 한국어 표시 문자열 대신 이 키를
+      // 보내므로 `?? step` 폴백이 더 이상 한국어 원문을 노출하지 않는다.
+      'queued': l.loadingStepWaiting,
+      'preparing': l.loadingStepPreparing,
       'normalize': l.loadingStepNormalize,
       'moderate_input': l.loadingStepModerateInput,
       'generate_story': l.loadingStepGenerateStory,
@@ -227,7 +277,9 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
       'generate_image_prompts': l.loadingStepGenerateImagePrompts,
       'generate_images': l.loadingStepGenerateImages,
       'moderate_output': l.loadingStepModerateOutput,
+      'learning_assets': l.loadingStepLearningAssets,
       'package': l.loadingStepPackage,
+      'done': l.loadingCompleted,
     };
 
     return descriptions[step] ?? step;

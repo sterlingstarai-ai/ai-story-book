@@ -1,7 +1,11 @@
 # FastAPI
 fastapi==0.115.0
 uvicorn[standard]==0.32.0
-python-multipart==0.0.12
+# 업로드 파싱 런타임 의존(pronunciation·voice-profiles·인페인트·characters 4경로).
+# 수정 이력: CVE-2024-53981(boundary DoS, <0.0.18) · CVE-2026-24486(경로순회 임의 파일쓰기,
+# fix 0.0.22) · CVE-2026-42561(헤더 과다 DoS, fix 0.0.27) · CVE-2026-53539(form-urlencoded DoS,
+# fix 0.0.30). 0.0.22+ 는 requires_python>=3.10 — CI Python 3.11 기준 충족.
+python-multipart==0.0.32
 
 # Database
 sqlalchemy==2.0.36
@@ -23,14 +27,17 @@ boto3==1.35.0
 
 # HTTP Client
 httpx==0.28.1
-aiohttp==3.11.0
+# aiohttp 제거(CI-1): src/·tests/ 어디서도 import하지 않는 고아 의존이었고(역의존 0 실측),
+# 상향해도 수정본 없는 CVE가 남았다. 안 쓰는 의존을 지워 현재 CVE + 향후 aiohttp CVE를
+# 영구 제거하고 공격 표면·이미지 크기도 줄인다. HTTP 클라이언트 정본은 httpx.
 google-auth==2.40.0
 
 # Templating
-jinja2==3.1.4
+# CVE 수정본 존재(<3.1.6 취약: 샌드박스 우회 계열 3건) — 실제 상향 가능해 즉시 적용.
+jinja2==3.1.6
 
 # Utils
-python-dotenv==1.2.1
+python-dotenv==1.2.2
 structlog==24.4.0
 
 # PDF Generation

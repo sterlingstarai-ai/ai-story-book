@@ -59,7 +59,19 @@ android {
             signingConfig = if (keyPropertiesFile.exists()) {
                 signingConfigs.getByName("release")
             } else {
-                signingConfigs.getByName("debug")
+                // L18: fail-closed. release 태스크인데 key.properties가 없으면 debug 서명으로
+                // 조용히 폴백하지 않고 빌드를 실패시킨다(androiddebugkey로 서명된 '릴리스'
+                // 산출물 유통 방지). debug 빌드/flutter run은 release 태스크가 아니므로 통과.
+                val isReleaseBuild = gradle.startParameter.taskNames.any {
+                    it.contains("Release", ignoreCase = true)
+                }
+                if (isReleaseBuild) {
+                    throw GradleException(
+                        "release 빌드에는 android/key.properties가 필요합니다. debug 서명 폴백 금지."
+                    )
+                }
+                // release 태스크가 아니면 release 변형은 서명하지 않고 null(debug 산출물 무관).
+                null
             }
         }
     }

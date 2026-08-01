@@ -1096,6 +1096,78 @@ abstract class AppLocalizations {
   /// **'Unknown error'**
   String get loadingUnknownError;
 
+  /// No description provided for @loadingTimeoutMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Generation is taking longer than expected. Please check the status again.'**
+  String get loadingTimeoutMessage;
+
+  /// No description provided for @errorValidation.
+  ///
+  /// In en, this message translates to:
+  /// **'Please check your input.'**
+  String get errorValidation;
+
+  /// No description provided for @errorUnauthorized.
+  ///
+  /// In en, this message translates to:
+  /// **'Please sign in.'**
+  String get errorUnauthorized;
+
+  /// No description provided for @errorForbidden.
+  ///
+  /// In en, this message translates to:
+  /// **'You don\'t have permission for this.'**
+  String get errorForbidden;
+
+  /// No description provided for @errorInternal.
+  ///
+  /// In en, this message translates to:
+  /// **'A server error occurred. Please try again in a moment.'**
+  String get errorInternal;
+
+  /// No description provided for @errorRateLimit.
+  ///
+  /// In en, this message translates to:
+  /// **'Too many requests. Please try again in a moment.'**
+  String get errorRateLimit;
+
+  /// No description provided for @errorServiceUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'The server is temporarily unstable. Please try again in a moment.'**
+  String get errorServiceUnavailable;
+
+  /// No description provided for @errorTimeout.
+  ///
+  /// In en, this message translates to:
+  /// **'The request timed out. Please try again.'**
+  String get errorTimeout;
+
+  /// No description provided for @errorConnection.
+  ///
+  /// In en, this message translates to:
+  /// **'Please check your internet connection.'**
+  String get errorConnection;
+
+  /// No description provided for @errorNetwork.
+  ///
+  /// In en, this message translates to:
+  /// **'A network error occurred.'**
+  String get errorNetwork;
+
+  /// No description provided for @errorCancelled.
+  ///
+  /// In en, this message translates to:
+  /// **'The request was cancelled.'**
+  String get errorCancelled;
+
+  /// Prefix shown before server-provided safety reasons when input moderation blocks a book (SAFETY_INPUT).
+  ///
+  /// In en, this message translates to:
+  /// **'This input isn\'t safe:'**
+  String get loadingSafetyBlockedPrefix;
+
   /// No description provided for @loadingRetryButton.
   ///
   /// In en, this message translates to:
@@ -1173,6 +1245,222 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Wrapping things up'**
   String get loadingStepPackage;
+
+  /// No description provided for @loadingStepLearningAssets.
+  ///
+  /// In en, this message translates to:
+  /// **'Creating learning materials'**
+  String get loadingStepLearningAssets;
+
+  /// No description provided for @dailyThemeFriendship.
+  ///
+  /// In en, this message translates to:
+  /// **'Friendship'**
+  String get dailyThemeFriendship;
+
+  /// No description provided for @dailyTopicFriendship0.
+  ///
+  /// In en, this message translates to:
+  /// **'Making a new friend'**
+  String get dailyTopicFriendship0;
+
+  /// No description provided for @dailyTopicFriendship1.
+  ///
+  /// In en, this message translates to:
+  /// **'Making up with a friend'**
+  String get dailyTopicFriendship1;
+
+  /// No description provided for @dailyTopicFriendship2.
+  ///
+  /// In en, this message translates to:
+  /// **'The joy of sharing'**
+  String get dailyTopicFriendship2;
+
+  /// No description provided for @dailyTopicFriendship3.
+  ///
+  /// In en, this message translates to:
+  /// **'Helping each other'**
+  String get dailyTopicFriendship3;
+
+  /// No description provided for @dailyThemeCourage.
+  ///
+  /// In en, this message translates to:
+  /// **'Courage'**
+  String get dailyThemeCourage;
+
+  /// No description provided for @dailyTopicCourage0.
+  ///
+  /// In en, this message translates to:
+  /// **'Overcoming fear'**
+  String get dailyTopicCourage0;
+
+  /// No description provided for @dailyTopicCourage1.
+  ///
+  /// In en, this message translates to:
+  /// **'A new challenge'**
+  String get dailyTopicCourage1;
+
+  /// No description provided for @dailyTopicCourage2.
+  ///
+  /// In en, this message translates to:
+  /// **'It\'s okay to make mistakes'**
+  String get dailyTopicCourage2;
+
+  /// No description provided for @dailyTopicCourage3.
+  ///
+  /// In en, this message translates to:
+  /// **'Trying something new'**
+  String get dailyTopicCourage3;
+
+  /// No description provided for @dailyThemeKindness.
+  ///
+  /// In en, this message translates to:
+  /// **'Kindness'**
+  String get dailyThemeKindness;
+
+  /// No description provided for @dailyTopicKindness0.
+  ///
+  /// In en, this message translates to:
+  /// **'The power of small kindness'**
+  String get dailyTopicKindness0;
+
+  /// No description provided for @dailyTopicKindness1.
+  ///
+  /// In en, this message translates to:
+  /// **'A friend who needs help'**
+  String get dailyTopicKindness1;
+
+  /// No description provided for @dailyTopicKindness2.
+  ///
+  /// In en, this message translates to:
+  /// **'A grateful heart'**
+  String get dailyTopicKindness2;
+
+  /// No description provided for @dailyTopicKindness3.
+  ///
+  /// In en, this message translates to:
+  /// **'A caring heart'**
+  String get dailyTopicKindness3;
+
+  /// No description provided for @dailyThemeFamily.
+  ///
+  /// In en, this message translates to:
+  /// **'Family'**
+  String get dailyThemeFamily;
+
+  /// No description provided for @dailyTopicFamily0.
+  ///
+  /// In en, this message translates to:
+  /// **'I love mom and dad'**
+  String get dailyTopicFamily0;
+
+  /// No description provided for @dailyTopicFamily1.
+  ///
+  /// In en, this message translates to:
+  /// **'Together with my sibling'**
+  String get dailyTopicFamily1;
+
+  /// No description provided for @dailyTopicFamily2.
+  ///
+  /// In en, this message translates to:
+  /// **'At grandma and grandpa\'s'**
+  String get dailyTopicFamily2;
+
+  /// No description provided for @dailyTopicFamily3.
+  ///
+  /// In en, this message translates to:
+  /// **'A family trip'**
+  String get dailyTopicFamily3;
+
+  /// No description provided for @dailyThemeNature.
+  ///
+  /// In en, this message translates to:
+  /// **'Nature'**
+  String get dailyThemeNature;
+
+  /// No description provided for @dailyTopicNature0.
+  ///
+  /// In en, this message translates to:
+  /// **'Exploring the forest'**
+  String get dailyTopicNature0;
+
+  /// No description provided for @dailyTopicNature1.
+  ///
+  /// In en, this message translates to:
+  /// **'A story of the sea'**
+  String get dailyTopicNature1;
+
+  /// No description provided for @dailyTopicNature2.
+  ///
+  /// In en, this message translates to:
+  /// **'Spring has come'**
+  String get dailyTopicNature2;
+
+  /// No description provided for @dailyTopicNature3.
+  ///
+  /// In en, this message translates to:
+  /// **'A starry night'**
+  String get dailyTopicNature3;
+
+  /// No description provided for @dailyThemeGrowth.
+  ///
+  /// In en, this message translates to:
+  /// **'Growth'**
+  String get dailyThemeGrowth;
+
+  /// No description provided for @dailyTopicGrowth0.
+  ///
+  /// In en, this message translates to:
+  /// **'I can do it myself'**
+  String get dailyTopicGrowth0;
+
+  /// No description provided for @dailyTopicGrowth1.
+  ///
+  /// In en, this message translates to:
+  /// **'Learning something new'**
+  String get dailyTopicGrowth1;
+
+  /// No description provided for @dailyTopicGrowth2.
+  ///
+  /// In en, this message translates to:
+  /// **'Try again after failing'**
+  String get dailyTopicGrowth2;
+
+  /// No description provided for @dailyTopicGrowth3.
+  ///
+  /// In en, this message translates to:
+  /// **'Toward my dream'**
+  String get dailyTopicGrowth3;
+
+  /// No description provided for @dailyThemeImagination.
+  ///
+  /// In en, this message translates to:
+  /// **'Imagination'**
+  String get dailyThemeImagination;
+
+  /// No description provided for @dailyTopicImagination0.
+  ///
+  /// In en, this message translates to:
+  /// **'A magical world'**
+  String get dailyTopicImagination0;
+
+  /// No description provided for @dailyTopicImagination1.
+  ///
+  /// In en, this message translates to:
+  /// **'A land above the clouds'**
+  String get dailyTopicImagination1;
+
+  /// No description provided for @dailyTopicImagination2.
+  ///
+  /// In en, this message translates to:
+  /// **'The animal friends\' school'**
+  String get dailyTopicImagination2;
+
+  /// No description provided for @dailyTopicImagination3.
+  ///
+  /// In en, this message translates to:
+  /// **'The toys\' secret'**
+  String get dailyTopicImagination3;
 
   /// No description provided for @loadingTip1.
   ///
@@ -1759,8 +2047,38 @@ abstract class AppLocalizations {
   /// No description provided for @podOrderEstimatedTotal.
   ///
   /// In en, this message translates to:
-  /// **'Est. {amount} KRW'**
-  String podOrderEstimatedTotal(Object amount);
+  /// **'Est. {amount} {currency}'**
+  String podOrderEstimatedTotal(Object amount, Object currency);
+
+  /// No description provided for @podOrderCityLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'City'**
+  String get podOrderCityLabel;
+
+  /// No description provided for @podOrderCityError.
+  ///
+  /// In en, this message translates to:
+  /// **'Please enter a city.'**
+  String get podOrderCityError;
+
+  /// No description provided for @podOrderStateLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'State/Province'**
+  String get podOrderStateLabel;
+
+  /// No description provided for @podOrderStateError.
+  ///
+  /// In en, this message translates to:
+  /// **'State is required for US/CA orders.'**
+  String get podOrderStateError;
+
+  /// No description provided for @podOrderAddressLine2Label.
+  ///
+  /// In en, this message translates to:
+  /// **'Address line 2 (optional)'**
+  String get podOrderAddressLine2Label;
 
   /// No description provided for @podOrderSubmitting.
   ///
@@ -1831,8 +2149,8 @@ abstract class AppLocalizations {
   /// No description provided for @podOrderPaymentAmount.
   ///
   /// In en, this message translates to:
-  /// **'Payment amount: {amount} KRW'**
-  String podOrderPaymentAmount(Object amount);
+  /// **'Payment amount: {amount} {currency}'**
+  String podOrderPaymentAmount(Object amount, Object currency);
 
   /// No description provided for @podOrderSyncValue.
   ///
@@ -2329,8 +2647,8 @@ abstract class AppLocalizations {
   /// No description provided for @settingsFinalConfirmPrompt.
   ///
   /// In en, this message translates to:
-  /// **'To proceed with deletion, type \"삭제\" below.'**
-  String get settingsFinalConfirmPrompt;
+  /// **'To proceed with deletion, type \"{keyword}\" below.'**
+  String settingsFinalConfirmPrompt(Object keyword);
 
   /// No description provided for @settingsDeleteKeyword.
   ///
@@ -2733,6 +3051,42 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Plan'**
   String get creditsPlanFallbackName;
+
+  /// No description provided for @planFree.
+  ///
+  /// In en, this message translates to:
+  /// **'Free'**
+  String get planFree;
+
+  /// No description provided for @planBasic.
+  ///
+  /// In en, this message translates to:
+  /// **'Basic'**
+  String get planBasic;
+
+  /// No description provided for @planPremium.
+  ///
+  /// In en, this message translates to:
+  /// **'Premium'**
+  String get planPremium;
+
+  /// No description provided for @planFeaturesFree.
+  ///
+  /// In en, this message translates to:
+  /// **'2 books / month|Watercolor & cartoon styles|No audio/PDF'**
+  String get planFeaturesFree;
+
+  /// No description provided for @planFeaturesBasic.
+  ///
+  /// In en, this message translates to:
+  /// **'10 books / month|All styles|PDF|Basic TTS'**
+  String get planFeaturesBasic;
+
+  /// No description provided for @planFeaturesPremium.
+  ///
+  /// In en, this message translates to:
+  /// **'30 books / month|All features|Premium TTS|Priority processing'**
+  String get planFeaturesPremium;
 
   /// No description provided for @creditsCurrentPlan.
   ///
@@ -3772,6 +4126,12 @@ abstract class AppLocalizations {
   /// **'Couldn\'t fix that region.'**
   String get inpaintFailed;
 
+  /// No description provided for @inpaintApplyingRefreshLater.
+  ///
+  /// In en, this message translates to:
+  /// **'Applying your change. Please refresh in a moment.'**
+  String get inpaintApplyingRefreshLater;
+
   /// No description provided for @viewerRegenerateAll.
   ///
   /// In en, this message translates to:
@@ -3795,6 +4155,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Page regeneration has started. Please wait a moment.'**
   String get viewerRegenerateStarted;
+
+  /// No description provided for @viewerRegenerateFeedbackTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'How should we change it?'**
+  String get viewerRegenerateFeedbackTitle;
+
+  /// No description provided for @viewerRegenerateFeedbackHint.
+  ///
+  /// In en, this message translates to:
+  /// **'e.g. Make it shorter and simpler'**
+  String get viewerRegenerateFeedbackHint;
+
+  /// No description provided for @viewerRegenerateFeedbackRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Tell us what you\'d like changed'**
+  String get viewerRegenerateFeedbackRequired;
+
+  /// No description provided for @viewerRegenerateConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Regenerate'**
+  String get viewerRegenerateConfirm;
 
   /// No description provided for @viewerRegenerateFailed.
   ///
@@ -4319,6 +4703,24 @@ abstract class AppLocalizations {
   /// **'Your child\'s photo is used only to create storybook characters. · Recipient: AI content-processing providers (incl. overseas, e.g. the US) · Item: child\'s face photo · Purpose: storybook character creation · Retention: kept while you use the service to keep the character consistent, and deleted immediately upon withdrawal or a deletion request · Operators do not view the photos directly. · Right to refuse: you can still use all non-photo features without agreeing (optional).'**
   String get consentPhotoDisclosure;
 
+  /// No description provided for @photoConsentAgree.
+  ///
+  /// In en, this message translates to:
+  /// **'Agree'**
+  String get photoConsentAgree;
+
+  /// No description provided for @photoConsentCancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get photoConsentCancel;
+
+  /// No description provided for @photoConsentLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t load your consent info. Please try again in a moment.'**
+  String get photoConsentLoadFailed;
+
   /// No description provided for @consentDataProcessingRequired.
   ///
   /// In en, this message translates to:
@@ -4396,6 +4798,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Emotional Coaching'**
   String get themeEmotionalCoaching;
+
+  /// No description provided for @themeSocial.
+  ///
+  /// In en, this message translates to:
+  /// **'Social Skills'**
+  String get themeSocial;
 
   /// No description provided for @themeFriendship.
   ///

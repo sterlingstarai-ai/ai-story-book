@@ -170,3 +170,17 @@ def test_openapi_uses_concrete_component_refs_for_nested_mobile_contracts() -> N
             f"{schema_name}.{property_name} should reference {expected}, "
             f"but OpenAPI only exposes {sorted(refs)}"
         )
+
+
+def test_inpaint_contract_declares_409_unsupported() -> None:
+    """L14: 인페인트 경로가 409(INPAINT_UNSUPPORTED)를 계약에 명세한다."""
+    spec = app.openapi()
+    inpaint_op = None
+    for path, item in spec["paths"].items():
+        if path.endswith("/inpaint") and "post" in item:
+            inpaint_op = item["post"]
+            break
+    assert inpaint_op is not None, "inpaint POST 경로를 찾을 수 없음"
+    assert "409" in inpaint_op.get("responses", {}), (
+        "inpaint 409(INPAINT_UNSUPPORTED) 응답이 계약에 노출되지 않음"
+    )

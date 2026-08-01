@@ -4,6 +4,8 @@ from datetime import date
 
 import pytest
 
+from sqlalchemy import select
+
 from tests.factories import make_book_rows
 from src.core.utils import derive_age_band, utcnow
 from src.models.db import Book, ChildProfile, Job, QuizAnswer, ReadingLog
@@ -343,3 +345,62 @@ async def test_peer_comparison_endpoint(client, db_session):
         "my", "peer_avg", "top_percent", "medal",
     ):
         assert k in body
+
+
+@pytest.mark.asyncio
+async def test_account_growth_streak_consistent_with_books(client, db_session):
+    """L9: 프로필 경유 읽기 후 계정 성장 리포트의 streak가 books_read와 모순되지 않는다."""
+    from datetime import timedelta
+
+    uk = H["X-User-Key"]
+    prof = _profile(uk, "5-7", 1)
+    db_session.add(prof)
+    await db_session.flush()
+
+    now = utcnow()
+    logs = [
+        ReadingLog(
+            user_key=uk,
+            profile_id=prof.id,
+            book_id=f"lb{i}",
+            read_date=now - timedelta(days=i),
+        )
+        for i in range(3)
+    ]
+    db_session.add_all(make_book_rows([(f"lb{i}", uk) for i in range(3)]) + logs)
+    await db_session.commit()
+
+    # 프로필 없이(계정 단위) 조회 — 이전엔 daily_streaks 기반이라 streak=0으로 모순.
+    res = await client.get("/v1/growth", headers={"X-User-Key": uk})
+    assert res.status_code == 200, res.text
+    data = res.json()
+    assert data["books_read"] >= 3
+    assert data["current_streak"] >= 1  # L9: books_read>0인데 streak=0 모순 제거
+    assert data["total_reading_days"] >= 3
+
+
+@pytest.mark.asyncio
+async def test_growth_rejects_unowned_profile(client, db_session):
+    """L12: 삭제/타인 profile_id로 GET /v1/growth → 422(0-리포트·age_band 우회 차단)."""
+    res = await client.get(
+        "/v1/growth",
+        headers={**H, "X-Profile-Id": "p-nonexistent-999"},
+    )
+    assert res.status_code == 400, res.text  # ValidationError → 400
+
+
+@pytest.mark.asyncio
+async def test_answers_rejects_unowned_profile(client, db_session):
+    """L12: 무효 profile_id로 POST /v1/growth/answers → 422, QuizAnswer 미저장."""
+    db_session.add_all(make_book_rows([("b-l12", H["X-User-Key"])]))
+    await db_session.commit()
+    res = await client.post(
+        "/v1/growth/answers",
+        json={"book_id": "b-l12", "quiz_type": "vocab", "correct": True},
+        headers={**H, "X-Profile-Id": "p-nonexistent-999"},
+    )
+    assert res.status_code == 400, res.text  # ValidationError → 400
+    saved = (
+        await db_session.execute(select(QuizAnswer).where(QuizAnswer.book_id == "b-l12"))
+    ).scalars().all()
+    assert saved == []

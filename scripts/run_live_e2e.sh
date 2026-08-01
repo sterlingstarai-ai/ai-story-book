@@ -23,7 +23,6 @@ export TESTING=false USE_CELERY=false \
   LLM_PROVIDER=mock IMAGE_PROVIDER=mock TTS_PROVIDER=mock \
   DATABASE_URL="sqlite+aiosqlite:///./${DB_FILE}" \
   S3_ENDPOINT="http://localhost:9000" S3_ACCESS_KEY=test S3_SECRET_KEY=test S3_BUCKET=storybook \
-  APP_VERSION="${APP_VERSION:-0.3.2}" \
   RATE_LIMIT_REQUESTS="${RATE_LIMIT_REQUESTS:-100000}"
 # CI에는 Redis가 떠 있어 rate limiter가 활성(로컬은 fail-open)이므로, 단일 여정이 분당
 # 한도(기본 10)에 걸리지 않도록 한도를 크게 둔다. 레이트리밋 자체는 단위테스트가 검증.

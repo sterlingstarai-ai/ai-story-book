@@ -13,6 +13,17 @@ import structlog
 
 from src.core.config import settings
 
+# H3: STT 지원 언어 → 코드 매핑. OpenAI Whisper는 ISO-639-1(ko/en/ja/zh/es)을,
+# Google STT는 BCP-47을 사용한다. 이전엔 ko/en만 매핑돼 ja/zh/es가 한국어로 오전사됐다.
+STT_LANGUAGE_CODES = {
+    "ko": "ko-KR",
+    "en": "en-US",
+    "ja": "ja-JP",
+    "zh": "cmn-Hans-CN",
+    "es": "es-ES",
+}
+SUPPORTED_STT_LANGUAGES = tuple(STT_LANGUAGE_CODES.keys())
+
 logger = structlog.get_logger()
 
 
@@ -60,8 +71,8 @@ class OpenAISTTProvider(BaseSTTProvider):
         form = {
             "model": self.model,
         }
-        if language in {"ko", "en"}:
-            form["language"] = language
+        if language in SUPPORTED_STT_LANGUAGES:
+            form["language"] = language  # OpenAI Whisper는 ISO-639-1 코드 수용
 
         async with httpx.AsyncClient(timeout=60) as client:
             response = await client.post(
@@ -112,7 +123,10 @@ class GoogleSTTProvider(BaseSTTProvider):
         if not self.api_key:
             raise ValueError("GOOGLE_STT_API_KEY is not configured")
 
-        language_code = "ko-KR" if language == "ko" else "en-US"
+        # H3: ko/en 하드코딩 대신 5개 언어 매핑. 미지원 언어는 ko 오전사 대신 명시 예외.
+        language_code = STT_LANGUAGE_CODES.get(language)
+        if language_code is None:
+            raise ValueError(f"STT가 지원하지 않는 언어입니다: {language!r}")
         audio_content = base64.b64encode(audio_bytes).decode("utf-8")
         payload = {
             "config": {
@@ -173,15 +187,32 @@ class MockSTTProvider(BaseSTTProvider):
 
 class STTService:
     def __init__(self):
-        self.provider = self._get_provider()
+        # H1/핸드오프 B2: provider 해석을 지연(lazy)한다(임포트 싱글톤 부팅 크래시 방지).
+        self._provider: BaseSTTProvider | None = None
+
+    @property
+    def provider(self) -> BaseSTTProvider:
+        if self._provider is None:
+            self._provider = self._get_provider()
+        return self._provider
 
     def _get_provider(self) -> BaseSTTProvider:
+        """H1: 미지 값·운영 mock은 조용한 Mock 폴백(가짜 발음 점수) 대신 raise."""
         provider_name = settings.stt_provider.lower().strip()
         if provider_name == "openai":
             return OpenAISTTProvider()
         if provider_name == "google":
             return GoogleSTTProvider()
-        return MockSTTProvider()
+        if provider_name == "mock":
+            if settings.testing:
+                return MockSTTProvider()
+            raise ValueError(
+                "STT_PROVIDER=mock은 운영에서 허용되지 않습니다(가짜 발음 점수 방지, H1)"
+            )
+        raise ValueError(
+            f"알 수 없는 STT_PROVIDER={settings.stt_provider!r} — "
+            "openai/google/mock만 허용(조용한 Mock 폴백 금지, H1)"
+        )
 
     async def transcribe_audio(
         self,

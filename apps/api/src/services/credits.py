@@ -52,25 +52,36 @@ class CreditsService:
         user_credits = result.scalar_one_or_none()
 
         if not user_credits:
-            # 새 사용자에게 기본 크레딧 제공
-            user_credits = UserCredits(
-                user_key=user_key,
-                credits=3,
-                total_purchased=0,
-                total_used=0,
-            )
-            db.add(user_credits)
-
-            # 보너스 크레딧 기록
-            await self._record_transaction(
-                db=db,
-                user_key=user_key,
-                amount=3,
-                balance_after=3,
-                transaction_type="bonus",
-                description="신규 가입 보너스 크레딧",
-                commit=False,
-            )
+            # 신규 사용자 첫 요청 2건이 동시에 오면 PK(user_key) 충돌로 한쪽이 IntegrityError.
+            # SAVEPOINT로 감싸 위반 시 이 인서트만 롤백하고 재조회해 500·보너스 이중지급을
+            # 막는다(L8). commit=False 호출자의 상위 트랜잭션은 보존.
+            try:
+                async with db.begin_nested():
+                    user_credits = UserCredits(
+                        user_key=user_key,
+                        credits=3,
+                        total_purchased=0,
+                        total_used=0,
+                    )
+                    db.add(user_credits)
+                    await self._record_transaction(
+                        db=db,
+                        user_key=user_key,
+                        amount=3,
+                        balance_after=3,
+                        transaction_type="bonus",
+                        description="신규 가입 보너스 크레딧",
+                        commit=False,
+                    )
+                    await db.flush()
+            except IntegrityError:
+                # 동시 최초 요청 경쟁 패자 — 재조회(보너스 이중 지급 없음).
+                user_credits = (
+                    await db.execute(
+                        select(UserCredits).where(UserCredits.user_key == user_key)
+                    )
+                ).scalar_one()
+                return user_credits
 
             if commit:
                 await db.commit()
@@ -213,7 +224,11 @@ class CreditsService:
 
             return new_balance
         except Exception:
-            await db.rollback()
+            # commit=False면 상위 트랜잭션을 소유한 호출자가 롤백/세이브포인트를 책임진다.
+            # 여기서 무조건 db.rollback()을 하면 호출자의 미커밋 작업(IAPReceipt 등)까지
+            # 폐기된다(CTO W1 감사 포워드리스크). clawback_credits 패턴과 정렬.
+            if commit:
+                await db.rollback()
             raise
 
     async def add_milestone_credits_once(
@@ -272,6 +287,32 @@ class CreditsService:
         if used.first() is None:
             return False  # 과금된 적 없음 → 환불 안 함
 
+        if await self._job_already_refunded(db, job_id):
+            return False  # 이미 환불됨 → 이중환불 방지(앱 레벨 1차)
+
+        # 동시 두 번째 환불(멀티 레플리카)은 앱 체크를 통과할 수 있으나 uq_credit_transactions_refund
+        # 부분 유니크(M16)가 DB 레벨에서 차단한다. 세이브포인트로 감싸 IntegrityError를 흡수하면
+        # 호출자(commit=False, job_monitor 등)의 미커밋 작업(job.status 등)을 폐기하지 않는다.
+        try:
+            async with db.begin_nested():
+                await self.add_credits(
+                    db,
+                    user_key,
+                    amount=1,
+                    transaction_type="refund",
+                    description=description,
+                    reference_id=job_id,
+                    commit=False,
+                )
+        except IntegrityError:
+            return False  # 동시 이중 환불 차단(멱등)
+
+        if commit:
+            await db.commit()
+        return True
+
+    async def _job_already_refunded(self, db: AsyncSession, job_id: str) -> bool:
+        """해당 잡에 이미 refund 트랜잭션이 있는지(동시성 흡수 테스트의 시임 지점)."""
         already = await db.execute(
             select(CreditTransaction.id)
             .where(
@@ -280,19 +321,7 @@ class CreditsService:
             )
             .limit(1)
         )
-        if already.first() is not None:
-            return False  # 이미 환불됨 → 이중환불 방지
-
-        await self.add_credits(
-            db,
-            user_key,
-            amount=1,
-            transaction_type="refund",
-            description=description,
-            reference_id=job_id,
-            commit=commit,
-        )
-        return True
+        return already.first() is not None
 
     async def clawback_credits(
         self,
@@ -380,17 +409,46 @@ class CreditsService:
         )
         return result.scalars().first()
 
+    async def expire_active_subscription_for_plan(
+        self,
+        db: AsyncSession,
+        user_key: str,
+        plan: str,
+        commit: bool = False,
+    ) -> None:
+        """이전 소유자의 해당 plan active 구독만 만료(권한 이전, C1/G2).
+
+        전 구독 일괄 만료는 타인의 정당한 다른 구독을 파기하므로 금지 — cancelled(잔여기간)는
+        보존하고 같은 plan의 active만 즉시 만료한다.
+        """
+        result = await db.execute(
+            select(Subscription).where(
+                Subscription.user_key == user_key,
+                Subscription.plan == plan,
+                Subscription.status == "active",
+            )
+        )
+        now = utcnow()
+        for sub in result.scalars().all():
+            sub.status = "expired"
+            sub.current_period_end = now - timedelta(seconds=1)
+        if commit:
+            await db.commit()
+
     async def create_subscription(
         self,
         db: AsyncSession,
         user_key: str,
         plan: str,
         commit: bool = True,
+        grant_credits: bool = True,
     ) -> Subscription:
         """구독 생성.
 
         commit=False면 커밋하지 않고 flush만 한다 — 호출부가 보상 지급과 영수증
         기록을 한 트랜잭션으로 묶어 단일 커밋하도록(IAP 더블그랜트 방지).
+        grant_credits=False면 구독 행만 생성/재활성하고 월간 크레딧은 지급하지 않는다
+        (복원 시 소비성 크레딧 무한 재지급 방지, C1/G1).
         """
         if plan not in SUBSCRIPTION_PLANS:
             raise ValueError(f"Invalid plan: {plan}")
@@ -398,14 +456,22 @@ class CreditsService:
         plan_info = SUBSCRIPTION_PLANS[plan]
         now = utcnow()
 
-        # 기존 활성 구독 취소
-        existing = await self.get_active_subscription(db, user_key)
-        if existing:
-            existing.status = "cancelled"
-            existing.current_period_end = now
+        # 동시 create의 경쟁 패자는 (user_key) WHERE status='active' 부분 유니크(M17)에서
+        # IntegrityError를 맞는다. 인서트를 SAVEPOINT(begin_nested)로 감싸 위반 시 이 인서트만
+        # 롤백되게 하여, commit=False(IAP verify/restore) 호출자의 미커밋 작업(IAPReceipt 등)을
+        # 폐기하지 않는다(CTO W1 감사 포워드리스크). 그 뒤 재조회하여 1회 재시도.
+        for attempt in range(2):
+            # 기존 활성 구독 취소. M13: current_period_end를 now로 즉시 소멸시키지 않는다 —
+            # cancel_subscription 의미론(기간 만료까지 유지)과 정렬해 잔여기간 entitlement 보존.
+            existing = await self.get_active_subscription(db, user_key)
+            if existing:
+                existing.status = "cancelled"
 
-        # 새 구독 생성
-        try:
+            # 호출자(IAP)의 미커밋 작업(IAPReceipt 등)과 위 취소를 SAVEPOINT 밖(outer tx)에
+            # 먼저 flush한다 — production은 autoflush=False라 flush하지 않으면 이들이
+            # begin_nested 안에서 처음 flush돼 경쟁 롤백 시 함께 폐기된다(CTO 포워드리스크).
+            await db.flush()
+
             subscription = Subscription(
                 user_key=user_key,
                 plan=plan,
@@ -414,19 +480,30 @@ class CreditsService:
                 current_period_start=now,
                 current_period_end=now + timedelta(days=30),
             )
-            db.add(subscription)
-            await db.flush()
+            try:
+                async with db.begin_nested():  # SAVEPOINT
+                    db.add(subscription)
+                    await db.flush()
+            except IntegrityError:
+                if attempt == 0:
+                    continue  # 경쟁 패자 → 재조회 후 기존 active 취소하고 재시도
+                # 두 번째도 충돌: 경쟁 승자의 active를 최종본으로 반환.
+                existing = await self.get_active_subscription(db, user_key)
+                if existing is not None:
+                    return existing
+                raise
 
-            # 월간 크레딧 지급
-            await self.add_credits(
-                db=db,
-                user_key=user_key,
-                amount=plan_info["credits_per_month"],
-                transaction_type="subscription",
-                description=f"{plan_info['name']} 구독 크레딧",
-                reference_id=str(subscription.id),
-                commit=False,
-            )
+            # 월간 크레딧 지급(선택). 복원 등은 grant_credits=False로 재지급하지 않는다.
+            if grant_credits:
+                await self.add_credits(
+                    db=db,
+                    user_key=user_key,
+                    amount=plan_info["credits_per_month"],
+                    transaction_type="subscription",
+                    description=f"{plan_info['name']} 구독 크레딧",
+                    reference_id=str(subscription.id),
+                    commit=False,
+                )
 
             if commit:
                 await db.commit()
@@ -434,10 +511,9 @@ class CreditsService:
             else:
                 await db.flush()
             return subscription
-        except Exception:
-            if commit:
-                await db.rollback()
-            raise
+
+        # 루프는 항상 return/raise로 종료(방어적 unreachable 가드).
+        raise RuntimeError("create_subscription: unreachable")
 
     async def cancel_subscription(
         self,

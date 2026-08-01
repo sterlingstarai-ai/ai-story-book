@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
+from src.core.audio_feature import require_audio_supported
 from src.core.database import get_db
 from src.core.dependencies import get_user_key
 from src.core.exceptions import ValidationError
@@ -130,10 +131,19 @@ async def evaluate_pronunciation_audio(
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
 ):
+    # H1/G9: STT 비활성 배포에서는 provider 해석 실패 500 대신 명시적 미지원으로 차단.
+    require_audio_supported()
+
     if page_number is not None and not (1 <= page_number <= 12):
         raise ValidationError("page_number는 1~12 범위여야 합니다.")
-    if language not in {"ko", "en"}:
-        raise ValidationError("language는 ko 또는 en이어야 합니다.")
+    # H3: 발음 평가 언어를 스토리 5개 언어로 확장(ja/zh/es 한국어 오전사·저점 채점 제거).
+    from src.services.stt import SUPPORTED_STT_LANGUAGES
+
+    if language not in SUPPORTED_STT_LANGUAGES:
+        raise ValidationError(
+            f"지원하지 않는 언어입니다: {language} "
+            f"(지원: {', '.join(SUPPORTED_STT_LANGUAGES)})"
+        )
     if not audio_file.content_type or not audio_file.content_type.startswith("audio/"):
         raise ValidationError("오디오 파일만 업로드 가능합니다.")
 

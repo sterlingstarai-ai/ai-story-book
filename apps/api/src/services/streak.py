@@ -8,14 +8,35 @@ from datetime import timedelta
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 
-from ..models.db import Book, DailyStreak, DailyStory, ReadingLog
+from ..models.db import (
+    Book,
+    CreditTransaction,
+    DailyStreak,
+    DailyStory,
+    Job,
+    ReadingLog,
+    UserSettings,
+)
 from ..core.utils import (
+    DEFAULT_TZ,
     local_day_bounds_utc,
+    local_month_range_utc,
     local_today,
     to_local_date,
     utcnow,
 )
+
+
+async def load_user_tz(db: AsyncSession, user_key: str) -> str:
+    """사용자의 IANA 타임존(user_settings.timezone). 미설정/미존재는 기본 Asia/Seoul(H2)."""
+    tz = (
+        await db.execute(
+            select(UserSettings.timezone).where(UserSettings.user_key == user_key)
+        )
+    ).scalar_one_or_none()
+    return tz or DEFAULT_TZ
 
 
 # 오늘의 동화 테마 목록
@@ -93,6 +114,22 @@ DAILY_THEMES = [
 ]
 
 
+def topic_id_for(theme: str, topic: str) -> str:
+    """(theme id, topic 문자열) → 안정적 topic_id 'theme_idx'(H25).
+
+    '오늘의 동화'가 언어 무관 안정 키를 노출해 모바일이 arb로 로케일 표시하도록 한다
+    (서버는 한국어 topic 문자열을 하위호환으로 유지하되 표시엔 topic_id 사용).
+    """
+    for t in DAILY_THEMES:
+        if t["theme"] == theme:
+            try:
+                idx = t["topics"].index(topic)
+            except ValueError:
+                idx = 0
+            return f"{theme}_{idx}"
+    return f"{theme}_0"
+
+
 class StreakService:
     """스트릭 관리 서비스"""
 
@@ -108,6 +145,8 @@ class StreakService:
         streak = result.scalar_one_or_none()
 
         if not streak:
+            # 신규 사용자 동시 첫 요청은 PK(user_key) 충돌 → IntegrityError를 흡수하고
+            # 재조회해 500·이중 행을 막는다(L8).
             streak = DailyStreak(
                 user_key=user_key,
                 current_streak=0,
@@ -115,8 +154,16 @@ class StreakService:
                 total_days=0,
             )
             db.add(streak)
-            await db.commit()
-            await db.refresh(streak)
+            try:
+                await db.commit()
+                await db.refresh(streak)
+            except IntegrityError:
+                await db.rollback()
+                streak = (
+                    await db.execute(
+                        select(DailyStreak).where(DailyStreak.user_key == user_key)
+                    )
+                ).scalar_one()
 
         return streak
 
@@ -130,18 +177,19 @@ class StreakService:
         if profile_id:
             return await self._get_profile_streak_info(db, user_key, profile_id)
 
+        tz = await load_user_tz(db, user_key)
         streak = await self.get_or_create_streak(db, user_key)
-        today = local_today()
+        today = local_today(tz)
 
-        # 오늘 읽었는지 확인(KST 로컬 날짜 기준)
+        # 오늘 읽었는지 확인(사용자 tz 로컬 날짜 기준)
         read_today = False
         if streak.last_read_date:
-            read_today = to_local_date(streak.last_read_date) == today
+            read_today = to_local_date(streak.last_read_date, tz) == today
 
         # 스트릭이 끊어졌는지 확인
         streak_broken = False
         if streak.last_read_date and not read_today:
-            days_since = (today - to_local_date(streak.last_read_date)).days
+            days_since = (today - to_local_date(streak.last_read_date, tz)).days
             if days_since > 1:
                 streak_broken = True
 
@@ -160,14 +208,20 @@ class StreakService:
         self,
         db: AsyncSession,
         user_key: str,
-        profile_id: str,
+        profile_id: Optional[str] = None,
     ) -> dict:
+        """ReadingLog 기반 스트릭 재계산.
+
+        L9: profile_id=None이면 user_key의 모든 ReadingLog(프로필 경유 포함)로 계정 단위
+        스트릭을 계산한다. 계정 성장 리포트가 daily_streaks(프로필 경유 읽기 미반영)를
+        읽어 books_read>0인데 streak=0으로 모순되던 문제를 ReadingLog 정본 통일로 해소.
+        """
+        where = [ReadingLog.user_key == user_key]
+        if profile_id is not None:
+            where.append(ReadingLog.profile_id == profile_id)
         result = await db.execute(
             select(ReadingLog.read_date)
-            .where(
-                ReadingLog.user_key == user_key,
-                ReadingLog.profile_id == profile_id,
-            )
+            .where(*where)
             .order_by(ReadingLog.read_date.asc())
         )
         rows = result.all()
@@ -181,10 +235,11 @@ class StreakService:
                 "streak_broken": False,
             }
 
+        tz = await load_user_tz(db, user_key)
         datetimes = [read_date for (read_date,) in rows if read_date is not None]
-        unique_dates = sorted({to_local_date(dt) for dt in datetimes})
+        unique_dates = sorted({to_local_date(dt, tz) for dt in datetimes})
         last_date = unique_dates[-1]
-        today = local_today()
+        today = local_today(tz)
         days_since = (today - last_date).days
 
         read_today = last_date == today
@@ -239,9 +294,10 @@ class StreakService:
         profile_id: Optional[str] = None,
     ) -> dict:
         """읽기 기록 및 스트릭 업데이트 (원자적)"""
+        # '오늘' 경계는 사용자 tz 기준(H2) — 비KST 사용자가 UTC 자정에 스트릭이 끊기지 않게.
+        tz = await load_user_tz(db, user_key)
         if profile_id:
-            # '오늘' 판정은 KST 로컬 하루 경계로(UTC 자정 = KST 오전 9시 어긋남 방지).
-            today_start, tomorrow_start = local_day_bounds_utc()
+            today_start, tomorrow_start = local_day_bounds_utc(tz=tz)
 
             today_result = await db.execute(
                 select(ReadingLog.id).where(
@@ -285,13 +341,13 @@ class StreakService:
             }
 
         streak = await self.get_or_create_streak(db, user_key)
-        today = local_today()
+        today = local_today(tz)
         today_dt = utcnow()
 
-        # 오늘 이미 읽었는지 확인(KST 로컬 날짜)
+        # 오늘 이미 읽었는지 확인(사용자 tz 로컬 날짜)
         already_read_today = False
         if streak.last_read_date:
-            already_read_today = to_local_date(streak.last_read_date) == today
+            already_read_today = to_local_date(streak.last_read_date, tz) == today
 
         # 읽기 기록 추가
         reading_log = ReadingLog(
@@ -308,7 +364,7 @@ class StreakService:
         if not already_read_today:
             # 새 스트릭 값 계산
             if streak.last_read_date:
-                days_since = (today - to_local_date(streak.last_read_date)).days
+                days_since = (today - to_local_date(streak.last_read_date, tz)).days
                 if days_since == 1:
                     new_streak = streak.current_streak + 1
                 elif days_since > 1:
@@ -392,8 +448,17 @@ class StreakService:
                     reference_id=f"milestone_{m.get('type')}_{m.get('days')}",
                     description=f"마일스톤 보상: {m.get('title', '')}",
                 )
+                # L12/G23: 계정 1회 지급(reference_id 계정 단위). 이미 지급된 보상은
+                # 응답에서 '미지급 축하'로 노출하지 않는다(둘째 프로필 재도달 등). 실지급
+                # 여부를 milestone에 표기하고, 미지급이면 reward를 비운다.
+                m["granted"] = was_granted
                 if was_granted:
                     granted += amount
+                else:
+                    m["reward"] = None
+            else:
+                # 보상 없는 축하(streak) 마일스톤 — 표시 정합을 위해 granted=True.
+                m["granted"] = True
         return granted
 
     def _check_milestones(self, current_streak: int, total_days: int) -> list[dict]:
@@ -446,26 +511,85 @@ class StreakService:
 
         return milestones
 
-    async def get_today_story(self, db: AsyncSession) -> dict:
-        """오늘의 동화 정보 조회"""
+    # M22: 라우터가 '오늘의 동화 생성' 잡의 크레딧 차감 시 남기는 불변 마커. Job에 컬럼을
+    # 추가하지 않고 이 마커로 사용자의 오늘의 동화 잡을 식별한다(routers/streak.py와 정합).
+    TODAY_STORY_CREDIT_DESC = "오늘의 동화 생성"
+
+    async def _user_today_book_id(
+        self,
+        db: AsyncSession,
+        user_key: str,
+        today_start,
+        tomorrow_start,
+    ) -> Optional[str]:
+        """user_key가 '오늘'(로컬 하루) 생성 완료한 오늘의 동화 책 id(M22).
+
+        DailyStory는 전역 테이블(user_key 없음)이라 특정 사용자 book_id를 직접 쓰면
+        타 사용자에게 오귀속된다. 대신 '오늘의 동화 생성' 크레딧 마커가 붙은 done Job의
+        결과 Book을 사용자 단위로 조회(방어적 최근 1건 first(); 완료 전이면 None).
+        """
+        stmt = (
+            select(Book.id)
+            .join(Job, Book.job_id == Job.id)
+            .join(
+                CreditTransaction,
+                (CreditTransaction.reference_id == Job.id)
+                & (CreditTransaction.user_key == user_key)
+                & (CreditTransaction.description == self.TODAY_STORY_CREDIT_DESC)
+                & (CreditTransaction.transaction_type == "usage"),
+            )
+            .where(
+                Book.user_key == user_key,
+                Job.status == "done",
+                Job.created_at >= today_start,
+                Job.created_at < tomorrow_start,
+            )
+            .order_by(Book.created_at.desc())
+            .limit(1)
+        )
+        result = await db.execute(stmt)
+        return result.scalars().first()
+
+    async def get_today_story(
+        self, db: AsyncSession, user_key: Optional[str] = None
+    ) -> dict:
+        """오늘의 동화 정보 조회. 전역 회전이라 기본 tz(H2 결정). 하루 1행을 DB 유니크로 보장(H14).
+
+        M22: 테마/토픽은 전역 DailyStory에서, book_id는 user_key가 주어졌을 때만 '해당
+        사용자가 오늘 생성 완료한 오늘의 동화 책'으로 채운다(전역 오귀속 방지).
+        """
+        # 전역 엔드포인트라 사용자 컨텍스트 없음 — 기본 tz로 하루 경계 판정(G10 결정).
         today = local_today()
         today_start, tomorrow_start = local_day_bounds_utc()
 
-        # 오늘 이미 생성된 스토리가 있는지 확인
-        result = await db.execute(
-            select(DailyStory).where(
-                DailyStory.date >= today_start,
-                DailyStory.date < tomorrow_start,
-            )
+        # M22: book_id는 사용자 단위(user_key 없으면 익명 → None 유지).
+        user_book_id = (
+            await self._user_today_book_id(db, user_key, today_start, tomorrow_start)
+            if user_key
+            else None
         )
-        daily_story = result.scalar_one_or_none()
 
+        async def _find_today():
+            # 방어적 first(): 마이그레이션 이전 잔존 중복이 있어도 500 대신 첫 행 반환.
+            res = await db.execute(
+                select(DailyStory)
+                .where(
+                    DailyStory.date >= today_start,
+                    DailyStory.date < tomorrow_start,
+                )
+                .order_by(DailyStory.id)
+                .limit(1)
+            )
+            return res.scalars().first()
+
+        daily_story = await _find_today()
         if daily_story:
             return {
                 "date": daily_story.date.isoformat(),
                 "theme": daily_story.theme,
                 "topic": daily_story.topic,
-                "book_id": daily_story.book_id,
+                "topic_id": topic_id_for(daily_story.theme, daily_story.topic),  # H25
+                "book_id": user_book_id,  # M22
             }
 
         # 없으면 오늘의 테마/주제 생성
@@ -476,22 +600,73 @@ class StreakService:
         topic_index = day_of_year % len(theme_data["topics"])
         topic = theme_data["topics"][topic_index]
 
-        # 새 오늘의 동화 생성
+        # 새 오늘의 동화 생성. 동시 요청/멀티 레플리카가 같은 date로 이중 INSERT하면
+        # uq_daily_stories_date가 차단 → IntegrityError를 rollback 후 재조회해 다른 세션이
+        # 먼저 넣은 행을 반환(성공으로 삼키지 않고 멱등 반환, H14).
         daily_story = DailyStory(
             date=today_start,
             theme=theme_data["theme"],
             topic=topic,
         )
         db.add(daily_story)
-        await db.commit()
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+            existing = await _find_today()
+            if existing is not None:
+                return {
+                    "date": existing.date.isoformat(),
+                    "theme": existing.theme,
+                    "topic": existing.topic,
+                    "topic_id": topic_id_for(existing.theme, existing.topic),  # H25
+                    "book_id": user_book_id,  # M22
+                }
+            raise
 
         return {
             "date": today_start.isoformat(),
             "theme": theme_data["theme"],
             "theme_name": theme_data["name"],
             "topic": topic,
-            "book_id": None,
+            "topic_id": f"{theme_data['theme']}_{topic_index}",  # H25 안정 키
+            "book_id": user_book_id,  # M22
         }
+
+    async def get_calendar_month(
+        self,
+        db: AsyncSession,
+        user_key: str,
+        year: int,
+        month: int,
+        profile_id: Optional[str] = None,
+    ) -> dict:
+        """요청 월(로컬)의 일별 읽기 집계 {YYYY-MM-DD: distinct_books_read}(L7).
+
+        '지금 기준 상대 윈도우'가 아니라 요청 월의 절대 UTC 경계로 직접 조회해, 2~3개월
+        이전 달도 정확히 채운다(이전엔 윈도우 밖이라 전부 read=false·0으로 growth와 모순).
+        """
+        tz = await load_user_tz(db, user_key)
+        start_utc, end_utc = local_month_range_utc(year, month, tz)
+        where = [
+            ReadingLog.user_key == user_key,
+            ReadingLog.read_date >= start_utc,
+            ReadingLog.read_date < end_utc,
+        ]
+        if profile_id is not None:
+            where.append(ReadingLog.profile_id == profile_id)
+        rows = (
+            await db.execute(
+                select(ReadingLog.read_date, ReadingLog.book_id).where(*where)
+            )
+        ).all()
+        by_date: dict = {}
+        for read_date, book_id in rows:
+            if read_date is None:
+                continue
+            d = to_local_date(read_date, tz).isoformat()
+            by_date.setdefault(d, set()).add(book_id)
+        return {d: len(books) for d, books in by_date.items()}
 
     async def get_reading_history(
         self,
@@ -501,6 +676,8 @@ class StreakService:
         profile_id: Optional[str] = None,
     ) -> list[dict]:
         """최근 읽기 기록 조회"""
+        # H2: 하루 귀속은 사용자 tz 기준(캘린더·스트릭과 동일 하루 정의).
+        tz = await load_user_tz(db, user_key)
         since = utcnow() - timedelta(days=days)
 
         result = await db.execute(
@@ -517,7 +694,7 @@ class StreakService:
         # 날짜별로 그룹화
         by_date = {}
         for log in logs:
-            date_key = to_local_date(log.read_date).isoformat()
+            date_key = to_local_date(log.read_date, tz).isoformat()
             if date_key not in by_date:
                 by_date[date_key] = {
                     "date": date_key,
@@ -541,8 +718,9 @@ class StreakService:
     ) -> dict:
         """읽기 통계 리포트 (주간/월간 대시보드용)"""
         report_days = max(1, min(days, 365))
-        # 주간/월간 추이도 KST 로컬 하루 경계로(한국 부모 기준 '오늘'이 맞도록).
-        today_start, _ = local_day_bounds_utc()
+        # H2: 주간/월간 추이도 사용자 tz 로컬 하루 경계로(스트릭·캘린더와 동일 하루 정의).
+        tz = await load_user_tz(db, user_key)
+        today_start, _ = local_day_bounds_utc(tz=tz)
         since = today_start - timedelta(days=report_days - 1)
 
         logs_result = await db.execute(
@@ -558,7 +736,7 @@ class StreakService:
 
         daily_map = {}
         for day_index in range(report_days):
-            day = to_local_date(since + timedelta(days=day_index))
+            day = to_local_date(since + timedelta(days=day_index), tz)
             key = day.isoformat()
             daily_map[key] = {
                 "date": key,
@@ -571,7 +749,7 @@ class StreakService:
         completed_sessions = 0
         unique_books = set()
         for log in logs:
-            key = to_local_date(log.read_date).isoformat()
+            key = to_local_date(log.read_date, tz).isoformat()
             if key not in daily_map:
                 continue
             minutes = max(0, int(round((log.reading_time or 0) / 60)))
@@ -618,8 +796,8 @@ class StreakService:
 
         return {
             "period_days": report_days,
-            "from_date": to_local_date(since).isoformat(),
-            "to_date": local_today().isoformat(),
+            "from_date": to_local_date(since, tz).isoformat(),
+            "to_date": local_today(tz).isoformat(),
             "total_books_read": len(unique_books),
             "total_sessions": total_sessions,
             "total_reading_minutes": int(round(total_read_seconds / 60)),

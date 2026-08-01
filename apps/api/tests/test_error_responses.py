@@ -407,7 +407,9 @@ class TestErrorResponseFormat:
 
         response = await client.post(
             f"/v1/books/{job_id}/pages/1/regenerate",
-            json={"regenerate_target": "text"},
+            # M12: text 모드는 feedback 필수(그렇지 않으면 요청 검증 422). 이 테스트의
+            # 의도는 '생성 미완료 시 400'이므로 유효한 feedback을 넣어 도메인 체크에 도달시킨다.
+            json={"regenerate_target": "text", "feedback": "더 밝게 써줘"},
             headers=headers,
         )
 

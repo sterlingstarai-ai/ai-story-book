@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../core/api_error.dart';
@@ -25,7 +26,7 @@ ApiError? _extractApiError(Object error) {
 }
 
 /// 보호자 동의 미동의(403)는 서버가 내려준 구체 사유를 그대로 노출한다.
-String _errorMessage(Object error, String fallback) {
+String _errorMessage(AppLocalizations l, Object error, String fallback) {
   final apiError = _extractApiError(error);
   if (apiError == null) {
     return fallback;
@@ -33,7 +34,7 @@ String _errorMessage(Object error, String fallback) {
   if (apiError.statusCode == 403) {
     return apiError.message;
   }
-  return apiError.userMessage;
+  return apiError.localizedMessage(l); // M15: en/ja 로케일 에러 로컬라이즈
 }
 
 /// '우리 아이를 주인공으로' 소스 선택 시트.
@@ -67,6 +68,9 @@ class CharacterSourceSheet extends ConsumerStatefulWidget {
 
 class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
   bool _busy = false;
+  // H17/G19: 사진 캐릭터 생성 시도-단위 멱등키.
+  String? _attemptKey;
+  String? _attemptSig;
   final ImagePicker _picker = ImagePicker();
 
   void _showError(String message) {
@@ -83,18 +87,20 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
       return;
     }
     final l = AppLocalizations.of(context);
+    final language = Localizations.localeOf(context).languageCode;
     setState(() => _busy = true);
     try {
       final id = await ref.read(apiClientProvider).createCharacterFromPreset(
             presetId: preset['preset_id'].toString(),
             name: widget.childName,
+            language: language,
           );
       ref.invalidate(charactersProvider);
       if (mounted) {
         Navigator.pop(context, id);
       }
     } catch (error) {
-      _showError(_errorMessage(error, l.characterSourceCreateFailed));
+      _showError(_errorMessage(l, error, l.characterSourceCreateFailed));
     }
   }
 
@@ -104,12 +110,9 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
     }
     final l = AppLocalizations.of(context);
     // 아동 얼굴 사진 업로드는 보호자 게이트 뒤에서만(세션 내 검증되어 있으면 통과).
-    // 게이트 통과 → 사진 선택 → JIT 동의(아래) 순으로 이중 보호.
-    final parental = ref.read(parentalControlServiceProvider);
-    if (!parental.isAgeGateVerifiedForSession) {
-      if (!await showAgeGateDialog(context, ref)) {
-        return; // 보호자 확인 실패/취소 → 사진 업로드 중단
-      }
+    // 게이트 통과 → 사진 선택 → JIT 동의(아래) 순으로 이중 보호. M24: 공용 헬퍼 공유.
+    if (!await ensureAgeGate(context, ref)) {
+      return; // 보호자 확인 실패/취소 → 사진 업로드 중단
     }
     try {
       final XFile? image = await _picker.pickImage(
@@ -130,10 +133,19 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
         return;
       }
       setState(() => _busy = true);
+      // H17/G19: 타임아웃 후 재시도가 중복 캐릭터를 만들지 않도록 시도-단위 키를 재사용.
+      final attemptSig = '${image.path}|${widget.childName ?? ''}';
+      if (_attemptKey == null || _attemptSig != attemptSig) {
+        _attemptKey = const Uuid().v4();
+        _attemptSig = attemptSig;
+      }
       final result = await api.createCharacterFromPhoto(
         File(image.path),
         name: widget.childName,
+        idempotencyKey: _attemptKey,
       );
+      _attemptKey = null; // 성공 → 다음 생성은 새 키
+      _attemptSig = null;
       ref.invalidate(charactersProvider);
       if (!mounted) {
         return;
@@ -147,6 +159,7 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
       }
     } catch (error) {
       _showError(_errorMessage(
+        l,
         error,
         l.characterSourcePhotoFailed,
       ));
@@ -165,7 +178,8 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
-    final presetsAsync = ref.watch(characterPresetsProvider);
+    final language = Localizations.localeOf(context).languageCode;
+    final presetsAsync = ref.watch(characterPresetsProvider(language));
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.all(AppSpacing.lg),

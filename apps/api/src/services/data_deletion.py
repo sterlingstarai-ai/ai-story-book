@@ -7,10 +7,11 @@ SQLite 테스트는 PRAGMA foreign_keys=ON 이 없으면 같은 누락을 조용
 같은 정합성을 보장하게 한다.
 """
 
-from sqlalchemy import delete, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.db import (
+    Book,
     BookShare,
     BranchStoryEdge,
     BranchStoryNode,
@@ -21,6 +22,31 @@ from src.models.db import (
     QuizAnswer,
     ReadingLog,
 )
+
+
+async def collect_book_image_keys(db: AsyncSession, book_ids: list[str]) -> list[str]:
+    """책 표지·페이지 이미지의 S3 키를 image_url에서 역산해 반환한다(N1).
+
+    파이프라인이 이미지를 추적 불가 prefix(images/{provider}/{uuid})에 저장해도, 저장된
+    공개 URL에서 실제 키를 복원하면 prefix와 무관하게 파기 대상에 포함할 수 있다.
+    **행 삭제 전에 호출해야 한다**(purge 후엔 URL이 사라진다). 중복 제거.
+    """
+    if not book_ids:
+        return []
+    from src.services.storage import key_from_public_url
+
+    urls: list[str] = []
+    cover_rows = await db.execute(
+        select(Book.cover_image_url).where(Book.id.in_(book_ids))
+    )
+    urls.extend(u for (u,) in cover_rows.all() if u)
+    page_rows = await db.execute(
+        select(Page.image_url).where(Page.book_id.in_(book_ids))
+    )
+    urls.extend(u for (u,) in page_rows.all() if u)
+
+    keys = [key_from_public_url(u) for u in urls]
+    return list(dict.fromkeys(k for k in keys if k))  # 중복 제거 + None 제외
 
 
 async def purge_book_children(db: AsyncSession, book_ids: list[str]) -> None:
@@ -44,4 +70,10 @@ async def purge_book_children(db: AsyncSession, book_ids: list[str]) -> None:
     # 소프트 FK(nullable) — '오늘의 동화' 메타는 보존하되 책 참조만 해제.
     await db.execute(
         update(DailyStory).where(DailyStory.book_id.in_(book_ids)).values(book_id=None)
+    )
+    # M10: 연령 리텔 변형본의 원본 링크(self-FK) 해제 — 원본 삭제 시 고아 포인터·FK 위반 방지.
+    await db.execute(
+        update(Book)
+        .where(Book.retelling_source_book_id.in_(book_ids))
+        .values(retelling_source_book_id=None)
     )

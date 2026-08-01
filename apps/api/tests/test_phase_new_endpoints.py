@@ -448,6 +448,23 @@ async def test_settings_get_and_patch(
     assert after_data["dark_mode"] is True
     assert after_data["screen_time_enabled"] is True
     assert after_data["daily_limit_minutes"] == 45
+    assert "timezone" in after_data  # H2: 기본 Asia/Seoul
+
+
+@pytest.mark.asyncio
+async def test_settings_timezone_valid_and_invalid(client, headers):
+    """H2: 유효 IANA 타임존은 저장, 무효는 4xx."""
+    ok = await client.patch(
+        "/v1/settings", json={"timezone": "America/Los_Angeles"}, headers=headers
+    )
+    assert ok.status_code == 200, ok.text
+    after = await client.get("/v1/settings", headers=headers)
+    assert after.json()["timezone"] == "America/Los_Angeles"
+
+    bad = await client.patch(
+        "/v1/settings", json={"timezone": "Not/AZone"}, headers=headers
+    )
+    assert bad.status_code == 422  # pydantic validation error
 
 
 @pytest.mark.asyncio
@@ -1141,8 +1158,8 @@ async def test_pod_order_status_sync_updates_tracking(
             provider="printful",
             provider_order_id="pf-order-100",
             tracking_number=None,
-            total_price=27000,
-            currency="KRW",
+            provider_total=2500,
+            provider_currency="USD",
             sync_source="printful",
             raw={"status": "draft"},
         )
@@ -1208,6 +1225,217 @@ async def test_pod_order_status_sync_updates_tracking(
     assert detail["status"] == "shipped"
     assert detail["tracking_number"] == "TRACK-123"
     assert detail["sync_source"] == "printful"
+
+
+async def _seed_pod_book(db_session, headers, book_id="book-podx", pdf_url=None):
+    job = Job(id=f"job-{book_id}", status="done", user_key=headers["X-User-Key"])
+    db_session.add(job)
+    await db_session.flush()
+    book = Book(
+        id=book_id, job_id=job.id, title="POD 책", language="ko", target_age="5-7",
+        style="watercolor", user_key=headers["X-User-Key"],
+        cover_image_url="https://example.com/c.png", pdf_url=pdf_url,
+    )
+    db_session.add(book)
+    await db_session.commit()
+    return book
+
+
+def _pod_result(**over):
+    from src.services.pod_provider import PodCreateResult
+
+    base = dict(status="created", provider="printful", provider_order_id="pf-1",
+                tracking_number=None, provider_total=None, provider_currency=None,
+                sync_source="printful", raw={})
+    base.update(over)
+    return PodCreateResult(**base)
+
+
+# ── H6: POD 주문 멱등 + fail-closed 선기록 + unknown outcome ──
+@pytest.mark.asyncio
+async def test_pod_order_idempotent_returns_same_order(client, headers, db_session, monkeypatch):
+    from src.routers import pod as pod_router
+
+    calls = {"n": 0}
+
+    async def _stub(**kwargs):
+        calls["n"] += 1
+        return _pod_result()
+
+    monkeypatch.setattr(pod_router.pod_provider_service, "create_order", _stub)
+    book = await _seed_pod_book(db_session, headers, "book-idem")
+    body = {"book_id": book.id, "quantity": 1, "shipping_address": {
+        "name": "홍길동", "line1": "서울 1", "postal_code": "12345", "country": "KR"}}
+    h = {**headers, "X-Idempotency-Key": "podkey-1"}
+
+    r1 = await client.post("/v1/pod/orders", json=body, headers=h)
+    r2 = await client.post("/v1/pod/orders", json=body, headers=h)
+    assert r1.status_code == 200 and r2.status_code == 200
+    assert r1.json()["order_id"] == r2.json()["order_id"]
+    assert calls["n"] == 1  # 외부 create 1회만(이중 생성 방지)
+    rows = (await db_session.execute(
+        select(PodOrder).where(PodOrder.user_key == headers["X-User-Key"]))).scalars().all()
+    assert len(rows) == 1
+
+
+@pytest.mark.asyncio
+async def test_pod_order_prewrites_pending_submit_before_provider(client, headers, db_session, monkeypatch):
+    from src.core.database import AsyncSessionLocal
+    from src.routers import pod as pod_router
+
+    seen = {}
+
+    async def _stub(**kwargs):
+        # 별도 세션으로 조회 → 커밋된 행만 가시(MI4). provider 호출 전 선기록 검증.
+        async with AsyncSessionLocal() as s:
+            row = (await s.execute(
+                select(PodOrder).where(PodOrder.id == kwargs["local_order_id"]))).scalar_one_or_none()
+            seen["status"] = row.status if row else None
+        return _pod_result()
+
+    monkeypatch.setattr(pod_router.pod_provider_service, "create_order", _stub)
+    book = await _seed_pod_book(db_session, headers, "book-prewrite")
+    body = {"book_id": book.id, "quantity": 1, "shipping_address": {
+        "name": "홍", "line1": "서울 1", "postal_code": "12345", "country": "KR"}}
+    r = await client.post("/v1/pod/orders", json=body, headers=headers)
+    assert r.status_code == 200
+    assert seen["status"] == "pending_submit"  # 외부 호출 전 로컬 선기록됨
+
+
+@pytest.mark.asyncio
+async def test_printful_request_timeout_raises_submit_unknown(monkeypatch):
+    """_printful_request는 httpx 타임아웃을 PodSubmitUnknown으로 변환한다(확정 실패로 안 삼킴)."""
+    import httpx
+
+    from src.services.pod_provider import PodSubmitUnknown, pod_provider_service
+
+    monkeypatch.setattr(settings, "printful_api_key", "k")
+
+    async def _timeout_request(self, *args, **kwargs):
+        raise httpx.TimeoutException("timed out")
+
+    monkeypatch.setattr(httpx.AsyncClient, "request", _timeout_request)
+    with pytest.raises(PodSubmitUnknown):
+        await pod_provider_service._printful_request("POST", "/orders", json={})
+
+
+@pytest.mark.asyncio
+async def test_pod_order_submit_unknown_left_pending(client, headers, db_session, monkeypatch):
+    """제출 결과 미상(PodSubmitUnknown)은 확정 실패 폴백이 아니라 submit_unknown으로 남는다."""
+    from src.routers import pod as pod_router
+    from src.services.pod_provider import PodSubmitUnknown
+
+    monkeypatch.setattr(settings, "pod_mode", "hybrid")
+    monkeypatch.setattr(settings, "printful_api_key", "k")
+    monkeypatch.setattr(settings, "printful_sync_variant_id", 123)
+
+    async def _unknown(*args, **kwargs):
+        raise PodSubmitUnknown("timed out")
+
+    monkeypatch.setattr(pod_router.pod_provider_service, "_printful_request", _unknown)
+    book = await _seed_pod_book(db_session, headers, "book-timeout", pdf_url="https://x/p.pdf")
+    body = {"book_id": book.id, "quantity": 1, "shipping_address": {
+        "name": "홍", "line1": "서울 1", "city": "서울", "postal_code": "12345", "country": "KR"}}
+    r = await client.post("/v1/pod/orders", json=body, headers=headers)
+    assert r.status_code == 200
+    assert r.json()["status"] == "submit_unknown"
+    assert r.json()["sync_source"] == "submit_unknown"
+    db_session.expire_all()
+    row = (await db_session.execute(
+        select(PodOrder).where(PodOrder.id == r.json()["order_id"]))).scalar_one()
+    assert row.status == "submit_unknown" and row.provider_order_id is None
+
+
+@pytest.mark.asyncio
+async def test_pod_order_reconcile_by_external_id(client, headers, db_session, monkeypatch):
+    """submit_unknown 주문을 GET 시 external_id로 대사해 provider_order_id를 채운다(H6)."""
+    from src.routers import pod as pod_router
+    from src.services.pod_provider import PodStatusResult
+
+    async def _reconcile(external_id):
+        return PodStatusResult(
+            status="draft", tracking_number=None, sync_source="printful_reconciled",
+            raw={"provider_order_id": "pf-recon-1", "status": "draft"})
+
+    monkeypatch.setattr(pod_router.pod_provider_service, "reconcile_by_external_id", _reconcile)
+    book = await _seed_pod_book(db_session, headers, "book-recon")
+    db_session.add(PodOrder(
+        id="pod_recon_1", user_key=headers["X-User-Key"], book_id=book.id,
+        status="submit_unknown", quantity=1, unit_price=20, shipping_fee=5,
+        total_price=25, currency="USD", shipping_address={}, provider_order_id=None))
+    await db_session.commit()
+
+    r = await client.get("/v1/pod/orders/pod_recon_1", headers=headers)
+    assert r.status_code == 200
+    assert r.json()["provider_order_id"] == "pf-recon-1"
+    assert r.json()["status"] == "draft"
+
+
+# ── H12: recipient 완성 + US state 검증 + hybrid 실패 비위장 + 아트워크 ──
+@pytest.mark.asyncio
+async def test_printful_recipient_cost_artwork(client, headers, db_session, monkeypatch):
+    from src.routers import pod as pod_router
+
+    monkeypatch.setattr(settings, "pod_mode", "hybrid")
+    monkeypatch.setattr(settings, "printful_api_key", "k")
+    monkeypatch.setattr(settings, "printful_sync_variant_id", 123)
+    captured = {}
+
+    async def _stub_req(method, path, *, json=None):
+        captured["payload"] = json
+        return {"result": {"id": 999, "status": "draft", "costs": {"total": "25.00", "currency": "USD"}}}
+
+    monkeypatch.setattr(pod_router.pod_provider_service, "_printful_request", _stub_req)
+    book = await _seed_pod_book(db_session, headers, "book-art", pdf_url="https://x/print.pdf")
+    body = {"book_id": book.id, "quantity": 2, "shipping_address": {
+        "name": "Jane", "line1": "1 Main St", "line2": "Apt 5", "city": "SF",
+        "state": "CA", "postal_code": "94016", "country": "US"}}
+    r = await client.post("/v1/pod/orders", json=body, headers=headers)
+    assert r.status_code == 200, r.text
+    rec = captured["payload"]["recipient"]
+    assert rec["city"] == "SF" and rec["state_code"] == "CA" and rec["address2"] == "Apt 5"
+    # G20: 사용자 책 PDF가 아트워크로 첨부됨.
+    assert captured["payload"]["items"][0]["files"][0]["url"] == "https://x/print.pdf"
+    assert captured["payload"]["external_id"] == r.json()["order_id"]
+    # H13/G7: provider 실비는 cents·원통화(×1300 아님), 지역 견적은 total_price 유지.
+    db_session.expire_all()
+    row = (await db_session.execute(
+        select(PodOrder).where(PodOrder.id == r.json()["order_id"]))).scalar_one()
+    assert row.provider_total == 2500 and row.provider_currency == "USD"
+    assert row.total_price == (20 * 2) + 5 and row.currency == "USD"  # US 지역 견적
+
+
+@pytest.mark.asyncio
+async def test_us_order_without_state_rejected(client, headers, db_session):
+    book = await _seed_pod_book(db_session, headers, "book-nostate")
+    body = {"book_id": book.id, "quantity": 1, "shipping_address": {
+        "name": "Jane", "line1": "1 Main St", "city": "SF", "postal_code": "94016", "country": "US"}}
+    r = await client.post("/v1/pod/orders", json=body, headers=headers)
+    assert r.status_code == 400
+    assert r.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+@pytest.mark.asyncio
+async def test_hybrid_provider_failure_not_success_disguised(client, headers, db_session, monkeypatch):
+    from src.core.exceptions import ValidationError as VErr
+    from src.routers import pod as pod_router
+
+    monkeypatch.setattr(settings, "pod_mode", "hybrid")
+    monkeypatch.setattr(settings, "printful_api_key", "k")
+    monkeypatch.setattr(settings, "printful_sync_variant_id", 123)
+
+    async def _fail(*args, **kwargs):
+        raise VErr("printful 400")
+
+    monkeypatch.setattr(pod_router.pod_provider_service, "_printful_request", _fail)
+    book = await _seed_pod_book(db_session, headers, "book-hybridfail", pdf_url="https://x/p.pdf")
+    body = {"book_id": book.id, "quantity": 1, "shipping_address": {
+        "name": "홍", "line1": "서울 1", "city": "서울", "postal_code": "12345", "country": "KR"}}
+    r = await client.post("/v1/pod/orders", json=body, headers=headers)
+    assert r.status_code == 200
+    assert r.json()["status"] == "pending_provider"  # 'created' 성공 위장 아님
+    assert r.json()["sync_source"] == "local_fallback"
+    assert r.json()["provider_order_id"] is None
 
 
 @pytest.mark.asyncio

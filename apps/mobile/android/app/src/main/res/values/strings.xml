@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 기본(ko). G29: en/ja는 영문 'AI Story Book'으로 지역화. -->
+    <string name="app_name">AI 동화책</string>
+</resources>

@@ -427,10 +427,24 @@ class _InteractiveMockApiClient extends ApiClient {
     required String bookId,
     required int quantity,
     required Map<String, dynamic> shippingAddress,
+    String? idempotencyKey,
   }) async {
     return Map<String, dynamic>.from(_createdOrder)
       ..['quantity'] = quantity
       ..['shipping_address'] = Map<String, dynamic>.from(shippingAddress);
+  }
+
+  @override
+  Future<Map<String, dynamic>> getPodQuote({
+    required String country,
+    required int quantity,
+  }) async {
+    return {
+      'unit_price': 20,
+      'shipping_fee': 5,
+      'total_price': (20 * quantity) + 5,
+      'currency': 'USD',
+    };
   }
 
   @override
@@ -559,6 +573,42 @@ void main() {
 
       expect(api.lastPatchedSettings?['allow_kakao_share'], isFalse);
       expect(find.text('설정이 저장되었습니다.'), findsOneWidget);
+    });
+
+    testWidgets('SettingsScreen has no language dropdown — device locale is source of truth (L13)',
+        (tester) async {
+      final prefs = await _createPrefs();
+      final api = _InteractiveMockApiClient();
+      await tester.pumpWidget(_buildHarness(
+        const SettingsScreen(),
+        prefs: prefs,
+        overrides: [apiClientProvider.overrideWithValue(api)],
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      // 실효과 없는 언어 드롭다운(서버 language만 저장, MaterialApp.locale 미배선) 제거.
+      expect(find.byType(DropdownButton<String>), findsNothing);
+    });
+
+    testWidgets('SettingsScreen shows unified 1.0.0 version, not stale 0.1.0 (L20)',
+        (tester) async {
+      final prefs = await _createPrefs();
+      final api = _InteractiveMockApiClient();
+      await tester.pumpWidget(_buildHarness(
+        const SettingsScreen(),
+        prefs: prefs,
+        overrides: [apiClientProvider.overrideWithValue(api)],
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      final settingsList = find.byType(ListView).first;
+      final versionTile = find.textContaining('v1.0.0');
+      for (var i = 0; i < 25 && versionTile.evaluate().isEmpty; i++) {
+        await tester.drag(settingsList, const Offset(0, -250));
+        await tester.pumpAndSettle();
+      }
+      expect(versionTile, findsOneWidget);
+      expect(find.textContaining('v0.1.0'), findsNothing);
     });
 
     testWidgets(
@@ -726,6 +776,10 @@ void main() {
       await tester.enterText(
         find.widgetWithText(TextFormField, '주소'),
         '서울시 강남구 테스트로 1',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, '도시'),
+        '서울',
       );
       await tester.enterText(
         find.widgetWithText(TextFormField, '우편번호'),

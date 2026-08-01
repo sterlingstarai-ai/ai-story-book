@@ -4,7 +4,14 @@ from datetime import datetime
 from enum import Enum
 from typing import Dict, List, Literal, Optional
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 # Import ErrorCode from canonical source to avoid duplication
 from src.core.errors import ErrorCode  # noqa: E402
@@ -47,6 +54,11 @@ class Theme(str, Enum):
     family = "가족"
     adventure = "모험"
     nature = "자연"
+    # 오늘의 동화 일일 테마(L17/G11) — 역매핑 실패로 조용히 theme=None 되던 4종 정식 추가.
+    courage = "용기"
+    kindness = "친절"
+    growth = "성장"
+    imagination = "상상"
     science = "과학"
     time_travel = "시간여행"  # 미래나 역사 속으로
     animal = "동물"
@@ -165,6 +177,14 @@ class StoryContinuity(BaseModel):
 
     character_consistency_notes: str = Field(min_length=1, max_length=300)
     style_notes_for_images: str = Field(min_length=1, max_length=300)
+
+
+class RewriteResult(BaseModel):
+    """페이지 텍스트 재작성 결과(M31). revised_text 필수 — 누락 시 검증 단계에서 명시 실패."""
+
+    page: int = Field(ge=1, le=12)
+    revised_text: str = Field(min_length=1, max_length=600)
+    notes: Optional[str] = Field(default=None, max_length=300)
 
 
 class StoryDraft(BaseModel):
@@ -361,6 +381,16 @@ class RegeneratePageRequest(BaseModel):
     )
     feedback: Optional[str] = Field(default=None, max_length=200)
 
+    @model_validator(mode="after")
+    def _require_feedback_for_text_modes(self) -> "RegeneratePageRequest":
+        # M12: 텍스트 재생성은 feedback이 있어야 실제 재작성이 일어난다. 없으면
+        # 조용한 no-op 후 잡이 done으로 위장되므로(무한 재시도·CS) 요청 단계에서 거부.
+        if self.mode in ("text", "both") and not (
+            self.feedback and self.feedback.strip()
+        ):
+            raise ValueError("feedback is required when mode is 'text' or 'both'")
+        return self
+
 
 class RegeneratePageResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -453,8 +483,10 @@ class SeriesNextRequest(BaseModel):
     series_title: Optional[str] = Field(default=None, max_length=100)
     theme: Optional[Theme] = None
     language: Language = Language.ko
-    target_age: TargetAge = TargetAge.a5_7
-    style: Style = Style.watercolor
+    # H19/G22: 미지정(None)이면 원작(prev_book) 스타일·연령대를 상속(기존 클라 호환). 오케스트레이터가
+    # 상속 계산 — 명시값이 있으면 그 값, 없고 prev_book 있으면 원작 값, 둘 다 없으면 기본(5-7/watercolor).
+    target_age: Optional[TargetAge] = None
+    style: Optional[Style] = None
     page_count: int = Field(ge=4, le=12, default=8)
     forbidden_elements: Optional[List[str]] = Field(default=None, max_length=20)
 

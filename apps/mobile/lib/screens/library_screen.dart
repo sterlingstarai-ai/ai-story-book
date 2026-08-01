@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:uuid/uuid.dart';
 import '../core/api_error.dart';
 import '../l10n/app_localizations.dart';
 import '../models/models.dart';
@@ -22,7 +23,14 @@ class LibraryScreen extends ConsumerStatefulWidget {
 
 class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   static const _scrollThreshold = 320.0;
+  static const _uuid = Uuid();
   final ScrollController _scrollController = ScrollController();
+  // H18: 시리즈 생성 시도-단위 멱등키(재시도 시 재사용, 성공 시 리셋).
+  // #20: 대상(시리즈/직전 권) 서명과 함께 보관한다. 서명 없이 '??='만 쓰면 실패 후
+  // '다른' 시리즈의 다음 권을 만들 때 이전 키가 재사용돼 서버가 이전 잡을 그대로 돌려준다
+  // (의도한 새 생성이 조용히 no-op). createBook의 _attemptSig 패턴과 동일.
+  String? _seriesAttemptKey;
+  String? _seriesAttemptSig;
 
   Map<String, String> _sortLabels(AppLocalizations l) => {
         'newest': l.librarySortNewest,
@@ -181,7 +189,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   String _friendlyErrorMessage(Object error) {
     final l = AppLocalizations.of(context);
     if (error is ApiError) {
-      return error.userMessage;
+      return error.localizedMessage(l);
     }
     final raw = error.toString().toLowerCase();
     if (raw.contains('socketexception') ||
@@ -476,12 +484,23 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
       if (!mounted || topic == null || topic.isEmpty) {
         return;
       }
+      final attemptSig = '${latest.seriesId ?? ''}|${latest.id}|$characterId|$topic';
+      if (_seriesAttemptKey == null || _seriesAttemptSig != attemptSig) {
+        _seriesAttemptKey = _uuid.v4();
+        _seriesAttemptSig = attemptSig;
+      }
       final response = await ref.read(apiClientProvider).createSeriesBook(
             characterId: characterId,
             topic: topic,
             seriesId: latest.seriesId,
             previousBookId: latest.id,
+            // H19: 원작 스타일·연령대 상속(다음 권이 watercolor/5-7로 깨지지 않게).
+            style: latest.style,
+            targetAge: latest.targetAge,
+            idempotencyKey: _seriesAttemptKey,
           );
+      _seriesAttemptKey = null; // 성공 → 다음 생성은 새 키
+      _seriesAttemptSig = null;
       if (!mounted) {
         return;
       }

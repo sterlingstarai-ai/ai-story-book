@@ -245,9 +245,14 @@ class PDFService:
                 return False
 
             # Check against allowed domains
-            # Also allow S3 endpoint from settings
+            # Also allow S3 endpoint + public URL host from settings.
+            # H11: 저장되는 모든 책 이미지 URL은 s3_public_url/{key}로 만들어지므로
+            # (storage.py), s3_endpoint 호스트만 허용하면 R2 공개도메인/CDN 구성에서
+            # 삽화가 전부 차단돼 텍스트-only PDF가 된다. storage.py 가드와 동일하게 포함.
             s3_host = urlparse(settings.s3_endpoint).hostname or ""
-            allowed = ALLOWED_IMAGE_DOMAINS | {s3_host}
+            s3_public_host = urlparse(settings.s3_public_url).hostname or ""
+            allowed = ALLOWED_IMAGE_DOMAINS | {s3_host, s3_public_host}
+            allowed.discard("")
             if settings.debug or settings.testing:
                 allowed |= {"localhost", "127.0.0.1"}
 

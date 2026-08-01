@@ -5,17 +5,18 @@ Streak Router
 
 import uuid
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, Field
 from typing import Literal, Optional
+import structlog
 
 from src.core.database import get_db
-from src.core.dependencies import get_profile_id, get_user_key
+from src.core.dependencies import _UUID_RE, get_profile_id, get_user_key
 from src.core.exceptions import ValidationError
 from src.core.utils import utcnow
-from src.models.db import ChildProfile
+from src.models.db import ChildProfile, Job
 from src.models.dto import (
     BookSpec,
     CreateBookResponse,
@@ -28,12 +29,14 @@ from src.models.dto import (
 from src.routers.books import (
     _create_job_with_credit,
     _enforce_free_plan_create_limits,
+    get_idempotency_key,
     schedule_book_generation,
 )
 from src.services.growth import growth_service
 from src.services.streak import streak_service, DAILY_THEMES
 
 router = APIRouter()
+logger = structlog.get_logger()
 
 
 async def _validate_profile_ownership(
@@ -72,9 +75,10 @@ class StreakInfoResponse(BaseModel):
 
 class TodayStoryResponse(BaseModel):
     date: str
-    theme: str
+    theme: str  # H25: 안정 theme id(모바일 arb 표시키)
     theme_name: Optional[str]
     topic: str
+    topic_id: Optional[str] = None  # H25: 안정 topic 키 'theme_idx'(모바일 arb 표시)
     book_id: Optional[str]
 
 
@@ -133,17 +137,35 @@ async def get_streak_info(
     return StreakInfoResponse(**info)
 
 
+def get_optional_user_key(
+    x_user_key: Optional[str] = Header(
+        default=None, description="Optional user key; fills today's book_id when present"
+    ),
+) -> Optional[str]:
+    """익명 유지 엔드포인트용 선택적 user_key 추출(M22/G12).
+
+    GET /v1/streak/today 는 익명으로 유지하고, X-User-Key 가 유효 UUID로 제공될 때만
+    그 사용자의 오늘의 동화 book_id 를 채운다. 헤더 부재/무효 형식이면 None(익명 —
+    book_id 미채움)으로 조용히 강등해 기존 익명 접근을 깨지 않는다.
+    """
+    if not x_user_key or not _UUID_RE.match(x_user_key):
+        return None
+    return x_user_key
+
+
 @router.get("/today", response_model=TodayStoryResponse)
 async def get_today_story(
     db: AsyncSession = Depends(get_db),
+    user_key: Optional[str] = Depends(get_optional_user_key),
 ):
     """
     오늘의 동화 조회
 
     - 매일 새로운 테마와 주제 제공
     - 날짜별로 고정된 테마/주제 (모든 사용자 동일)
+    - book_id: X-User-Key 가 있으면 그 사용자가 오늘 생성 완료한 오늘의 동화 책 id (없으면 null)
     """
-    story = await streak_service.get_today_story(db)
+    story = await streak_service.get_today_story(db, user_key=user_key)
 
     # 테마 이름 추가
     theme_name = next(
@@ -156,6 +178,7 @@ async def get_today_story(
         theme=story["theme"],
         theme_name=theme_name,
         topic=story["topic"],
+        topic_id=story.get("topic_id"),  # H25: 안정 topic 키(모바일 arb 표시)
         book_id=story.get("book_id"),
     )
 
@@ -175,6 +198,7 @@ async def generate_today_story(
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
     profile_id: Optional[str] = Depends(get_profile_id),
+    idempotency_key: Optional[str] = Depends(get_idempotency_key),
 ):
     """오늘의 동화를 '내 아이가 주인공'인 개인화 책으로 생성한다.
 
@@ -183,15 +207,35 @@ async def generate_today_story(
     무료 사용자는 *생성* 한도가 있지만 *읽기*(POST /read)는 한도와 무관하게 스트릭을 유지한다.
     """
     scoped_profile_id = await _validate_profile_ownership(db, user_key, profile_id)
+
+    # H18: 재시도(타임아웃 후 재탭) 이중 생성·이중 차감 방지 — 기존 잡 반환. 일별 dedup과
+    # 무관한 시도-단위 멱등키(다른 키면 새 생성이 정상).
+    if idempotency_key:
+        existing_job = (
+            await db.execute(
+                select(Job).where(
+                    Job.idempotency_key == idempotency_key,
+                    Job.user_key == user_key,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing_job:
+            return CreateBookResponse(
+                job_id=existing_job.id,
+                status=JobState(existing_job.status),
+                estimated_time_seconds=120,
+            )
+
     today = await streak_service.get_today_story(db)
 
-    theme_name = next(
-        (t["name"] for t in DAILY_THEMES if t["theme"] == today["theme"]), None
-    )
-    try:
-        book_theme = Theme(theme_name) if theme_name else None
-    except ValueError:
-        book_theme = None
+    # L17: 한국어 표시명 역매핑(Theme(name)) 대신 테마 코드를 Theme enum 멤버명으로 직접 매핑.
+    # 7개 일일 테마 코드는 모두 Theme 멤버명과 일치(courage/kindness/growth/imagination 정식 추가).
+    # 매핑 불가는 조용한 None 대신 로그 + 명시 기본값(emotion)으로 처리.
+    theme_code = today["theme"]
+    book_theme = Theme.__members__.get(theme_code)
+    if book_theme is None:
+        logger.warning("Unmapped daily theme code; using default", theme=theme_code)
+        book_theme = Theme.emotion
 
     spec = BookSpec(
         topic=today["topic"],
@@ -210,9 +254,10 @@ async def generate_today_story(
         db=db,
         user_key=user_key,
         job_id=job_id,
-        current_step="오늘의 동화 대기 중",
+        current_step="queued",  # M32
         credit_description="오늘의 동화 생성",
         refund_description="오늘의 동화 생성 실패 환불",
+        idempotency_key=idempotency_key,
         profile_id=scoped_profile_id,
     )
     await schedule_book_generation(db, background_tasks, job_id, spec, user_key)
@@ -307,39 +352,27 @@ async def get_streak_calendar(
     - 특정 월의 읽기 기록
     - 캘린더 UI용 데이터
     """
-    from datetime import date
     import calendar
 
-    # 해당 월의 시작과 끝
-    first_day = date(year, month, 1)
-    last_day = date(year, month, calendar.monthrange(year, month)[1])
+    last_day_num = calendar.monthrange(year, month)[1]
 
-    # 읽기 기록 조회
-    days_diff = (last_day - first_day).days + 1
+    # L7: 요청 월의 절대 경계로 직접 조회(상대 윈도우 제거) — 과거 달도 정확히 채운다.
     scoped_profile_id = await _validate_profile_ownership(db, user_key, profile_id)
-    history = await streak_service.get_reading_history(
-        db,
-        user_key,
-        days=days_diff + 30,
-        profile_id=scoped_profile_id,
+    month_reads = await streak_service.get_calendar_month(
+        db, user_key, year, month, profile_id=scoped_profile_id
     )
-
-    # 해당 월의 날짜만 필터링
-    month_history = {
-        h["date"]: h for h in history if h["date"].startswith(f"{year}-{month:02d}")
-    }
 
     # 캘린더 데이터 생성
     calendar_data = []
-    for day in range(1, last_day.day + 1):
+    for day in range(1, last_day_num + 1):
         date_str = f"{year}-{month:02d}-{day:02d}"
-        read_data = month_history.get(date_str)
+        books_count = month_reads.get(date_str, 0)
         calendar_data.append(
             {
                 "date": date_str,
                 "day": day,
-                "read": read_data is not None,
-                "books_count": read_data["books_read"] if read_data else 0,
+                "read": books_count > 0,
+                "books_count": books_count,
             }
         )
 
@@ -347,7 +380,7 @@ async def get_streak_calendar(
         "year": year,
         "month": month,
         "days": calendar_data,
-        "total_read_days": len(month_history),
+        "total_read_days": len(month_reads),
     }
 
 

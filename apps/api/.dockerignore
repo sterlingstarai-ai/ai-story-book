@@ -12,3 +12,8 @@ __pycache__
 *.pyc
 *.log
 docs
+
+# L15: 실 .env(실키)가 이미지 레이어에 포함되지 않도록 제외. 예제는 유지.
+.env
+.env.*
+!.env.example

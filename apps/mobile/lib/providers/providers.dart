@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../core/api_error.dart';
 import '../core/env_config.dart';
@@ -68,13 +69,14 @@ final apiClientProvider = Provider<ApiClient>((ref) {
   );
 });
 
-/// 배포 환경 기능 가용성(예: inpaint_supported) — UI 게이팅용. 실패 시 보수적으로 미지원.
+/// 배포 환경 기능 가용성(inpaint_supported·audio_supported) — UI 게이팅용.
+/// 실패 시 보수적으로 미지원(H1/G9: 오디오 비활성 배포에서 낭독/발음 탭마다 500 방지).
 final capabilitiesProvider = FutureProvider<Map<String, dynamic>>((ref) async {
   final api = ref.read(apiClientProvider);
   try {
     return await api.getCapabilities();
   } catch (_) {
-    return const {'inpaint_supported': false};
+    return const {'inpaint_supported': false, 'audio_supported': false};
   }
 });
 
@@ -581,6 +583,10 @@ class HomeStreakSnapshot {
   final bool readToday;
   final String todayThemeName;
   final String todayTopic;
+  // H25: 안정 키(서버 theme id + topic_id) — 모바일이 로케일별 arb로 표시. 서버 한국어
+  // theme_name/topic은 폴백으로 유지.
+  final String todayThemeId;
+  final String todayTopicId;
   final String? todayBookId;
   final Set<String> readDates;
 
@@ -591,6 +597,8 @@ class HomeStreakSnapshot {
     required this.readToday,
     required this.todayThemeName,
     required this.todayTopic,
+    this.todayThemeId = '',
+    this.todayTopicId = '',
     required this.todayBookId,
     required this.readDates,
   });
@@ -629,6 +637,8 @@ final homeStreakProvider = FutureProvider<HomeStreakSnapshot>((ref) async {
         _toStringValue(todayStory['theme_name'], fallback: '오늘의 추천'),
     todayTopic:
         _toStringValue(todayStory['topic'], fallback: '오늘의 동화를 만들어보세요!'),
+    todayThemeId: _toStringValue(todayStory['theme'], fallback: ''),
+    todayTopicId: _toStringValue(todayStory['topic_id'], fallback: ''),
     todayBookId: _toNullableString(todayStory['book_id']),
     readDates: readDates,
   );
@@ -830,9 +840,11 @@ final charactersProvider =
 );
 
 /// 기본 제공 캐릭터 프리셋 Provider ('우리 아이를 주인공으로' 기본 이미지 선택)
-final characterPresetsProvider =
-    FutureProvider<List<Map<String, dynamic>>>((ref) async {
-  return ref.read(apiClientProvider).getCharacterPresets();
+///
+/// 언어코드(앱 로케일)를 family 인자로 받아 표시 텍스트를 로케일별로 서빙받는다.
+final characterPresetsProvider = FutureProvider.family<
+    List<Map<String, dynamic>>, String>((ref, language) async {
+  return ref.read(apiClientProvider).getCharacterPresets(language: language);
 });
 
 class CharactersNotifier extends AsyncNotifier<List<Character>> {
@@ -857,27 +869,26 @@ class CharactersNotifier extends AsyncNotifier<List<Character>> {
 /// 현재 생성 중인 Job 상태
 final currentJobProvider = StateProvider<JobStatus?>((ref) => null);
 
+/// 생성 폴링 예산 — 서버 잡 SLA(10분)와 일치시킨다(H17).
+/// 이전에는 maxAttempts(120×2초≈4분)가 먼저 발화해 정상 잡을 4분에 허위 실패시켰다.
+const Duration kJobPollingHardTimeout = Duration(minutes: 10);
+
+/// 폴링 예산 초과 여부(순수 헬퍼 — 결정적 단위 테스트용, H17).
+bool jobPollingBudgetExceeded(Duration elapsed) =>
+    elapsed > kJobPollingHardTimeout;
+
 /// Job 상태 폴링 Provider
 final jobPollingProvider =
     StreamProvider.family<JobStatus, String>((ref, jobId) async* {
   final api = ref.read(apiClientProvider);
   final startedAt = DateTime.now();
-  var attempts = 0;
-  const maxAttempts = 120;
-  const hardTimeout = Duration(minutes: 10);
 
   while (true) {
-    attempts += 1;
+    // H17: 경과시간(SLA 10분) 단일 예산. attempt 카운트 기반 조기 종료 제거.
     final elapsed = DateTime.now().difference(startedAt);
-    if (elapsed > hardTimeout) {
+    if (jobPollingBudgetExceeded(elapsed)) {
       throw TimeoutException(
-        '생성 시간이 너무 오래 걸리고 있어요. 잠시 후 다시 시도해주세요.',
-      );
-    }
-
-    if (attempts > maxAttempts) {
-      throw TimeoutException(
-        '생성이 지연되고 있어요. 다시 시도 버튼으로 상태를 확인해주세요.',
+        'Generation exceeded the ${kJobPollingHardTimeout.inMinutes}-minute budget',
       );
     }
 
@@ -896,17 +907,43 @@ final jobPollingProvider =
 final bookCreationProvider =
     AsyncNotifierProvider<BookCreationNotifier, void>(BookCreationNotifier.new);
 
+// H18: 오늘의 동화 생성 시도-단위 멱등키(HomeScreen이 stateless라 provider로 보유).
+// 재시도 시 재사용, 성공 시 null로 리셋.
+final todayAttemptKeyProvider = StateProvider<String?>((ref) => null);
+
+/// #20: 오늘의 동화 멱등키가 '어느 날짜의 생성'인지 함께 보관한다. 날짜 서명 없이
+/// '??='만 쓰면 어제 실패한 키가 오늘 재사용돼 서버가 어제 잡을 그대로 돌려준다
+/// (오늘의 동화가 조용히 생성되지 않음).
+final todayAttemptSigProvider = StateProvider<String?>((ref) => null);
+
 class BookCreationNotifier extends AsyncNotifier<void> {
+  static const _uuid = Uuid();
+  // H18: 시도-단위 멱등키. 타임아웃 후 같은 spec 재시도에선 같은 키를 재사용해 서버가 dedup
+  // (이중 생성·크레딧 이중차감 방지). 성공 시 리셋, spec이 바뀌면 새 키.
+  String? _attemptKey;
+  String? _attemptSig;
+
   @override
   Future<void> build() async {}
 
   Future<String> createBook(BookSpec spec) async {
     final api = ref.read(apiClientProvider);
 
+    // 더블탭 창 축소를 위해 상태를 먼저 loading으로.
     state = const AsyncValue.loading();
 
+    final sig = jsonEncode(spec.toJson());
+    if (_attemptKey == null || _attemptSig != sig) {
+      _attemptKey = _uuid.v4();
+      _attemptSig = sig;
+    }
+
     try {
-      final response = await api.createBook(spec);
+      final response = await api.createBook(spec, idempotencyKey: _attemptKey);
+
+      // 성공 → 다음 생성은 새 키.
+      _attemptKey = null;
+      _attemptSig = null;
 
       // 현재 Job 상태 초기화
       ref.read(currentJobProvider.notifier).state = JobStatus(
@@ -918,6 +955,7 @@ class BookCreationNotifier extends AsyncNotifier<void> {
       state = const AsyncValue.data(null);
       return response.jobId;
     } catch (e, st) {
+      // 키 유지 → 같은 spec 재시도 시 재사용.
       state = AsyncValue.error(e, st);
       rethrow;
     }

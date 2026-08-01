@@ -1,2 +1,5 @@
 #include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
 #include "Generated.xcconfig"
+
+// H27: 카카오 CFBundleURLTypes 스킴(kakao$(KAKAO_NATIVE_APP_KEY)) 해석용. CI/시크릿이 주입.
+KAKAO_NATIVE_APP_KEY=

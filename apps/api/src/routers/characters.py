@@ -7,10 +7,17 @@ import random
 import uuid
 import structlog
 
-from src.core.character_presets import CHARACTER_PRESETS, get_preset
+from src.core.character_presets import (
+    CHARACTER_PRESETS,
+    get_preset_localized,
+)
 from src.core.consent import require_photo_consent
+from src.core.i18n import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES
 from src.core.database import get_db
+from sqlalchemy.exc import IntegrityError
+
 from src.core.dependencies import get_user_key
+from src.routers.books import get_idempotency_key
 from src.models.dto import (
     CreateCharacterRequest,
     CharacterResponse,
@@ -125,6 +132,28 @@ def _build_character_dict(
         "visual_style_notes": character.visual_style_notes,
         "created_at": character.created_at,
     }
+
+
+
+async def _existing_by_idempotency_key(
+    db: AsyncSession, user_key: str, idempotency_key: Optional[str]
+) -> Optional[Character]:
+    """같은 시도키로 이미 만든 캐릭터를 반환한다(H17/G19 #9).
+
+    사진·그림 캐릭터 생성은 요청 안에서 vision 분석 + 시트 이미지를 동기 수행해 수분이
+    걸린다. 클라 타임아웃 후 서버는 완주하므로, 재시도를 그대로 처리하면 중복 캐릭터가
+    쌓이고 vision·이미지 비용이 이중 지출된다. Job/PodOrder 멱등과 동일한 계약.
+    """
+    if not idempotency_key:
+        return None
+    return (
+        await db.execute(
+            select(Character).where(
+                Character.user_key == user_key,
+                Character.idempotency_key == idempotency_key,
+            )
+        )
+    ).scalar_one_or_none()
 
 
 async def _generate_character_sheet_urls(
@@ -251,12 +280,28 @@ async def create_character(
 class FromPresetRequest(BaseModel):
     preset_id: str
     name: Optional[str] = None
+    language: Optional[str] = None
+
+
+def _normalize_language(language: Optional[str]) -> str:
+    """요청 언어를 지원 언어로 정규화(미지정·미지원은 기본 언어 ko 폴백)."""
+    if language and language in SUPPORTED_LANGUAGES:
+        return language
+    return DEFAULT_LANGUAGE
 
 
 @router.get("/presets")
-async def list_character_presets():
-    """기본 제공 캐릭터 프리셋 목록(외형 묘사 + 썸네일 asset). '기본 이미지 선택' 경로."""
-    return {"presets": CHARACTER_PRESETS}
+async def list_character_presets(language: Optional[str] = None):
+    """기본 제공 캐릭터 프리셋 목록(외형 묘사 + 썸네일 asset). '기본 이미지 선택' 경로.
+
+    language 로 표시 텍스트(name/appearance/clothing/visual_style_notes)를 로케일별로
+    서빙한다(미지정·미지원은 ko 폴백). master_description 은 이미지 최적 영어로 고정.
+    """
+    lang = _normalize_language(language)
+    presets = [
+        get_preset_localized(preset["preset_id"], lang) for preset in CHARACTER_PRESETS
+    ]
+    return {"presets": presets}
 
 
 @router.post("/from-preset", response_model=CharacterResponse)
@@ -265,8 +310,13 @@ async def create_character_from_preset(
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
 ):
-    """기본 캐릭터 프리셋으로 주인공 캐릭터를 생성한다(아이 이름 지정 가능)."""
-    preset = get_preset(request.preset_id)
+    """기본 캐릭터 프리셋으로 주인공 캐릭터를 생성한다(아이 이름 지정 가능).
+
+    표시 텍스트(name/appearance/clothing/visual_style_notes)는 요청 언어로 저장하고,
+    master_description 은 이미지 최적 영어로 고정 저장한다(G31 불변식).
+    """
+    lang = _normalize_language(request.language)
+    preset = get_preset_localized(request.preset_id, lang)
     if preset is None:
         raise NotFoundError("캐릭터 프리셋", request.preset_id)
 
@@ -416,6 +466,16 @@ async def delete_character(
     # 사진/그림 파생 여부를 행 삭제 전에 확보(삭제 후 원본 스토리지도 파기해야 함).
     was_from_photo = bool(getattr(character, "from_photo", False))
 
+    # H7: series.character_id → characters.id는 단방향 FK(ondelete 없음)라 ORM이
+    # 자동 nullify하지 못해 commit에서 IntegrityError 500이 난다. 삭제 전에 명시 해제.
+    from sqlalchemy import update
+    from src.models.db import Series
+
+    await db.execute(
+        update(Series)
+        .where(Series.character_id == character_id)
+        .values(character_id=None)
+    )
     await db.delete(character)
     try:
         await db.commit()
@@ -539,6 +599,7 @@ async def create_character_from_photo(
     style: str = Form("cartoon", description="스타일"),
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
+    idempotency_key: Optional[str] = Depends(get_idempotency_key),
 ):
     """
     사진에서 캐릭터 생성
@@ -546,8 +607,19 @@ async def create_character_from_photo(
     - 사진을 분석하여 캐릭터 특성 추출
     - AI가 동화 스타일로 변환
     - 자동으로 캐릭터 시트 생성
+    - `X-Idempotency-Key`를 보내면 재시도가 기존 캐릭터를 그대로 반환한다(재분석 없음)
     """
     await require_photo_consent(db, user_key)
+
+    # H17/G19 #9: 같은 시도키의 재요청은 재분석·재업로드 없이 기존 결과를 반환.
+    existing = await _existing_by_idempotency_key(db, user_key, idempotency_key)
+    if existing is not None:
+        return CharacterResponse(**_build_character_dict(
+            existing,
+            normalized_appearance=existing.appearance or {},
+            normalized_clothing=existing.clothing or {},
+        ))
+
     contents = await _validate_and_read_image(photo)
 
     try:
@@ -582,10 +654,24 @@ async def create_character_from_photo(
             user_key=user_key,
             from_photo=True,
             source_image_url=source_image_url,
+            idempotency_key=idempotency_key,
         )
 
         db.add(character)
-        await db.commit()
+        try:
+            await db.commit()
+        except IntegrityError:
+            # 동시 더블탭: 둘 다 pre-check를 통과해 부분 유니크에서 패배한 쪽.
+            # 500 대신 승자의 캐릭터를 멱등 반환한다(중복 생성은 DB가 이미 차단).
+            await db.rollback()
+            winner = await _existing_by_idempotency_key(db, user_key, idempotency_key)
+            if winner is None:
+                raise
+            return CharacterResponse(**_build_character_dict(
+                winner,
+                normalized_appearance=winner.appearance or {},
+                normalized_clothing=winner.clothing or {},
+            ))
         await db.refresh(character)
 
         return CharacterResponse(**_build_character_dict(
@@ -615,6 +701,7 @@ async def create_character_from_drawing(
     generate_sheet: bool = Form(True, description="캐릭터 시트 생성 여부"),
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
+    idempotency_key: Optional[str] = Depends(get_idempotency_key),
 ):
     """
     아이 그림을 캐릭터로 변환한다.
@@ -622,8 +709,24 @@ async def create_character_from_drawing(
     - 그림 분석으로 캐릭터 외형/성격 추론
     - 캐릭터 레코드 저장
     - 선택적으로 캐릭터 시트 이미지(포즈 3종) 생성
+    - `X-Idempotency-Key`를 보내면 재시도가 기존 캐릭터를 반환한다(재분석·시트 재생성 없음).
+      시트 URL은 생성 시점 provider 반환값이라 재현 불가 — 재시도 응답에서는 빈 배열이다.
     """
     await require_photo_consent(db, user_key)
+
+    # H17/G19 #9: 같은 시도키의 재요청은 그림 재분석·시트 재생성 없이 기존 결과를 반환.
+    existing = await _existing_by_idempotency_key(db, user_key, idempotency_key)
+    if existing is not None:
+        return {
+            **_build_character_dict(
+                existing,
+                normalized_appearance=existing.appearance or {},
+                normalized_clothing=existing.clothing or {},
+            ),
+            "source_image_url": existing.source_image_url,
+            "character_sheet_urls": [],
+        }
+
     contents = await _validate_and_read_image(drawing)
     source_image_url: Optional[str] = None
 
@@ -665,9 +768,25 @@ async def create_character_from_drawing(
             user_key=user_key,
             from_photo=True,
             source_image_url=source_image_url,
+            idempotency_key=idempotency_key,
         )
         db.add(character)
-        await db.commit()
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+            winner = await _existing_by_idempotency_key(db, user_key, idempotency_key)
+            if winner is None:
+                raise
+            return {
+                **_build_character_dict(
+                    winner,
+                    normalized_appearance=winner.appearance or {},
+                    normalized_clothing=winner.clothing or {},
+                ),
+                "source_image_url": winner.source_image_url,
+                "character_sheet_urls": [],
+            }
         await db.refresh(character)
 
         sheet_urls: list[str] = []

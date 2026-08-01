@@ -1,0 +1,5 @@
+"CFBundleDisplayName" = "AI Story Book";
+"NSCameraUsageDescription" = "Camera access is needed to create a character from your child's photo.";
+"NSPhotoLibraryUsageDescription" = "Photo library access is needed to turn a photo into a storybook character.";
+"NSMicrophoneUsageDescription" = "Microphone access is needed for pronunciation practice and voice sample uploads.";
+"NSSpeechRecognitionUsageDescription" = "Speech recognition is used to analyze your pronunciation practice results.";

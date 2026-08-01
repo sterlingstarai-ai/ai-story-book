@@ -552,6 +552,46 @@ class AppLocalizationsEn extends AppLocalizations {
   String get loadingUnknownError => 'Unknown error';
 
   @override
+  String get loadingTimeoutMessage =>
+      'Generation is taking longer than expected. Please check the status again.';
+
+  @override
+  String get errorValidation => 'Please check your input.';
+
+  @override
+  String get errorUnauthorized => 'Please sign in.';
+
+  @override
+  String get errorForbidden => 'You don\'t have permission for this.';
+
+  @override
+  String get errorInternal =>
+      'A server error occurred. Please try again in a moment.';
+
+  @override
+  String get errorRateLimit =>
+      'Too many requests. Please try again in a moment.';
+
+  @override
+  String get errorServiceUnavailable =>
+      'The server is temporarily unstable. Please try again in a moment.';
+
+  @override
+  String get errorTimeout => 'The request timed out. Please try again.';
+
+  @override
+  String get errorConnection => 'Please check your internet connection.';
+
+  @override
+  String get errorNetwork => 'A network error occurred.';
+
+  @override
+  String get errorCancelled => 'The request was cancelled.';
+
+  @override
+  String get loadingSafetyBlockedPrefix => 'This input isn\'t safe:';
+
+  @override
   String get loadingRetryButton => 'Retry';
 
   @override
@@ -589,6 +629,114 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get loadingStepPackage => 'Wrapping things up';
+
+  @override
+  String get loadingStepLearningAssets => 'Creating learning materials';
+
+  @override
+  String get dailyThemeFriendship => 'Friendship';
+
+  @override
+  String get dailyTopicFriendship0 => 'Making a new friend';
+
+  @override
+  String get dailyTopicFriendship1 => 'Making up with a friend';
+
+  @override
+  String get dailyTopicFriendship2 => 'The joy of sharing';
+
+  @override
+  String get dailyTopicFriendship3 => 'Helping each other';
+
+  @override
+  String get dailyThemeCourage => 'Courage';
+
+  @override
+  String get dailyTopicCourage0 => 'Overcoming fear';
+
+  @override
+  String get dailyTopicCourage1 => 'A new challenge';
+
+  @override
+  String get dailyTopicCourage2 => 'It\'s okay to make mistakes';
+
+  @override
+  String get dailyTopicCourage3 => 'Trying something new';
+
+  @override
+  String get dailyThemeKindness => 'Kindness';
+
+  @override
+  String get dailyTopicKindness0 => 'The power of small kindness';
+
+  @override
+  String get dailyTopicKindness1 => 'A friend who needs help';
+
+  @override
+  String get dailyTopicKindness2 => 'A grateful heart';
+
+  @override
+  String get dailyTopicKindness3 => 'A caring heart';
+
+  @override
+  String get dailyThemeFamily => 'Family';
+
+  @override
+  String get dailyTopicFamily0 => 'I love mom and dad';
+
+  @override
+  String get dailyTopicFamily1 => 'Together with my sibling';
+
+  @override
+  String get dailyTopicFamily2 => 'At grandma and grandpa\'s';
+
+  @override
+  String get dailyTopicFamily3 => 'A family trip';
+
+  @override
+  String get dailyThemeNature => 'Nature';
+
+  @override
+  String get dailyTopicNature0 => 'Exploring the forest';
+
+  @override
+  String get dailyTopicNature1 => 'A story of the sea';
+
+  @override
+  String get dailyTopicNature2 => 'Spring has come';
+
+  @override
+  String get dailyTopicNature3 => 'A starry night';
+
+  @override
+  String get dailyThemeGrowth => 'Growth';
+
+  @override
+  String get dailyTopicGrowth0 => 'I can do it myself';
+
+  @override
+  String get dailyTopicGrowth1 => 'Learning something new';
+
+  @override
+  String get dailyTopicGrowth2 => 'Try again after failing';
+
+  @override
+  String get dailyTopicGrowth3 => 'Toward my dream';
+
+  @override
+  String get dailyThemeImagination => 'Imagination';
+
+  @override
+  String get dailyTopicImagination0 => 'A magical world';
+
+  @override
+  String get dailyTopicImagination1 => 'A land above the clouds';
+
+  @override
+  String get dailyTopicImagination2 => 'The animal friends\' school';
+
+  @override
+  String get dailyTopicImagination3 => 'The toys\' secret';
 
   @override
   String get loadingTip1 =>
@@ -904,9 +1052,24 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String podOrderEstimatedTotal(Object amount) {
-    return 'Est. $amount KRW';
+  String podOrderEstimatedTotal(Object amount, Object currency) {
+    return 'Est. $amount $currency';
   }
+
+  @override
+  String get podOrderCityLabel => 'City';
+
+  @override
+  String get podOrderCityError => 'Please enter a city.';
+
+  @override
+  String get podOrderStateLabel => 'State/Province';
+
+  @override
+  String get podOrderStateError => 'State is required for US/CA orders.';
+
+  @override
+  String get podOrderAddressLine2Label => 'Address line 2 (optional)';
 
   @override
   String get podOrderSubmitting => 'Processing order...';
@@ -949,8 +1112,8 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String podOrderPaymentAmount(Object amount) {
-    return 'Payment amount: $amount KRW';
+  String podOrderPaymentAmount(Object amount, Object currency) {
+    return 'Payment amount: $amount $currency';
   }
 
   @override
@@ -1247,8 +1410,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsFinalConfirmTitle => 'Final confirmation';
 
   @override
-  String get settingsFinalConfirmPrompt =>
-      'To proceed with deletion, type \"삭제\" below.';
+  String settingsFinalConfirmPrompt(Object keyword) {
+    return 'To proceed with deletion, type \"$keyword\" below.';
+  }
 
   @override
   String get settingsDeleteKeyword => 'Delete';
@@ -1475,6 +1639,26 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get creditsPlanFallbackName => 'Plan';
+
+  @override
+  String get planFree => 'Free';
+
+  @override
+  String get planBasic => 'Basic';
+
+  @override
+  String get planPremium => 'Premium';
+
+  @override
+  String get planFeaturesFree =>
+      '2 books / month|Watercolor & cartoon styles|No audio/PDF';
+
+  @override
+  String get planFeaturesBasic => '10 books / month|All styles|PDF|Basic TTS';
+
+  @override
+  String get planFeaturesPremium =>
+      '30 books / month|All features|Premium TTS|Priority processing';
 
   @override
   String get creditsCurrentPlan => 'Current Plan';
@@ -2060,6 +2244,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get inpaintFailed => 'Couldn\'t fix that region.';
 
   @override
+  String get inpaintApplyingRefreshLater =>
+      'Applying your change. Please refresh in a moment.';
+
+  @override
   String get viewerRegenerateAll => 'All';
 
   @override
@@ -2072,6 +2260,19 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get viewerRegenerateStarted =>
       'Page regeneration has started. Please wait a moment.';
+
+  @override
+  String get viewerRegenerateFeedbackTitle => 'How should we change it?';
+
+  @override
+  String get viewerRegenerateFeedbackHint => 'e.g. Make it shorter and simpler';
+
+  @override
+  String get viewerRegenerateFeedbackRequired =>
+      'Tell us what you\'d like changed';
+
+  @override
+  String get viewerRegenerateConfirm => 'Regenerate';
 
   @override
   String get viewerRegenerateFailed =>
@@ -2390,6 +2591,16 @@ class AppLocalizationsEn extends AppLocalizations {
       'Your child\'s photo is used only to create storybook characters. · Recipient: AI content-processing providers (incl. overseas, e.g. the US) · Item: child\'s face photo · Purpose: storybook character creation · Retention: kept while you use the service to keep the character consistent, and deleted immediately upon withdrawal or a deletion request · Operators do not view the photos directly. · Right to refuse: you can still use all non-photo features without agreeing (optional).';
 
   @override
+  String get photoConsentAgree => 'Agree';
+
+  @override
+  String get photoConsentCancel => 'Cancel';
+
+  @override
+  String get photoConsentLoadFailed =>
+      'Couldn\'t load your consent info. Please try again in a moment.';
+
+  @override
   String get consentDataProcessingRequired =>
       'Consent to the data processing and storage policy (required)';
 
@@ -2430,6 +2641,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get themeEmotionalCoaching => 'Emotional Coaching';
+
+  @override
+  String get themeSocial => 'Social Skills';
 
   @override
   String get themeFriendship => 'Friendship';

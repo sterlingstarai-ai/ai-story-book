@@ -50,5 +50,44 @@
       "Vocabulary difficulty should fit upper elementary readers",
       "No degraded asset warnings should appear in the healthy-path baseline"
     ]
+  },
+  {
+    "id": "golden-ja-friendship-004",
+    "language": "ja",
+    "target_age": "5-7",
+    "style": "watercolor",
+    "theme": "우정",
+    "topic": "森で道に迷ったハリネズミを助けて、一緒に家を探すウサギの物語。",
+    "expected_signals": [
+      "導入-葛藤-解決の構造が明確であること",
+      "主人公の口調と性格が最後まで保たれること",
+      "学習アセットが1ページ以上生成されること"
+    ]
+  },
+  {
+    "id": "golden-zh-nature-005",
+    "language": "zh",
+    "target_age": "5-7",
+    "style": "watercolor",
+    "theme": "자연",
+    "topic": "一只小熊猫在森林里认识了四季，学会照顾一棵小树苗的故事。",
+    "expected_signals": [
+      "故事结构清晰（开端-冲突-解决）",
+      "主角的语气与性格保持一致",
+      "至少生成一页学习资产"
+    ]
+  },
+  {
+    "id": "golden-es-adventure-006",
+    "language": "es",
+    "target_age": "7-9",
+    "style": "cartoon",
+    "theme": "모험",
+    "topic": "Una niña y su cometa robot descubren una biblioteca secreta en el cielo.",
+    "expected_signals": [
+      "Estructura clara: introducción, conflicto y resolución",
+      "La voz y personalidad del protagonista se mantienen",
+      "Se genera al menos una página de recursos de aprendizaje"
+    ]
   }
 ]

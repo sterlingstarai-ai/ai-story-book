@@ -18,7 +18,7 @@ class SettingsScreen extends ConsumerStatefulWidget {
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   static const _appVersion =
-      String.fromEnvironment('APP_VERSION', defaultValue: '0.1.0+1');
+      String.fromEnvironment('APP_VERSION', defaultValue: '1.0.0+1');
   static const _privacyPolicyUrl = 'https://aistorybook.com/privacy-policy';
   static const _termsOfServiceUrl = 'https://aistorybook.com/terms';
 
@@ -303,7 +303,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(l.settingsFinalConfirmPrompt),
+                Text(l.settingsFinalConfirmPrompt(l.settingsDeleteKeyword)),
                 const SizedBox(height: AppSpacing.sm),
                 TextField(
                   controller: textController,
@@ -318,8 +318,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 child: Text(l.settingsCancel),
               ),
               TextButton(
-                onPressed: () =>
-                    Navigator.pop(context, textController.text.trim() == '삭제'),
+                // H21: 하드코딩 '삭제' 대신 로캘 키워드와 비교 → en/ja 사용자도 삭제 가능.
+                onPressed: () => Navigator.pop(
+                    context, textController.text.trim() == l.settingsDeleteKeyword),
                 child: Text(l.settingsDeleteKeyword),
               ),
             ],
@@ -498,24 +499,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           const Divider(height: 1),
           _SectionHeader(l.settingsSectionApp),
-          ListTile(
-            title: Text(l.settingsLanguage),
-            trailing: DropdownButton<String>(
-              value: _language,
-              items: [
-                DropdownMenuItem(
-                    value: 'ko', child: Text(l.settingsLanguageKorean)),
-                DropdownMenuItem(
-                    value: 'en', child: Text(l.settingsLanguageEnglish)),
-              ],
-              onChanged: (value) {
-                if (value == null) {
-                  return;
-                }
-                setState(() => _language = value);
-              },
-            ),
-          ),
+          // L13: 언어 드롭다운 제거 — UI 로캘은 기기 추종이 정본(MaterialApp.locale 미배선).
+          // 서버 language 필드는 _language(로드값 라운드트립)로 유지(스펙 M1-07).
           SwitchListTile(
             title: Text(l.settingsDarkMode),
             subtitle: Text(l.settingsDarkModeSubtitle),

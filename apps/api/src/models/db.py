@@ -40,7 +40,7 @@ class Job(Base):
         String(20), nullable=False, default="queued"
     )  # queued, running, failed, done
     progress = Column(Integer, default=0)
-    current_step = Column(String(120), default="대기 중")
+    current_step = Column(String(120), default="queued")  # M32: 안정 키
     error_code = Column(String(60), nullable=True)
     error_message = Column(String(300), nullable=True)
     moderation_input = Column(JSON, nullable=True)
@@ -138,7 +138,8 @@ class Book(Base):
 
     # 연령 리텔(grow-with-child) 원본 책 — 같은 이야기의 다른 연령 변형을 묶는다
     retelling_source_book_id = Column(
-        String(60), ForeignKey("books.id"), nullable=True
+        # M10: 마이그레이션과 일치하도록 ondelete=SET NULL 명시(원본 삭제 시 변형 링크 해제).
+        String(60), ForeignKey("books.id", ondelete="SET NULL"), nullable=True
     )
 
     # 다국어 지원 (v0.3)
@@ -199,6 +200,21 @@ class Page(Base):
 
 class Character(Base):
     __tablename__ = "characters"
+    __table_args__ = (
+        # H17/G19: 사진·그림 캐릭터 생성은 요청 안에서 vision 분석 + 시트 이미지를 동기로
+        # 수행해 최대 수분이 걸린다. 클라 타임아웃 후 서버는 완주하므로 재시도가 중복
+        # 캐릭터를 만든다(서재 오염 + vision·이미지 비용 이중 지출). 동일
+        # (user_key, idempotency_key)를 DB 레벨에서 차단 — Job/PodOrder 멱등 인프라와
+        # 동일 패턴(키가 NULL인 캐릭터는 제약 대상 아님).
+        Index(
+            "uq_characters_user_idempotency",
+            "user_key",
+            "idempotency_key",
+            unique=True,
+            sqlite_where=text("idempotency_key IS NOT NULL"),
+            postgresql_where=text("idempotency_key IS NOT NULL"),
+        ),
+    )
 
     id = Column(String(60), primary_key=True)
     name = Column(String(40), nullable=False)
@@ -215,6 +231,8 @@ class Character(Base):
     # 원본 사진/그림 URL — 얼굴 보존 이미지 생성(gemini)의 레퍼런스로 사용
     source_image_url = Column(String(500), nullable=True)
     user_key = Column(String(80), nullable=False, index=True)
+    # 클라이언트 시도-단위 멱등키(H17/G19). 재시도 시 기존 캐릭터를 반환해 재분석을 막는다.
+    idempotency_key = Column(String(80), nullable=True)
     created_at = Column(DateTime, default=utcnow)
 
     # Relationships
@@ -260,6 +278,18 @@ class Subscription(Base):
     """구독 정보"""
 
     __tablename__ = "subscriptions"
+    __table_args__ = (
+        # 사용자당 active 구독은 최대 1행 — check-then-write 사이 DB 제약 부재로 인한
+        # 동시 이중 active(→ periodic_credits 영구 이중 지급)를 DB 레벨에서 차단(M17).
+        # cancelled/expired는 제약 대상 아님(부분 인덱스).
+        Index(
+            "uq_subscriptions_active_per_user",
+            "user_key",
+            unique=True,
+            sqlite_where=text("status = 'active'"),
+            postgresql_where=text("status = 'active'"),
+        ),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_key = Column(String(80), nullable=False, index=True)
@@ -293,6 +323,28 @@ class CreditTransaction(Base):
                 "AND reference_id LIKE 'milestone_%'"
             ),
         ),
+        # M16: 멀티 레플리카 동시 스캔/재전송에서의 이중 환불·N중 지급을 DB로 강제 차단.
+        # refund는 job당 1회(reference_id=job_id), purchase는 (user_key, 결제 txn)당 1회.
+        Index(
+            "uq_credit_transactions_refund",
+            "reference_id",
+            unique=True,
+            sqlite_where=text("transaction_type = 'refund'"),
+            postgresql_where=text("transaction_type = 'refund'"),
+        ),
+        Index(
+            "uq_credit_transactions_purchase",
+            "user_key",
+            "reference_id",
+            unique=True,
+            sqlite_where=text("transaction_type = 'purchase'"),
+            postgresql_where=text("transaction_type = 'purchase'"),
+        ),
+        Index(
+            "ix_credit_transactions_reference_type",
+            "reference_id",
+            "transaction_type",
+        ),
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -325,9 +377,14 @@ class DailyStory(Base):
     """오늘의 동화"""
 
     __tablename__ = "daily_stories"
+    __table_args__ = (
+        # 하루 1행 보장(H14) — check-then-insert 레이스로 중복 행이 생기면 이후 그 날의
+        # /streak/today가 MultipleResultsFound로 전 사용자 500이 되던 것을 DB로 차단.
+        UniqueConstraint("date", name="uq_daily_stories_date"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    date = Column(DateTime, nullable=False, index=True)  # 날짜 (UTC 기준)
+    date = Column(DateTime, nullable=False)  # 날짜 (UTC 기준) — unique 제약이 인덱스 겸함
     theme = Column(String(30), nullable=False)  # 오늘의 테마
     topic = Column(String(100), nullable=False)  # 오늘의 주제
     book_id = Column(
@@ -377,6 +434,7 @@ class IAPReceipt(Base):
             name="uq_iap_receipts_platform_store_transaction_id",
         ),
         Index("ix_iap_receipts_user_key", "user_key"),
+        Index("ix_iap_receipts_subscription_id", "subscription_id"),
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -389,8 +447,47 @@ class IAPReceipt(Base):
     purchase_token = Column(String(500), nullable=True)
     status = Column(String(40), nullable=False, default="verified")
     payload = Column(JSON, nullable=True)
+    # 이 영수증이 개설/재활성한 구독(H5). 웹훅이 '최신 구독' 임의 매칭 대신 이 구독만
+    # 갱신하게 해, 업그레이드 후 옛 영수증 통지가 방금 결제한 구독을 죽이는 것을 막는다.
+    subscription_id = Column(
+        Integer, ForeignKey("subscriptions.id"), nullable=True
+    )
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class IapWebhookEvent(Base):
+    """IAP 웹훅 이벤트 적재(H4).
+
+    verify 이전 선도착하거나 store 식별자로만 오는 환불/취소 통지가 영수증 조회 미스로
+    유실되지 않도록 적재한다. verify 시 매칭 영수증에 sticky 재적용 후 applied=True.
+    """
+
+    __tablename__ = "iap_webhook_events"
+    __table_args__ = (
+        # 중복 웹훅 멱등: 같은 (platform, transaction_id, status)는 1행.
+        Index(
+            "uq_iap_webhook_events_dedup",
+            "platform",
+            "transaction_id",
+            "status",
+            unique=True,
+        ),
+        Index(
+            "ix_iap_webhook_events_lookup",
+            "platform",
+            "transaction_id",
+            "applied",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    platform = Column(String(20), nullable=False)
+    transaction_id = Column(String(200), nullable=False)
+    status = Column(String(40), nullable=False)
+    payload = Column(JSON, nullable=True)
+    applied = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, default=utcnow)
 
 
 class UserConsent(Base):
@@ -420,6 +517,10 @@ class UserSettings(Base):
 
     user_key = Column(String(80), primary_key=True)
     language = Column(String(10), nullable=False, default="ko")
+    # 하루/월 경계(스트릭·일일/월간 한도·리포트) 판정용 IANA 타임존(H2/G10). 기본 Asia/Seoul.
+    timezone = Column(
+        String(40), nullable=False, default="Asia/Seoul", server_default="Asia/Seoul"
+    )
     dark_mode = Column(Boolean, nullable=False, default=False)
     bedtime_notification_enabled = Column(Boolean, nullable=False, default=False)
     bedtime_notification_hour = Column(Integer, nullable=True)
@@ -490,18 +591,34 @@ class PodOrder(Base):
     __tablename__ = "pod_orders"
     __table_args__ = (
         Index("ix_pod_orders_user_key", "user_key"),
+        # 동일 (user_key, idempotency_key) 주문 중복 생성을 DB로 차단(더블탭 이중주문/외부
+        # draft 이중 생성 방지, H6). Job 멱등 인프라와 동일 패턴(NULL 키는 제약 제외).
+        Index(
+            "uq_pod_orders_user_idempotency",
+            "user_key",
+            "idempotency_key",
+            unique=True,
+            sqlite_where=text("idempotency_key IS NOT NULL"),
+            postgresql_where=text("idempotency_key IS NOT NULL"),
+        ),
     )
 
     id = Column(String(60), primary_key=True)
     user_key = Column(String(80), nullable=False)
     book_id = Column(String(60), ForeignKey("books.id"), nullable=False)
+    idempotency_key = Column(String(80), nullable=True)  # H6
     provider = Column(String(40), nullable=False, default="printful")
     status = Column(String(30), nullable=False, default="created")
     quantity = Column(Integer, nullable=False, default=1)
+    # 지역 견적(사용자 표시·청구 기준, region_currency). provider 실비와 별도 컬럼으로
+    # 분리해 한 행에 단위·통화가 혼재하지 않게 한다(H13/G7).
     unit_price = Column(Integer, nullable=False, default=0)
     shipping_fee = Column(Integer, nullable=False, default=0)
     total_price = Column(Integer, nullable=False, default=0)
     currency = Column(String(10), nullable=False, default="KRW")
+    # provider(Printful) 실비 — 원통화·정수 cents로 저장(×환산 금지). None=미연동/미확정.
+    provider_total = Column(Integer, nullable=True)  # H13/G7
+    provider_currency = Column(String(10), nullable=True)  # H13/G7
     shipping_address = Column(JSON, nullable=False)
     provider_order_id = Column(String(120), nullable=True)
     tracking_number = Column(String(120), nullable=True)
