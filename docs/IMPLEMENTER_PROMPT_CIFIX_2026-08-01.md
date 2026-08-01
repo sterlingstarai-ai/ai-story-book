@@ -48,3 +48,17 @@ CI-2로 ruff를 핀하면 그 뒤 `safety check` 스텝이 처음 실행되며 2
 1. `ci.yml`의 safety 스텝에 **`continue-on-error: true`**를 명시하되 **출력은 그대로 보이게**(`|| true`/`|| echo`로 삼키지 말 것 — 원 감사 M2 'silent safety' 반복 금지). 실패가 노란색으로 표시되되 잡을 막지는 않음.
 2. **Trivy fs는 CRITICAL+HIGH 하드 블로킹 유지**(S2대로). aiohttp(CI-1)는 이 게이트로 여전히 반드시 수정.
 3. safety 스텝 주석에 사유 명기: "safety 무료 DB가 존재하지 않는 fix 버전을 보고(unsatisfiable)해 advisory로 둠. 블로킹 정본은 Trivy(aquasec DB). 출시 후 재평가."
+
+---
+
+## CI-1 정정 (CTO, 2026-08-01) — aiohttp는 상향이 아니라 **제거**
+
+구현자가 aiohttp가 **고아 의존**임을 발견, CTO가 실측 확인: src·tests import 0건 / `pip show` Required-by 비어 있음 / 유일 역참조는 `uvloop`의 선택적 `extra == "test"`(미설치)뿐. 상향(3.13.5)해도 CVE 11건(수정본 미존재) 잔존.
+
+**결정: A — `requirements.txt`에서 `aiohttp` 라인 제거**(원 '상향' 지시 취소). 안 쓰는 의존 제거로 현재 11건 + 향후 모든 aiohttp CVE 영구 소멸, 공격표면·이미지 감소, 기능 비용 0. 상향은 증상 치료라 근본 해결 아님.
+
+조건:
+1. `requirements.txt`의 aiohttp 라인 삭제.
+2. `pip install -r requirements.txt` 클린 + **전체 pytest 675 회귀 0** 확인.
+3. fresh install 환경에서 aiohttp 부재 확인 → Trivy 스캔에서 aiohttp CVE 전부 소멸(CI-1 블로커 해소).
+4. (선택) safety/Trivy 지적 다른 패키지도 orphan(import 0·역의존 0)이면 동일 제거 — 과범위 금지.
