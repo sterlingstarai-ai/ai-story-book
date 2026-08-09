@@ -16,6 +16,9 @@ abstract class NotificationScheduler {
     required int minute,
     required String title,
     required String body,
+    // M6: Android 알림 채널명·설명은 OS 설정 화면에 영구 노출되므로 현지화가 필요하다.
+    required String channelName,
+    required String channelDescription,
   });
   Future<void> cancelBedtime();
 }
@@ -97,6 +100,8 @@ class LocalNotificationScheduler implements NotificationScheduler {
     required int minute,
     required String title,
     required String body,
+    required String channelName,
+    required String channelDescription,
   }) async {
     if (!_isMobile) {
       return;
@@ -110,15 +115,16 @@ class LocalNotificationScheduler implements NotificationScheduler {
         title,
         body,
         scheduled,
-        const NotificationDetails(
+        NotificationDetails(
           android: AndroidNotificationDetails(
             'bedtime_reminder',
-            '잠자리 알림',
-            channelDescription: '매일 밤 오늘의 동화 읽기 리마인더',
+            // M6: 채널명·설명은 OS 설정 화면에 그대로 노출된다 — 호출부가 현지화해 넘긴다.
+            channelName,
+            channelDescription: channelDescription,
             importance: Importance.defaultImportance,
             priority: Priority.defaultPriority,
           ),
-          iOS: DarwinNotificationDetails(),
+          iOS: const DarwinNotificationDetails(),
         ),
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
         uiLocalNotificationDateInterpretation:

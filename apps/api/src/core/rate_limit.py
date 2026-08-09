@@ -7,6 +7,7 @@ import structlog
 import uuid
 
 from src.core.config import settings
+from src.core.exceptions import RateLimitError
 from src.core.utils import utcnow
 
 logger = structlog.get_logger()
@@ -107,15 +108,12 @@ async def check_rate_limit(request: Request):
         request.state.rate_limit_limit = settings.rate_limit_requests
 
         if not is_allowed:
-            raise HTTPException(
-                status_code=429,
-                detail={
-                    "error": "rate_limit_exceeded",
-                    "message": f"요청 한도 초과. {settings.rate_limit_window}초 후 다시 시도해주세요.",
-                    "retry_after": settings.rate_limit_window,
-                },
-                headers={"Retry-After": str(settings.rate_limit_window)},
-            )
+            # M2: 봉투 코드는 **다른 모든 코드와 같은 UPPER_SNAKE**여야 한다. 여기만
+            # 소문자 `rate_limit_exceeded` 였던 탓에, 서버 봉투 코드를 우선하는 모바일
+            # (api_error.dart)이 `RATE_LIMIT_EXCEEDED` 분기에 매칭하지 못해 en/ja
+            # 사용자에게 한국어 서버 문구가 그대로 노출됐다(M15 로컬라이즈 우회).
+            # retry_after 는 details 로 내린다(RateLimitError 계약).
+            raise RateLimitError(retry_after=settings.rate_limit_window)
     except redis.RedisError as e:
         # If Redis is down, log and allow request (fail open for availability)
         # In production, consider fail-closed behavior for security-critical endpoints

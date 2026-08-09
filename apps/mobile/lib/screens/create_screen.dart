@@ -161,7 +161,9 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
             AnalyticsEvents.paywallShown,
             params: const {'reason': 'payment_required'},
           );
-          final title = message.contains('스타일') || message.contains('월 ')
+          // M5: 서버가 내려주는 안정 키(error.details.reason)로 분기한다.
+          // 한국어 메시지 부분 매칭은 서버 로컬라이즈/문구 변경에 조용히 깨졌다.
+          final title = apiError.isPlanUpgradeRequired
               ? l.createPlanUpgradeTitle
               : l.createCreditShortageTitle;
           await showCreditShortageModal(

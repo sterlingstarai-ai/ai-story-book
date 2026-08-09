@@ -157,6 +157,12 @@ class Settings(BaseSettings):
     # Admin
     admin_api_key: str = ""  # MUST be set in production for /credits/add
 
+    # M4: 비프로덕션 전용 테스트 훅(구독 부여 등)의 마스터 스위치.
+    # 유료 구독은 앱스토어 검증 영수증으로만 생성되므로(보안상 올바름) mock E2E 라운드에서
+    # 구독 게이트 하위 표면에 도달할 방법이 없었다. 기본값 False = 운영에서 훅은 존재하지
+    # 않는다(404). 켜더라도 ADMIN_API_KEY 가 추가로 필요하다.
+    enable_test_hooks: bool = False
+
     # CORS
     cors_origins: str = (
         ""  # Comma-separated origins, MUST be set explicitly in production

@@ -92,7 +92,8 @@ class TestErrorResponseFormat:
 
         assert response.status_code == 429
         body = response.json()
-        assert body["error"]["code"] == "daily_limit_exceeded"
+        # M2 완결: 봉투 코드 규약(UPPER_SNAKE) 통일 — 클라이언트 코드 매칭이 깨지지 않도록.
+        assert body["error"]["code"] == "DAILY_LIMIT_EXCEEDED"
         assert body["error"]["message"] == body["detail"]
         assert body["error"]["details"]["limit"] == 0
         # KST 자정까지 남은 시간: fixed_now=Feb18 12:00Z(=21:00 KST) → KST 자정까지 3시간.
@@ -148,7 +149,7 @@ class TestErrorResponseFormat:
 
         assert response.status_code == 503
         body = response.json()
-        assert body["error"]["code"] == "system_overloaded"
+        assert body["error"]["code"] == "SYSTEM_OVERLOADED"
         assert body["error"]["details"]["retry_after"] == 60
         assert response.headers.get("Retry-After") == "60"
 

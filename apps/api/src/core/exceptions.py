@@ -21,11 +21,12 @@ class APIError(HTTPException):
         error_code: str,
         message: str,
         details: Optional[Any] = None,
+        headers: Optional[dict] = None,
     ):
         self.error_code = error_code
         self.message = message
         self.details = details
-        super().__init__(status_code=status_code, detail=message)
+        super().__init__(status_code=status_code, detail=message, headers=headers)
 
 
 class NotFoundError(APIError):
@@ -66,11 +67,34 @@ class AuthorizationError(APIError):
 class PaymentRequiredError(APIError):
     """Payment/credit required error."""
 
-    def __init__(self, message: str = "크레딧이 부족합니다"):
+    def __init__(
+        self,
+        message: str = "크레딧이 부족합니다",
+        details: Optional[Any] = None,
+    ):
+        # M5: details.reason 은 클라이언트가 '플랜 업그레이드' vs '크레딧 충전' UI 를
+        # 고르는 안정 키다(core.errors.PaymentReason). 메시지 문자열 매칭 금지.
         super().__init__(
             status_code=402,
             error_code="PAYMENT_REQUIRED",
             message=message,
+            details=details,
+        )
+
+
+class UnsupportedRegionError(APIError):
+    """배송 미지원 지역 (L2).
+
+    이전에는 가격표에 없는 국가 코드가 조용히 USD 기본가로 폴백해, 존재하지 않는 코드
+    (`ZZ`·`XX`)까지 견적·주문이 통과했다 — 배송 불가 지역 주문을 받게 된다.
+    """
+
+    def __init__(self, country: str, supported: list[str]):
+        super().__init__(
+            status_code=400,
+            error_code="POD_REGION_UNSUPPORTED",
+            message="현재 실물 인쇄 배송을 지원하지 않는 지역입니다.",
+            details={"country": country, "supported_countries": supported},
         )
 
 
@@ -99,6 +123,8 @@ class RateLimitError(APIError):
             error_code="RATE_LIMIT_EXCEEDED",
             message=f"요청 한도 초과. {retry_after}초 후 다시 시도해주세요.",
             details={"retry_after": retry_after},
+            # 표준 헤더는 계약의 일부다 — 클라이언트 백오프가 이것을 읽는다.
+            headers={"Retry-After": str(retry_after)},
         )
 
 
@@ -244,6 +270,8 @@ def api_error_response(
     return JSONResponse(
         status_code=error.status_code,
         content=content,
+        # 429의 Retry-After 처럼 상태코드와 짝인 표준 헤더를 잃지 않는다.
+        headers=getattr(error, "headers", None),
     )
 
 

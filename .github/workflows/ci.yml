@@ -119,6 +119,20 @@ jobs:
         # per-file 임계(회귀 방지 기준선)를 별도 게이트해 결제 코드 테스트 소실을 감지.
         run: python scripts/coverage_gate.py coverage.xml
 
+      - name: C1 gate — Celery worker x real PostgreSQL
+        working-directory: apps/api
+        # 2026-08-09 중간 E2E 교훈: 프로덕션 구성(USE_CELERY=true + PostgreSQL)에서 책 생성이
+        # 전량 실패했는데도 675 테스트·live_e2e 30/30이 green이었다. 게이트가 전부 SQLite라
+        # (aiosqlite 기본 풀 = NullPool) 루프 교차 커넥션 재사용을 구조적으로 재현할 수 없었다.
+        # 이 스텝만 실 PG + 실 Celery 워커로 돌려 그 클래스를 잡는다.
+        env:
+          E2E_PG_DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/test_db
+          E2E_REDIS_URL: redis://localhost:6379/5
+          LLM_PROVIDER: mock
+          IMAGE_PROVIDER: mock
+          TTS_PROVIDER: mock
+        run: pytest tests/test_celery_worker_pg.py -v
+
       - name: Live E2E journey (full generation pipeline)
         # TESTING=false 실서버로 전체 생성 파이프라인(create→done)+성장·또래·오디오게이트·
         # IDOR·동의철회를 검증. SQLite+mock providers라 키·Postgres·Redis·S3 불필요.

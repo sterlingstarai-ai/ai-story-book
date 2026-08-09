@@ -42,7 +42,15 @@ class ConsentResponse(BaseModel):
     revoked: bool
 
 
-def _to_response(consent: Optional[UserConsent]) -> ConsentResponse:
+def _to_response(
+    consent: Optional[UserConsent], *, revoked: bool = False
+) -> ConsentResponse:
+    """활성 동의 행 → 응답. 활성 행이 없을 때 `revoked` 로 '철회됨'과 '동의한 적 없음'을 구분한다.
+
+    L3: 이전에는 활성 행이 없으면 무조건 `revoked=False` 를 돌려줬다. 철회 직후에도
+    `revoked=False` 라 이 필드를 신뢰하는 클라이언트는 '철회된 적 없음'으로 오판한다
+    (게이트 자체는 granted=False 로 정확히 막히므로 기능 영향은 없었다).
+    """
     if consent is None:
         return ConsentResponse(
             granted=False,
@@ -50,7 +58,7 @@ def _to_response(consent: Optional[UserConsent]) -> ConsentResponse:
             photos=False,
             data_processing=False,
             consent_version=settings.consent_current_version,
-            revoked=False,
+            revoked=revoked,
         )
     return ConsentResponse(
         granted=consent.granted,
@@ -95,13 +103,31 @@ async def grant_consent(
     return _to_response(consent)
 
 
+
+async def _has_revoked_consent(db: AsyncSession, user_key: str) -> bool:
+    """이 사용자가 동의를 철회한 이력이 있는지(활성 행이 없을 때만 의미 있음)."""
+    result = await db.execute(
+        select(UserConsent.id)
+        .where(
+            UserConsent.user_key == user_key,
+            UserConsent.revoked_at.is_not(None),
+        )
+        .limit(1)
+    )
+    return result.scalar_one_or_none() is not None
+
+
 @router.get("", response_model=ConsentResponse)
 async def get_consent(
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
 ):
     """현재 유효한 보호자 동의 상태 조회."""
-    resp = _to_response(await latest_active_consent(db, user_key))
+    active = await latest_active_consent(db, user_key)
+    revoked = False
+    if active is None:
+        revoked = await _has_revoked_consent(db, user_key)
+    resp = _to_response(active, revoked=revoked)
     # photos 게이트는 'granted'와 독립으로 평가되므로(require_photo_consent와 동일 소스),
     # JIT 판단이 서버 집행과 어긋나지 않게 photos 필드를 게이트 기준으로 보정한다.
     resp.photos = await _has_active_photo_consent(db, user_key)
@@ -201,4 +227,4 @@ async def revoke_consent(
         except Exception as e:  # pragma: no cover - 방어적
             logger.warning("pipeline image delete failed on revoke", error=str(e))
 
-    return _to_response(None)
+    return _to_response(None, revoked=True)

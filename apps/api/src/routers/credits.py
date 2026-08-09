@@ -77,6 +77,12 @@ class SubscribeRequest(BaseModel):
     plan: str
 
 
+class GrantSubscriptionRequest(BaseModel):
+    """[비프로덕션 전용] 테스트 훅 요청 (M4)."""
+
+    plan: str
+
+
 class AddCreditsRequest(BaseModel):
     amount: int
     transaction_id: Optional[str] = None  # 외부 결제 ID
@@ -352,4 +358,61 @@ async def check_credits(
         "has_credits": has_credits,
         "current_credits": current_credits,
         "required": required,
+    }
+
+
+@router.post("/admin/grant-subscription")
+async def grant_subscription_test_hook(
+    request: GrantSubscriptionRequest,
+    x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key"),
+    db: AsyncSession = Depends(get_db),
+    user_key: str = Depends(get_user_key),
+):
+    """[비프로덕션 전용] 구독 부여 테스트 훅 (M4).
+
+    왜 필요한가: 유료 구독은 앱스토어 검증 영수증으로만 생성된다(`/credits/subscribe` 403,
+    `iap_verifier._local_success` 는 운영에서 fail-closed) — 보안상 올바른 설계다. 그래서
+    실키 없는 mock E2E 라운드에서는 구독 게이트 하위 표면(시리즈 2권차·PDF 내보내기·
+    프리미엄 스타일)에 **도달할 방법이 없었고**, 중간 점검에서 DB 를 직접 건드려야 했다.
+
+    안전장치(2중):
+      1. `ENABLE_TEST_HOOKS` 가 참이 아니면 **404** — 운영에서는 훅의 존재 자체를 숨긴다.
+      2. 그 위에 `X-Admin-Key` 필수.
+
+    실제 결제 검증 경로(샌드박스 영수증)는 이 훅으로 대체되지 않으며 최종 라운드에서
+    별도로 검증한다.
+    """
+    import hmac
+
+    from src.core.config import settings
+
+    if not getattr(settings, "enable_test_hooks", False):
+        # 존재를 노출하지 않는다(정찰 표면 축소) — 403이 아니라 404.
+        raise NotFoundError("Endpoint", "grant-subscription")
+
+    admin_key = getattr(settings, "admin_api_key", None)
+    if not admin_key or not x_admin_key:
+        raise AuthorizationError("관리자 권한이 필요합니다")
+    if not hmac.compare_digest(x_admin_key, admin_key):
+        raise AuthorizationError("관리자 인증에 실패했습니다")
+
+    plan = (request.plan or "").strip().lower()
+    if plan not in SUBSCRIPTION_PLANS or plan == "free":
+        raise ValidationError(
+            "지원하지 않는 플랜입니다.",
+            details={"supported": [p for p in SUBSCRIPTION_PLANS if p != "free"]},
+        )
+
+    subscription = await credits_service.create_subscription(
+        db=db, user_key=user_key, plan=plan
+    )
+    logger.warning(
+        "Test hook granted subscription (non-production only)",
+        user_key=user_key[:8] + "...",
+        plan=plan,
+    )
+    return {
+        "plan": subscription.plan,
+        "status": subscription.status,
+        "current_period_end": subscription.current_period_end.isoformat(),
     }

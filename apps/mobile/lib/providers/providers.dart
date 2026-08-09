@@ -633,10 +633,10 @@ final homeStreakProvider = FutureProvider<HomeStreakSnapshot>((ref) async {
     longestStreak: _toInt(streakInfo['longest_streak']),
     totalDays: _toInt(streakInfo['total_days']),
     readToday: _toBool(streakInfo['read_today']),
-    todayThemeName:
-        _toStringValue(todayStory['theme_name'], fallback: '오늘의 추천'),
-    todayTopic:
-        _toStringValue(todayStory['topic'], fallback: '오늘의 동화를 만들어보세요!'),
+    // M6: 한국어 폴백을 provider 에 두면 en/ja 사용자에게 그대로 노출된다.
+    // 빈 값으로 두고 표시 지점(home_screen)이 로케일 문구를 채운다.
+    todayThemeName: _toStringValue(todayStory['theme_name'], fallback: ''),
+    todayTopic: _toStringValue(todayStory['topic'], fallback: ''),
     todayThemeId: _toStringValue(todayStory['theme'], fallback: ''),
     todayTopicId: _toStringValue(todayStory['topic_id'], fallback: ''),
     todayBookId: _toNullableString(todayStory['book_id']),
@@ -657,6 +657,7 @@ class GrowthReport {
     required this.quizAccuracy,
     required this.completion,
     required this.levelNumber,
+    required this.levelKey,
     required this.levelLabel,
     required this.scoreValue,
   });
@@ -671,13 +672,28 @@ class GrowthReport {
   final double quizAccuracy;
   final double completion;
   final int levelNumber;
+
+  /// S2: 서버가 주는 안정 키(first_steps 등). 클라이언트 l10n 의 기준이며
+  /// `levelLabel`(서버 로컬라이즈 문구)은 키 매핑 실패 시 폴백이다(M5 '안정 키 우선').
+  final String levelKey;
   final String levelLabel;
   final int scoreValue; // 복합 읽기 점수(0~100)
 }
 
+/// 앱 UI 로캘 코드(ko/en/ja). 지원 밖 로캘은 en 으로 접는다.
+///
+/// S2: 앱은 UI 로캘을 서버에 저장하지 않는다(L13에서 언어 드롭다운 제거 — 기기 추종이 정본).
+/// 그래서 서버가 사용자 언어로 문구를 내려주려면 요청마다 로캘을 실어 보내야 한다.
+final appLocaleCodeProvider = Provider<String>((ref) {
+  const supported = {'ko', 'en', 'ja'};
+  final code = WidgetsBinding.instance.platformDispatcher.locale.languageCode;
+  return supported.contains(code) ? code : 'en';
+});
+
 final growthReportProvider = FutureProvider<GrowthReport>((ref) async {
   final api = ref.read(apiClientProvider);
-  final data = await api.getGrowthReport();
+  // 서버가 레벨 라벨을 사용자 언어로 내려주도록 기기 로캘을 전달한다(S2).
+  final data = await api.getGrowthReport(language: ref.watch(appLocaleCodeProvider));
   final level = data['reading_level'];
   final levelMap = level is Map ? level : const <String, dynamic>{};
   return GrowthReport(
@@ -695,7 +711,9 @@ final growthReportProvider = FutureProvider<GrowthReport>((ref) async {
         ? (data['completion'] as num).toDouble()
         : 0.0,
     levelNumber: _toInt(levelMap['level'], fallback: 1),
-    levelLabel: _toStringValue(levelMap['label'], fallback: '성장 중'),
+    levelKey: _toStringValue(levelMap['key'], fallback: ''),
+    // M6: 한국어 폴백 제거 — 표시 지점(reading_growth_screen)이 로케일 문구로 채운다.
+    levelLabel: _toStringValue(levelMap['label'], fallback: ''),
     scoreValue: _toInt(levelMap['score']),
   );
 });

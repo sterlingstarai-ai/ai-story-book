@@ -13,6 +13,8 @@ import '../services/analytics.dart';
 /// 홈 화면
 /// H25: 서버가 내려주는 안정 theme id → 로케일 표시명(미지 id는 서버 폴백).
 String dailyThemeLabel(AppLocalizations l, String themeId, String fallback) {
+  // M6: 서버가 값을 주지 않으면 로케일 폴백(이전엔 provider 가 한국어를 채웠다).
+  if (themeId.isEmpty && fallback.isEmpty) return l.homeTodayFallbackTheme;
   switch (themeId) {
     case 'friendship':
       return l.dailyThemeFriendship;
@@ -35,6 +37,7 @@ String dailyThemeLabel(AppLocalizations l, String themeId, String fallback) {
 
 /// H25: 서버 topic_id('theme_idx') → 로케일 표시 토픽(미지 id는 서버 폴백).
 String dailyTopicLabel(AppLocalizations l, String topicId, String fallback) {
+  if (topicId.isEmpty && fallback.isEmpty) return l.homeTodayFallbackTopic;
   switch (topicId) {
     case 'friendship_0':
       return l.dailyTopicFriendship0;

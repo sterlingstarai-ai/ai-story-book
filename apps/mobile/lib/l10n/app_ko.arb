@@ -860,5 +860,93 @@
   "growthPeerTitle": "또래 비교",
   "growthTopPercent": "상위 {percent}%",
   "growthDisclaimer": "읽기 점수·레벨은 읽은 책·완독·학습 어휘·퀴즈 정확도를 종합한 추정치예요. 공인 척도는 아니며, 아이가 꾸준히 읽을수록 더 정확해집니다.",
-  "growthLoadError": "성장 리포트를 불러오지 못했어요."
+  "growthLoadError": "성장 리포트를 불러오지 못했어요.",
+  "characterTraitCurious": "호기심 많은",
+  "@characterTraitCurious": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "characterTraitLively": "활발한",
+  "@characterTraitLively": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "characterTraitWarm": "다정한",
+  "@characterTraitWarm": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "characterTraitBrave": "용감한",
+  "@characterTraitBrave": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "characterTraitFunny": "재미있는",
+  "@characterTraitFunny": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "characterTraitSmart": "똑똑한",
+  "@characterTraitSmart": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "characterTraitKind": "친절한",
+  "@characterTraitKind": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "characterTraitPlayful": "장난꾸러기",
+  "@characterTraitPlayful": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "characterTraitCalm": "차분한",
+  "@characterTraitCalm": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "characterTraitSpirited": "씩씩한",
+  "@characterTraitSpirited": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "notificationBedtimeChannelName": "잠자리 알림",
+  "@notificationBedtimeChannelName": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "notificationBedtimeChannelDescription": "매일 밤 오늘의 동화 읽기 리마인더",
+  "@notificationBedtimeChannelDescription": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "shareKakaoCardTitle": "동화책 보기",
+  "@shareKakaoCardTitle": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "shareKakaoCardDescription": "AI Story Book으로 만든 동화책을 확인해보세요.",
+  "@shareKakaoCardDescription": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "homeTodayFallbackTheme": "오늘의 추천",
+  "@homeTodayFallbackTheme": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "homeTodayFallbackTopic": "오늘의 동화를 만들어보세요!",
+  "@homeTodayFallbackTopic": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "growthLevelFallbackLabel": "성장 중",
+  "@growthLevelFallbackLabel": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "growthLevelFirstSteps": "첫 걸음",
+  "@growthLevelFirstSteps": {
+    "description": "S2: 읽기 레벨 라벨(서버 안정 키 기반)"
+  },
+  "growthLevelBuildingBasics": "기초 다지기",
+  "@growthLevelBuildingBasics": {
+    "description": "S2: 읽기 레벨 라벨(서버 안정 키 기반)"
+  },
+  "growthLevelSteadyGrowth": "꾸준히 성장",
+  "@growthLevelSteadyGrowth": {
+    "description": "S2: 읽기 레벨 라벨(서버 안정 키 기반)"
+  },
+  "growthLevelReadingLeap": "읽기 도약",
+  "@growthLevelReadingLeap": {
+    "description": "S2: 읽기 레벨 라벨(서버 안정 키 기반)"
+  },
+  "growthLevelFluentReader": "능숙한 독서가",
+  "@growthLevelFluentReader": {
+    "description": "S2: 읽기 레벨 라벨(서버 안정 키 기반)"
+  }
 }

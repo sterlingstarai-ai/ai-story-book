@@ -20,6 +20,8 @@ class _FakeScheduler implements NotificationScheduler {
     required int minute,
     required String title,
     required String body,
+    required String channelName,
+    required String channelDescription,
   }) async {
     scheduled++;
     lastHour = hour;
@@ -42,6 +44,8 @@ void main() {
       minute: 30,
       title: 't',
       body: 'b',
+      channelName: 'ch',
+      channelDescription: 'desc',
     );
     await fake.cancelBedtime();
 

@@ -71,6 +71,7 @@ GrowthReport _growth() => const GrowthReport(
       quizAccuracy: 0.75,
       completion: 0.8,
       levelNumber: 4,
+      levelKey: 'steady_growth',
       levelLabel: '기초 다지기',
       scoreValue: 60,
     );

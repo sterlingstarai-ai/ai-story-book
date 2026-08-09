@@ -39,7 +39,12 @@ from src.core.exceptions import (
     http_exception_handler,
     validation_exception_handler,
 )
-from src.core.errors import StoryBookError, SafetyError
+from src.core.errors import (
+    SafetyError,
+    StoryBookError,
+    client_safe_details,
+    client_safe_message,
+)
 
 
 class RequestIDMiddleware(BaseHTTPMiddleware):
@@ -307,6 +312,18 @@ app.add_exception_handler(HTTPException, http_exception_handler)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 
 
+def sanitize_domain_error(exc: StoryBookError) -> tuple[str, Optional[dict]]:
+    """도메인 에러를 클라이언트로 내보낼 (message, details) 로 위생 처리한다(A1).
+
+    규칙 자체는 `core.errors` 에 단일 정의한다 — 잡 상태 서빙 경로(A1-R)와 규칙이
+    갈라지지 않게 하기 위함이다(실제로 갈라져서 저장된 원문이 그대로 서빙됐다).
+    """
+    return (
+        client_safe_message(exc.code, exc.message),
+        client_safe_details(exc.details),
+    )
+
+
 # StoryBookError handler - domain errors from orchestrator/services
 @app.exception_handler(StoryBookError)
 async def storybook_error_handler(request: Request, exc: StoryBookError):
@@ -315,18 +332,22 @@ async def storybook_error_handler(request: Request, exc: StoryBookError):
     if isinstance(exc, SafetyError):
         status_code = 422
 
+    client_message, client_details = sanitize_domain_error(exc)
+
+    # 원문은 **로그로만** — 진단에 필요한 정보를 잃지 않는다.
     logger.warning(
         "Domain error",
         error_code=exc.code.value,
         message=exc.message,
+        detail_keys=sorted((exc.details or {}).keys()),
         path=request.url.path,
     )
     content = {
-        "detail": exc.message,
+        "detail": client_message,
         "error": {
             "code": exc.code.value,
-            "message": exc.message,
-            "details": exc.details or None,
+            "message": client_message,
+            "details": client_details,
         },
     }
     if hasattr(request.state, "request_id"):

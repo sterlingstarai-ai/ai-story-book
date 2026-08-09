@@ -40,6 +40,14 @@ USER appuser
 # Copy application code
 COPY --chown=appuser:appuser . .
 
+# H1: PDF의 한/일/중 본문은 번들 TrueType 폰트로만 렌더된다. reportlab은 CFF/OTC
+# (apt fonts-noto-cjk 가 설치하는 NotoSansCJK*.ttc)를 읽지 못하므로 시스템 폰트로는
+# 대체할 수 없다. 자산이 빠진 채 배포되면 CJK PDF가 전부 ■ 로 나가므로 빌드에서 막는다.
+RUN test -f assets/fonts/NotoSansKR-Regular.ttf \
+ && test -f assets/fonts/NotoSansJP-Regular.ttf \
+ && test -f assets/fonts/NotoSansSC-Regular.ttf \
+ && test -f assets/fonts/OFL.txt
+
 # Environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

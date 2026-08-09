@@ -72,6 +72,9 @@ class KakaoShareService {
     required String shareUrl,
     required String title,
     required String coverImageUrl,
+    // M6: 공유 카드 문구는 수신자에게 노출되므로 현지화가 필요하다 — 호출부가 주입한다.
+    required String buttonTitle,
+    required String fallbackDescription,
     String? description,
   }) async {
     final reason = unavailableReason;
@@ -89,7 +92,8 @@ class KakaoShareService {
     final template = FeedTemplate(
       content: Content(
         title: title,
-        description: description ?? 'AI Story Book으로 만든 동화책을 확인해보세요.',
+        // M6: 공유 카드 문구는 수신자에게 노출된다 — 호출부가 현지화해 넘긴다.
+        description: description ?? fallbackDescription,
         imageUrl: coverImageUrl.isNotEmpty ? Uri.tryParse(coverImageUrl) : null,
         link: Link(
           webUrl: webUrl,
@@ -98,7 +102,7 @@ class KakaoShareService {
       ),
       buttons: [
         Button(
-          title: '동화책 보기',
+          title: buttonTitle,
           link: Link(
             webUrl: webUrl,
             mobileWebUrl: webUrl,

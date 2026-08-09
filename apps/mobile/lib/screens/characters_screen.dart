@@ -952,7 +952,10 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
   int? _selectedRoleIndex;
   bool _isCustomRole = false;
 
-  // 추천 성격 특성 (선택 시 그대로 AI 페이로드(traits)로 전달되는 값이라 현지화하지 않음)
+  // M6: 표시 ↔ 전송 분리. 이 값들은 **AI 페이로드(traits)** 로 그대로 전달되는 캐논값이라
+  // 로케일과 무관하게 고정한다(생성 동작을 바꾸지 않기 위함). 화면에 그려지는 라벨은
+  // `_traitLabel()` 이 로케일에 맞춰 돌려준다 — 이전에는 이 캐논값이 그대로 칩에 렌더돼
+  // en/ja 사용자가 한국어 칩 10개를 봤다.
   final _suggestedTraits = [
     '호기심 많은',
     '활발한',
@@ -965,6 +968,34 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
     '차분한',
     '씩씩한',
   ];
+
+  /// 캐논 특성값 → 현지화 표시 라벨. 매핑에 없으면(사용자 자유 입력) 원문을 그대로 쓴다.
+  String _traitLabel(AppLocalizations l, String canonical) {
+    switch (canonical) {
+      case '호기심 많은':
+        return l.characterTraitCurious;
+      case '활발한':
+        return l.characterTraitLively;
+      case '다정한':
+        return l.characterTraitWarm;
+      case '용감한':
+        return l.characterTraitBrave;
+      case '재미있는':
+        return l.characterTraitFunny;
+      case '똑똑한':
+        return l.characterTraitSmart;
+      case '친절한':
+        return l.characterTraitKind;
+      case '장난꾸러기':
+        return l.characterTraitPlayful;
+      case '차분한':
+        return l.characterTraitCalm;
+      case '씩씩한':
+        return l.characterTraitSpirited;
+      default:
+        return canonical;
+    }
+  }
   final Set<String> _selectedTraits = {};
 
   @override
@@ -1197,7 +1228,7 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
                         ),
                       ),
                       child: Text(
-                        trait,
+                        _traitLabel(l, trait),
                         style: TextStyle(
                           fontSize: 13,
                           color: isSelected

@@ -830,9 +830,14 @@ class ApiClient {
   }
 
   /// 읽기 성장 리포트 조회 (읽은 책·스트릭·어휘·정확도·추정 읽기레벨)
-  Future<Map<String, dynamic>> getGrowthReport() async {
+  /// [language] 앱 UI 로캘(ko/en/ja). 서버가 레벨 라벨을 그 언어로 내려준다(S2).
+  /// 앱은 UI 로캘을 서버에 저장하지 않으므로(L13 기기 추종) 요청마다 명시 전달한다.
+  Future<Map<String, dynamic>> getGrowthReport({String? language}) async {
     final response = await _dio.get(
       '/v1/growth',
+      queryParameters: {
+        if (language != null && language.isNotEmpty) 'language': language,
+      },
       options: Options(headers: _headers),
     );
 

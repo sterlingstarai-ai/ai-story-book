@@ -163,6 +163,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           minute: _bedtime.minute,
           title: l.settingsBedtimeNotificationTitle,
           body: l.settingsBedtimeNotificationBody,
+          channelName: l.notificationBedtimeChannelName,
+          channelDescription: l.notificationBedtimeChannelDescription,
         );
       } else {
         await scheduler.cancelBedtime();

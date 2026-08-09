@@ -12,6 +12,29 @@ import '../widgets/age_gate_dialog.dart';
 ///
 /// '측정되는 읽기성장 동반자' 리포지셔닝의 얼굴. 시장 조사(Khan/Reading Eggs/Lexia·SDT/Piaget)
 /// 근거로 *자기 대비 성장*을 1차로, 또래 비교는 2차·안전(구간·연령 게이트)으로 배치한다.
+/// 레벨 라벨 — **안정 키 우선**(S2, M5 원칙과 동일).
+///
+/// 서버가 `reading_level.key`(first_steps 등)를 주므로 앱이 자체 l10n 으로 그린다.
+/// 서버 `label`(사용자 언어로 로컬라이즈됨)은 키를 모를 때의 폴백이고, 둘 다 없으면
+/// 일반 문구로 떨어진다 — 어느 경로에서도 한국어가 en/ja 사용자에게 새지 않는다.
+String _levelLabel(AppLocalizations l, GrowthReport report) {
+  switch (report.levelKey) {
+    case 'first_steps':
+      return l.growthLevelFirstSteps;
+    case 'building_basics':
+      return l.growthLevelBuildingBasics;
+    case 'steady_growth':
+      return l.growthLevelSteadyGrowth;
+    case 'reading_leap':
+      return l.growthLevelReadingLeap;
+    case 'fluent_reader':
+      return l.growthLevelFluentReader;
+  }
+  final label = report.levelLabel.trim();
+  return label.isEmpty ? l.growthLevelFallbackLabel : label;
+}
+
+
 class ReadingGrowthScreen extends ConsumerStatefulWidget {
   const ReadingGrowthScreen({super.key});
 
@@ -105,7 +128,7 @@ class _GrowthCtaCard extends StatelessWidget {
   String _shareText(AppLocalizations l) => l.growthShareText(
         report.booksRead,
         report.levelNumber,
-        report.levelLabel,
+        _levelLabel(l, report),
         report.scoreValue,
         report.vocabLearned,
         report.currentStreak,
@@ -195,7 +218,7 @@ class _LevelHero extends StatelessWidget {
       excludeSemantics: true,
       label: l.growthHeroSemantic(
         report.levelNumber,
-        report.levelLabel,
+        _levelLabel(l, report),
         report.scoreValue,
         _confidenceText(report.booksRead, l),
       ),
@@ -239,7 +262,7 @@ class _LevelHero extends StatelessWidget {
                 ),
                 const SizedBox(width: AppSpacing.sm),
                 Text(
-                  report.levelLabel,
+                  _levelLabel(l, report),
                   style: const TextStyle(color: Colors.white, fontSize: 18),
                 ),
               ],

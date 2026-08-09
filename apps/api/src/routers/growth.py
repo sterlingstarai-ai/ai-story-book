@@ -2,7 +2,7 @@
 
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,14 +29,26 @@ class AnswerRequest(BaseModel):
 
 @router.get("")
 async def get_growth(
+    language: Optional[str] = Query(
+        default=None,
+        pattern="^(ko|en|ja)$",
+        description="레벨 라벨 언어. 미지정 시 user_settings.language, 그래도 없으면 ko.",
+    ),
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
     profile_id: Optional[str] = Depends(get_profile_id),
 ):
-    """아이의 읽기 성장 리포트 — 읽은 책·스트릭·학습 어휘·퀴즈 정확도·추정 읽기레벨."""
+    """아이의 읽기 성장 리포트 — 읽은 책·스트릭·학습 어휘·퀴즈 정확도·추정 읽기레벨.
+
+    S2: `reading_level` 은 안정 키(`key`)와 사용자 언어 라벨(`label`)을 함께 낸다.
+    앱은 UI 로캘을 서버에 저장하지 않으므로(L13에서 언어 드롭다운 제거·기기 추종),
+    로캘을 명시 전달할 수 있도록 `language` 쿼리 파라미터를 둔다.
+    """
     # L12: 삭제/타인 profile_id로 0-리포트·age_band 폴백 우회 차단.
     profile_id = await validate_profile_ownership(db, user_key, profile_id)
-    return await growth_service.get_growth_report(db, user_key, profile_id=profile_id)
+    return await growth_service.get_growth_report(
+        db, user_key, profile_id=profile_id, language=language
+    )
 
 
 @router.get("/peers")

@@ -24,6 +24,7 @@ from src.core.errors import (
     StoryBookError,
     ErrorCode,
     TransientError,
+    client_safe_message,
     get_backoff,
     is_retryable,
 )
@@ -208,7 +209,8 @@ async def mark_job_failed(job_id: str, error_code: ErrorCode, message: str):
             .values(
                 status="failed",
                 error_code=error_code.value,
-                error_message=message,
+                # A1-R: 저장 메시지도 위생 처리(원문은 아래 로그로만).
+                error_message=client_safe_message(error_code, message)[:300],
                 updated_at=utcnow(),
             )
         )
