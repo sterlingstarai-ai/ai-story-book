@@ -2,7 +2,7 @@
 
 > Claude Code가 이 프로젝트를 빠르게 이해하기 위한 메모리 파일.
 > **구현 현황 서술은 코드가 정본** — 이 문서와 코드가 충돌하면 코드를 믿고 이 문서를 갱신한다.
-> 마지막 코드 실측: **2026-07-08**
+> 마지막 코드 실측: **2026-08-09** (중간 E2E + 선결 수정 웨이브)
 
 ## 프로젝트 개요
 
@@ -78,7 +78,7 @@ ai-story-book/
 
 ## DB 스키마
 
-**정본: `apps/api/src/models/db.py` + `apps/api/alembic/versions/`** — 27개 테이블, SQL을 이 문서에 복제하지 않음.
+**정본: `apps/api/src/models/db.py` + `apps/api/alembic/versions/`** — 28개 테이블(+`alembic_version`), SQL을 이 문서에 복제하지 않음.
 
 - **생성 파이프라인**: jobs, story_drafts, image_prompts, books, pages, series
 - **캐릭터**: characters
@@ -164,12 +164,12 @@ H. 패키징 (BookResult 생성, 업로드, 저장)
 
 ---
 
-# 구현 실측 (2026-07-08)
+# 구현 실측 (2026-08-09)
 
 ## 이미지 API
 
 - `image_provider` 설정: `openai`(기본) | `gemini` | `replicate` | `fal` | `mock` (`core/config.py`)
-- **인페인트(마스킹 부분 재생성)는 replicate/fal에서만 실동작** (`services/image.py: supports_inpaint`) — 그 외 프로바이더는 전체 재생성 폴백
+- **인페인트(마스킹 부분 재생성)는 replicate/fal에서만 실동작** (`services/image.py: supports_inpaint`) — 그 외 프로바이더는 **409 `INPAINT_UNSUPPORTED`로 거부**(전체 재생성 폴백 아님). `GET /v1/config/capabilities`의 `inpaint_supported`가 이 값을 그대로 노출하고 앱은 그걸로 UI를 가린다.
 - 비용 추정(설계 시점 기준): 이미지 $0.02-0.05/장 → 1권(cover+8p) 약 $0.27, LLM 포함 ~$0.32, 재생성 여유 ×1.5 ≈ $0.48
 
 ## Rate Limiting

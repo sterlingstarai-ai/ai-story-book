@@ -5190,6 +5190,138 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Couldn\'t load the growth report.'**
   String get growthLoadError;
+
+  /// M6: l10n 우회 하드코딩 제거
+  ///
+  /// In en, this message translates to:
+  /// **'Curious'**
+  String get characterTraitCurious;
+
+  /// M6: l10n 우회 하드코딩 제거
+  ///
+  /// In en, this message translates to:
+  /// **'Lively'**
+  String get characterTraitLively;
+
+  /// M6: l10n 우회 하드코딩 제거
+  ///
+  /// In en, this message translates to:
+  /// **'Warm-hearted'**
+  String get characterTraitWarm;
+
+  /// M6: l10n 우회 하드코딩 제거
+  ///
+  /// In en, this message translates to:
+  /// **'Brave'**
+  String get characterTraitBrave;
+
+  /// M6: l10n 우회 하드코딩 제거
+  ///
+  /// In en, this message translates to:
+  /// **'Funny'**
+  String get characterTraitFunny;
+
+  /// M6: l10n 우회 하드코딩 제거
+  ///
+  /// In en, this message translates to:
+  /// **'Smart'**
+  String get characterTraitSmart;
+
+  /// M6: l10n 우회 하드코딩 제거
+  ///
+  /// In en, this message translates to:
+  /// **'Kind'**
+  String get characterTraitKind;
+
+  /// M6: l10n 우회 하드코딩 제거
+  ///
+  /// In en, this message translates to:
+  /// **'Playful'**
+  String get characterTraitPlayful;
+
+  /// M6: l10n 우회 하드코딩 제거
+  ///
+  /// In en, this message translates to:
+  /// **'Calm'**
+  String get characterTraitCalm;
+
+  /// M6: l10n 우회 하드코딩 제거
+  ///
+  /// In en, this message translates to:
+  /// **'Spirited'**
+  String get characterTraitSpirited;
+
+  /// M6: l10n 우회 하드코딩 제거
+  ///
+  /// In en, this message translates to:
+  /// **'Bedtime reminder'**
+  String get notificationBedtimeChannelName;
+
+  /// M6: l10n 우회 하드코딩 제거
+  ///
+  /// In en, this message translates to:
+  /// **'Nightly reminder to read today\'s story'**
+  String get notificationBedtimeChannelDescription;
+
+  /// M6: l10n 우회 하드코딩 제거
+  ///
+  /// In en, this message translates to:
+  /// **'Open the storybook'**
+  String get shareKakaoCardTitle;
+
+  /// M6: l10n 우회 하드코딩 제거
+  ///
+  /// In en, this message translates to:
+  /// **'Check out this storybook made with AI Story Book.'**
+  String get shareKakaoCardDescription;
+
+  /// M6: l10n 우회 하드코딩 제거
+  ///
+  /// In en, this message translates to:
+  /// **'Today\'s pick'**
+  String get homeTodayFallbackTheme;
+
+  /// M6: l10n 우회 하드코딩 제거
+  ///
+  /// In en, this message translates to:
+  /// **'Create today\'s story!'**
+  String get homeTodayFallbackTopic;
+
+  /// M6: l10n 우회 하드코딩 제거
+  ///
+  /// In en, this message translates to:
+  /// **'Growing'**
+  String get growthLevelFallbackLabel;
+
+  /// S2: 읽기 레벨 라벨(서버 안정 키 기반)
+  ///
+  /// In en, this message translates to:
+  /// **'First steps'**
+  String get growthLevelFirstSteps;
+
+  /// S2: 읽기 레벨 라벨(서버 안정 키 기반)
+  ///
+  /// In en, this message translates to:
+  /// **'Building basics'**
+  String get growthLevelBuildingBasics;
+
+  /// S2: 읽기 레벨 라벨(서버 안정 키 기반)
+  ///
+  /// In en, this message translates to:
+  /// **'Steady growth'**
+  String get growthLevelSteadyGrowth;
+
+  /// S2: 읽기 레벨 라벨(서버 안정 키 기반)
+  ///
+  /// In en, this message translates to:
+  /// **'Reading leap'**
+  String get growthLevelReadingLeap;
+
+  /// S2: 읽기 레벨 라벨(서버 안정 키 기반)
+  ///
+  /// In en, this message translates to:
+  /// **'Fluent reader'**
+  String get growthLevelFluentReader;
 }
 
 class _AppLocalizationsDelegate

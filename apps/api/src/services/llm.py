@@ -253,6 +253,78 @@ async def _call_mock(
                 "visual_style_notes": "수채화 스타일로 부드럽게 표현, 따뜻한 파스텔 톤 사용",
             }
         )
+    elif "revised_text" in system_prompt and "original_text" in user_prompt:
+        # 페이지 텍스트 재작성(rewrite_page_text). 이 분기가 없으면 '스토리' 분기에 걸려
+        # StoryDraft 모양이 나오고 RewriteResult 검증이 실패한다 — 그런데 엔드포인트는
+        # 잡 등록 200 만 돌려주므로 **조용히 실패**한다(S1: 중간 E2E 매트릭스 #12/#22 가
+        # 두 라운드 연속 false-pass 였던 이유). 페이지 번호는 반드시 보존한다.
+        import re as _re
+
+        _page_match = _re.search(r"- page:\s*(\d+)", user_prompt)
+        _page_no = int(_page_match.group(1)) if _page_match else 1
+        _original_match = _re.search(r"- original_text:\s*(.*)", user_prompt)
+        _original = (
+            _original_match.group(1).strip() if _original_match else "원본 문장"
+        )
+        _feedback_match = _re.search(r"- feedback:\s*(.*)", user_prompt)
+        _feedback = (
+            _feedback_match.group(1).strip() if _feedback_match else ""
+        )
+        # 재작성이 실제로 일어났는지 호출자가 확인할 수 있도록 원문과 **다른** 텍스트를 낸다.
+        _revised = f"[다시 씀] {_original}"
+        if _feedback and _feedback.lower() not in ("none", "null"):
+            _revised = f"{_revised} ({_feedback})"
+        return json.dumps(
+            {
+                "page": _page_no,
+                "revised_text": _revised[:600],
+                "notes": "mock rewrite",
+            },
+            ensure_ascii=False,
+        )
+
+    elif "original_pages" in user_prompt or "연령대(target_age)" in system_prompt:
+        # 연령 리텔링(rewrite_story_for_age). 이 분기가 없으면 아래 fallback
+        # {"result": "mock response"} 로 떨어져 RetoldStory 검증이 실패하고, retell 이
+        # mock 구성에서 **항상 500** 이 된다(M3). 페이지 수는 원본과 정확히 같아야 한다
+        # (같은 삽화를 재사용하는 계약).
+        import re as _re
+
+        title_match = _re.search(r"- original_title:\s*(.+)", user_prompt)
+        pages_match = _re.search(
+            r"- original_pages:\s*(\[.*?\])\s*(?:\n\S|\n\n|$)", user_prompt, _re.S
+        )
+        original_pages: list = []
+        if pages_match:
+            try:
+                original_pages = json.loads(pages_match.group(1))
+            except Exception:
+                original_pages = []
+        if not original_pages:
+            original_pages = ["페이지 1"]
+
+        _retell_age = "5-7"
+        for _cand in ("3-5", "5-7", "7-9", "adult"):
+            if f"target_age: {_cand}" in user_prompt:
+                _retell_age = _cand
+                break
+
+        _base_title = (
+            title_match.group(1).strip() if title_match else "다시 쓴 이야기"
+        )
+        _suffix = f" ({_retell_age})"
+        _title = (_base_title[: 80 - len(_suffix)] + _suffix)[:80]
+        return json.dumps(
+            {
+                "title": _title,
+                "pages": [
+                    f"[{_retell_age}] {str(page).strip()}"[:600]
+                    for page in original_pages
+                ],
+            },
+            ensure_ascii=False,
+        )
+
     elif "스토리" in system_prompt or "동화" in system_prompt:
         # Story generation
         # 요청된 언어/연령을 user_prompt 에서 감지(mock 충실도). 프롬프트는

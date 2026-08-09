@@ -860,5 +860,93 @@
   "growthPeerTitle": "同年代との比較",
   "growthTopPercent": "上位 {percent}%",
   "growthDisclaimer": "読書スコアとレベルは、読んだ本・読了・学習した語彙・クイズの正確さを総合した推定値です。公的な指標ではなく、お子さまが読み続けるほど正確になります。",
-  "growthLoadError": "成長レポートを読み込めませんでした。"
+  "growthLoadError": "成長レポートを読み込めませんでした。",
+  "characterTraitCurious": "好奇心旺盛",
+  "@characterTraitCurious": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "characterTraitLively": "元気",
+  "@characterTraitLively": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "characterTraitWarm": "やさしい",
+  "@characterTraitWarm": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "characterTraitBrave": "勇敢",
+  "@characterTraitBrave": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "characterTraitFunny": "おもしろい",
+  "@characterTraitFunny": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "characterTraitSmart": "かしこい",
+  "@characterTraitSmart": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "characterTraitKind": "親切",
+  "@characterTraitKind": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "characterTraitPlayful": "いたずらっ子",
+  "@characterTraitPlayful": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "characterTraitCalm": "おだやか",
+  "@characterTraitCalm": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "characterTraitSpirited": "たくましい",
+  "@characterTraitSpirited": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "notificationBedtimeChannelName": "おやすみ通知",
+  "@notificationBedtimeChannelName": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "notificationBedtimeChannelDescription": "毎晩の今日のお話リマインダー",
+  "@notificationBedtimeChannelDescription": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "shareKakaoCardTitle": "絵本を見る",
+  "@shareKakaoCardTitle": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "shareKakaoCardDescription": "AI Story Book で作った絵本をご覧ください。",
+  "@shareKakaoCardDescription": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "homeTodayFallbackTheme": "今日のおすすめ",
+  "@homeTodayFallbackTheme": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "homeTodayFallbackTopic": "今日のお話を作ってみましょう！",
+  "@homeTodayFallbackTopic": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "growthLevelFallbackLabel": "成長中",
+  "@growthLevelFallbackLabel": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "growthLevelFirstSteps": "はじめの一歩",
+  "@growthLevelFirstSteps": {
+    "description": "S2: 읽기 레벨 라벨(서버 안정 키 기반)"
+  },
+  "growthLevelBuildingBasics": "基礎づくり",
+  "@growthLevelBuildingBasics": {
+    "description": "S2: 읽기 레벨 라벨(서버 안정 키 기반)"
+  },
+  "growthLevelSteadyGrowth": "着実に成長",
+  "@growthLevelSteadyGrowth": {
+    "description": "S2: 읽기 레벨 라벨(서버 안정 키 기반)"
+  },
+  "growthLevelReadingLeap": "読書の飛躍",
+  "@growthLevelReadingLeap": {
+    "description": "S2: 읽기 레벨 라벨(서버 안정 키 기반)"
+  },
+  "growthLevelFluentReader": "読書名人",
+  "@growthLevelFluentReader": {
+    "description": "S2: 읽기 레벨 라벨(서버 안정 키 기반)"
+  }
 }

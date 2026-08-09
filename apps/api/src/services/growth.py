@@ -45,15 +45,64 @@ MAX_PEER_COHORT = 1000
 # 4지선다라 무지성 양성은 아니며, 1회로 둬야 단권 읽기에서도 '학습 어휘'가 실제로 쌓인다.
 VOCAB_MASTERY_MIN_CORRECT = 1
 
-_LEVEL_LABELS = {
-    1: "첫 걸음", 2: "첫 걸음", 3: "기초 다지기", 4: "기초 다지기",
-    5: "꾸준히 성장", 6: "꾸준히 성장", 7: "읽기 도약", 8: "읽기 도약",
-    9: "능숙한 독서가", 10: "능숙한 독서가",
+# S2: 레벨 라벨은 **안정 키 + 언어별 문구**다. 이전에는 한국어 문자열만 있어 en/ja
+# 사용자에게 그대로 노출됐다(클라이언트 폴백만 고쳐서는 서버가 값을 주는 순간 다시 샌다).
+# M5 의 '안정 키 우선' 원칙과 동일: 클라이언트는 key 로 자체 l10n, label 은 폴백.
+LEVEL_KEYS = {
+    1: "first_steps", 2: "first_steps", 3: "building_basics", 4: "building_basics",
+    5: "steady_growth", 6: "steady_growth", 7: "reading_leap", 8: "reading_leap",
+    9: "fluent_reader", 10: "fluent_reader",
 }
+_FALLBACK_LEVEL_KEY = "growing"
+
+#: UI 라벨 언어. 스토리 생성 언어는 5종(ko/en/ja/zh/es)이지만 앱 UI l10n 은 ko/en/ja 라
+#: 그 3종만 두고 나머지는 영어로 폴백한다(한국어 노출만은 절대 금지).
+_LEVEL_LABELS = {
+    "ko": {
+        "first_steps": "첫 걸음", "building_basics": "기초 다지기",
+        "steady_growth": "꾸준히 성장", "reading_leap": "읽기 도약",
+        "fluent_reader": "능숙한 독서가", "growing": "성장 중",
+    },
+    "en": {
+        "first_steps": "First steps", "building_basics": "Building basics",
+        "steady_growth": "Steady growth", "reading_leap": "Reading leap",
+        "fluent_reader": "Fluent reader", "growing": "Growing",
+    },
+    "ja": {
+        "first_steps": "はじめの一歩", "building_basics": "基礎づくり",
+        "steady_growth": "着実に成長", "reading_leap": "読書の飛躍",
+        "fluent_reader": "読書名人", "growing": "成長中",
+    },
+}
+LEVEL_LABEL_LANGUAGES = tuple(_LEVEL_LABELS)
+_LEVEL_LABEL_FALLBACK_LANGUAGE = "en"
 
 
-def _level_label(level: int) -> str:
-    return _LEVEL_LABELS.get(level, "성장 중")
+def level_key(level: int) -> str:
+    """레벨 → 안정 키(클라이언트 l10n 기준)."""
+    return LEVEL_KEYS.get(level, _FALLBACK_LEVEL_KEY)
+
+
+def level_label(level: int, language: Optional[str] = None) -> str:
+    """레벨 → 사용자 언어 라벨. 미지원 언어는 영어(한국어 폴백 금지)."""
+    normalized = (language or "").strip().lower()
+    table = _LEVEL_LABELS.get(normalized) or _LEVEL_LABELS[_LEVEL_LABEL_FALLBACK_LANGUAGE]
+    return table.get(level_key(level), table[_FALLBACK_LEVEL_KEY])
+
+
+async def load_user_language(db: AsyncSession, user_key: str) -> str:
+    """사용자 UI 언어(user_settings.language). load_user_tz 와 동일 패턴.
+
+    미설정/미존재는 기본 ko(기존 동작 유지).
+    """
+    from src.models.db import UserSettings
+
+    language = (
+        await db.execute(
+            select(UserSettings.language).where(UserSettings.user_key == user_key)
+        )
+    ).scalar_one_or_none()
+    return (language or "ko").strip().lower() or "ko"
 
 
 def _clamp01(x: float) -> float:
@@ -92,6 +141,7 @@ def composite_reading_score(
     quiz_accuracy: Optional[float],
     completion: Optional[float],
     age_band: str,
+    language: Optional[str] = None,
 ) -> dict:
     """다축 복합 읽기 점수(0~100) + 레벨(1~10). 연령층별 가중·정규화.
 
@@ -117,7 +167,8 @@ def composite_reading_score(
     level = max(1, min(10, int(round(1 + raw * 9))))
     return {
         "level": level,
-        "label": _level_label(level),
+        "key": level_key(level),
+        "label": level_label(level, language),
         "score": round(raw * 100),
         "scale_max": 10,
         "estimated": True,
@@ -135,7 +186,8 @@ def estimate_reading_level(
     level = max(1, min(10, int(round(1 + score))))
     return {
         "level": level,
-        "label": _level_label(level),
+        "key": level_key(level),
+        "label": level_label(level),
         "scale_max": 10,
         "estimated": True,
     }
@@ -220,6 +272,7 @@ class GrowthService:
         db: AsyncSession,
         user_key: str,
         profile_id: Optional[str] = None,
+        language: Optional[str] = None,
     ) -> dict:
         rl_where = [ReadingLog.user_key == user_key]
         if profile_id:
@@ -277,12 +330,17 @@ class GrowthService:
 
         age_band = await self._resolve_age_band(db, user_key, profile_id)
         # 데이터 없는 비율 축은 None으로 — 점수에서 0점 처벌 대신 가중 재분배(missing≠zero).
+        # S2 우선순위: 요청 파라미터 > user_settings.language > ko
+        resolved_language = (language or "").strip().lower() or await load_user_language(
+            db, user_key
+        )
         reading_level = composite_reading_score(
             int(books_read),
             int(vocab_learned),
             quiz_accuracy if quiz_total else None,
             completion if rl_total else None,
             age_band,
+            language=resolved_language,
         )
 
         return {

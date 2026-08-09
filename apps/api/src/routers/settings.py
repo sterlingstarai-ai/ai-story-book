@@ -21,7 +21,9 @@ router = APIRouter()
 
 
 class SettingsPatchRequest(BaseModel):
-    language: Optional[str] = Field(default=None, pattern="^(ko|en)$")
+    # S2: 앱 UI 로캘은 ko/en/ja 3종인데 ja 를 저장조차 못 했다(패턴이 ko|en).
+    # 서버가 사용자 언어로 문구를 로컬라이즈하려면 저장이 가능해야 한다.
+    language: Optional[str] = Field(default=None, pattern="^(ko|en|ja)$")
     # 하루/월 경계 판정용 IANA 타임존(H2). 유효한 zoneinfo 키만 허용.
     timezone: Optional[str] = Field(default=None, max_length=40)
     dark_mode: Optional[bool] = None

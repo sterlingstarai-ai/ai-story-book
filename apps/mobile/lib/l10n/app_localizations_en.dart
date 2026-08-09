@@ -2887,4 +2887,72 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get growthLoadError => 'Couldn\'t load the growth report.';
+
+  @override
+  String get characterTraitCurious => 'Curious';
+
+  @override
+  String get characterTraitLively => 'Lively';
+
+  @override
+  String get characterTraitWarm => 'Warm-hearted';
+
+  @override
+  String get characterTraitBrave => 'Brave';
+
+  @override
+  String get characterTraitFunny => 'Funny';
+
+  @override
+  String get characterTraitSmart => 'Smart';
+
+  @override
+  String get characterTraitKind => 'Kind';
+
+  @override
+  String get characterTraitPlayful => 'Playful';
+
+  @override
+  String get characterTraitCalm => 'Calm';
+
+  @override
+  String get characterTraitSpirited => 'Spirited';
+
+  @override
+  String get notificationBedtimeChannelName => 'Bedtime reminder';
+
+  @override
+  String get notificationBedtimeChannelDescription =>
+      'Nightly reminder to read today\'s story';
+
+  @override
+  String get shareKakaoCardTitle => 'Open the storybook';
+
+  @override
+  String get shareKakaoCardDescription =>
+      'Check out this storybook made with AI Story Book.';
+
+  @override
+  String get homeTodayFallbackTheme => 'Today\'s pick';
+
+  @override
+  String get homeTodayFallbackTopic => 'Create today\'s story!';
+
+  @override
+  String get growthLevelFallbackLabel => 'Growing';
+
+  @override
+  String get growthLevelFirstSteps => 'First steps';
+
+  @override
+  String get growthLevelBuildingBasics => 'Building basics';
+
+  @override
+  String get growthLevelSteadyGrowth => 'Steady growth';
+
+  @override
+  String get growthLevelReadingLeap => 'Reading leap';
+
+  @override
+  String get growthLevelFluentReader => 'Fluent reader';
 }

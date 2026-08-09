@@ -232,6 +232,37 @@ class ApiError implements Exception {
     }
   }
 
+  /// 402 의 안정 사유 키 — 서버 `error.details.reason`
+  /// (apps/api/src/core/errors.py `PaymentReason`).
+  String? get paymentReason {
+    final d = details;
+    if (d is Map) {
+      final reason = d['reason'];
+      if (reason is String && reason.trim().isNotEmpty) return reason.trim();
+    }
+    return null;
+  }
+
+  /// 플랜 업그레이드로 해소되는 402 인가 (아니면 크레딧 충전 안내).
+  ///
+  /// M5: 이전에는 서버가 준 **한국어 메시지 본문**을 부분 매칭했다
+  /// (`message.contains('스타일')`, `message.contains('오디오')`…). 서버가 402 를
+  /// 로컬라이즈하거나 문구를 다듬는 순간 조용히 깨지고 테스트도 잡지 못한다.
+  bool get isPlanUpgradeRequired {
+    if (code != 'PAYMENT_REQUIRED') return false;
+    final reason = paymentReason;
+    if (reason != null) return _planUpgradeReasons.contains(reason);
+    // 사유 키를 내려주지 않는 구버전 서버와의 롤아웃 호환 폴백. 새 서버에서는 절대
+    // 여기로 오지 않는다(위 reason 이 정본).
+    return message.contains('플랜') || message.toLowerCase().contains('plan');
+  }
+
+  static const _planUpgradeReasons = {
+    'free_plan_style',
+    'free_plan_monthly_limit',
+    'free_plan_feature',
+  };
+
   @override
   String toString() => 'ApiError: [$code] $message (status: $statusCode)';
 }

@@ -75,33 +75,88 @@ async def _validate_and_read_image(upload: UploadFile) -> bytes:
     return contents
 
 
+_UNKNOWN = "알 수 없음"
+_NO_ACCESSORIES = "없음"
+
+# 응답 DTO(CharacterAppearance/CharacterClothing)는 전 필드 min_length=1 이다.
+_APPEARANCE_DEFAULTS = {
+    "age_visual": _UNKNOWN,
+    "face": _UNKNOWN,
+    "hair": _UNKNOWN,
+    "skin": _UNKNOWN,
+    "body": _UNKNOWN,
+}
+_CLOTHING_DEFAULTS = {
+    "top": _UNKNOWN,
+    "bottom": _UNKNOWN,
+    "shoes": _UNKNOWN,
+    "accessories": _NO_ACCESSORIES,
+}
+
+
+def _text_or_default(value, default: str) -> str:
+    """빈 문자열·공백·None·빈 리스트를 기본값으로 치환한다(H2).
+
+    `dict.get(k, default)` 의 기본값은 **키가 없을 때만** 적용된다. 비전 모델은 관측하지
+    못한 항목을 키는 유지한 채 `""` 로 돌려주는 일이 흔하므로(상반신만 나온 사진 → 하의),
+    값 자체가 비었는지도 함께 봐야 한다. 그러지 않으면 `""` 가 DTO min_length=1 을
+    위반해 응답 직렬화에서 터진다.
+    """
+    if isinstance(value, (list, tuple)):
+        value = ", ".join(str(x).strip() for x in value if str(x).strip())
+    text = "" if value is None else str(value).strip()
+    return text or default
+
+
+def _fill_blanks(values, defaults: dict) -> dict:
+    source = values if isinstance(values, dict) else {}
+    return {
+        key: _text_or_default(source.get(key), default)
+        for key, default in defaults.items()
+    }
+
+
 def _normalize_character_payload(character_data: dict) -> tuple[dict, dict]:
-    appearance = character_data.get("appearance", {})
-    clothing = character_data.get("clothing", {})
+    appearance = character_data.get("appearance") or {}
+    clothing = character_data.get("clothing") or {}
 
-    normalized_appearance = {
-        "age_visual": appearance.get("age_visual", "알 수 없음"),
-        "face": (
-            f"{appearance.get('eye_color', '')} 눈, "
-            f"{appearance.get('distinctive_features', [''])[0] if appearance.get('distinctive_features') else ''}"
-        ).strip(", ")
-        or "알 수 없음",
-        "hair": f"{appearance.get('hair_color', '')} {appearance.get('hair_style', '')}".strip()
-        or "알 수 없음",
-        "skin": appearance.get("skin_tone", "알 수 없음"),
-        "body": appearance.get("body_type", "알 수 없음"),
-    }
+    features = appearance.get("distinctive_features") or []
+    first_feature = str(features[0]).strip() if features else ""
+    eye_color = _text_or_default(appearance.get("eye_color"), "")
 
-    accessories_list = clothing.get("accessories", [])
-    normalized_clothing = {
-        "top": clothing.get("top", "알 수 없음"),
-        "bottom": clothing.get("bottom", "알 수 없음"),
-        "shoes": clothing.get("shoes", "알 수 없음"),
-        "accessories": ", ".join(accessories_list)
-        if isinstance(accessories_list, list)
-        else str(accessories_list) or "없음",
-    }
+    normalized_appearance = _fill_blanks(
+        {
+            "age_visual": appearance.get("age_visual"),
+            "face": f"{eye_color} 눈, {first_feature}".strip(", ").strip()
+            if (eye_color or first_feature)
+            else "",
+            "hair": f"{_text_or_default(appearance.get('hair_color'), '')} "
+            f"{_text_or_default(appearance.get('hair_style'), '')}".strip(),
+            "skin": appearance.get("skin_tone"),
+            "body": appearance.get("body_type"),
+        },
+        _APPEARANCE_DEFAULTS,
+    )
+    normalized_clothing = _fill_blanks(clothing, _CLOTHING_DEFAULTS)
     return normalized_appearance, normalized_clothing
+
+
+def assert_character_dto_valid(
+    *, name, master_description, appearance: dict, clothing: dict
+) -> None:
+    """응답 DTO 제약을 **DB 커밋 전에** 강제한다(H2 orphan 차단).
+
+    커밋 후 직렬화에서 터지면 사용자는 실패를 보는데 캐릭터 행은 남는다. 게다가 멱등
+    재시도는 그 남은 행을 읽어 같은 지점에서 다시 터지므로 영원히 되살릴 수 없다.
+    """
+    from src.models.dto import CharacterAppearance, CharacterClothing
+
+    if not str(name or "").strip():
+        raise ValueError("character name is empty")
+    if not str(master_description or "").strip():
+        raise ValueError("character master_description is empty")
+    CharacterAppearance(**appearance)
+    CharacterClothing(**clothing)
 
 
 def _content_type_to_extension(content_type: Optional[str]) -> str:
@@ -122,12 +177,18 @@ def _build_character_dict(
     normalized_appearance: dict,
     normalized_clothing: dict,
 ) -> dict:
+    # H2: 읽기 경로도 방어한다. 수정 전에 저장된 행에는 이미 `""` 가 들어 있어(고아),
+    # 정규화만 고치면 그 행들은 여전히 단건 조회에서 500 이다.
     return {
         "character_id": character.id,
         "name": character.name,
         "master_description": character.master_description,
-        "appearance": CharacterAppearance(**normalized_appearance).model_dump(),
-        "clothing": CharacterClothing(**normalized_clothing).model_dump(),
+        "appearance": CharacterAppearance(
+            **_fill_blanks(normalized_appearance, _APPEARANCE_DEFAULTS)
+        ).model_dump(),
+        "clothing": CharacterClothing(
+            **_fill_blanks(normalized_clothing, _CLOTHING_DEFAULTS)
+        ).model_dump(),
         "personality_traits": character.personality_traits,
         "visual_style_notes": character.visual_style_notes,
         "created_at": character.created_at,
@@ -268,8 +329,13 @@ async def create_character(
         character_id=character.id,
         name=character.name,
         master_description=character.master_description,
-        appearance=CharacterAppearance(**character.appearance),
-        clothing=CharacterClothing(**character.clothing),
+        # H2: 저장된 행에 `""` 가 있으면(구버전 생성분) DTO min_length=1 위반으로 영구 500.
+        appearance=CharacterAppearance(
+            **_fill_blanks(character.appearance, _APPEARANCE_DEFAULTS)
+        ),
+        clothing=CharacterClothing(
+            **_fill_blanks(character.clothing, _CLOTHING_DEFAULTS)
+        ),
         personality_traits=character.personality_traits,
         visual_style_notes=character.visual_style_notes,
         distinctive_features=character.distinctive_features,
@@ -350,8 +416,13 @@ async def create_character_from_preset(
         character_id=character.id,
         name=character.name,
         master_description=character.master_description,
-        appearance=CharacterAppearance(**character.appearance),
-        clothing=CharacterClothing(**character.clothing),
+        # H2: 저장된 행에 `""` 가 있으면(구버전 생성분) DTO min_length=1 위반으로 영구 500.
+        appearance=CharacterAppearance(
+            **_fill_blanks(character.appearance, _APPEARANCE_DEFAULTS)
+        ),
+        clothing=CharacterClothing(
+            **_fill_blanks(character.clothing, _CLOTHING_DEFAULTS)
+        ),
         personality_traits=character.personality_traits,
         visual_style_notes=character.visual_style_notes,
         distinctive_features=character.distinctive_features,
@@ -436,8 +507,13 @@ async def get_character(
         character_id=character.id,
         name=character.name,
         master_description=character.master_description,
-        appearance=CharacterAppearance(**character.appearance),
-        clothing=CharacterClothing(**character.clothing),
+        # H2: 저장된 행에 `""` 가 있으면(구버전 생성분) DTO min_length=1 위반으로 영구 500.
+        appearance=CharacterAppearance(
+            **_fill_blanks(character.appearance, _APPEARANCE_DEFAULTS)
+        ),
+        clothing=CharacterClothing(
+            **_fill_blanks(character.clothing, _CLOTHING_DEFAULTS)
+        ),
         personality_traits=character.personality_traits,
         visual_style_notes=character.visual_style_notes,
         distinctive_features=character.distinctive_features,
@@ -642,6 +718,13 @@ async def create_character_from_photo(
         normalized_appearance, normalized_clothing = _normalize_character_payload(
             character_data
         )
+        # H2: 커밋 전에 응답 DTO 제약을 강제 — 실패해도 고아 캐릭터가 남지 않는다.
+        assert_character_dto_valid(
+            name=character_data.get("name"),
+            master_description=character_data.get("master_description"),
+            appearance=normalized_appearance,
+            clothing=normalized_clothing,
+        )
 
         character = Character(
             id=character_id,
@@ -755,6 +838,13 @@ async def create_character_from_drawing(
 
         normalized_appearance, normalized_clothing = _normalize_character_payload(
             character_data
+        )
+        # H2: 커밋 전에 응답 DTO 제약을 강제 — 실패해도 고아 캐릭터가 남지 않는다.
+        assert_character_dto_valid(
+            name=character_data.get("name"),
+            master_description=character_data.get("master_description"),
+            appearance=normalized_appearance,
+            clothing=normalized_clothing,
         )
 
         character = Character(

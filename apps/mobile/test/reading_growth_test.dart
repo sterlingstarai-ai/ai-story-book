@@ -17,6 +17,7 @@ GrowthReport _sample() => const GrowthReport(
       quizAccuracy: 0.75,
       completion: 0.8,
       levelNumber: 4,
+      levelKey: 'building_basics',
       levelLabel: '기초 다지기',
       scoreValue: 60,
     );
@@ -116,6 +117,28 @@ void main() {
     // 3-5세는 등수·백분위 미노출(전조작기) → 자기성장 카드만
     expect(find.text('우리 아이 읽기 성장'), findsOneWidget);
     expect(find.textContaining('상위'), findsNothing);
+  });
+
+  testWidgets('S2: en 로케일에서 레벨 라벨에 한국어가 노출되지 않는다', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          growthReportProvider.overrideWith((ref) async => _sample()),
+        ],
+        child: const MaterialApp(
+          locale: Locale('en'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: ReadingGrowthScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 서버 label 이 한국어여도(구버전 서버·폴백) 안정 키가 있으면 앱이 자체 l10n 으로 그린다.
+    expect(find.text('기초 다지기'), findsNothing,
+        reason: 'en 사용자에게 한국어 레벨 라벨이 노출됐다(S2 회귀)');
+    expect(find.text('Building basics'), findsOneWidget);
   });
 
   testWidgets('ReadingGrowthScreen renders level and stats', (tester) async {

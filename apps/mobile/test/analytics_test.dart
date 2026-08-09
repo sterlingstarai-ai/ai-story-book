@@ -27,6 +27,7 @@ GrowthReport _sample() => const GrowthReport(
       quizAccuracy: 0.0,
       completion: 0.0,
       levelNumber: 1,
+      levelKey: 'steady_growth',
       levelLabel: '첫 걸음',
       scoreValue: 5,
     );

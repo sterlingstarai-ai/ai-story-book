@@ -44,13 +44,20 @@ from src.services.orchestrator import (
     inpaint_page,
 )
 from src.services.image import supports_inpaint
-from src.services.pdf import pdf_service
+from src.services.pdf import PDFFontError, pdf_service
 from src.services.tts import tts_service
 from src.services.storage import storage_service
 from src.services.credits import credits_service
 from src.core.utils import local_day_bounds_utc, local_month_bounds_utc, utcnow
-from src.core.errors import ErrorCode, SafetyError, StoryBookError
+from src.core.errors import (
+    ErrorCode,
+    PaymentReason,
+    SafetyError,
+    StoryBookError,
+    client_safe_message,
+)
 from src.core.exceptions import (
+    APIError,
     AuthorizationError,
     InternalServerError,
     NotFoundError,
@@ -125,14 +132,19 @@ async def _enforce_free_plan_create_limits(
     normalized_style = _normalize_style(style)
     if normalized_style not in _FREE_PLAN_ALLOWED_STYLES:
         raise PaymentRequiredError(
-            "무료 플랜은 watercolor/cartoon 스타일만 지원합니다. 베이직 이상으로 업그레이드해주세요."
+            "무료 플랜은 watercolor/cartoon 스타일만 지원합니다. 베이직 이상으로 업그레이드해주세요.",
+            details={"reason": PaymentReason.FREE_PLAN_STYLE},
         )
 
     monthly_limit = max(1, int(getattr(settings, "free_plan_monthly_book_limit", 2) or 2))
     monthly_created = await _count_monthly_book_creations(db, user_key)
     if monthly_created >= monthly_limit:
         raise PaymentRequiredError(
-            f"무료 플랜은 월 {monthly_limit}권까지 생성할 수 있습니다. 베이직 이상으로 업그레이드해주세요."
+            f"무료 플랜은 월 {monthly_limit}권까지 생성할 수 있습니다. 베이직 이상으로 업그레이드해주세요.",
+            details={
+                "reason": PaymentReason.FREE_PLAN_MONTHLY_LIMIT,
+                "monthly_limit": monthly_limit,
+            },
         )
 
 
@@ -150,7 +162,8 @@ async def _enforce_free_plan_feature_access(
 
     feature_name = _FREE_PLAN_BLOCKED_FEATURES.get(feature, "해당")
     raise PaymentRequiredError(
-        f"무료 플랜에서는 {feature_name} 기능을 사용할 수 없습니다. 베이직 이상으로 업그레이드해주세요."
+        f"무료 플랜에서는 {feature_name} 기능을 사용할 수 없습니다. 베이직 이상으로 업그레이드해주세요.",
+        details={"reason": PaymentReason.FREE_PLAN_FEATURE, "feature": feature_name},
     )
 
 
@@ -242,7 +255,10 @@ async def _create_job_with_credit(
     """
     has_credits = await credits_service.has_credits(db, user_key, required=1)
     if not has_credits:
-        raise PaymentRequiredError("크레딧이 부족합니다. 크레딧을 충전해주세요.")
+        raise PaymentRequiredError(
+            "크레딧이 부족합니다. 크레딧을 충전해주세요.",
+            details={"reason": PaymentReason.INSUFFICIENT_CREDITS},
+        )
 
     credit_used = await credits_service.use_credit(
         db,
@@ -252,7 +268,10 @@ async def _create_job_with_credit(
         reference_id=job_id,
     )
     if not credit_used:
-        raise PaymentRequiredError("크레딧 차감에 실패했습니다.")
+        raise PaymentRequiredError(
+            "크레딧 차감에 실패했습니다.",
+            details={"reason": PaymentReason.CREDIT_CHARGE_FAILED},
+        )
 
     try:
         job = Job(
@@ -423,7 +442,9 @@ async def _run_regeneration_job(
             progress=100,
             current_step="재생성 실패",
             error_code=error_code,
-            error_message=str(getattr(e, "message", e))[:300],
+            error_message=client_safe_message(
+                error_code, str(getattr(e, "message", e))
+            )[:300],
         )
         logger.error(
             "Regeneration job failed",
@@ -469,11 +490,13 @@ async def check_guardrails(db: AsyncSession, user_key: str):
     # '가드레일 비활성' error 로그가 남는다(cost_budget 모듈).
     budget_ok, budget_used = await consume_daily_generation_budget()
     if not budget_ok:
-        raise HTTPException(
+        # M2: 봉투 코드는 UPPER_SNAKE(다른 모든 코드와 동일 규약). 소문자면 클라이언트가
+        # 코드 매칭에 실패해 전용 안내 대신 서버 원문(한국어)을 그대로 띄운다.
+        raise APIError(
             status_code=429,
-            detail={
-                "error": "service_budget_exceeded",
-                "message": "오늘 생성 가능한 전체 한도에 도달했어요. 잠시 후 다시 시도해주세요.",
+            error_code="SERVICE_BUDGET_EXCEEDED",
+            message="오늘 생성 가능한 전체 한도에 도달했어요. 잠시 후 다시 시도해주세요.",
+            details={
                 "limit": settings.daily_generation_budget,
                 "used": budget_used,
                 "retry_after": 3600,
@@ -483,11 +506,14 @@ async def check_guardrails(db: AsyncSession, user_key: str):
 
     if daily_job_count >= settings.daily_job_limit_per_user:
         retry_after = max(1, math.ceil((next_day_start - now).total_seconds()))
-        raise HTTPException(
+        raise APIError(
             status_code=429,
-            detail={
-                "error": "daily_limit_exceeded",
-                "message": f"일일 생성 한도({settings.daily_job_limit_per_user}권)를 초과했습니다. 내일 다시 시도해주세요.",
+            error_code="DAILY_LIMIT_EXCEEDED",
+            message=(
+                f"일일 생성 한도({settings.daily_job_limit_per_user}권)를 "
+                "초과했습니다. 내일 다시 시도해주세요."
+            ),
+            details={
                 "limit": settings.daily_job_limit_per_user,
                 "used": daily_job_count,
                 "retry_after": retry_after,
@@ -502,13 +528,11 @@ async def check_guardrails(db: AsyncSession, user_key: str):
     pending_count = pending_jobs_result.scalar() or 0
 
     if pending_count >= settings.max_pending_jobs:
-        raise HTTPException(
+        raise APIError(
             status_code=503,
-            detail={
-                "error": "system_overloaded",
-                "message": "시스템이 현재 많은 요청을 처리 중입니다. 잠시 후 다시 시도해주세요.",
-                "retry_after": 60,
-            },
+            error_code="SYSTEM_OVERLOADED",
+            message="시스템이 현재 많은 요청을 처리 중입니다. 잠시 후 다시 시도해주세요.",
+            details={"retry_after": 60},
             headers={"Retry-After": "60"},
         )
 
@@ -686,8 +710,11 @@ async def get_book_status(
         except ValueError:
             error_code = ErrorCode.UNKNOWN
 
+        # A1-R: 저장된 원문(pydantic 덤프·모델 응답 조각)을 그대로 서빙하지 않는다.
+        # 수정 전에 저장된 행까지 막으려면 **서빙 시점** 위생이 정본이다(H2 읽기 경로 교훈).
         response.error = ErrorInfo(
-            code=error_code, message=job.error_message or "Unknown error"
+            code=error_code,
+            message=client_safe_message(job.error_code, job.error_message),
         )
 
     # Add result if done
@@ -857,7 +884,9 @@ async def _run_inpaint_job(
             progress=100,
             current_step="부분 재생성 실패",
             error_code=error_code,
-            error_message=str(getattr(e, "message", e))[:300],
+            error_message=client_safe_message(
+                error_code, str(getattr(e, "message", e))
+            )[:300],
         )
         logger.error(
             "Inpaint job failed",
@@ -1330,6 +1359,19 @@ async def export_book_pdf(
     # Generate PDF
     try:
         pdf_bytes = await pdf_service.generate_pdf(book_data)
+    except PDFFontError as e:
+        # H1: 번들 CJK 폰트 누락 = 배포 구성 결함. 조용히 Helvetica로 폴백해 글자가 전부
+        # ■ 인 PDF를 배달하는 대신 실패시킨다. 상세는 로그로만(클라이언트엔 안정 키만).
+        logger.error(
+            "PDF font unavailable",
+            book_id=book_id,
+            language=getattr(book, "language", None),
+            error=str(e),
+        )
+        raise InternalServerError(
+            "PDF 생성에 실패했습니다. 잠시 후 다시 시도해주세요.",
+            details={"reason": "pdf_font_unavailable"},
+        ) from e
     except Exception as e:
         logger.error("PDF generation failed", book_id=book_id, error=str(e))
         raise InternalServerError(

@@ -33,6 +33,87 @@ ALLOWED_IMAGE_DOMAINS = {
 # Maximum image size (10MB)
 MAX_IMAGE_SIZE = 10 * 1024 * 1024
 
+# ---------------------------------------------------------------------------
+# CJK 폰트 (H1)
+# ---------------------------------------------------------------------------
+# reportlab 의 TTFont 은 **TrueType(glyf) 아웃라인만** 지원한다. apt `fonts-noto-cjk`가
+# 설치하는 NotoSansCJK*.ttc 와 macOS AppleSDGothicNeo.ttc 는 CFF/PostScript 아웃라인이라
+# 등록 자체가 실패한다("postscript outlines are not supported") — 그래서 시스템 폰트에
+# 의존하는 순간 조용히 Helvetica 로 떨어지고 한/일/중 본문이 ■ 로 렌더된다.
+# 따라서 정적 TrueType(가변폰트를 wght=400 으로 인스턴싱)을 리포에 번들한다.
+# 라이선스: assets/fonts/OFL.txt (SIL Open Font License 1.1)
+FONT_DIR = Path(__file__).resolve().parents[2] / "assets" / "fonts"
+
+# 언어별 폰트 — 한자 자형은 지역별로 다르므로(예: 直·骨) 언어에 맞는 폰트를 쓴다.
+# NotoSansKR 은 가나·간체 일부를 커버하지 못하고, NotoSansSC 는 한글을 커버하지 못한다
+# (실측 확인) — 하나로 합칠 수 없다.
+LANGUAGE_FONTS: dict[str, tuple[str, str]] = {
+    "ko": ("NotoSansKR", "NotoSansKR-Regular.ttf"),
+    "ja": ("NotoSansJP", "NotoSansJP-Regular.ttf"),
+    "zh": ("NotoSansSC", "NotoSansSC-Regular.ttf"),
+}
+CJK_LANGUAGES = frozenset(LANGUAGE_FONTS)
+
+# 라틴 계열(en/es)은 내장 Helvetica 로 충분하다.
+DEFAULT_FONT = "Helvetica"
+
+_REGISTERED_FONTS: set[str] = set()
+
+# PDF 자체 문구(chrome)는 책 언어를 따른다. 한국어로 고정하면 영어·스페인어 책에서도
+# 한글이 그려지는데, 그 언어는 CJK 폰트를 싣지 않으므로 그대로 ■ 가 된다(H1의 사촌).
+PDF_CHROME: dict[str, dict[str, str]] = {
+    "ko": {"end": "~ 끝 ~", "copyright": "AI Story Book으로 생성됨"},
+    "en": {"end": "~ The End ~", "copyright": "Created with AI Story Book"},
+    "ja": {"end": "~ おわり ~", "copyright": "AI Story Book で作成"},
+    "zh": {"end": "~ 完 ~", "copyright": "由 AI Story Book 生成"},
+    "es": {"end": "~ Fin ~", "copyright": "Creado con AI Story Book"},
+}
+
+
+def pdf_chrome(language: Optional[str]) -> dict[str, str]:
+    """책 언어에 맞는 PDF 자체 문구."""
+    lang = (language or "").strip().lower()
+    return PDF_CHROME.get(lang, PDF_CHROME["en"])
+
+
+class PDFFontError(Exception):
+    """CJK 폰트를 등록할 수 없어 PDF 본문이 깨질 상황.
+
+    조용한 Helvetica 폴백 금지(H1): 폴백하면 사용자는 '성공한 PDF'를 받고 그 안의 글자가
+    전부 ■ 다. 배포 구성 결함이므로 시끄럽게 실패한다.
+    """
+
+
+def resolve_pdf_font(language: Optional[str]) -> str:
+    """책 언어에 맞는 등록된 폰트 이름을 반환한다.
+
+    CJK 언어인데 번들 폰트를 등록할 수 없으면 PDFFontError 를 던진다(폴백하지 않는다).
+    """
+    lang = (language or "").strip().lower()
+    entry = LANGUAGE_FONTS.get(lang)
+    if entry is None:
+        return DEFAULT_FONT
+
+    font_name, filename = entry
+    if font_name in _REGISTERED_FONTS:
+        return font_name
+
+    font_path = FONT_DIR / filename
+    if not font_path.exists():
+        raise PDFFontError(
+            f"{lang} PDF에 필요한 번들 폰트가 없습니다: {font_path}"
+        )
+    try:
+        pdfmetrics.registerFont(TTFont(font_name, str(font_path)))
+    except Exception as e:  # 손상된 파일·미지원 아웃라인 등
+        raise PDFFontError(
+            f"{lang} PDF 폰트 등록 실패({font_path}): {e}"
+        ) from e
+
+    _REGISTERED_FONTS.add(font_name)
+    logger.info("CJK font registered", language=lang, font=font_name)
+    return font_name
+
 
 class PDFService:
     """PDF 생성 서비스"""
@@ -40,32 +121,16 @@ class PDFService:
     def __init__(self):
         self.page_size = landscape(A4)  # 가로 방향
         self.margin = 20 * mm
-        self._register_fonts()
-
-    def _register_fonts(self):
-        """한글 폰트 등록"""
-        # 시스템 폰트 경로들
-        font_paths = [
-            "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",  # Linux
-            "/System/Library/Fonts/AppleSDGothicNeo.ttc",  # macOS
-            "/app/assets/fonts/NanumGothic.ttf",  # Docker
-        ]
-
-        for font_path in font_paths:
-            if Path(font_path).exists():
-                try:
-                    pdfmetrics.registerFont(TTFont("Korean", font_path))
-                    self.font_name = "Korean"
-                    return
-                except Exception as e:
-                    logger.debug("Font registration failed", path=font_path, error=str(e))
-                    continue
-
-        # 폰트를 찾지 못하면 기본 폰트 사용
-        self.font_name = "Helvetica"
+        # 폰트는 책 언어에 따라 generate_pdf 에서 결정한다(H1). 생성자에서 하나로 고정하면
+        # 언어별 자형을 고를 수 없고, 등록 실패가 조용한 폴백으로 묻힌다.
+        self.font_name = DEFAULT_FONT
 
     async def generate_pdf(self, book: BookResult) -> bytes:
         """책을 PDF로 생성"""
+        language = getattr(book.language, "value", book.language)
+        # CJK 폰트를 못 구하면 여기서 시끄럽게 실패한다 — 글자가 ■ 인 PDF를 배달하지 않는다.
+        self.font_name = resolve_pdf_font(language)
+
         buffer = io.BytesIO()
 
         c = canvas.Canvas(buffer, pagesize=self.page_size)
@@ -192,7 +257,8 @@ class PDFService:
         c.setFillColorRGB(0.3, 0.3, 0.3)
         c.setFont(self.font_name, 36)
 
-        end_text = "~ 끝 ~"
+        chrome = pdf_chrome(getattr(book.language, "value", book.language))
+        end_text = chrome["end"]
         text_width = c.stringWidth(end_text, self.font_name, 36)
         c.drawString((width - text_width) / 2, height / 2 + 50, end_text)
 
@@ -204,7 +270,7 @@ class PDFService:
         # 저작권
         c.setFont(self.font_name, 12)
         c.setFillColorRGB(0.5, 0.5, 0.5)
-        copyright_text = "AI Story Book으로 생성됨"
+        copyright_text = chrome["copyright"]
         copy_width = c.stringWidth(copyright_text, self.font_name, 12)
         c.drawString((width - copy_width) / 2, self.margin, copyright_text)
 

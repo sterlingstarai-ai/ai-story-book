@@ -17,7 +17,11 @@ import structlog
 from src.core.config import settings
 from src.core.database import get_db
 from src.core.dependencies import get_user_key
-from src.core.exceptions import NotFoundError, ValidationError
+from src.core.exceptions import (
+    NotFoundError,
+    UnsupportedRegionError,
+    ValidationError,
+)
 from src.core.utils import utcnow
 from src.models.db import Book, PodOrder
 from src.routers.books import get_idempotency_key
@@ -59,12 +63,23 @@ _POD_PRICING = {
     "US": (20, 5, "USD"),
     "JP": (2500, 500, "JPY"),
 }
-_POD_PRICING_DEFAULT = (20, 8, "USD")
+#: 배송 지원 국가 화이트리스트 = 가격표에 명시된 국가뿐.
+#: L2(2026-08-09): 이전엔 미등록 국가가 USD 기본가로 조용히 폴백해, 존재하지 않는 코드
+#: (`ZZ`·`XX`)도 견적·주문이 통과했다 — 배송 불가 지역 주문을 받는 경로였다.
+#: **국가 확장은 창업자 결정 사항**이다(POD 공급사 배송권역·관세·통화·반품 정책이 함께
+#: 결정되어야 하므로 코드에서 임의로 늘리지 않는다). 확장 시 _POD_PRICING 에 추가한다.
+SUPPORTED_POD_COUNTRIES = tuple(sorted(_POD_PRICING))
 
 
 def _pod_pricing_for(country: str) -> tuple:
-    """배송 국가 코드 → (단가, 배송비, 통화). 미지원 국가는 USD 기본."""
-    return _POD_PRICING.get((country or "").upper(), _POD_PRICING_DEFAULT)
+    """배송 국가 코드 → (단가, 배송비, 통화). 미지원 국가는 400 으로 거부한다."""
+    normalized = (country or "").upper()
+    pricing = _POD_PRICING.get(normalized)
+    if pricing is None:
+        raise UnsupportedRegionError(
+            country=normalized, supported=list(SUPPORTED_POD_COUNTRIES)
+        )
+    return pricing
 
 
 def _normalize_shipping_address(payload: ShippingAddressInput) -> dict:

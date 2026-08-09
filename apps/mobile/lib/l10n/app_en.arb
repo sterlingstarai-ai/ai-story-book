@@ -1719,5 +1719,93 @@
   "growthLoadError": "Couldn't load the growth report.",
   "@growthLoadError": {
     "description": "Growth screen: growthLoadError"
+  },
+  "characterTraitCurious": "Curious",
+  "@characterTraitCurious": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "characterTraitLively": "Lively",
+  "@characterTraitLively": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "characterTraitWarm": "Warm-hearted",
+  "@characterTraitWarm": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "characterTraitBrave": "Brave",
+  "@characterTraitBrave": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "characterTraitFunny": "Funny",
+  "@characterTraitFunny": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "characterTraitSmart": "Smart",
+  "@characterTraitSmart": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "characterTraitKind": "Kind",
+  "@characterTraitKind": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "characterTraitPlayful": "Playful",
+  "@characterTraitPlayful": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "characterTraitCalm": "Calm",
+  "@characterTraitCalm": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "characterTraitSpirited": "Spirited",
+  "@characterTraitSpirited": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "notificationBedtimeChannelName": "Bedtime reminder",
+  "@notificationBedtimeChannelName": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "notificationBedtimeChannelDescription": "Nightly reminder to read today's story",
+  "@notificationBedtimeChannelDescription": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "shareKakaoCardTitle": "Open the storybook",
+  "@shareKakaoCardTitle": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "shareKakaoCardDescription": "Check out this storybook made with AI Story Book.",
+  "@shareKakaoCardDescription": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "homeTodayFallbackTheme": "Today's pick",
+  "@homeTodayFallbackTheme": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "homeTodayFallbackTopic": "Create today's story!",
+  "@homeTodayFallbackTopic": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "growthLevelFallbackLabel": "Growing",
+  "@growthLevelFallbackLabel": {
+    "description": "M6: l10n 우회 하드코딩 제거"
+  },
+  "growthLevelFirstSteps": "First steps",
+  "@growthLevelFirstSteps": {
+    "description": "S2: 읽기 레벨 라벨(서버 안정 키 기반)"
+  },
+  "growthLevelBuildingBasics": "Building basics",
+  "@growthLevelBuildingBasics": {
+    "description": "S2: 읽기 레벨 라벨(서버 안정 키 기반)"
+  },
+  "growthLevelSteadyGrowth": "Steady growth",
+  "@growthLevelSteadyGrowth": {
+    "description": "S2: 읽기 레벨 라벨(서버 안정 키 기반)"
+  },
+  "growthLevelReadingLeap": "Reading leap",
+  "@growthLevelReadingLeap": {
+    "description": "S2: 읽기 레벨 라벨(서버 안정 키 기반)"
+  },
+  "growthLevelFluentReader": "Fluent reader",
+  "@growthLevelFluentReader": {
+    "description": "S2: 읽기 레벨 라벨(서버 안정 키 기반)"
   }
 }

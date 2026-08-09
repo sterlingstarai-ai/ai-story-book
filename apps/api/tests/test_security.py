@@ -53,7 +53,9 @@ class TestRateLimiting:
 
         assert response.status_code == 429
         body = response.json()
-        assert body["error"]["code"] == "rate_limit_exceeded"
+        # M2: 다른 모든 에러 코드와 같은 UPPER_SNAKE. 소문자였던 탓에 모바일이
+        # RATE_LIMIT_EXCEEDED 분기에 매칭하지 못해 en/ja 에 한국어가 노출됐다.
+        assert body["error"]["code"] == "RATE_LIMIT_EXCEEDED"
         assert body["error"]["message"] == body["detail"]
         assert body["error"]["details"]["retry_after"] == settings.rate_limit_window
         assert response.headers.get("Retry-After") == str(settings.rate_limit_window)

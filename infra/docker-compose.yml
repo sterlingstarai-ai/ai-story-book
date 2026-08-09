@@ -7,7 +7,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-storybook123}
       POSTGRES_DB: ${POSTGRES_DB:-storybook}
     ports:
-      - "127.0.0.1:5432:5432"
+      # L1: 호스트 포트를 파라미터화 — 로컬에 네이티브 postgres 가 떠 있으면 5432 가
+      # 점유돼 `docker compose up` 이 bind 실패로 죽는다. POSTGRES_HOST_PORT 로 회피.
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -21,13 +23,24 @@ services:
   redis:
     image: redis:7-alpine
     container_name: storybook-redis
-    command: redis-server --requirepass ${REDIS_PASSWORD:-}
+    # M1: `--requirepass ${REDIS_PASSWORD:-}` 는 값이 없으면 인자 없는 `--requirepass` 가
+    # 되어 redis 가 FATAL 로 즉사한다("wrong number of arguments"). 그런데 REDIS_PASSWORD
+    # 는 리포 어느 .env.example·env.schema 에도 없어서, 문서대로 따라한 신규 개발자는
+    # 반드시 막혔다. 개발 스택은 로컬 전용(127.0.0.1 바인딩)이므로 인증 없이 기동하고,
+    # 비밀번호가 필요하면 REDIS_PASSWORD 를 주면 그때만 켜진다.
+    command: >
+      sh -c 'if [ -n "$$REDIS_PASSWORD" ];
+             then exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD";
+             else exec redis-server --appendonly yes; fi'
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     ports:
       - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      # 비밀번호를 켠 구성에서도 healthcheck 가 통과해야 한다(AUTH 필요).
+      test: ["CMD-SHELL", 'if [ -n "$$REDIS_PASSWORD" ]; then redis-cli --no-auth-warning -a "$$REDIS_PASSWORD" ping; else redis-cli ping; fi']
       interval: 5s
       timeout: 5s
       retries: 5

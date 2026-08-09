@@ -107,6 +107,55 @@ def main():
             check("페이지 4+개 생성", len(pages) >= 4, f"pages={len(pages)}")
             check("커버 이미지 URL", cover.startswith("http"), cover[:60])
 
+        # 4-1. 페이지 재생성 — **잡 완주 + 텍스트 실제 변경**까지 확인한다(S1).
+        # 함정: 이 엔드포인트는 잡 등록만 하고 200 을 돌려준다. 200 만 보고 PASS 로 기록해
+        # 매트릭스 #12/#22 가 두 라운드 연속 false-pass 였다(mock 이 RewriteResult 대신
+        # StoryDraft 모양을 반환해 백그라운드 잡이 조용히 실패하고 있었다).
+        if book_id and job_id:
+            before = c.get(f"/v1/books/{book_id}/detail", headers=h(A)).json()
+            before_text = next(
+                (p["text"] for p in (before.get("pages") or []) if p["page_number"] == 2),
+                None,
+            )
+            rr = c.post(
+                f"/v1/books/{job_id}/pages/2/regenerate",
+                headers=h(A),
+                json={"mode": "text", "feedback": "더 밝게"},
+            )
+            check("페이지 재생성 요청 200", rr.status_code == 200, rr.text[:200])
+            regen_job_id = rr.json().get("regen_job_id") or rr.json().get("job_id")
+
+            regen_status = None
+            regen_error = None
+            if regen_job_id:
+                deadline = time.time() + 60
+                while time.time() < deadline:
+                    rs = c.get(f"/v1/books/{regen_job_id}", headers=h(A))
+                    if rs.status_code != 200:
+                        break
+                    body = rs.json()
+                    regen_status = body.get("status")
+                    if regen_status in ("done", "failed"):
+                        regen_error = body.get("error")
+                        break
+                    time.sleep(1.0)
+            check(
+                "페이지 재생성 잡 done 도달",
+                regen_status == "done",
+                f"status={regen_status} error={regen_error}",
+            )
+
+            after = c.get(f"/v1/books/{book_id}/detail", headers=h(A)).json()
+            after_text = next(
+                (p["text"] for p in (after.get("pages") or []) if p["page_number"] == 2),
+                None,
+            )
+            check(
+                "재생성으로 페이지 텍스트가 실제로 변경됨",
+                bool(after_text) and after_text != before_text,
+                f"before={str(before_text)[:40]!r} after={str(after_text)[:40]!r}",
+            )
+
         # 5. 읽기 기록(완독)
         rid = book_id or "fallback-book"
         r = c.post("/v1/streak/read", headers=h(A),

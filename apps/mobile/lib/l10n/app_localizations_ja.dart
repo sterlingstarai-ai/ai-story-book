@@ -2756,4 +2756,70 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get growthLoadError => '成長レポートを読み込めませんでした。';
+
+  @override
+  String get characterTraitCurious => '好奇心旺盛';
+
+  @override
+  String get characterTraitLively => '元気';
+
+  @override
+  String get characterTraitWarm => 'やさしい';
+
+  @override
+  String get characterTraitBrave => '勇敢';
+
+  @override
+  String get characterTraitFunny => 'おもしろい';
+
+  @override
+  String get characterTraitSmart => 'かしこい';
+
+  @override
+  String get characterTraitKind => '親切';
+
+  @override
+  String get characterTraitPlayful => 'いたずらっ子';
+
+  @override
+  String get characterTraitCalm => 'おだやか';
+
+  @override
+  String get characterTraitSpirited => 'たくましい';
+
+  @override
+  String get notificationBedtimeChannelName => 'おやすみ通知';
+
+  @override
+  String get notificationBedtimeChannelDescription => '毎晩の今日のお話リマインダー';
+
+  @override
+  String get shareKakaoCardTitle => '絵本を見る';
+
+  @override
+  String get shareKakaoCardDescription => 'AI Story Book で作った絵本をご覧ください。';
+
+  @override
+  String get homeTodayFallbackTheme => '今日のおすすめ';
+
+  @override
+  String get homeTodayFallbackTopic => '今日のお話を作ってみましょう！';
+
+  @override
+  String get growthLevelFallbackLabel => '成長中';
+
+  @override
+  String get growthLevelFirstSteps => 'はじめの一歩';
+
+  @override
+  String get growthLevelBuildingBasics => '基礎づくり';
+
+  @override
+  String get growthLevelSteadyGrowth => '着実に成長';
+
+  @override
+  String get growthLevelReadingLeap => '読書の飛躍';
+
+  @override
+  String get growthLevelFluentReader => '読書名人';
 }

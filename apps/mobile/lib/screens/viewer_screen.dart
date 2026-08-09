@@ -900,9 +900,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
 
     final l = AppLocalizations.of(context);
     final message = apiError.message.trim();
-    final title = message.contains('PDF') ||
-            message.contains('오디오') ||
-            message.contains('플랜')
+    // M5: 안정 키 기반 분기(서버 error.details.reason). 한국어 문자열 매칭 금지.
+    final title = apiError.isPlanUpgradeRequired
         ? l.viewerPlanUpgradeNeeded
         : l.viewerCreditShortage;
     await showCreditShortageModal(
@@ -1911,6 +1910,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       shareUrl: shareUrl,
       title: book.title,
       coverImageUrl: book.coverImageUrl,
+      buttonTitle: l.shareKakaoCardTitle,
+      fallbackDescription: l.shareKakaoCardDescription,
       description: l.viewerKakaoDescription,
     );
     if (result.shared) {

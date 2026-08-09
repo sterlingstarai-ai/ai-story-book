@@ -2754,4 +2754,70 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get growthLoadError => '성장 리포트를 불러오지 못했어요.';
+
+  @override
+  String get characterTraitCurious => '호기심 많은';
+
+  @override
+  String get characterTraitLively => '활발한';
+
+  @override
+  String get characterTraitWarm => '다정한';
+
+  @override
+  String get characterTraitBrave => '용감한';
+
+  @override
+  String get characterTraitFunny => '재미있는';
+
+  @override
+  String get characterTraitSmart => '똑똑한';
+
+  @override
+  String get characterTraitKind => '친절한';
+
+  @override
+  String get characterTraitPlayful => '장난꾸러기';
+
+  @override
+  String get characterTraitCalm => '차분한';
+
+  @override
+  String get characterTraitSpirited => '씩씩한';
+
+  @override
+  String get notificationBedtimeChannelName => '잠자리 알림';
+
+  @override
+  String get notificationBedtimeChannelDescription => '매일 밤 오늘의 동화 읽기 리마인더';
+
+  @override
+  String get shareKakaoCardTitle => '동화책 보기';
+
+  @override
+  String get shareKakaoCardDescription => 'AI Story Book으로 만든 동화책을 확인해보세요.';
+
+  @override
+  String get homeTodayFallbackTheme => '오늘의 추천';
+
+  @override
+  String get homeTodayFallbackTopic => '오늘의 동화를 만들어보세요!';
+
+  @override
+  String get growthLevelFallbackLabel => '성장 중';
+
+  @override
+  String get growthLevelFirstSteps => '첫 걸음';
+
+  @override
+  String get growthLevelBuildingBasics => '기초 다지기';
+
+  @override
+  String get growthLevelSteadyGrowth => '꾸준히 성장';
+
+  @override
+  String get growthLevelReadingLeap => '읽기 도약';
+
+  @override
+  String get growthLevelFluentReader => '능숙한 독서가';
 }

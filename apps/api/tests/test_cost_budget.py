@@ -172,8 +172,8 @@ async def test_create_book_returns_429_when_global_budget_exhausted(
     res = await client.post("/v1/books", json=valid_book_spec, headers=headers)
     assert res.status_code == 429, res.text
     body = res.json()
-    detail = body.get("error", {}).get("details") or body.get("detail")
-    assert "service_budget_exceeded" in str(detail) or "service_budget_exceeded" in str(body)
+    assert body["error"]["code"] == "SERVICE_BUDGET_EXCEEDED", body  # M2 완결(UPPER_SNAKE)
+    assert body["error"]["details"]["retry_after"] == 3600, body
 
     # 다른 user_key(로테이션)도 동일하게 차단돼야 전역 상한의 의미가 있다.
     other = {"X-User-Key": "11111111-2222-3333-4444-555555555555"}

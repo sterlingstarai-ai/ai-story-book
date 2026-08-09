@@ -6,6 +6,8 @@ import asyncio
 from typing import Optional
 
 from celery import shared_task
+
+from src.core.errors import ErrorCode, client_safe_message
 from sqlalchemy.exc import IntegrityError
 import structlog
 
@@ -29,8 +31,28 @@ def is_redelivery_noop(status: Optional[str]) -> bool:
     return status in _TERMINAL_JOB_STATUSES
 
 
+
+def _error_code_of(exc: Exception) -> str:
+    """도메인 에러 코드를 보존한다(재시도 판단 근거). 그 외는 UNKNOWN."""
+    from src.core.errors import StoryBookError
+
+    if isinstance(exc, StoryBookError):
+        return exc.code.value
+    return ErrorCode.UNKNOWN.value
+
+
 def run_async(coro):
-    """Run async function in sync context for Celery."""
+    """Run async function in sync context for Celery.
+
+    C1: 이 함수는 호출마다 이벤트 루프를 만들고 **닫는다**. 커넥션을 캐싱하는 풀과 만나면
+    닫힌 루프에 묶인 커넥션이 다음 루프에서 재사용되어 'attached to a different loop'로
+    폭발한다. 그 재사용을 실제로 막는 것은 워커 엔진의 NullPool
+    (`core.database.configure_for_worker()`)이며 — 태스크 **간** 교차는 여기서만 막힌다.
+
+    그럼에도 **태스크당 정확히 한 번만 호출하라**: 한 태스크 안에서 두 번 부르면 본작업이
+    실패했을 때 실패 마킹 경로까지 같은 이유로 죽어 잡이 `queued`에 영구 잔류한다
+    (사용자는 SLA 10분이 지나야 실패를 본다). 상태조회·본작업·실패마킹을 한 코루틴에 넣는다.
+    """
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
@@ -39,7 +61,9 @@ def run_async(coro):
         loop.close()
 
 
-async def _mark_job_failed_async(job_id: str, message: str) -> None:
+async def _mark_job_failed_async(
+    job_id: str, message: str, error_code: Optional[str] = None
+) -> None:
     """Best-effort async DB update for failed jobs from Celery context.
 
     H10 fence: orchestrator.mark_job_failed·job_monitor와 동일하게 queued/running일 때만
@@ -58,7 +82,10 @@ async def _mark_job_failed_async(job_id: str, message: str) -> None:
             .where(Job.id == job_id, Job.status.in_(["queued", "running"]))
             .values(
                 status="failed",
-                error_message=message[:300],
+                # A1-R: 원문(pydantic 덤프·모델 응답 조각)을 저장하지 않는다 — 로그로만.
+                # 코드도 함께 저장해야 클라이언트가 재시도 가능 여부를 판단할 수 있다.
+                error_code=error_code or ErrorCode.UNKNOWN.value,
+                error_message=client_safe_message(error_code, message)[:300],
                 updated_at=utcnow(),
             )
         )
@@ -152,12 +179,20 @@ def generate_book_task(self, job_id: str, spec_dict: dict, user_key: str):
         user_key: User key
     """
     logger.info("Starting book generation task", job_id=job_id)
+    # C1: 상태조회 → 본작업 → 실패마킹을 **하나의 코루틴 = 하나의 이벤트 루프**로 실행한다.
+    return run_async(_run_book_task_async(job_id, spec_dict, user_key))
+
+
+async def _run_book_task_async(job_id: str, spec_dict: dict, user_key: str) -> dict:
+    """generate_book_task 본체 — 단일 이벤트 루프 안에서 완결(C1)."""
+    from src.models.dto import BookSpec
+    from src.services.orchestrator import start_book_generation
 
     # Idempotency guard for Celery redelivery (acks_late + reject_on_worker_lost).
     # A redelivered message must never re-run a job that already reached a
     # terminal state, else re-inserts collide on the unique job_id constraints
     # and a recoverable redelivery becomes a permanent UNKNOWN failure.
-    current_status = run_async(_get_job_status_async(job_id))
+    current_status = await _get_job_status_async(job_id)
     if is_redelivery_noop(current_status):
         logger.info(
             "Skipping redelivery of terminal job",
@@ -167,11 +202,8 @@ def generate_book_task(self, job_id: str, spec_dict: dict, user_key: str):
         return {"status": "skipped", "reason": "already_terminal", "job_id": job_id}
 
     try:
-        from src.services.orchestrator import start_book_generation
-        from src.models.dto import BookSpec
-
         spec = BookSpec(**spec_dict)
-        result = run_async(start_book_generation(job_id, spec, user_key))
+        result = await start_book_generation(job_id, spec, user_key)
 
         logger.info("Book generation completed", job_id=job_id)
         return {"status": "success", "book_id": result.book_id if result else None}
@@ -193,9 +225,9 @@ def generate_book_task(self, job_id: str, spec_dict: dict, user_key: str):
 
     except Exception as e:
         logger.error("Book generation failed", job_id=job_id, error=str(e))
-        # Update job status to failed
+        # Update job status to failed — 같은 루프 안이므로 이 경로가 죽지 않는다.
         try:
-            run_async(_mark_job_failed_async(job_id, str(e)))
+            await _mark_job_failed_async(job_id, str(e), error_code=_error_code_of(e))
         except Exception as db_error:
             logger.error("Failed to update job status", error=str(db_error))
 
@@ -263,9 +295,24 @@ def generate_series_task(
     실행해 재시작 시 유실·API 지연이 있었다. 직렬화 가능한 id 인자로 워커에서 실행한다.
     """
     logger.info("Starting series generation task", job_id=job_id)
+    # C1: 단일 이벤트 루프 — generate_book_task 미러.
+    return run_async(
+        _run_series_task_async(
+            job_id, request_dict, user_key, character_id, prev_book_id
+        )
+    )
 
+
+async def _run_series_task_async(
+    job_id: str,
+    request_dict: dict,
+    user_key: str,
+    character_id: Optional[str],
+    prev_book_id: Optional[str],
+) -> dict:
+    """generate_series_task 본체 — 단일 이벤트 루프 안에서 완결(C1)."""
     # M23 미러: 재전달 멱등 가드 — terminal 잡은 재실행하지 않는다(재큐 실패 루프 차단).
-    current_status = run_async(_get_job_status_async(job_id))
+    current_status = await _get_job_status_async(job_id)
     if is_redelivery_noop(current_status):
         logger.info(
             "Skipping redelivery of terminal series job",
@@ -275,10 +322,8 @@ def generate_series_task(
         return {"status": "skipped", "reason": "already_terminal", "job_id": job_id}
 
     try:
-        result = run_async(
-            _run_series_generation_async(
-                job_id, request_dict, user_key, character_id, prev_book_id
-            )
+        result = await _run_series_generation_async(
+            job_id, request_dict, user_key, character_id, prev_book_id
         )
         logger.info("Series generation completed", job_id=job_id)
         return {"status": "success", "book_id": result.book_id if result else None}
@@ -294,7 +339,7 @@ def generate_series_task(
     except Exception as e:
         logger.error("Series generation failed", job_id=job_id, error=str(e))
         try:
-            run_async(_mark_job_failed_async(job_id, str(e)))
+            await _mark_job_failed_async(job_id, str(e), error_code=_error_code_of(e))
         except Exception as db_error:
             logger.error("Failed to update job status", error=str(db_error))
         raise
