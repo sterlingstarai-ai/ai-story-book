@@ -5,10 +5,17 @@
 # TESTING=true(in-process pytest)는 생성 백그라운드 태스크를 건너뛰므로, 전체 생성
 # 파이프라인(create→done)을 검증하려면 TESTING=false로 실서버를 띄워야 한다.
 # 이 스크립트는 스키마 생성 → uvicorn 기동(mock providers·SQLite) → e2e_journey.py 실행
-# → 서버 종료까지 자급자족으로 수행한다(키·Postgres·Redis·S3 불필요).
+# → 서버 종료까지 수행한다(키·Postgres·Redis 불필요).
+#
+# ⚠ R2(2026-08-11) 이후 **S3 호환 스토리지는 필요하다**. mock 이미지 제공자가 외부
+# picsum URL을 반환하던 시절엔 업로드 경로가 아예 실행되지 않아 S3가 없어도 통과했는데,
+# 그게 바로 "전 스위트가 업로드 경로를 한 번도 검증하지 못한" 원인이었다. 이제 mock도
+# 실 provider와 같은 영속화 경로를 지나므로 스토리지가 실제로 떠 있어야 한다.
+#   로컬: docker compose -f infra/docker-compose.yml up -d minio
 #
 # 사용: ./scripts/run_live_e2e.sh
-# 환경: PYTHON(기본 python), PORT(기본 8077)
+# 환경: PYTHON(기본 python), PORT(기본 8077),
+#       S3_ENDPOINT/S3_ACCESS_KEY/S3_SECRET_KEY/S3_BUCKET(기본 로컬 MinIO)
 # =============================================================================
 set -euo pipefail
 
@@ -22,8 +29,21 @@ DB_FILE="live_e2e.db"
 export TESTING=false USE_CELERY=false \
   LLM_PROVIDER=mock IMAGE_PROVIDER=mock TTS_PROVIDER=mock \
   DATABASE_URL="sqlite+aiosqlite:///./${DB_FILE}" \
-  S3_ENDPOINT="http://localhost:9000" S3_ACCESS_KEY=test S3_SECRET_KEY=test S3_BUCKET=storybook \
+  S3_ENDPOINT="${S3_ENDPOINT:-http://localhost:9000}" \
+  S3_ACCESS_KEY="${S3_ACCESS_KEY:-minioadmin}" \
+  S3_SECRET_KEY="${S3_SECRET_KEY:-minioadmin123}" \
+  S3_BUCKET="${S3_BUCKET:-storybook}" \
+  S3_PUBLIC_URL="${S3_PUBLIC_URL:-${S3_ENDPOINT:-http://localhost:9000}/${S3_BUCKET:-storybook}}" \
   RATE_LIMIT_REQUESTS="${RATE_LIMIT_REQUESTS:-100000}"
+
+# 스토리지가 없으면 생성이 IMAGE_FAILED로 죽는다. 원인을 알 수 없는 잡 실패 9건 대신
+# 여기서 명시적으로 멈춘다(환경 문제와 제품 결함을 구분).
+if ! curl -fsS "${S3_ENDPOINT}/minio/health/live" >/dev/null 2>&1; then
+  echo "❌ S3 호환 스토리지에 연결할 수 없습니다: ${S3_ENDPOINT}"
+  echo "   R2 이후 mock 이미지도 실제로 업로드되므로 스토리지가 필요합니다."
+  echo "   실행: docker compose -f infra/docker-compose.yml up -d minio"
+  exit 1
+fi
 # CI에는 Redis가 떠 있어 rate limiter가 활성(로컬은 fail-open)이므로, 단일 여정이 분당
 # 한도(기본 10)에 걸리지 않도록 한도를 크게 둔다. 레이트리밋 자체는 단위테스트가 검증.
 

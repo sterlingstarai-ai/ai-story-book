@@ -119,6 +119,26 @@ jobs:
         # per-file 임계(회귀 방지 기준선)를 별도 게이트해 결제 코드 테스트 소실을 감지.
         run: python scripts/coverage_gate.py coverage.xml
 
+      # R2(2026-08-11): mock 이미지 제공자가 실 provider와 동일한 영속화 경로를 지나도록
+      # 바뀌었다(이전엔 picsum 외부 URL을 반환해 업로드 경로가 한 번도 실행되지 않았다).
+      # 아래 두 스텝은 TESTING=false 실프로세스라 conftest 의 인메모리 S3 페이크가 닿지
+      # 않으므로 실제 오브젝트 스토리지가 필요하다. GitHub Actions 의 `services:` 는
+      # 컨테이너 command 를 지정할 수 없어(minio 는 `server /data` 인자가 필수) 스텝에서 띄운다.
+      - name: Start MinIO (object storage for live generation steps)
+        run: |
+          docker run -d --name ci-minio \
+            -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin123 \
+            minio/minio:latest server /data
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:9000/minio/health/live >/dev/null 2>&1; then
+              echo "MinIO ready"; exit 0
+            fi
+            sleep 2
+          done
+          echo "MinIO failed to become ready"; docker logs ci-minio; exit 1
+
       - name: C1 gate — Celery worker x real PostgreSQL
         working-directory: apps/api
         # 2026-08-09 중간 E2E 교훈: 프로덕션 구성(USE_CELERY=true + PostgreSQL)에서 책 생성이
@@ -128,6 +148,9 @@ jobs:
         env:
           E2E_PG_DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/test_db
           E2E_REDIS_URL: redis://localhost:6379/5
+          E2E_S3_ENDPOINT: http://localhost:9000
+          E2E_S3_ACCESS_KEY: minioadmin
+          E2E_S3_SECRET_KEY: minioadmin123
           LLM_PROVIDER: mock
           IMAGE_PROVIDER: mock
           TTS_PROVIDER: mock
@@ -135,7 +158,12 @@ jobs:
 
       - name: Live E2E journey (full generation pipeline)
         # TESTING=false 실서버로 전체 생성 파이프라인(create→done)+성장·또래·오디오게이트·
-        # IDOR·동의철회를 검증. SQLite+mock providers라 키·Postgres·Redis·S3 불필요.
+        # IDOR·동의철회를 검증. SQLite+mock providers라 키·Postgres·Redis 불필요.
+        # (R2 이후 이미지 업로드가 실제로 일어나므로 위 MinIO 스텝에 의존한다.)
+        env:
+          S3_ENDPOINT: http://localhost:9000
+          S3_ACCESS_KEY: minioadmin
+          S3_SECRET_KEY: minioadmin123
         run: bash scripts/run_live_e2e.sh
 
       - name: Golden prompts structural harness

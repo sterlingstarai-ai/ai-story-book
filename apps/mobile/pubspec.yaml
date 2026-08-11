@@ -75,6 +75,10 @@ dev_dependencies:
   json_serializable: ^6.7.1
   flutter_launcher_icons: ^0.14.3
   flutter_native_splash: ^2.4.4
+  # R3-6: JIT 사진 동의 배선 테스트가 image_picker 플랫폼을 페이크로 갈아끼운다
+  # (ImagePickerPlatform.instance). 테스트 전용이라 dev_dependencies.
+  image_picker_platform_interface: ^2.11.1
+  plugin_platform_interface: ^2.1.8
 
 flutter:
   uses-material-design: true

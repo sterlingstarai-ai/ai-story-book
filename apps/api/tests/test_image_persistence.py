@@ -196,8 +196,45 @@ async def test_persist_external_url_blocks_ssrf(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_mock_provider_stays_external(monkeypatch):
-    # mock은 picsum URL을 그대로 — 오프라인 테스트가 S3 없이 동작해야 하므로 영속화 제외
+async def test_mock_provider_persists_like_real_providers(monkeypatch):
+    """R2: mock도 실 provider와 **동일한 영속화 경로**를 지나야 한다.
+
+    이전엔 mock이 picsum 외부 URL을 그대로 반환해, 전 스위트·라이브 E2E 어디에서도
+    업로드 경로가 실행되지 않았다(mock 순수성 결함). 외부 도메인이 DB에 저장되는
+    패턴도 mock 경로에만 잠복해 있었다.
+    """
     monkeypatch.setattr(settings, "image_provider", "mock")
+    monkeypatch.setattr(image_mod.asyncio, "sleep", _noop_sleep)
+
+    captured = {}
+
+    class _Storage:
+        async def upload_bytes(self, data, key, content_type="application/octet-stream"):
+            captured["data"] = data
+            captured["key"] = key
+            captured["content_type"] = content_type
+            return f"https://s3.example.com/{key}"
+
+    monkeypatch.setattr("src.services.storage.storage_service", _Storage())
+
     url = await image_mod.generate_image(_prompt())
-    assert "picsum.photos" in url
+
+    # 외부 도메인이 아니라 우리 스토리지 URL
+    assert "picsum.photos" not in url
+    assert url.startswith("https://s3.example.com/images/mock/")
+    # 업로드 경로가 실제로 실행됐고, 실제 PNG 바이트가 올라갔다
+    assert captured["content_type"] == "image/png"
+    assert captured["data"].startswith(b"\x89PNG\r\n\x1a\n")
+    assert captured["key"].endswith(".png")
+
+
+@pytest.mark.asyncio
+async def test_mock_png_bytes_are_deterministic_and_seed_dependent():
+    """같은 시드 → 같은 바이트(재현 가능), 다른 시드 → 다른 바이트(시드 반영)."""
+    a1 = image_mod._mock_png_bytes(42)
+    a2 = image_mod._mock_png_bytes(42)
+    b = image_mod._mock_png_bytes(43)
+
+    assert a1 == a2, "같은 시드가 다른 바이트를 내면 재현 불가"
+    assert a1 != b, "시드가 이미지에 반영되지 않는다"
+    assert a1.startswith(b"\x89PNG\r\n\x1a\n") and a1.endswith(b"IEND\xae\x42\x60\x82")

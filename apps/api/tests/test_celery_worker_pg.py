@@ -26,6 +26,7 @@ from sqlalchemy.pool import NullPool
 
 PG_URL = os.getenv("E2E_PG_DATABASE_URL", "").strip()
 REDIS_URL = os.getenv("E2E_REDIS_URL", "").strip()
+S3_ENDPOINT = os.getenv("E2E_S3_ENDPOINT", "http://localhost:9000").strip()
 
 API_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -54,8 +55,14 @@ def _worker_env(queue: str) -> dict:
             "TTS_PROVIDER": "mock",
             "STT_PROVIDER": "mock",
             "AUDIO_FEATURE_ENABLED": "false",
-            "S3_ACCESS_KEY": "test",
-            "S3_SECRET_KEY": "test",
+            # R2 이후 mock 이미지도 실제로 S3에 업로드된다(업로드 경로를 실검증하기
+            # 위한 의도된 결합). 워커는 별도 프로세스라 conftest 의 인메모리 S3 페이크가
+            # 닿지 않으므로 **실 스토리지**를 가리켜야 한다. 없으면 생성이 IMAGE_FAILED로
+            # 죽어 C1(루프/풀) 결함과 구분되지 않는다.
+            "S3_ENDPOINT": S3_ENDPOINT,
+            "S3_ACCESS_KEY": os.getenv("E2E_S3_ACCESS_KEY", "minioadmin"),
+            "S3_SECRET_KEY": os.getenv("E2E_S3_SECRET_KEY", "minioadmin123"),
+            "S3_BUCKET": os.getenv("E2E_S3_BUCKET", "storybook"),
             "CELERY_TEST_QUEUE": queue,
         }
     )
@@ -269,6 +276,108 @@ def test_worker_records_failure_and_refunds_on_error():
         assert row is not None and row[0] == "failed", (
             "실패한 태스크가 failed로 기록되지 않았다 — 실패 마킹 경로 회귀.\n"
             f"row={row}"
+        )
+    finally:
+        if worker is not None:
+            worker.terminate()
+            try:
+                worker.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                worker.kill()
+        asyncio.run(engine.dispose())
+
+
+async def _book_and_page(engine, job_id: str, page_number: int = 1):
+    """생성된 책 id 와 페이지 본문을 실 PG 에서 읽는다."""
+    async with engine.connect() as conn:
+        res = await conn.execute(
+            text(
+                "SELECT b.id, p.text FROM books b JOIN pages p ON p.book_id = b.id"
+                " WHERE b.job_id = :jid AND p.page_number = :pn"
+            ),
+            {"jid": job_id, "pn": page_number},
+        )
+        return res.first()
+
+
+@requires_celery
+def test_worker_completes_page_regeneration_job():
+    """R1: 페이지 재생성이 **실 워커**에서 완주하고 본문이 실제로 바뀐다.
+
+    R1 이전에는 재생성이 USE_CELERY와 무관하게 API 프로세스에서만 돌았고
+    `regenerate_page_task`는 시그니처가 어긋난 채 아무도 호출하지 않는 죽은 코드였다.
+    이 테스트는 워커가 그 태스크를 실제로 수신·완주하는지를 실 PG 로 고정한다.
+
+    '완주'만 보면 no-op 도 done 이 되므로 **본문 변경**까지 단언한다(e2e_journey 동일 기준).
+    """
+    queue = f"c1regen{uuid.uuid4().hex[:8]}"
+    env = _worker_env(queue)
+    engine = create_async_engine(PG_URL, echo=False, poolclass=NullPool)
+    user_key = str(uuid.uuid4())
+    job_id = f"job_c1regen_{uuid.uuid4().hex[:10]}"
+    regen_job_id = f"regen_{uuid.uuid4().hex[:10]}"
+
+    worker = None
+    try:
+        asyncio.run(_prepare_job(engine, job_id, user_key))
+        worker = subprocess.Popen(
+            [
+                sys.executable, "-m", "celery", "-A", "src.worker", "worker",
+                "--loglevel=info", "--concurrency=1", "--pool=solo", "-Q", queue,
+            ],
+            cwd=API_ROOT, env=env,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        )
+        time.sleep(12)
+        assert worker.poll() is None, "워커가 기동 직후 종료됨"
+
+        os.environ["CELERY_BROKER_URL"] = REDIS_URL
+        os.environ["CELERY_RESULT_BACKEND"] = REDIS_URL
+        from src.worker import celery_app
+
+        celery_app.conf.broker_url = REDIS_URL
+        celery_app.conf.result_backend = REDIS_URL
+
+        # 1) 재생성 대상 책을 워커로 생성
+        celery_app.send_task(
+            "src.services.tasks.generate_book_task",
+            args=[
+                job_id,
+                {
+                    "topic": "R1 재생성 게이트",
+                    "target_age": "5-7",
+                    "style": "watercolor",
+                    "page_count": 4,
+                    "language": "ko",
+                },
+                user_key,
+            ],
+            queue=queue,
+        )
+        assert (_wait_job(engine, job_id) or (None,))[0] == "done", "선행 책 생성 실패"
+
+        before = asyncio.run(_book_and_page(engine, job_id))
+        assert before is not None, "생성된 책/페이지를 찾지 못했다"
+        book_id, text_before = before
+
+        # 2) 재생성 잡 행 생성 후 워커로 재생성 태스크 전송
+        asyncio.run(_prepare_job(engine, regen_job_id, user_key))
+        celery_app.send_task(
+            "src.services.tasks.regenerate_page_task",
+            args=[regen_job_id, job_id, book_id, 1, "text", "더 신나게 바꿔줘"],
+            queue=queue,
+        )
+        row = _wait_job(engine, regen_job_id, timeout=90)
+        assert row is not None and row[0] == "done", (
+            "실 PG + 실 워커에서 페이지 재생성이 done 에 도달하지 못했다 — R1 회귀.\n"
+            f"row={row}"
+        )
+
+        after = asyncio.run(_book_and_page(engine, job_id))
+        assert after is not None
+        assert after[1] != text_before, (
+            "재생성 잡은 done 인데 본문이 그대로다 — 조용한 no-op(위장 성공).\n"
+            f"before={text_before!r} after={after[1]!r}"
         )
     finally:
         if worker is not None:

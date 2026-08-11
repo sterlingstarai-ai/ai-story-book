@@ -90,22 +90,43 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                 itemCount: slides.length,
                 itemBuilder: (context, index) {
                   final slide = slides[index];
-                  return Padding(
-                    padding: const EdgeInsets.all(AppSpacing.xl),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(slide.icon, size: 120, color: AppColors.primary),
-                        const SizedBox(height: AppSpacing.xl),
-                        Text(slide.title, style: AppTextStyles.heading1),
-                        const SizedBox(height: AppSpacing.md),
-                        Text(
-                          slide.subtitle,
-                          style: AppTextStyles.bodySmall,
-                          textAlign: TextAlign.center,
+                  // R4: iOS 최대 접근성 글자 크기(AX5)에서 이 Column이 고정 높이를
+                  // 넘겨 'BOTTOM OVERFLOWED BY 82 PIXELS'가 났다(release 빌드에서는
+                  // 배너 없이 조용히 잘린다). 스크롤 가능 구조로 바꾸되, 공간이
+                  // 남을 때의 세로 중앙 정렬은 minHeight로 유지한다.
+                  return LayoutBuilder(
+                    builder: (context, constraints) {
+                      return SingleChildScrollView(
+                        padding: const EdgeInsets.all(AppSpacing.xl),
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            minHeight: constraints.maxHeight - AppSpacing.xl * 2,
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                slide.icon,
+                                size: 120,
+                                color: AppColors.primary,
+                              ),
+                              const SizedBox(height: AppSpacing.xl),
+                              Text(
+                                slide.title,
+                                style: AppTextStyles.heading1,
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: AppSpacing.md),
+                              Text(
+                                slide.subtitle,
+                                style: AppTextStyles.bodySmall,
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
                         ),
-                      ],
-                    ),
+                      );
+                    },
                   );
                 },
               ),
