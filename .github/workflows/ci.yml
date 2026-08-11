@@ -171,7 +171,13 @@ jobs:
         # 구조 계약(파이프라인 완주·페이지 정합·placeholder 없음·학습자산·퀴즈·warnings/
         # asset_status)을 결정적으로 검증. mock·in-process·전용 sqlite라 키 불필요.
         # (내용/의미 품질 실측은 실키 --live 모드 — 창업자 결정 단계.)
+        # R2 이후 mock 생성도 실제 업로드를 하므로 위 MinIO 스텝의 S3 env가 필요하다 —
+        # PR #64 첫 원격 가동에서 이 스텝만 env 누락으로 InvalidAccessKeyId 전량 실패(0/7).
         working-directory: apps/api
+        env:
+          S3_ENDPOINT: http://localhost:9000
+          S3_ACCESS_KEY: minioadmin
+          S3_SECRET_KEY: minioadmin123
         run: python scripts/golden_prompts_harness.py
 
       - name: Upload API logs on failure
