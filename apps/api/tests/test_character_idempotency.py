@@ -85,12 +85,21 @@ def photo_seams(monkeypatch):
 
 
 async def _grant_photo_consent(client, headers) -> None:
+    """사진 동의를 **실제로** 부여한다.
+
+    R3-4a: 이전 구현은 `{"granted": True, "photo_consent": True}` 라는, DTO에 존재하지
+    않는 필드명을 보냈다. pydantic 기본값(extra 무시) 때문에 200이 돌아왔지만 privacy/
+    photos/data_processing 은 전부 False 로 저장돼 **아무것도 동의되지 않았다**. 아래
+    from-photo 테스트들은 게이트가 꺼져 있어서만 통과하던 false-green이었다.
+    이제 DTO는 extra="forbid" 라 오타 payload 는 422 로 즉시 드러난다.
+    """
     r = await client.post(
         "/v1/consent",
-        json={"granted": True, "photo_consent": True},
+        json={"privacy": True, "photos": True, "data_processing": True},
         headers=headers,
     )
     assert r.status_code in (200, 201), r.text
+    assert r.json()["photos"] is True, "동의가 실제로 부여되지 않았다"
 
 
 # ───────────────────────── DB 계층: 부분 유니크 ─────────────────────────

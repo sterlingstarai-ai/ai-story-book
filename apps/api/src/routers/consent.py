@@ -8,7 +8,7 @@ from typing import Optional
 
 import structlog
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import ConfigDict, BaseModel
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,6 +27,13 @@ router = APIRouter()
 
 
 class ConsentGrantRequest(BaseModel):
+    # R3-4b: 미지 필드를 조용히 버리면 오타 payload가 "동의 성공"으로 보인다. 실제로
+    # tests/test_character_idempotency.py 가 `{"granted":.., "photo_consent":..}` 라는
+    # 존재하지 않는 필드로 동의를 시도하고 200을 받아, 아무것도 grant 되지 않았는데
+    # 사진 테스트가 통과하고 있었다(게이트가 꺼져 있어서만 green — false-green).
+    # 동의는 규제 대상 행위이므로 fail-closed: 모르는 필드는 422로 거부한다.
+    model_config = ConfigDict(extra="forbid")
+
     privacy: bool = False
     photos: bool = False
     data_processing: bool = False

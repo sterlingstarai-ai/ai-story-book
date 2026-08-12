@@ -500,10 +500,47 @@ async def _generate_fal(prompt: ImagePrompt) -> str:
         raise ImageError(ErrorCode.IMAGE_FAILED, "No output from FAL", page=prompt.page)
 
 
+def _mock_png_bytes(seed: int, width: int = 64, height: int = 64) -> bytes:
+    """시드에서 결정적으로 유도한 단색 PNG 바이트(외부 네트워크 호출 없음).
+
+    R2: mock이 외부 URL(picsum)을 그대로 돌려주던 시절엔 실 provider가 반드시 지나는
+    영속화 경로(_persist_image_bytes → storage.upload_bytes)가 전 스위트·라이브 E2E에서
+    **한 번도 실행되지 않았다**(mock 순수성 결함). 여기서 바이트를 만들어 같은 경로를
+    태워야 업로드·키계산·URL 구성이 오프라인에서도 실제로 검증된다.
+
+    stdlib(zlib/struct)만 사용하므로 같은 시드 → 항상 같은 바이트다.
+    """
+    import struct
+    import zlib
+
+    r, g, b = (seed * 37) % 256, (seed * 91) % 256, (seed * 151) % 256
+    # 각 스캔라인 앞의 0x00 = PNG filter type "None".
+    raw = b"".join(b"\x00" + bytes([r, g, b]) * width for _ in range(height))
+
+    def _chunk(tag: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(data))
+            + tag
+            + data
+            + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+        )
+
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + _chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+        + _chunk(b"IDAT", zlib.compress(raw, 6))
+        + _chunk(b"IEND", b"")
+    )
+
+
 async def _generate_mock(prompt: ImagePrompt) -> str:
-    """Mock image generation for testing"""
+    """Mock image generation — 실 provider와 **동일한 영속화 경로**를 지난다(R2).
+
+    외부 URL을 반환하지 않는다: 반환값은 언제나 우리 스토리지의 공개 URL이므로
+    공유 이미지 프록시의 confinement·PDF 임베드·삭제(파기) 경로가 mock에서도 성립한다.
+    """
     await asyncio.sleep(0.5)  # Simulate API delay
-    return f"https://picsum.photos/seed/{prompt.seed}/768/1024"
+    return await _persist_image_bytes(_mock_png_bytes(prompt.seed), "image/png", "mock")
 
 
 def _get_width(aspect_ratio: str) -> int:

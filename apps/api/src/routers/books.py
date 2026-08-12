@@ -38,10 +38,12 @@ from src.models.dto import (
     RetellResponse,
 )
 from src.models.db import ChildProfile, Job, Book, Page, Character
-from src.services.orchestrator import (
-    start_book_generation,
-    regenerate_page,
-    inpaint_page,
+from src.services.orchestrator import start_book_generation
+from src.services.job_runners import (
+    run_audio_job,
+    run_inpaint_job,
+    run_regeneration_job,
+    set_regen_job_status,
 )
 from src.services.image import supports_inpaint
 from src.services.pdf import PDFFontError, pdf_service
@@ -53,7 +55,6 @@ from src.core.errors import (
     ErrorCode,
     PaymentReason,
     SafetyError,
-    StoryBookError,
     client_safe_message,
 )
 from src.core.exceptions import (
@@ -332,31 +333,53 @@ async def _mark_job_failed_with_refund(
     )
 
 
-async def _set_regen_job_status(
-    regen_job_id: str,
+async def _dispatch_long_running_job(
     *,
-    status: str,
-    progress: int,
-    current_step: str,
-    error_code: Optional[str] = None,
-    error_message: Optional[str] = None,
+    celery_task_name: str,
+    runner,
+    args: tuple,
+    background_tasks: BackgroundTasks,
+    job_id: str,
+    fail_step: str,
+    fail_message: str,
 ) -> None:
-    """Update regeneration job progress/state."""
-    from src.core.database import AsyncSessionLocal
+    """장기 실행 잡을 큐(Celery) 또는 API 프로세스(BackgroundTasks)로 위임한다.
 
-    async with AsyncSessionLocal() as session:
-        result = await session.execute(select(Job).where(Job.id == regen_job_id))
-        regen_job = result.scalar_one_or_none()
-        if not regen_job:
-            return
+    R1: 재생성·인페인트·오디오는 `USE_CELERY` 분기 없이 무조건 BackgroundTasks로 돌았다.
+    create_book(:557)·create_series(:1114)가 이미 큐로 보내는 것과 달라, 배포·재시작 중이면
+    잡이 비종료 상태로 남고(job_monitor가 15~30분 뒤에야 회수) 최대 90초×재시도의 이미지
+    작업이 uvicorn 워커를 점유했다. 두 경로 모두 `runner`(services/job_runners) **동일
+    함수**를 실행하므로 로직은 한 벌이다.
 
-        regen_job.status = status
-        regen_job.progress = progress
-        regen_job.current_step = current_step
-        regen_job.error_code = error_code
-        regen_job.error_message = error_message
-        regen_job.updated_at = utcnow()
-        await session.commit()
+    enqueue 실패(브로커 다운)를 삼키면 잡 행이 `queued`로 영구 잔류하므로 fail-closed로
+    즉시 failed 전이시킨다 — create_book의 QUEUE_FAILED 처리와 같은 계약.
+    """
+    if not settings.use_celery:
+        background_tasks.add_task(runner, *args)
+        return
+
+    try:
+        from src.services import tasks as celery_tasks
+
+        getattr(celery_tasks, celery_task_name).delay(*args)
+    except Exception as e:
+        logger.error(
+            "Failed to enqueue long-running job",
+            job_id=job_id,
+            task=celery_task_name,
+            error=str(e),
+        )
+        await set_regen_job_status(
+            job_id,
+            status="failed",
+            progress=100,
+            current_step=fail_step,
+            error_code=ErrorCode.QUEUE_FAILED.value,
+            error_message=client_safe_message(
+                ErrorCode.QUEUE_FAILED.value, fail_message
+            )[:300],
+        )
+        raise InternalServerError(fail_message) from e
 
 
 async def _validate_profile_ownership(
@@ -405,62 +428,6 @@ def _assert_job_profile_scope(
         return
     if getattr(job, "profile_id", None) != normalized:
         raise AuthorizationError("선택한 프로필의 작업이 아닙니다.")
-
-
-async def _run_regeneration_job(
-    regen_job_id: str,
-    original_job_id: str,
-    book_id: str,
-    page_number: int,
-    mode: str,
-    feedback: Optional[str],
-) -> None:
-    """Execute regeneration and persist status transitions for polling."""
-    await _set_regen_job_status(
-        regen_job_id,
-        status="running",
-        progress=20,
-        current_step="페이지 재생성 중...",
-    )
-
-    try:
-        await regenerate_page(
-            job_id=original_job_id,
-            book_id=book_id,
-            page_number=page_number,
-            mode=mode,
-            feedback=feedback,
-        )
-    except Exception as e:
-        # M12: SafetyError 등 도메인 에러 코드(SAFETY_INPUT/OUTPUT)를 UNKNOWN으로 뭉개지 않는다.
-        error_code = (
-            e.code.value if isinstance(e, StoryBookError) else ErrorCode.UNKNOWN.value
-        )
-        await _set_regen_job_status(
-            regen_job_id,
-            status="failed",
-            progress=100,
-            current_step="재생성 실패",
-            error_code=error_code,
-            error_message=client_safe_message(
-                error_code, str(getattr(e, "message", e))
-            )[:300],
-        )
-        logger.error(
-            "Regeneration job failed",
-            regen_job_id=regen_job_id,
-            original_job_id=original_job_id,
-            page_number=page_number,
-            error=str(e),
-        )
-        return
-
-    await _set_regen_job_status(
-        regen_job_id,
-        status="done",
-        progress=100,
-        current_step="완료",
-    )
 
 
 async def check_guardrails(db: AsyncSession, user_key: str):
@@ -837,72 +804,24 @@ async def regenerate_book_page(
         )
         raise InternalServerError("재생성 작업 생성에 실패했습니다.") from e
 
-    background_tasks.add_task(
-        _run_regeneration_job,
-        regen_job_id,
-        job_id,
-        book.id,
-        page_number,
-        request.mode,
-        request.feedback,
+    await _dispatch_long_running_job(
+        celery_task_name="regenerate_page_task",
+        runner=run_regeneration_job,
+        args=(
+            regen_job_id,
+            job_id,
+            book.id,
+            page_number,
+            request.mode,
+            request.feedback,
+        ),
+        background_tasks=background_tasks,
+        job_id=regen_job_id,
+        fail_step="재생성 실패",
+        fail_message="재생성 작업 등록에 실패했습니다.",
     )
 
     return RegeneratePageResponse(job_id=regen_job_id, status=JobState.queued)
-
-
-async def _run_inpaint_job(
-    inpaint_job_id: str,
-    original_job_id: str,
-    book_id: str,
-    page_number: int,
-    mask_url: str,
-    region_prompt: str,
-) -> None:
-    """인페인트(부분 재생성) 백그라운드 실행 + 폴링용 상태 전이."""
-    await _set_regen_job_status(
-        inpaint_job_id,
-        status="running",
-        progress=20,
-        current_step="부분 재생성 중...",
-    )
-    try:
-        await inpaint_page(
-            job_id=original_job_id,
-            book_id=book_id,
-            page_number=page_number,
-            mask_url=mask_url,
-            region_prompt=region_prompt,
-        )
-    except Exception as e:
-        # M12: 도메인 에러 코드(SAFETY_INPUT 등)를 보존.
-        error_code = (
-            e.code.value if isinstance(e, StoryBookError) else ErrorCode.UNKNOWN.value
-        )
-        await _set_regen_job_status(
-            inpaint_job_id,
-            status="failed",
-            progress=100,
-            current_step="부분 재생성 실패",
-            error_code=error_code,
-            error_message=client_safe_message(
-                error_code, str(getattr(e, "message", e))
-            )[:300],
-        )
-        logger.error(
-            "Inpaint job failed",
-            inpaint_job_id=inpaint_job_id,
-            original_job_id=original_job_id,
-            page_number=page_number,
-            error=str(e),
-        )
-        return
-
-    await _set_regen_job_status(
-        inpaint_job_id,
-        status="done",
-        progress=100,
-        current_step="완료",
-    )
 
 
 @router.post(
@@ -1003,14 +922,21 @@ async def inpaint_book_page(
         )
         raise InternalServerError("부분 재생성 작업 생성에 실패했습니다.") from e
 
-    background_tasks.add_task(
-        _run_inpaint_job,
-        inpaint_job_id,
-        job_id,
-        book.id,
-        page_number,
-        mask_url,
-        region_prompt,
+    await _dispatch_long_running_job(
+        celery_task_name="inpaint_page_task",
+        runner=run_inpaint_job,
+        args=(
+            inpaint_job_id,
+            job_id,
+            book.id,
+            page_number,
+            mask_url,
+            region_prompt,
+        ),
+        background_tasks=background_tasks,
+        job_id=inpaint_job_id,
+        fail_step="부분 재생성 실패",
+        fail_message="부분 재생성 작업 등록에 실패했습니다.",
     )
 
     return RegeneratePageResponse(job_id=inpaint_job_id, status=JobState.queued)
@@ -1470,22 +1396,29 @@ async def generate_book_audio(
         raise InternalServerError("오디오 작업 생성에 실패했습니다.") from e
 
     # Start background task for audio generation
-    background_tasks.add_task(
-        _generate_audio_for_book,
-        book_id,
-        [
-            {
-                "page_number": p.page_number,
-                "text": p.text,
-                "text_ko": p.text_ko,
-                "text_en": p.text_en,
-                "page_id": p.id,
-            }
-            for p in pages
-        ],
-        book.target_age,
-        book.language,
-        audio_job_id,
+    await _dispatch_long_running_job(
+        celery_task_name="generate_audio_task",
+        runner=run_audio_job,
+        args=(
+            book_id,
+            [
+                {
+                    "page_number": p.page_number,
+                    "text": p.text,
+                    "text_ko": p.text_ko,
+                    "text_en": p.text_en,
+                    "page_id": p.id,
+                }
+                for p in pages
+            ],
+            book.target_age,
+            book.language,
+            audio_job_id,
+        ),
+        background_tasks=background_tasks,
+        job_id=audio_job_id,
+        fail_step="오디오 생성 실패",
+        fail_message="오디오 작업 등록에 실패했습니다.",
     )
 
     return {
@@ -1493,186 +1426,6 @@ async def generate_book_audio(
         "job_id": audio_job_id,
         "message": "오디오 생성이 시작되었습니다.",
     }
-
-
-async def _generate_audio_for_book(
-    book_id: str,
-    pages: list[dict],
-    target_age: str,
-    default_language: str,
-    audio_job_id: Optional[str] = None,
-):
-    """책 오디오 생성 백그라운드 태스크 (5분 타임아웃).
-
-    L5: 결과를 audio_ Job 상태로 표면화 — 타임아웃/전체 실패는 failed(에러코드 포함),
-    부분/전체 성공은 done. audio_job_id가 없으면(구 호출 경로) 로그만 남긴다.
-    """
-    import asyncio
-
-    try:
-        succeeded, failed_pages = await asyncio.wait_for(
-            _generate_audio_pages(
-                book_id=book_id,
-                pages=pages,
-                target_age=target_age,
-                default_language=default_language,
-            ),
-            timeout=300,
-        )
-    except asyncio.TimeoutError:
-        logger.error("Audio generation timed out", book_id=book_id, total_pages=len(pages))
-        if audio_job_id:
-            await _set_regen_job_status(
-                audio_job_id,
-                status="failed",
-                progress=100,
-                current_step="오디오 생성 타임아웃",
-                error_code="AUDIO_TIMEOUT",
-                error_message="오디오 생성이 시간 내에 완료되지 않았습니다.",
-            )
-        return
-    except Exception as e:
-        logger.error("Audio generation failed", book_id=book_id, error=str(e))
-        if audio_job_id:
-            await _set_regen_job_status(
-                audio_job_id,
-                status="failed",
-                progress=100,
-                current_step="오디오 생성 실패",
-                error_code="AUDIO_FAILED",
-                error_message=str(e),
-            )
-        return
-
-    if not audio_job_id:
-        return
-    if succeeded == 0 and failed_pages:
-        await _set_regen_job_status(
-            audio_job_id,
-            status="failed",
-            progress=100,
-            current_step="오디오 생성 실패",
-            error_code="AUDIO_FAILED",
-            error_message=f"모든 페이지 오디오 생성 실패(pages={failed_pages})",
-        )
-    else:
-        step = (
-            "오디오 생성 완료"
-            if not failed_pages
-            else f"오디오 부분 생성(실패 페이지: {failed_pages})"
-        )
-        await _set_regen_job_status(
-            audio_job_id,
-            status="done",
-            progress=100,
-            current_step=step,
-        )
-
-
-async def _generate_audio_pages(
-    book_id: str,
-    pages: list[dict],
-    target_age: str = "5-7",
-    default_language: str = "ko",
-):
-    """실제 오디오 생성 로직 (페이지별 상태 추적)"""
-    from src.core.database import AsyncSessionLocal
-
-    succeeded = 0
-    failed_pages = []
-
-    async with AsyncSessionLocal() as db:
-        for page_data in pages:
-            try:
-                # H3: 책 언어 기반 오디오 생성. ko/en 이중 텍스트는 각 슬롯에, 그 외
-                # 스토리 언어(ja/zh/es)는 책 언어 보이스로 1건 생성해 기본 슬롯(audio_url)에
-                # 저장한다(MA5: 한국어 슬롯 교차 오염·매 요청 재합성 방지).
-                generated_urls = {}
-                base_lang = (default_language or "ko").lower().strip()
-                if base_lang in ("ko", "en"):
-                    text_by_language = {
-                        "ko": page_data.get("text_ko") or page_data.get("text"),
-                        "en": page_data.get("text_en"),
-                    }
-                    languages = ("ko", "en")
-                else:
-                    text_by_language = {
-                        base_lang: page_data.get("text") or page_data.get("text_ko"),
-                    }
-                    languages = (base_lang,)
-
-                for language in languages:
-                    source_text = text_by_language.get(language)
-                    if not source_text:
-                        continue
-                    audio_bytes = await tts_service.synthesize_page(
-                        source_text,
-                        target_age=target_age,
-                        language=language,
-                    )
-                    audio_key = (
-                        f"books/{book_id}/audio/page_{page_data['page_number']}_{language}.mp3"
-                    )
-                    generated_urls[language] = await storage_service.upload_bytes(
-                        audio_bytes,
-                        audio_key,
-                        content_type="audio/mpeg",
-                    )
-
-                page_result = await db.execute(
-                    select(Page).where(Page.id == page_data["page_id"])
-                )
-                page = page_result.scalar_one_or_none()
-                if page:
-                    if "ko" in generated_urls:
-                        page.audio_url_ko = generated_urls["ko"]
-                    if "en" in generated_urls:
-                        page.audio_url_en = generated_urls["en"]
-                    # 기본 슬롯: 책 언어 오디오 우선(비 ko/en 언어는 여기에만 저장됨).
-                    if base_lang in generated_urls:
-                        page.audio_url = generated_urls[base_lang]
-                    elif "ko" in generated_urls:
-                        page.audio_url = generated_urls["ko"]
-                    elif generated_urls:
-                        page.audio_url = next(iter(generated_urls.values()))
-                    await db.commit()
-                    succeeded += 1
-
-            except Exception as e:
-                try:
-                    await db.rollback()
-                except Exception as rollback_error:
-                    logger.warning(
-                        "Audio generation rollback failed",
-                        book_id=book_id,
-                        page_number=page_data["page_number"],
-                        error=str(rollback_error),
-                    )
-                failed_pages.append(page_data["page_number"])
-                logger.warning(
-                    "Audio generation failed for page",
-                    book_id=book_id,
-                    page_number=page_data["page_number"],
-                    error=str(e),
-                )
-                continue
-
-    if failed_pages:
-        logger.warning(
-            "Audio generation partially failed",
-            book_id=book_id,
-            succeeded=succeeded,
-            failed_pages=failed_pages,
-        )
-    else:
-        logger.info(
-            "Audio generation completed",
-            book_id=book_id,
-            total_pages=succeeded,
-        )
-
-    # L5: 호출자(_generate_audio_for_book)가 잡 상태(done/failed)를 결정할 수 있도록 결과 반환.
-    return succeeded, failed_pages
 
 
 @router.get(

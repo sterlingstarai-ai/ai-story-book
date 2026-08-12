@@ -10,6 +10,7 @@ from tests.factories import make_book_rows
 from src.core.utils import derive_age_band, utcnow
 from src.models.db import Book, ChildProfile, Job, QuizAnswer, ReadingLog
 from src.services.growth import (
+    MIN_PEERS_FOR_REAL,
     composite_reading_score,
     estimate_reading_level,
     growth_service,
@@ -381,7 +382,23 @@ async def test_account_growth_streak_consistent_with_books(client, db_session):
 
 @pytest.mark.asyncio
 async def test_growth_rejects_unowned_profile(client, db_session):
-    """L12: 삭제/타인 profile_id로 GET /v1/growth → 422(0-리포트·age_band 우회 차단)."""
+    """L12: 삭제/타인 profile_id로 GET /v1/growth → 400(0-리포트·age_band 우회 차단).
+
+    R3-1: 원래는 '존재하지 않는 id'만 시험했는데, 그건 `ChildProfile.user_key == user_key`
+    술어를 지워도 여전히 0건이라 통과한다(IDOR 미검증). **타인이 실소유한 id**를 함께
+    시험해야 소유권 술어가 실제로 검증된다.
+    """
+    # (a) 타인이 실제로 소유한 profile_id
+    other_owner = FRESH["X-User-Key"]
+    db_session.add(_profile(other_owner, "5-7", 77))
+    await db_session.commit()
+    res = await client.get(
+        "/v1/growth",
+        headers={**H, "X-Profile-Id": f"p-{other_owner}"},
+    )
+    assert res.status_code == 400, res.text
+
+    # (b) 존재하지 않는 id(기존 케이스 유지)
     res = await client.get(
         "/v1/growth",
         headers={**H, "X-Profile-Id": "p-nonexistent-999"},
@@ -391,9 +408,24 @@ async def test_growth_rejects_unowned_profile(client, db_session):
 
 @pytest.mark.asyncio
 async def test_answers_rejects_unowned_profile(client, db_session):
-    """L12: 무효 profile_id로 POST /v1/growth/answers → 422, QuizAnswer 미저장."""
+    """L12: 무효 profile_id로 POST /v1/growth/answers → 400, QuizAnswer 미저장.
+
+    R3-1: 타인 실소유 id 케이스를 추가해 소유권 술어를 실제로 검증한다.
+    """
     db_session.add_all(make_book_rows([("b-l12", H["X-User-Key"])]))
+    other_owner = FRESH["X-User-Key"]
+    db_session.add(_profile(other_owner, "5-7", 78))
     await db_session.commit()
+
+    # (a) 타인이 실제로 소유한 profile_id
+    res = await client.post(
+        "/v1/growth/answers",
+        json={"book_id": "b-l12", "quiz_type": "vocab", "correct": True},
+        headers={**H, "X-Profile-Id": f"p-{other_owner}"},
+    )
+    assert res.status_code == 400, res.text
+
+    # (b) 존재하지 않는 id(기존 케이스 유지)
     res = await client.post(
         "/v1/growth/answers",
         json={"book_id": "b-l12", "quiz_type": "vocab", "correct": True},
@@ -404,3 +436,46 @@ async def test_answers_rejects_unowned_profile(client, db_session):
         await db_session.execute(select(QuizAnswer).where(QuizAnswer.book_id == "b-l12"))
     ).scalars().all()
     assert saved == []
+
+
+# ---------------------------------------------------------------- R3-3: k-익명성 경계
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("peer_count,expect_baseline", [(4, True), (5, False)])
+async def test_peer_comparison_k_anonymity_threshold_boundary(
+    db_session, peer_count, expect_baseline
+):
+    """또래 표본 임계 **k=5 경계**를 고정한다.
+
+    기존 테스트는 0명과 5명만 다뤄서, 임계값을 4나 3으로 낮춰도 전부 통과했다(임계
+    자체가 미검증). 여기서는 4명과 5명만 다르게 두고 나머지 조건을 동일하게 유지한다.
+
+    숫자를 **하드코딩**하는 것이 핵심이다: `MIN_PEERS_FOR_REAL` 로 파라미터화하면
+    상수를 바꿔도 기대값이 함께 움직여 영원히 통과하는 동어반복이 된다(실제로 그렇게
+    썼다가 red-proof 에서 걸렸다). 아래 단언이 상수를 코드에 고정한다.
+
+    k-익명성이 깨지면 또래가 극소수일 때 개별 아동의 성취가 등수로 역산될 수 있다.
+    """
+    assert MIN_PEERS_FOR_REAL == 5, (
+        "또래 비교 임계가 바뀌었다. k를 낮추면 소규모 코호트에서 개별 아동이 역산되므로"
+        " 제품 결정 없이 바꾸지 않는다."
+    )
+    me = f"self_k{peer_count}"
+    db_session.add(_profile(me, "5-7", 900))
+    db_session.add_all(_reads(me, 3, completed=True, prefix=f"k{peer_count}-"))
+    for i in range(peer_count):
+        uk = f"peer_k{peer_count}_{i}"
+        db_session.add(_profile(uk, "5-7", 910 + i))
+        db_session.add_all(_reads(uk, 2, completed=True, prefix=f"k{peer_count}-"))
+    await db_session.commit()
+
+    res = await growth_service.get_peer_comparison(db_session, me)
+
+    assert res["peer_count"] == peer_count
+    assert res["is_baseline"] is expect_baseline, (
+        f"또래 {peer_count}명(k={MIN_PEERS_FOR_REAL})에서 is_baseline={res['is_baseline']}"
+    )
+    if expect_baseline:
+        # 표본이 부족하면 등수/메달을 노출하지 않는다(개별 아동 역산 차단).
+        assert res["show_ranking"] is False

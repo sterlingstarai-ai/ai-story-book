@@ -53,7 +53,7 @@ def _session_local_factory(db):
 
 @pytest.mark.asyncio
 async def test_generate_audio_pages_rolls_back_and_continues_after_commit_failure():
-    from src.routers.books import _generate_audio_pages
+    from src.services.job_runners import generate_audio_pages
 
     page_one = SimpleNamespace(id="page-1", audio_url=None)
     page_two = SimpleNamespace(id="page-2", audio_url=None)
@@ -72,9 +72,9 @@ async def test_generate_audio_pages_rolls_back_and_continues_after_commit_failur
     )
 
     with patch("src.core.database.AsyncSessionLocal", new=_session_local_factory(fake_db)):
-        with patch("src.routers.books.tts_service.synthesize_page", new=synthesize_mock):
-            with patch("src.routers.books.storage_service.upload_bytes", new=upload_mock):
-                await _generate_audio_pages("book-123", pages)
+        with patch("src.services.job_runners.tts_service.synthesize_page", new=synthesize_mock):
+            with patch("src.services.job_runners.storage_service.upload_bytes", new=upload_mock):
+                await generate_audio_pages("book-123", pages)
 
     assert fake_db.commit_calls == 2
     assert fake_db.rollback_calls == 1
@@ -95,8 +95,8 @@ async def test_get_page_audio_rolls_back_when_commit_fails():
     synthesize_mock = AsyncMock(return_value=b"audio-1")
     upload_mock = AsyncMock(return_value="https://cdn.example.com/audio-1.mp3")
 
-    with patch("src.routers.books.tts_service.synthesize_page", new=synthesize_mock):
-        with patch("src.routers.books.storage_service.upload_bytes", new=upload_mock):
+    with patch("src.services.job_runners.tts_service.synthesize_page", new=synthesize_mock):
+        with patch("src.services.job_runners.storage_service.upload_bytes", new=upload_mock):
             with pytest.raises(InternalServerError):
                 await get_page_audio("book-123", 1, db=fake_db, user_key="user-123")
 
@@ -130,7 +130,7 @@ class _FakeDbSessionOK:
 @pytest.mark.asyncio
 async def test_ja_book_audio_uses_ja_voice_not_ko():
     """H3: ja 책은 ja 보이스로 합성되고 기본 슬롯(audio_url)에 저장된다(ko 오합성 제거)."""
-    from src.routers.books import _generate_audio_pages
+    from src.services.job_runners import generate_audio_pages
 
     page = SimpleNamespace(
         id="p1", audio_url=None, audio_url_ko=None, audio_url_en=None
@@ -142,9 +142,9 @@ async def test_ja_book_audio_uses_ja_voice_not_ko():
     upload = AsyncMock(return_value="https://cdn.example.com/ja.mp3")
 
     with patch("src.core.database.AsyncSessionLocal", new=_session_local_factory(fake_db)):
-        with patch("src.routers.books.tts_service.synthesize_page", new=synth):
-            with patch("src.routers.books.storage_service.upload_bytes", new=upload):
-                await _generate_audio_pages("book-ja", pages, default_language="ja")
+        with patch("src.services.job_runners.tts_service.synthesize_page", new=synth):
+            with patch("src.services.job_runners.storage_service.upload_bytes", new=upload):
+                await generate_audio_pages("book-ja", pages, default_language="ja")
 
     assert synth.await_count == 1
     assert synth.call_args.kwargs["language"] == "ja"
@@ -169,8 +169,8 @@ async def test_get_page_audio_ja_uses_base_slot_and_ja_voice():
     synth = AsyncMock(return_value=b"aud")
     upload = AsyncMock(return_value="https://cdn.example.com/ja1.mp3")
 
-    with patch("src.routers.books.tts_service.synthesize_page", new=synth):
-        with patch("src.routers.books.storage_service.upload_bytes", new=upload):
+    with patch("src.services.job_runners.tts_service.synthesize_page", new=synth):
+        with patch("src.services.job_runners.storage_service.upload_bytes", new=upload):
             result = await get_page_audio(
                 "b1", 1, language="ja", db=fake_db, user_key="u1", profile_id=None
             )
@@ -202,7 +202,7 @@ async def test_get_page_audio_rejects_unsupported_language():
 @pytest.mark.asyncio
 async def test_batch_audio_marks_job_failed_on_total_failure():
     """모든 페이지 오디오가 실패하면 audio_ Job이 failed(AUDIO_FAILED)로 전이."""
-    from src.routers import books
+    from src.services import job_runners as books
 
     captured = {}
 
@@ -214,10 +214,10 @@ async def test_batch_audio_marks_job_failed_on_total_failure():
     async def all_fail(**_kw):
         return (0, [1, 2, 3])  # succeeded=0, 전부 실패
 
-    with patch.object(books, "_set_regen_job_status", new=fake_set_status), patch.object(
-        books, "_generate_audio_pages", new=all_fail
+    with patch.object(books, "set_regen_job_status", new=fake_set_status), patch.object(
+        books, "generate_audio_pages", new=all_fail
     ):
-        await books._generate_audio_for_book("book-1", [], "5-7", "ko", "audio_job_1")
+        await books.run_audio_job("book-1", [], "5-7", "ko", "audio_job_1")
 
     assert captured["status"] == "failed"
     assert captured["error_code"] == "AUDIO_FAILED"
@@ -227,7 +227,7 @@ async def test_batch_audio_marks_job_failed_on_total_failure():
 @pytest.mark.asyncio
 async def test_batch_audio_marks_job_done_on_success():
     """일부라도 성공하면 audio_ Job이 done으로 전이(부분 실패는 step에 기록)."""
-    from src.routers import books
+    from src.services import job_runners as books
 
     captured = {}
 
@@ -238,10 +238,10 @@ async def test_batch_audio_marks_job_done_on_success():
     async def partial_ok(**_kw):
         return (2, [3])  # 2 성공, 1 실패
 
-    with patch.object(books, "_set_regen_job_status", new=fake_set_status), patch.object(
-        books, "_generate_audio_pages", new=partial_ok
+    with patch.object(books, "set_regen_job_status", new=fake_set_status), patch.object(
+        books, "generate_audio_pages", new=partial_ok
     ):
-        await books._generate_audio_for_book("book-1", [], "5-7", "ko", "audio_job_2")
+        await books.run_audio_job("book-1", [], "5-7", "ko", "audio_job_2")
 
     assert captured["status"] == "done"
     assert "실패 페이지" in captured["step"]
@@ -252,7 +252,7 @@ async def test_batch_audio_marks_job_failed_on_timeout():
     """타임아웃이면 audio_ Job이 failed(AUDIO_TIMEOUT)로 전이."""
     import asyncio
 
-    from src.routers import books
+    from src.services import job_runners as books
 
     captured = {}
 
@@ -263,10 +263,10 @@ async def test_batch_audio_marks_job_failed_on_timeout():
     async def timeout_pages(**_kw):
         raise asyncio.TimeoutError()
 
-    with patch.object(books, "_set_regen_job_status", new=fake_set_status), patch.object(
-        books, "_generate_audio_pages", new=timeout_pages
+    with patch.object(books, "set_regen_job_status", new=fake_set_status), patch.object(
+        books, "generate_audio_pages", new=timeout_pages
     ):
-        await books._generate_audio_for_book("book-1", [], "5-7", "ko", "audio_job_3")
+        await books.run_audio_job("book-1", [], "5-7", "ko", "audio_job_3")
 
     assert captured["status"] == "failed"
     assert captured["error_code"] == "AUDIO_TIMEOUT"

@@ -133,34 +133,6 @@ async def _get_job_status_async(job_id: str) -> Optional[str]:
         return result.scalar_one_or_none()
 
 
-async def _regenerate_page_async(
-    job_id: str,
-    page_number: int,
-    target: str,
-) -> dict:
-    """Resolve book by job_id and run page regeneration."""
-    from sqlalchemy import select
-
-    from src.core.database import AsyncSessionLocal
-    from src.models.db import Book
-    from src.services.orchestrator import regenerate_page
-
-    async with AsyncSessionLocal() as session:
-        result = await session.execute(select(Book).where(Book.job_id == job_id))
-        book = result.scalar_one_or_none()
-
-    if not book:
-        raise ValueError(f"Book not found for job_id={job_id}")
-
-    return await regenerate_page(
-        job_id=job_id,
-        book_id=book.id,
-        page_number=page_number,
-        mode=target,
-        feedback=None,
-    )
-
-
 @shared_task(
     bind=True,
     max_retries=0,
@@ -345,6 +317,31 @@ async def _run_series_task_async(
         raise
 
 
+async def _run_tracked_job_async(job_id: str, label: str, coro_factory) -> dict:
+    """재전달 멱등 가드 + 러너 실행을 **하나의 코루틴**으로 묶는다(C1).
+
+    R1: 재생성/인페인트/오디오 공통 골격. 러너(services/job_runners)는 자체적으로
+    실패를 잡아 잡 상태를 failed로 전이시키므로 여기서 별도 실패 마킹을 하지 않는다 —
+    in-process 폴백 경로와 **완전히 같은 함수**를 돌리는 것이 이 설계의 핵심이다.
+
+    acks_late=True + reject_on_worker_lost=True는 워커가 죽으면 메시지를 재전달한다.
+    이미 terminal(done/failed)인 잡을 다시 실행하면 완료된 결과를 덮어쓰므로 건너뛴다.
+    """
+    current_status = await _get_job_status_async(job_id)
+    if is_redelivery_noop(current_status):
+        logger.info(
+            "Skipping redelivery of terminal job",
+            job_id=job_id,
+            label=label,
+            status=current_status,
+        )
+        return {"status": "skipped", "reason": "already_terminal", "job_id": job_id}
+
+    await coro_factory()
+    logger.info("Long-running job completed", job_id=job_id, label=label)
+    return {"status": "success", "job_id": job_id}
+
+
 @shared_task(
     bind=True,
     max_retries=2,
@@ -355,45 +352,118 @@ async def _run_series_task_async(
 )
 def regenerate_page_task(
     self,
-    job_id: str,
+    regen_job_id: str,
+    original_job_id: str,
+    book_id: str,
     page_number: int,
-    target: str,
-    user_key: str,
+    mode: str,
+    feedback: Optional[str] = None,
 ):
-    """
-    Celery task for page regeneration.
+    """페이지 재생성 Celery 태스크.
 
-    Args:
-        job_id: Job ID
-        page_number: Page number (1-indexed)
-        target: Regeneration target ('text', 'image', 'both')
-        user_key: User key
+    시그니처는 정본 러너 `job_runners.run_regeneration_job`과 1:1이다. 이전 버전은
+    (job_id, page_number, target, user_key)였는데 현행 러너와 불일치하는 stale 코드였고
+    호출부가 아예 없었다(R1).
     """
+    from src.services.job_runners import run_regeneration_job
+
     logger.info(
         "Starting page regeneration task",
-        job_id=job_id,
+        regen_job_id=regen_job_id,
         page_number=page_number,
-        target=target,
+        mode=mode,
+    )
+    # C1: 태스크당 run_async 1회 — 상태조회부터 본작업까지 한 이벤트 루프에서 완결.
+    return run_async(
+        _run_tracked_job_async(
+            regen_job_id,
+            "regenerate_page",
+            lambda: run_regeneration_job(
+                regen_job_id,
+                original_job_id,
+                book_id,
+                page_number,
+                mode,
+                feedback,
+            ),
+        )
     )
 
-    try:
-        result = run_async(
-            _regenerate_page_async(
-                job_id=job_id,
-                page_number=page_number,
-                target=target,
-            )
-        )
-        logger.info(
-            "Page regeneration completed", job_id=job_id, page_number=page_number
-        )
-        return {"status": "success", "result": result}
 
-    except Exception as e:
-        logger.error(
-            "Page regeneration failed",
-            job_id=job_id,
-            page_number=page_number,
-            error=str(e),
+@shared_task(
+    bind=True,
+    max_retries=2,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    time_limit=180,
+    soft_time_limit=150,
+)
+def inpaint_page_task(
+    self,
+    inpaint_job_id: str,
+    original_job_id: str,
+    book_id: str,
+    page_number: int,
+    mask_url: str,
+    region_prompt: str,
+):
+    """인페인트(부분 재생성) Celery 태스크 (R1 신규)."""
+    from src.services.job_runners import run_inpaint_job
+
+    logger.info(
+        "Starting inpaint task",
+        inpaint_job_id=inpaint_job_id,
+        page_number=page_number,
+    )
+    return run_async(
+        _run_tracked_job_async(
+            inpaint_job_id,
+            "inpaint_page",
+            lambda: run_inpaint_job(
+                inpaint_job_id,
+                original_job_id,
+                book_id,
+                page_number,
+                mask_url,
+                region_prompt,
+            ),
         )
-        raise self.retry(exc=e, countdown=5)
+    )
+
+
+@shared_task(
+    bind=True,
+    max_retries=2,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    # 러너 내부 타임아웃이 300초다. 그보다 넉넉히 잡아야 soft limit이 먼저 터져
+    # 잡 상태 전이(AUDIO_TIMEOUT)를 못 쓰고 죽는 일이 없다.
+    time_limit=420,
+    soft_time_limit=360,
+)
+def generate_audio_task(
+    self,
+    book_id: str,
+    pages: list,
+    target_age: str,
+    default_language: str,
+    audio_job_id: Optional[str] = None,
+):
+    """책 오디오 생성 Celery 태스크 (R1 신규)."""
+    from src.services.job_runners import run_audio_job
+
+    logger.info("Starting audio generation task", book_id=book_id, job_id=audio_job_id)
+    if not audio_job_id:
+        # 잡 추적 없는 구 호출 경로 — 멱등 가드가 볼 상태 행이 없다.
+        return run_async(
+            run_audio_job(book_id, pages, target_age, default_language, None)
+        )
+    return run_async(
+        _run_tracked_job_async(
+            audio_job_id,
+            "generate_audio",
+            lambda: run_audio_job(
+                book_id, pages, target_age, default_language, audio_job_id
+            ),
+        )
+    )
