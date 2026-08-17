@@ -153,10 +153,13 @@ async def test_revoke_consent_deletes_likeness_books(client, db_session, monkeyp
         storage_module.storage_service, "delete_prefix", noop_delete_prefix
     )
     monkeypatch.setattr(storage_module, "delete_book_files", noop_delete_book_files)
-    # consent 라우터가 import한 심볼도 교체
-    import src.routers.consent as consent_module
+    # M8/R1-5: 파기 실행은 durable 큐(purge_queue)를 경유한다 — 실행부만 no-op으로.
+    import src.services.purge_queue as purge_module
 
-    monkeypatch.setattr(consent_module, "delete_book_files", noop_delete_book_files)
+    async def noop_execute(task):
+        return []
+
+    monkeypatch.setattr(purge_module, "_execute_task", noop_execute)
 
     char_id = f"char_{uuid.uuid4().hex[:8]}"
     db_session.add(
@@ -347,7 +350,6 @@ async def test_account_deletion_purges_pipeline_image_keys(client, db_session, m
     """N1: 계정 삭제가 books/{id}/ prefix 밖 파이프라인 이미지 키를 실제로 파기한다."""
     from src.core.config import settings
     from src.models.db import Page
-    from src.routers import users as users_module
 
     base = settings.s3_public_url.rstrip("/")
     book_id = await _make_book(db_session)
@@ -357,13 +359,9 @@ async def test_account_deletion_purges_pipeline_image_keys(client, db_session, m
                         image_url=f"{base}/images/fal/page1-n1.png"))
     await db_session.commit()
 
-    deleted = {}
-
-    async def spy_delete_keys(keys):
-        deleted["keys"] = list(keys)
-        return []
-
-    monkeypatch.setattr(users_module, "delete_keys", spy_delete_keys)
+    # M8/R1-5: 파기는 durable 큐를 거쳐 storage 경계로 나간다 — 실경계에서 스파이한다
+    # (라우터 심볼 스파이는 큐 도입 후 '지시가 실행됐는가'를 더 이상 증명하지 못한다).
+    deleted = _spy_storage_deletes(monkeypatch)
 
     r = await client.delete("/v1/users/me", headers=OWNER_HEADERS)
     assert r.status_code == 200, r.text
@@ -376,6 +374,30 @@ async def test_account_deletion_purges_pipeline_image_keys(client, db_session, m
 # N1의 역산 파기가 계정 삭제에만 배선돼 있었다. 단건 삭제/동의 철회는 행(=image_url)을
 # 먼저 지워 역산 키까지 소실시키므로, 아동 likeness 일러스트가 공개 스토리지에 영구
 # 잔존하고 사후 배치로도 찾을 수 없다(PIPA/COPPA 파기 의무). 두 경로 각각 회귀 고정.
+
+
+def _spy_storage_deletes(monkeypatch) -> dict:
+    """실 storage 경계(delete_keys / delete_prefix)를 스파이하고 삭제 요청을 수집한다.
+
+    M8/R1-5로 파기가 durable 큐를 경유하게 되면서, 라우터 모듈의 심볼을 패치하는 방식은
+    '지시가 적재만 되고 실행되지 않는' 회귀를 통과시킨다(false-green). 실행이 실제로
+    storage 호출까지 도달하는지를 최하위 경계에서 확인한다.
+    """
+    from src.services import storage as storage_module
+
+    deleted: dict = {"keys": [], "prefixes": []}
+
+    async def spy_delete_keys(keys):
+        deleted["keys"].extend(keys)
+        return []
+
+    async def spy_delete_prefix(prefix):
+        deleted["prefixes"].append(prefix)
+        return []
+
+    monkeypatch.setattr(storage_module, "delete_keys", spy_delete_keys)
+    monkeypatch.setattr(storage_module.storage_service, "delete_prefix", spy_delete_prefix)
+    return deleted
 
 
 async def _seed_pipeline_images(db, book_id: str, tag: str) -> tuple[str, str]:
@@ -399,22 +421,10 @@ async def test_single_book_delete_purges_pipeline_image_keys(
     client, db_session, monkeypatch
 ):
     """단건 책 삭제가 books/{id}/ prefix 밖 파이프라인 이미지를 파기한다."""
-    from src.routers import library as library_module
-
     book_id = await _make_book(db_session)
     cover_key, page_key = await _seed_pipeline_images(db_session, book_id, "libdel")
 
-    deleted: dict = {}
-
-    async def spy_delete_keys(keys):
-        deleted.setdefault("keys", []).extend(keys)
-        return []
-
-    async def noop_delete_book_files(bid):
-        return []
-
-    monkeypatch.setattr(library_module, "delete_keys", spy_delete_keys, raising=False)
-    monkeypatch.setattr(library_module, "delete_book_files", noop_delete_book_files)
+    deleted = _spy_storage_deletes(monkeypatch)
 
     r = await client.delete(f"/v1/library/{book_id}", headers=OWNER_HEADERS)
     assert r.status_code == 200, r.text
@@ -425,8 +435,6 @@ async def test_single_book_delete_purges_pipeline_image_keys(
 @pytest.mark.asyncio
 async def test_consent_revoke_purges_pipeline_image_keys(client, db_session, monkeypatch):
     """동의 철회(파기 의무의 최강 트리거)가 likeness 책의 파이프라인 이미지를 파기한다."""
-    from src.routers import consent as consent_module
-
     character = Character(
         id=f"char_{uuid.uuid4().hex[:8]}",
         user_key=OWNER,
@@ -443,23 +451,7 @@ async def test_consent_revoke_purges_pipeline_image_keys(client, db_session, mon
     book_id = await _make_book(db_session, character_id=character.id)
     cover_key, page_key = await _seed_pipeline_images(db_session, book_id, "revoke")
 
-    deleted: dict = {}
-
-    async def spy_delete_keys(keys):
-        deleted.setdefault("keys", []).extend(keys)
-        return []
-
-    async def noop_delete_book_files(bid):
-        return []
-
-    async def noop_delete_prefix(prefix):
-        return []
-
-    monkeypatch.setattr(consent_module, "delete_keys", spy_delete_keys, raising=False)
-    monkeypatch.setattr(consent_module, "delete_book_files", noop_delete_book_files)
-    monkeypatch.setattr(
-        consent_module.storage_service, "delete_prefix", noop_delete_prefix
-    )
+    deleted = _spy_storage_deletes(monkeypatch)
 
     r = await client.post("/v1/consent/revoke", headers=OWNER_HEADERS)
     assert r.status_code == 200, r.text

@@ -248,6 +248,15 @@ class _FakeS3Client:
         self.objects[kwargs.get("Key")] = kwargs.get("Body", b"")
         return {}
 
+    def copy_object(self, **kwargs):
+        """H6: 리텔이 삽화를 자기 키로 복제할 때 쓰는 서버측 복사."""
+        source = kwargs.get("CopySource") or {}
+        src_key = source.get("Key") if isinstance(source, dict) else str(source)
+        if src_key not in self.objects:
+            raise KeyError(src_key)
+        self.objects[kwargs.get("Key")] = self.objects[src_key]
+        return {}
+
     def get_object(self, **kwargs):
         key = kwargs.get("Key")
         if key not in self.objects:

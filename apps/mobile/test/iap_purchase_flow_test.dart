@@ -29,6 +29,19 @@ PurchaseDetails _purchased(String id, String product) => PurchaseDetails(
       status: PurchaseStatus.purchased,
     )..pendingCompletePurchase = true;
 
+/// R0-2: purchaseID 가 없는 구매 이벤트(스토어가 식별자를 아직 못 준 상태).
+PurchaseDetails _purchasedWithoutId(String product) => PurchaseDetails(
+      purchaseID: null,
+      productID: product,
+      verificationData: PurchaseVerificationData(
+        localVerificationData: 'local',
+        serverVerificationData: 'server',
+        source: 'test',
+      ),
+      transactionDate: null,
+      status: PurchaseStatus.purchased,
+    )..pendingCompletePurchase = true;
+
 ProductDetails _product(String id) => ProductDetails(
       id: id,
       title: 'title',
@@ -256,5 +269,56 @@ void main() {
     expect(api.verifyCalls, 1);
     expect(spy.finishCalls, 1);
     expect(spy.lastConsumable, isTrue); // 크레딧팩 = 소모성
+  });
+
+  // ═════════════ R0 (2026-08-17 보안감사 🔴C1): iOS 결제 전량 파손 ═════════════
+
+  testWidgets(
+      'R0-2: purchaseID 부재 시 가짜 id를 만들지 않고 검증을 보류한다',
+      (tester) async {
+    // 수정 전에는 `purchase.purchaseID ?? "\${productID}-\${now.ms}"` 로 **시간 기반 가짜
+    // transaction_id** 를 만들어 서버로 보냈다. 재시도마다 값이 달라지므로
+    //  · Apple: 그 id가 영수증의 어떤 거래와도 매칭되지 않아 영구 검증 실패
+    //  · Google: 서버 dedup 키가 매번 달라져 **이중 지급** 여지
+    // 즉 멱등성이 파괴된다. 식별자가 없으면 아무것도 보내지 않고 pending 을 유지해야 한다.
+    //
+    // red-proof: credits_screen 의 `if (transactionId == null || isEmpty) return;` 을
+    // 지우고 옛 `??` 폴백을 되돌리면 verifyCalls == 1 이 되어 FAIL.
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final prefs = await SharedPreferences.getInstance();
+    final spy = _SpyIapService();
+    addTearDown(spy.controller.close);
+    final api = _FakeApiClient(verifyThrows: false);
+
+    await tester.pumpWidget(_harness(prefs: prefs, iap: spy, api: api));
+    await tester.pump();
+
+    spy.controller.add([_purchasedWithoutId('credit_pack_1')]);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(api.verifyCalls, 0, reason: '가짜 id로 서버 검증을 시도했다(멱등성 파괴)');
+    // 마무리도 하지 않는다 — 마무리하면 미지급 상태로 대금이 영구 유실된다.
+    expect(spy.finishCalls, 0);
+    expect(spy.completeCalls, 0);
+  });
+
+  testWidgets('R0-2: purchaseID 가 빈 문자열이어도 동일하게 보류한다',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final prefs = await SharedPreferences.getInstance();
+    final spy = _SpyIapService();
+    addTearDown(spy.controller.close);
+    final api = _FakeApiClient(verifyThrows: false);
+
+    await tester.pumpWidget(_harness(prefs: prefs, iap: spy, api: api));
+    await tester.pump();
+
+    spy.controller.add([_purchased('', 'credit_pack_1')]);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(api.verifyCalls, 0);
+    expect(spy.finishCalls, 0);
   });
 }

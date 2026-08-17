@@ -29,6 +29,9 @@ from src.models.dto import (
 from src.routers.books import (
     _create_job_with_credit,
     _enforce_free_plan_create_limits,
+    check_guardrails,
+    consume_generation_budget,
+    enforce_book_spec_access,
     get_idempotency_key,
     schedule_book_generation,
 )
@@ -248,6 +251,17 @@ async def generate_today_story(
     )
 
     await _enforce_free_plan_create_limits(db, user_key, spec.style)
+
+    # H7: create_book이 강제하는 캐릭터 소유권 + 아동 사진 동의 게이트를 **여기서도** 적용한다.
+    # 예전에는 이 경로가 둘 다 건너뛰어, 타인 캐릭터로 생성(IDOR)하거나 동의가 철회된 아동 사진
+    # 파생 캐릭터로 계속 생성할 수 있었다(create_book과 두 벌 규칙 드리프트).
+    await enforce_book_spec_access(db, user_key, spec)
+
+    # H5/R3-2: '오늘의 동화'는 create_book과 동일한 생성 파이프라인(LLM+이미지)을 태우는
+    # 실비용 경로인데 전역 예산·일일 한도 어느 쪽도 통과하지 않았다 — 예산 우회 채널.
+    # M10/R3-3: 멱등·무료한도 검증을 통과한 뒤 소비.
+    await check_guardrails(db, user_key)
+    await consume_generation_budget(endpoint="streak.today_generate")
 
     job_id = f"job_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
     await _create_job_with_credit(

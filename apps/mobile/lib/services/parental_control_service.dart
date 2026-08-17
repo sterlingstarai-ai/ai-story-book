@@ -2,6 +2,15 @@ import 'dart:math';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// 보호자 확인 문제.
+///
+/// R4(2026-08-17 보안감사): 예전에는 **두 자리 덧셈**(`47 + 82`)이었다. 이 앱의 타깃 연령
+/// 상단(7-9세)은 학교에서 두 자리 덧셈을 배우므로, 게이트가 막으려는 바로 그 사용자가
+/// 통과한다 — 결제·동의철회·계정삭제·스크린타임이 전부 이 게이트 뒤에 있다.
+///
+/// 지금은 **세 자리 × 한 자리 곱셈**이다. 다자리 곱셈은 초등 고학년 이후 과정이라 7-9세가
+/// 암산으로 풀 수 없고, 성인에게는 몇 초짜리다. (게이트는 보안 경계가 아니라 '아이가
+/// 실수로/충동적으로 넘지 못하게' 하는 속도 방지턱이라는 점은 그대로다.)
 class AgeChallenge {
   final int left;
   final int right;
@@ -11,8 +20,8 @@ class AgeChallenge {
     required this.right,
   });
 
-  int get answer => left + right;
-  String get prompt => '$left + $right = ?';
+  int get answer => left * right;
+  String get prompt => '$left × $right = ?';
 }
 
 class ParentalControlService {
@@ -46,7 +55,10 @@ class ParentalControlService {
 
     final elapsed = DateTime.now()
         .difference(DateTime.fromMillisecondsSinceEpoch(verifiedAt));
-    if (elapsed <= _ageGateValidity) {
+    // R4: 기기 시계 되돌림에 견고하게. 예전에는 `elapsed <= 30분` 만 봤기 때문에, 시계를
+    // 과거로 돌리면 elapsed 가 **음수**가 되어 조건을 항상 만족했다 → 한 번 통과한 세션이
+    // 영구 유효. 음수 경과는 정상 시간 흐름이 아니므로 조작으로 보고 fail-closed 로 만료시킨다.
+    if (!elapsed.isNegative && elapsed <= _ageGateValidity) {
       _ageGateSessionVerified = true;
       return;
     }
@@ -69,9 +81,11 @@ class ParentalControlService {
   }
 
   AgeChallenge createChallenge() {
+    // 3자리(112~989) × 1자리(3~9). 0/1/2 배수와 반올림 쉬운 100단위는 제외해 난이도를
+    // 균일하게 유지한다.
     return AgeChallenge(
-      left: 10 + _random.nextInt(90),
-      right: 10 + _random.nextInt(90),
+      left: 112 + _random.nextInt(878),
+      right: 3 + _random.nextInt(7),
     );
   }
 

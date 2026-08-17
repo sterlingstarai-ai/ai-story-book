@@ -17,7 +17,7 @@ from src.core.database import get_db
 from sqlalchemy.exc import IntegrityError
 
 from src.core.dependencies import get_user_key
-from src.routers.books import get_idempotency_key
+from src.routers.books import consume_generation_budget, get_idempotency_key
 from src.models.dto import (
     CreateCharacterRequest,
     CharacterResponse,
@@ -28,7 +28,8 @@ from src.models.dto import (
 )
 from src.models.db import Character
 from src.services.photo_character import photo_character_service
-from src.services.storage import storage_service
+from src.services.purge_queue import cancel_purge_task, enqueue_purge_keys
+from src.services.storage import character_file_prefix, storage_service
 from src.services.image import generate_image, image_storage_scope
 from src.core.utils import utcnow
 from src.core.exceptions import (
@@ -577,7 +578,7 @@ async def delete_character(
     # 경로와 동일하게 '삭제=원본 즉시 파기' 약속을 집행(고아 사진 영구 잔류 방지, PIPA).
     if was_from_photo:
         try:
-            await storage_service.delete_prefix(f"characters/{character_id}/")
+            await storage_service.delete_prefix(character_file_prefix(character_id))
         except Exception as storage_error:
             logger.warning(
                 "Character storage cleanup failed on delete",
@@ -698,6 +699,10 @@ async def create_character_from_photo(
 
     contents = await _validate_and_read_image(photo)
 
+    # H5/R3-2: 비전 LLM + 시트 이미지 생성은 책 생성에 필적하는 실비용인데 예산 계량이
+    # 전혀 없었다. M10/R3-3: 동의·멱등·이미지 검증을 모두 통과한 뒤(=실비용 직전) 소비.
+    await consume_generation_budget(endpoint="characters.from_photo")
+
     try:
         character_data = await photo_character_service.create_character_from_photo(
             image_data=contents,
@@ -709,6 +714,19 @@ async def create_character_from_photo(
 
         ext = _content_type_to_extension(photo.content_type)
         photo_key = f"characters/{character_id}/photo{ext}"
+        # H8/R1-3: 아동 사진 업로드는 **외부 부작용**이고 그 뒤 DTO 검증·DB 커밋이 실패하면
+        # 캐릭터 행 없는 고아 사진이 남는다 — 행이 없어 URL 역산이 불가능하므로 계정삭제·
+        # 동의철회 어떤 경로로도 파기되지 않는다. 업로드 **전에** fail-closed 파기 지시를
+        # 커밋해 두고(로컬 레코드 선기록), 캐릭터가 실제로 살아남는 커밋에서 같은
+        # 트랜잭션으로 취소한다. 중간에 죽어도 스윕이 유예 후 고아를 파기한다.
+        orphan_guard = enqueue_purge_keys(
+            db,
+            user_key=user_key,
+            reason="photo_upload_guard",
+            keys=[photo_key],
+        )
+        await db.commit()
+
         source_image_url = await storage_service.upload_bytes(
             data=contents,
             key=photo_key,
@@ -741,11 +759,16 @@ async def create_character_from_photo(
         )
 
         db.add(character)
+        # H8: 캐릭터가 살아남는 바로 그 커밋에서 가드를 해제한다(별도 커밋 금지 — 그 사이
+        # 창에서 스윕이 살아있는 사진을 지운다).
+        for guard in orphan_guard:
+            cancel_purge_task(guard)
         try:
             await db.commit()
         except IntegrityError:
             # 동시 더블탭: 둘 다 pre-check를 통과해 부분 유니크에서 패배한 쪽.
             # 500 대신 승자의 캐릭터를 멱등 반환한다(중복 생성은 DB가 이미 차단).
+            # 패자의 사진은 가드가 pending으로 남아 스윕이 파기한다(고아 방지).
             await db.rollback()
             winner = await _existing_by_idempotency_key(db, user_key, idempotency_key)
             if winner is None:
@@ -813,6 +836,9 @@ async def create_character_from_drawing(
     contents = await _validate_and_read_image(drawing)
     source_image_url: Optional[str] = None
 
+    # H5/R3-2: from-photo와 동일 — 비전 LLM + 시트 이미지 실비용 경로.
+    await consume_generation_budget(endpoint="characters.from_drawing")
+
     try:
         character_data = await photo_character_service.create_character_from_drawing(
             image_data=contents,
@@ -824,6 +850,14 @@ async def create_character_from_drawing(
 
         ext = _content_type_to_extension(drawing.content_type)
         drawing_key = f"characters/{character_id}/drawing{ext}"
+        # H8/R1-3: 사진 경로와 동일 — 업로드 전 fail-closed 파기 지시 선기록.
+        orphan_guard = enqueue_purge_keys(
+            db,
+            user_key=user_key,
+            reason="photo_upload_guard",
+            keys=[drawing_key],
+        )
+        await db.commit()
         try:
             source_image_url = await storage_service.upload_bytes(
                 data=contents,
@@ -861,6 +895,9 @@ async def create_character_from_drawing(
             idempotency_key=idempotency_key,
         )
         db.add(character)
+        # H8: 캐릭터가 살아남는 커밋과 같은 트랜잭션에서 가드 해제.
+        for guard in orphan_guard:
+            cancel_purge_task(guard)
         try:
             await db.commit()
         except IntegrityError:

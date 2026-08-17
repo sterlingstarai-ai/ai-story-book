@@ -58,7 +58,14 @@ def _normalize_optional_text(value: Optional[str]) -> Optional[str]:
     return normalized or None
 
 
-def _normalize_required_url(value: str) -> str:
+def _normalize_required_url(value: str, *, user_key: str) -> str:
+    """샘플 오디오 URL 정규화 + **호출자 소유 prefix 소속 검증**(IDOR 봉인).
+
+    이 URL은 나중에 `key_from_public_url`로 역산되어 그대로 삭제 대상이 된다. 소속을
+    검증하지 않으면 임의의 우리 버킷 객체(타 사용자의 아동 사진·책 이미지)를 URL로 지정한 뒤
+    프로필을 지워 **임의 객체 삭제 프리미티브**를 얻는다. 업로드 엔드포인트가 쓰는
+    `voice-samples/{user_key}/` 하위만 허용한다(외부 호스트 URL은 역산 불가라 파기 대상 아님).
+    """
     normalized = value.strip()
     if not normalized:
         raise ValidationError("샘플 오디오 URL은 공백일 수 없습니다.")
@@ -66,6 +73,12 @@ def _normalize_required_url(value: str) -> str:
     parsed = urlparse(normalized)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ValidationError("유효한 샘플 오디오 URL이 필요합니다.")
+
+    key = key_from_public_url(normalized)
+    if key is not None and not key.startswith(f"voice-samples/{user_key}/"):
+        raise ValidationError(
+            "샘플 오디오 URL은 본인이 업로드한 파일이어야 합니다.",
+        )
     return normalized
 
 
@@ -173,7 +186,9 @@ async def create_voice_profile(
 
     normalized_label = _normalize_required_label(request.label)
     normalized_relationship = _normalize_optional_text(request.relationship)
-    normalized_sample_url = _normalize_required_url(request.sample_audio_url)
+    normalized_sample_url = _normalize_required_url(
+        request.sample_audio_url, user_key=user_key
+    )
     normalized_provider_voice_id = _normalize_optional_text(request.provider_voice_id)
 
     profile = VoiceProfile(
@@ -215,11 +230,19 @@ async def update_voice_profile(
     if not profile:
         raise NotFoundError("음성 프로필", profile_id)
 
+    # R1-7: 파기 대상은 **변경 적용 전**의 원본이다. 예전에는 setattr 루프 뒤에
+    # `profile.sample_audio_url`을 읽어 purge_url을 잡았다 — sample_audio_url 교체와
+    # consented=false가 같은 요청에 오면 **방금 올린 새 파일을 지우고 옛 샘플은 남겼다**.
+    # 교체만 하는 요청에서도 옛 샘플이 영구 고아로 남았다(가족 음성 = biometric-adjacent PII).
+    previous_sample_url = profile.sample_audio_url
+
     data = request.model_dump(exclude_none=True)
     if "label" in data:
         data["label"] = _normalize_required_label(str(data["label"]))
     if "sample_audio_url" in data:
-        data["sample_audio_url"] = _normalize_required_url(str(data["sample_audio_url"]))
+        data["sample_audio_url"] = _normalize_required_url(
+            str(data["sample_audio_url"]), user_key=user_key
+        )
     if "relationship" in data:
         data["relationship"] = _normalize_optional_text(data["relationship"])
     if "provider_voice_id" in data:
@@ -237,12 +260,15 @@ async def update_voice_profile(
 
     # 동의 철회 시 활성 해제 + 공급자 음성 키 제거
     # S1: 철회 의미는 revoke-consent와 동일하므로 원본 오디오도 같은 계약으로 파기한다.
-    purge_url: Optional[str] = None
     if request.consented is False:
         profile.active = False
         profile.provider_voice_id = None
-        purge_url = profile.sample_audio_url
         profile.sample_audio_url = ""
+
+    # 파기 대상 = '더 이상 어떤 행도 참조하지 않게 된' 원본(철회로 비워졌거나 새 URL로 교체됨).
+    purge_url: Optional[str] = None
+    if previous_sample_url and profile.sample_audio_url != previous_sample_url:
+        purge_url = previous_sample_url
 
     await db.commit()
     await db.refresh(profile)

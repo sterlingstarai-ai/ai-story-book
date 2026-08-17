@@ -185,6 +185,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     setState(() => _bedtime = selected);
   }
 
+  /// R4: 스크린타임 '한도 값' 변경을 부모 게이트 뒤로 둔다. 화면을 나가면 다시 잠긴다
+  /// (State가 폐기되므로 false로 복귀 — 세션 잠금과 별개의 즉시 재잠금).
+  bool _screenTimeLimitUnlocked = false;
+
   Future<bool> _ensureParentalAuth() async {
     final prefs = ref.read(sharedPreferencesProvider);
     final parental = ref.read(parentalControlServiceProvider);
@@ -566,9 +570,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 divisions: 9,
                 label: l.settingsMinutes(_dailyLimitMinutes.round()),
                 value: _dailyLimitMinutes,
-                onChanged: (value) =>
-                    setState(() => _dailyLimitMinutes = value),
+                // R4(2026-08-17 감사): 토글만 부모 게이트 뒤에 있었고 **한도 값 변경은
+                // 게이트 밖**이었다 — 아이가 토글은 못 꺼도 한도를 30분에서 120분으로
+                // 올려버리면 스크린타임 통제가 사실상 무력해진다. 값 변경도 같은 게이트 뒤로.
+                onChanged: _screenTimeLimitUnlocked
+                    ? (value) => setState(() => _dailyLimitMinutes = value)
+                    : null,
               ),
+              trailing: _screenTimeLimitUnlocked
+                  ? null
+                  : IconButton(
+                      icon: const Icon(Icons.lock_outline),
+                      tooltip: l.ageGateTitle,
+                      onPressed: () async {
+                        final ok = await _ensureParentalAuth();
+                        if (!ok || !mounted) {
+                          return;
+                        }
+                        setState(() => _screenTimeLimitUnlocked = true);
+                      },
+                    ),
             ),
           const Divider(height: 1),
           _SectionHeader(l.settingsSectionAppInfo),

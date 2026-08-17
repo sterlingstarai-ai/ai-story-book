@@ -430,10 +430,86 @@ def _assert_job_profile_scope(
         raise AuthorizationError("선택한 프로필의 작업이 아닙니다.")
 
 
+async def enforce_book_spec_access(
+    db: AsyncSession,
+    user_key: str,
+    spec: BookSpec,
+) -> list[str]:
+    """책 생성 요청의 **캐릭터 소유권 + 아동 사진 동의**를 강제한다. 반환: 정규화된 캐릭터 id.
+
+    H7(2026-08-17 감사): 이 블록은 `create_book` 안에만 있었고 `/v1/streak/today/generate` 는
+    같은 생성 파이프라인을 타면서 **둘 다 건너뛰었다** — 타인 캐릭터로 생성(IDOR) + 동의 없는
+    아동 사진 캐릭터로 생성이 가능했다. 규칙이 두 벌이면 한 쪽이 샌다는 이 저장소의 반복
+    결함이라, 헬퍼로 뽑아 두 경로가 **같은 코드**를 공유하게 한다.
+
+    새로운 생성 진입점을 만들 때는 반드시 이 함수를 호출해야 한다
+    (`test_security_wave_20260817.py` 의 구조 불변식 테스트가 전수를 강제한다).
+    """
+    char_ids = list(spec.character_ids or [])
+    if spec.character_id:
+        char_ids.append(spec.character_id)
+
+    # 캐릭터 소유권 강제 — 타 유저 캐릭터(특히 아동 사진 파생) 도용 차단(IDOR).
+    if char_ids:
+        owned = await db.execute(
+            select(Character.id).where(
+                Character.id.in_(char_ids),
+                Character.user_key == user_key,
+            )
+        )
+        owned_ids = {row[0] for row in owned.all()}
+        if any(cid not in owned_ids for cid in char_ids):
+            raise AuthorizationError("선택한 캐릭터의 소유자가 아닙니다.")
+
+    if spec.reference_image_base64:
+        await require_photo_consent(db, user_key)
+    # 사진/그림 파생 캐릭터(아동 얼굴 데이터)를 재사용하면 동의를 강제(철회 후 차단)
+    await require_consent_for_characters(db, user_key, char_ids)
+    return char_ids
+
+
+async def consume_generation_budget(*, endpoint: str) -> None:
+    """실비용(LLM/이미지) 발생 **직전**에 전역 일일 예산을 1 소비한다 (H4/H5/M10).
+
+    두 가지 계약이 여기 있다.
+
+    1. **전수 적용** (H5/R3-2): 예전에는 `create_book` 한 곳만 예산을 소비했다. retell·비전
+       캐릭터·페이지 재생성·인페인트·오늘의 동화는 모두 실제 유료 LLM/이미지 호출을 하면서
+       카운터를 통과하지 않아, 예산을 켜도 **무계량 청구 채널**로 남았다(X-User-Key는
+       무제한 발급이라 볼륨도 무제한).
+    2. **consume-after-validate** (M10/R3-3): 예산 소비는 요청검증·멱등·동의·소유권 검증을
+       모두 통과한 뒤에 한다. 검증 **전**에 소비하면 비용 0인 무효 요청 스팸만으로 전역
+       카운터가 소진되어, 가드레일 자체가 전 사용자 대상 DoS 벡터가 된다.
+
+    호출부는 실제 비용이 나가는 지점에 최대한 가깝게 배치한다.
+    """
+    budget_ok, budget_used = await consume_daily_generation_budget()
+    if budget_ok:
+        return
+    # M2: 봉투 코드는 UPPER_SNAKE(다른 모든 코드와 동일 규약). 소문자면 클라이언트가
+    # 코드 매칭에 실패해 전용 안내 대신 서버 원문(한국어)을 그대로 띄운다.
+    raise APIError(
+        status_code=429,
+        error_code="SERVICE_BUDGET_EXCEEDED",
+        message="오늘 생성 가능한 전체 한도에 도달했어요. 잠시 후 다시 시도해주세요.",
+        details={
+            "limit": settings.daily_generation_budget,
+            "used": budget_used,
+            "endpoint": endpoint,
+            "retry_after": 3600,
+        },
+        headers={"Retry-After": "3600"},
+    )
+
+
 async def check_guardrails(db: AsyncSession, user_key: str):
     """
     Check system guardrails before creating a new job.
     Raises HTTPException if guardrails are violated.
+
+    M10/R3-3: 전역 예산 소비는 여기서 하지 않는다 — 이 함수는 **선검증 단계**에서 호출되며,
+    비용 0인 무효 요청(소유권 실패·동의 없음·멱등 재시도)도 여기를 지난다. 예산은
+    `consume_generation_budget()` 으로 실제 비용 직전에 소비한다.
     """
     # Check daily job limit per user — '하루' 경계는 사용자 tz 로컬 기준(스트릭/오늘읽음과 일관, H2).
     from src.services.streak import load_user_tz
@@ -452,25 +528,6 @@ async def check_guardrails(db: AsyncSession, user_key: str):
     )
     daily_job_count = daily_jobs_result.scalar() or 0
 
-    # S4: per-user 통제는 X-User-Key 로테이션으로 전부 우회되므로, 개별 식별자와 무관한
-    # 전역 일일 생성 예산으로 총비용을 상한한다(초과 시 429). Redis 장애 시엔 fail-open이나
-    # '가드레일 비활성' error 로그가 남는다(cost_budget 모듈).
-    budget_ok, budget_used = await consume_daily_generation_budget()
-    if not budget_ok:
-        # M2: 봉투 코드는 UPPER_SNAKE(다른 모든 코드와 동일 규약). 소문자면 클라이언트가
-        # 코드 매칭에 실패해 전용 안내 대신 서버 원문(한국어)을 그대로 띄운다.
-        raise APIError(
-            status_code=429,
-            error_code="SERVICE_BUDGET_EXCEEDED",
-            message="오늘 생성 가능한 전체 한도에 도달했어요. 잠시 후 다시 시도해주세요.",
-            details={
-                "limit": settings.daily_generation_budget,
-                "used": budget_used,
-                "retry_after": 3600,
-            },
-            headers={"Retry-After": "3600"},
-        )
-
     if daily_job_count >= settings.daily_job_limit_per_user:
         retry_after = max(1, math.ceil((next_day_start - now).total_seconds()))
         raise APIError(
@@ -488,7 +545,30 @@ async def check_guardrails(db: AsyncSession, user_key: str):
             headers={"Retry-After": str(retry_after)},
         )
 
-    # Check total pending jobs in system
+    # M11/R3-4: per-user 큐 한도를 **먼저** 본다. 예전에는 전역 합산 카운터 하나뿐이라,
+    # 공격자가 큐를 max_pending_jobs 만큼 채우면 **전 사용자**가 503을 맞았다(공유자원 고갈).
+    # 개인 상한이 있으면 한 사용자가 전역 상한에 도달하는 것 자체가 불가능해진다.
+    user_pending_result = await db.execute(
+        select(func.count(Job.id)).where(
+            Job.user_key == user_key,
+            Job.status.in_(["queued", "running"]),
+        )
+    )
+    user_pending_count = user_pending_result.scalar() or 0
+    if user_pending_count >= settings.max_pending_jobs_per_user:
+        raise APIError(
+            status_code=429,
+            error_code="TOO_MANY_PENDING_JOBS",
+            message="처리 중인 요청이 많아요. 완료된 뒤 다시 시도해주세요.",
+            details={
+                "limit": settings.max_pending_jobs_per_user,
+                "pending": user_pending_count,
+                "retry_after": 60,
+            },
+            headers={"Retry-After": "60"},
+        )
+
+    # 전역 상한은 '시스템 과부하' 신호로만 남긴다(per-user 상한보다 훨씬 크게 설정).
     pending_jobs_result = await db.execute(
         select(func.count(Job.id)).where(Job.status.in_(["queued", "running"]))
     )
@@ -593,24 +673,10 @@ async def create_book(
             )
 
     await _enforce_free_plan_create_limits(db, user_key, spec.style)
-    char_ids = list(spec.character_ids or [])
-    if spec.character_id:
-        char_ids.append(spec.character_id)
-    # 캐릭터 소유권 강제 — 타 유저 캐릭터(특히 아동 사진 파생) 도용 차단(IDOR).
-    if char_ids:
-        owned = await db.execute(
-            select(Character.id).where(
-                Character.id.in_(char_ids),
-                Character.user_key == user_key,
-            )
-        )
-        owned_ids = {row[0] for row in owned.all()}
-        if any(cid not in owned_ids for cid in char_ids):
-            raise AuthorizationError("선택한 캐릭터의 소유자가 아닙니다.")
-    if spec.reference_image_base64:
-        await require_photo_consent(db, user_key)
-    # 사진/그림 파생 캐릭터(아동 얼굴 데이터)를 재사용하면 동의를 강제(철회 후 차단)
-    await require_consent_for_characters(db, user_key, char_ids)
+    await enforce_book_spec_access(db, user_key, spec)
+
+    # M10/R3-3: 모든 선검증(멱등·무료한도·소유권·동의)을 통과한 뒤에만 전역 예산을 소비한다.
+    await consume_generation_budget(endpoint="books.create")
 
     # Create new job
     job_id = f"job_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
@@ -780,6 +846,10 @@ async def regenerate_book_page(
     if not page:
         raise NotFoundError("Page", str(page_number))
 
+    # H5/R3-2: 페이지 재생성은 LLM 재작성 + 이미지 재생성을 유발하는 실비용 경로다.
+    # M10/R3-3: 소유권·상태·페이지 존재 검증을 모두 통과한 뒤 소비.
+    await consume_generation_budget(endpoint="books.regenerate")
+
     # Create regeneration task
     regen_job_id = f"regen_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
 
@@ -890,6 +960,9 @@ async def inpaint_book_page(
     page = page_result.scalar_one_or_none()
     if not page:
         raise NotFoundError("Page", str(page_number))
+
+    # H5/R3-2: 인페인트도 유료 이미지 호출이다. M10/R3-3: 검증 통과 후, 업로드·생성 직전.
+    await consume_generation_budget(endpoint="books.inpaint")
 
     # 마스크 업로드 → S3
     mask_bytes = await mask.read()
@@ -1017,6 +1090,9 @@ async def create_series_next(
         effective_style = _Style(prev_book.style)
     await _enforce_free_plan_create_limits(db, user_key, effective_style)
 
+    # H5/R3-2 + M10/R3-3: 실비용 직전, 선검증 통과 후 예산 소비.
+    await consume_generation_budget(endpoint="books.series")
+
     # Create new job for series
     job_id = f"series_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
 
@@ -1088,6 +1164,49 @@ async def create_series_next(
     )
 
 
+async def _copy_retell_image(
+    source_url: Optional[str],
+    new_book_id: str,
+    label: str,
+    copied_keys: list[str],
+) -> Optional[str]:
+    """리텔 책이 쓸 삽화 사본을 만들고 새 공개 URL을 반환한다 (H6).
+
+    - 원본 URL이 없으면 None(삽화 없는 페이지 — 그대로 없음).
+    - 우리 버킷이 아닌 외부 URL은 역산·복사가 불가능하다. 이 경우 **공유하지 않고** 링크를
+      그대로 두되(파기 대상이 아니므로 404 위험도 없다) 복제 목록에는 넣지 않는다.
+    - 복사 실패는 fail-closed: 공유 상태로 만들지 않고 명시 실패한다(멱등키로 재시도 가능).
+    """
+    if not source_url:
+        return None
+
+    from src.services.storage import copy_object_to_new_key, key_from_public_url
+
+    source_key = key_from_public_url(source_url)
+    if not source_key:
+        # 우리 버킷 밖 — 삭제 경로의 역산 대상이 아니므로 공유 위험이 없다.
+        return source_url
+
+    ext = source_key.rsplit(".", 1)[-1] if "." in source_key.rsplit("/", 1)[-1] else "png"
+    new_key = f"images/retell/{new_book_id}/{label}_{uuid.uuid4().hex[:8]}.{ext}"
+    try:
+        new_url = await copy_object_to_new_key(source_url, new_key)
+    except Exception as e:
+        logger.error(
+            "retell image copy failed",
+            source_key=source_key,
+            new_key=new_key,
+            error=str(e),
+        )
+        raise InternalServerError(
+            "삽화를 복사하지 못했습니다. 잠시 후 다시 시도해주세요."
+        ) from e
+    if not new_url:
+        return source_url
+    copied_keys.append(new_key)
+    return new_url
+
+
 @router.post("/{book_id}/retell", response_model=RetellResponse)
 async def retell_book(
     book_id: str,
@@ -1141,6 +1260,11 @@ async def retell_book(
     if not source_pages:
         raise NotFoundError("Pages", book_id)
 
+    # H5/R3-2: retell은 유료 LLM 호출인데 예산·크레딧 어느 쪽도 계량하지 않았다 —
+    # 예산을 켜도 우회되는 무계량 청구 채널이었다. M10/R3-3에 따라 소유권·멱등 검증을
+    # 모두 통과한 뒤(=실비용 직전) 소비한다.
+    await consume_generation_budget(endpoint="books.retell")
+
     # 본문만 새 연령대로 다시 쓰기 (텍스트 전용 LLM 호출)
     from src.services.llm import call_story_retext
 
@@ -1163,19 +1287,38 @@ async def retell_book(
             is_input=False,
         )
 
-    # 새 잡(크레딧 미소모) + 새 책 + 페이지(이미지 재사용)
+    # 새 잡(크레딧 미소모) + 새 책 + 페이지
     new_job_id = f"retell_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    new_book_id = f"book_{uuid.uuid4().hex[:16]}"
+
+    # H6: 삽화는 재생성하지 않지만 **URL을 그대로 복사하면 안 된다**. 예전에는 원본과 리텔이
+    # 같은 S3 객체를 가리켰고, 삭제 경로(image_url 역산 파기)는 배타 소유를 가정하므로
+    # 둘 중 하나만 지워도 남은 책의 표지·전 페이지가 404가 됐다. 서버측 copy로 리텔이 자기
+    # 객체를 갖게 한다(다운로드/업로드 없음). 실패는 fail-closed — 공유 상태로 만들지 않는다.
+    copied_keys: list[str] = []
+    new_cover_url = await _copy_retell_image(
+        source.cover_image_url, new_book_id, "cover", copied_keys
+    )
+    new_page_urls: list[Optional[str]] = []
+    for src_page in source_pages:
+        new_page_urls.append(
+            await _copy_retell_image(
+                src_page.image_url, new_book_id, f"p{src_page.page_number}", copied_keys
+            )
+        )
+
     db.add(
         Job(
             id=new_job_id,
             status="done",
             user_key=user_key,
             idempotency_key=idempotency_key,  # H17/G19: 재시도 dedup 키
+            # M12: 복제본 키를 잡에 기록 — 커밋 실패 시에도 파기가 도달할 수 있게.
+            image_keys=copied_keys or None,
         )
     )
     await db.flush()
 
-    new_book_id = f"book_{uuid.uuid4().hex[:16]}"
     new_book = Book(
         id=new_book_id,
         job_id=new_job_id,
@@ -1186,7 +1329,7 @@ async def retell_book(
         theme=source.theme,
         character_id=source.character_id,
         character_ids=source.character_ids,
-        cover_image_url=source.cover_image_url,
+        cover_image_url=new_cover_url,
         user_key=user_key,
         profile_id=source.profile_id,
         # 연령 변형 묶음 — 원본 책으로 역링크
@@ -1201,7 +1344,7 @@ async def retell_book(
                 book_id=new_book_id,
                 page_number=src_page.page_number,
                 text=text,
-                image_url=src_page.image_url,
+                image_url=new_page_urls[idx],
                 image_prompt=src_page.image_prompt,
             )
         )

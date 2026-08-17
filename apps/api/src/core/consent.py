@@ -42,11 +42,15 @@ async def latest_active_consent(
 
 
 async def _has_active_photo_consent(db: AsyncSession, user_key: str) -> bool:
-    """가장 최근(철회 안 된) 동의 레코드의 photos 동의 여부.
+    """사진 게이트 통과 여부 — '가장 최근 비철회 행'이 **granted 이면서 photos** 인가.
 
-    granted 와 독립적으로 평가한다. granted 는 '필수 동의(privacy+data_processing)' 충족만
-    의미하므로, photos 동의를 granted 로 선필터하면 누적 레코드에서 게이트가 photos=True 행을
-    못 보는 비정합이 생긴다. 따라서 photos 는 별도로 '가장 최근 비철회 행' 기준으로 판단한다.
+    선필터가 아니라 '가장 최근 한 행'을 보는 이유: photos=True 옛 행이 이후의 photos=False
+    재-grant에 가려지지 않으면 해제가 무력화된다(누적 레코드 비정합).
+
+    R1-7: 여기에 `granted`를 **결합**한다. granted 는 필수 동의(privacy+data_processing)
+    충족을 뜻하는데, 이걸 빼면 `{privacy:false, data_processing:false, photos:true}` 라는
+    photos-only 행이 게이트를 통과해 **필수 보호자 동의 없이 아동 사진을 수집**하게 된다
+    (PIPA/COPPA에서 photos 는 필수 동의의 하위 항목이지 대체재가 아니다).
     """
     result = await db.execute(
         select(UserConsent)
@@ -57,7 +61,7 @@ async def _has_active_photo_consent(db: AsyncSession, user_key: str) -> bool:
         .order_by(UserConsent.created_at.desc(), UserConsent.id.desc())
     )
     latest = result.scalars().first()
-    return latest is not None and bool(latest.photos)
+    return latest is not None and bool(latest.granted) and bool(latest.photos)
 
 
 async def require_photo_consent(db: AsyncSession, user_key: str) -> None:
