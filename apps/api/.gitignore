@@ -11,6 +11,10 @@ ENV/
 
 # Test artifacts
 *.db
+# SQLite 사이드카 — `*.db`가 이걸 못 잡아 test_<pid>.db-journal 이 추적됐다(위생 정리).
+*.db-journal
+*.db-wal
+*.db-shm
 test.db
 .coverage
 htmlcov/
