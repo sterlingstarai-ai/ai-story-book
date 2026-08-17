@@ -19,7 +19,7 @@ from src.services.purge_queue import (
     enqueue_purge_prefix,
     run_purge_tasks,
 )
-from src.services.storage import book_file_prefix
+from src.services.storage import book_file_prefix, mask_file_prefix
 
 router = APIRouter()
 logger = structlog.get_logger()
@@ -234,6 +234,12 @@ async def delete_book(
     )
     if prefix_task is not None:
         purge_tasks.append(prefix_task)
+    # F2: 인페인트 마스크(masks/{book_id}/…)도 함께 파기 — books/{id}/ prefix 밖이라 별도 배선.
+    mask_task = enqueue_purge_prefix(
+        db, user_key=user_key, reason="book_delete", prefix=mask_file_prefix(book_id)
+    )
+    if mask_task is not None:
+        purge_tasks.append(mask_task)
     purge_tasks.extend(
         enqueue_purge_keys(db, user_key=user_key, reason="book_delete", keys=image_keys)
     )

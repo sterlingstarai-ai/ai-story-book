@@ -117,35 +117,43 @@ class CreditsService:
         amount: int = 1,
         description: str = "책 생성",
         reference_id: Optional[str] = None,
+        commit: bool = True,
     ) -> bool:
         """
         크레딧 사용 (DB 독립적 원자적 차감)
 
         - SQLite는 SELECT ... FOR UPDATE 미지원 → 테스트에서 즉시 실패 가능
         - 조건부 UPDATE(credits >= amount)로 원자성 확보
+
+        commit=False (F3/books.py:264): 차감을 **호출자 트랜잭션 안에** 남겨, 잡 행 INSERT와
+        같은 커밋으로 원자화한다. 차감 커밋과 잡 생성 커밋이 분리돼 있으면 그 사이 프로세스
+        크래시 시 크레딧만 빠지고 잡은 없는 무성 유실이 난다(예외는 잡지만 프로세스 사망은 못
+        잡는다). commit=False 일 때는 성공 시 커밋하지 않고, 실패/부족 시에도 롤백하지 않는다
+        (호출자가 트랜잭션 경계와 롤백을 소유).
         """
-        try:
-            # ensure user exists (creates row if missing)
-            await self.get_or_create_credits(db, user_key, commit=False)
+        # ensure user exists (creates row if missing)
+        await self.get_or_create_credits(db, user_key, commit=False)
 
-            # 원자적 UPDATE: credits >= amount 조건으로 차감
-            stmt = (
-                update(UserCredits)
-                .where(
-                    UserCredits.user_key == user_key,
-                    UserCredits.credits >= amount,
-                )
-                .values(
-                    credits=UserCredits.credits - amount,
-                    total_used=UserCredits.total_used + amount,
-                )
+        # 원자적 UPDATE: credits >= amount 조건으로 차감
+        stmt = (
+            update(UserCredits)
+            .where(
+                UserCredits.user_key == user_key,
+                UserCredits.credits >= amount,
             )
+            .values(
+                credits=UserCredits.credits - amount,
+                total_used=UserCredits.total_used + amount,
+            )
+        )
 
+        try:
             result = await db.execute(stmt)
             affected = result.rowcount if hasattr(result, "rowcount") else 0
 
             if affected <= 0:
-                await db.rollback()
+                if commit:
+                    await db.rollback()
                 return False
 
             balance_result = await db.execute(
@@ -165,10 +173,12 @@ class CreditsService:
                 commit=False,
             )
 
-            await db.commit()
+            if commit:
+                await db.commit()
             return True
         except Exception:
-            await db.rollback()
+            if commit:
+                await db.rollback()
             raise
 
     async def add_credits(

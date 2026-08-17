@@ -338,6 +338,15 @@ def character_file_prefix(character_id: str) -> str:
     return f"characters/{character_id}/"
 
 
+def mask_file_prefix(book_id: str) -> str:
+    """인페인트 마스크(사용자 업로드) prefix (F2/books.py:895).
+
+    마스크는 `masks/{book_id}/…` 에 저장되나 books/{id}/ prefix 밖이라 책 파기가 놓친다.
+    책이 지워지는 모든 경로(단건·계정·동의철회)에서 이 prefix 도 함께 durable 파기한다.
+    """
+    return f"masks/{book_id}/"
+
+
 async def delete_book_files(book_id: str) -> list[str]:
     """Delete all files for a book. Returns keys that FAILED to delete ([] = ok, H8)."""
     return await _delete_prefix_keys(book_file_prefix(book_id))

@@ -70,6 +70,9 @@ logger = structlog.get_logger()
 
 router = APIRouter()
 
+# F2: 인페인트 마스크 업로드 상한(캐릭터 이미지와 동일 기준). 업로드 DoS 표면 축소.
+_MAX_MASK_BYTES = 10 * 1024 * 1024
+
 _FREE_PLAN_ALLOWED_STYLES = {"watercolor", "cartoon"}
 _FREE_PLAN_BLOCKED_FEATURES = {
     "pdf": "PDF 내보내기",
@@ -247,12 +250,17 @@ async def _create_job_with_credit(
     job_id: str,
     current_step: str,
     credit_description: str,
-    refund_description: str,
     idempotency_key: Optional[str] = None,
     profile_id: Optional[str] = None,
 ):
     """
-    Create a queued job with credit deduction and automatic refund on failure.
+    Create a queued job with credit deduction, **atomically**.
+
+    F3(감사 books.py:264): 차감과 잡 INSERT를 **한 트랜잭션·한 커밋**으로 묶는다. 예전에는
+    use_credit 이 먼저 커밋하고 잡 생성이 별도 커밋이라, 그 사이 프로세스가 죽으면 크레딧만
+    빠지고 잡은 없는 무성 유실이 났다(try/except 는 예외만 잡고 프로세스 사망은 못 잡는다).
+    이제 크래시 창이 닫힌다 — 커밋 전이면 DB가 차감까지 함께 롤백, 커밋 후면 둘 다 영속.
+    실패 시 롤백이 차감을 되돌리므로 **별도 환불 경로가 필요 없다**.
     """
     has_credits = await credits_service.has_credits(db, user_key, required=1)
     if not has_credits:
@@ -261,14 +269,18 @@ async def _create_job_with_credit(
             details={"reason": PaymentReason.INSUFFICIENT_CREDITS},
         )
 
+    # commit=False: 차감을 커밋하지 않고 트랜잭션에 남겨 잡 INSERT 와 같은 커밋으로 원자화.
     credit_used = await credits_service.use_credit(
         db,
         user_key,
         amount=1,
         description=credit_description,
         reference_id=job_id,
+        commit=False,
     )
     if not credit_used:
+        # 동시 차감 등으로 조건부 UPDATE 가 0행이면(부족) 미커밋 상태를 폐기하고 거절.
+        await db.rollback()
         raise PaymentRequiredError(
             "크레딧 차감에 실패했습니다.",
             details={"reason": PaymentReason.CREDIT_CHARGE_FAILED},
@@ -285,25 +297,18 @@ async def _create_job_with_credit(
             idempotency_key=idempotency_key,
         )
         db.add(job)
-        await db.commit()
+        await db.commit()  # 차감 + 잡 INSERT 를 함께 커밋(원자적).
     except Exception as e:
+        # 롤백이 차감까지 되돌린다 — 환불 트랜잭션 없이 원상복구.
         logger.error(
-            "Job creation failed, refunding credit",
+            "Job creation failed; deduction rolled back atomically",
             job_id=job_id,
             user_key=user_key,
             error=str(e),
         )
         await db.rollback()
-        await credits_service.add_credits(
-            db,
-            user_key,
-            amount=1,
-            transaction_type="refund",
-            description=refund_description,
-            reference_id=job_id,
-        )
         raise InternalServerError(
-            message="잡 생성에 실패했습니다. 크레딧이 환불되었습니다."
+            message="잡 생성에 실패했습니다. 크레딧은 차감되지 않았습니다."
         ) from e
 
 
@@ -687,7 +692,6 @@ async def create_book(
         job_id=job_id,
         current_step="queued",  # M32
         credit_description="책 생성",
-        refund_description="잡 생성 실패 환불",
         idempotency_key=idempotency_key,
         profile_id=scoped_profile_id,
     )
@@ -961,13 +965,25 @@ async def inpaint_book_page(
     if not page:
         raise NotFoundError("Page", str(page_number))
 
+    # F2(감사 books.py:895): 마스크 업로드를 **예산 소비·스토리지 쓰기 전**에 검증한다.
+    # content-type 이 명시됐고 image/* 가 아니면 거부한다(오업로드 차단). None/octet-stream 은
+    # 관대하게 허용한다 — Dio MultipartFile 이 content-type 을 안 채우는 경우가 있어 엄격히
+    # 거부하면 실 클라이언트를 깰 수 있고, 인페인트는 기본 GA 에서 409 로 게이트되며 마스크는
+    # 사용자 본인 소유물이라 위해가 낮다. **1차 방어는 크기 상한**이다(단 read-then-check 라
+    # 수신 자원 자체는 nginx client_max_body_size 가 바운드하고, 여기선 스토리지 쓰기·예산
+    # 소비·provider 호출로의 확대를 차단한다).
+    if mask.content_type and not mask.content_type.lower().startswith("image/"):
+        raise ValidationError("마스크는 이미지 파일이어야 합니다.")
+    mask_bytes = await mask.read()
+    if not mask_bytes:
+        raise ValidationError("마스크 이미지가 비어 있습니다.")
+    if len(mask_bytes) > _MAX_MASK_BYTES:
+        raise ValidationError("마스크 이미지가 너무 큽니다(최대 10MB).")
+
     # H5/R3-2: 인페인트도 유료 이미지 호출이다. M10/R3-3: 검증 통과 후, 업로드·생성 직전.
     await consume_generation_budget(endpoint="books.inpaint")
 
     # 마스크 업로드 → S3
-    mask_bytes = await mask.read()
-    if not mask_bytes:
-        raise ValidationError("마스크 이미지가 비어 있습니다.")
     mask_key = f"masks/{book.id}/{page_number}/{uuid.uuid4().hex}.png"
     mask_url = await storage_service.upload_bytes(mask_bytes, mask_key, "image/png")
 
@@ -980,6 +996,8 @@ async def inpaint_book_page(
         progress=0,
         current_step="부분 재생성 대기 중",
         user_key=user_key,
+        # F2: 마스크 키를 잡에 기록 — 계정 삭제(전 잡 image_keys 수집)가 이 고아를 파기.
+        image_keys=[mask_key],
     )
     db.add(inpaint_job)
     try:
@@ -1102,7 +1120,6 @@ async def create_series_next(
         job_id=job_id,
         current_step="시리즈 생성 대기 중",
         credit_description="시리즈 생성",
-        refund_description="시리즈 잡 생성 실패 환불",
         idempotency_key=idempotency_key,
         profile_id=scoped_profile_id,
     )

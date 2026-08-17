@@ -2593,7 +2593,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsRevokeConsentContent.
   ///
   /// In en, this message translates to:
-  /// **'If you revoke consent, app usage will be restricted and you can proceed with data deletion.'**
+  /// **'Revoking consent immediately and permanently deletes the characters and books made from this child\'s photo. This cannot be undone. Continue?'**
   String get settingsRevokeConsentContent;
 
   /// No description provided for @settingsCancel.
