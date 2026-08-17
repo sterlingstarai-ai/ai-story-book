@@ -270,7 +270,6 @@ async def generate_today_story(
         job_id=job_id,
         current_step="queued",  # M32
         credit_description="오늘의 동화 생성",
-        refund_description="오늘의 동화 생성 실패 환불",
         idempotency_key=idempotency_key,
         profile_id=scoped_profile_id,
     )

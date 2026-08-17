@@ -1328,7 +1328,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get settingsRevokeConsentContent =>
-      '同意を撤回するとアプリの利用が制限され、データの削除を進めることができます。';
+      '同意を撤回すると、この子どもの写真から作成したキャラクターと絵本が直ちに削除され、復元できません。続行しますか？';
 
   @override
   String get settingsCancel => 'キャンセル';

@@ -715,7 +715,7 @@
   "settingsBedtimeNotificationTitle": "It's time to read today's storybook",
   "settingsBedtimeNotificationBody": "Let's read today's storybook together before bed",
   "settingsRevokeConsentTitle": "Revoke consent",
-  "settingsRevokeConsentContent": "If you revoke consent, app usage will be restricted and you can proceed with data deletion.",
+  "settingsRevokeConsentContent": "Revoking consent immediately and permanently deletes the characters and books made from this child's photo. This cannot be undone. Continue?",
   "settingsCancel": "Cancel",
   "settingsRevoke": "Revoke",
   "settingsRevokeConsentError": "Failed to process the revocation. Please check your network and try again.",

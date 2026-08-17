@@ -33,8 +33,54 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
     });
   }
 
+  /// F1(감사 Q1/M9): 이전에 사진 동의가 켜져 있었는데 이번에 끄고 제출하면, 서버 grant_consent
+  /// 는 철회와 **동일하게** 이 아이 사진으로 만든 캐릭터·책·이미지를 즉시·불가역 파기한다
+  /// (재설치 후 로컬 동의 플래그만 초기화된 경우 등에서 도달). 실수 파기를 막기 위해, 사진
+  /// 미동의로 제출하는데 서버에 활성 사진 동의가 있으면 철회 버튼과 같은 파괴적 확인을 받는다.
+  Future<bool> _confirmPhotoDataDeletionIfNeeded() async {
+    final apiClient = ref.read(apiClientProvider);
+    bool serverHadPhotos = false;
+    try {
+      final current = await apiClient.getConsent();
+      serverHadPhotos = current['photos'] == true && current['revoked'] != true;
+    } catch (_) {
+      // 조회 실패 시 파괴적 확인을 강제하지 않는다(동의 저장을 막지 않음).
+      return true;
+    }
+    if (!serverHadPhotos) {
+      return true;
+    }
+    if (!mounted) {
+      return false;
+    }
+    final l = AppLocalizations.of(context);
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text(l.settingsRevokeConsentTitle),
+            content: Text(l.settingsRevokeConsentContent),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: Text(l.settingsCancel),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: Text(l.settingsRevoke),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    return confirmed;
+  }
+
   Future<void> _accept() async {
     if (!_canContinue || _submitting) {
+      return;
+    }
+    // 사진 동의를 끄고 제출하는 경우, 기수집 사진 파생물 파기 전에 확인을 받는다.
+    if (!_photo && !await _confirmPhotoDataDeletionIfNeeded()) {
       return;
     }
     setState(() => _submitting = true);

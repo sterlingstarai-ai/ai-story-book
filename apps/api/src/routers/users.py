@@ -41,7 +41,11 @@ from src.services.purge_queue import (
     enqueue_purge_prefix,
     run_purge_tasks,
 )
-from src.services.storage import book_file_prefix, character_file_prefix
+from src.services.storage import (
+    book_file_prefix,
+    character_file_prefix,
+    mask_file_prefix,
+)
 
 router = APIRouter()
 logger = structlog.get_logger()
@@ -124,6 +128,12 @@ async def delete_my_data(
         )
         if task is not None:
             tasks.append(task)
+        # F2: 인페인트 마스크(masks/{book_id}/…)도 함께 — books/{id}/ prefix 밖.
+        mask_task = enqueue_purge_prefix(
+            db, user_key=user_key, reason=reason, prefix=mask_file_prefix(book_id)
+        )
+        if mask_task is not None:
+            tasks.append(mask_task)
     # 아동 사진/그림 파생 캐릭터 원본 파기(PIPA/GDPR 삭제권 — revoke 경로와 동일)
     for character_id in character_ids:
         task = enqueue_purge_prefix(

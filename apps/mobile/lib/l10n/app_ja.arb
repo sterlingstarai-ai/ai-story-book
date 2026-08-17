@@ -428,7 +428,7 @@
   "settingsBedtimeNotificationTitle": "今日の絵本を読む時間です",
   "settingsBedtimeNotificationBody": "寝る前に今日の絵本を一緒に読みましょう",
   "settingsRevokeConsentTitle": "同意の撤回",
-  "settingsRevokeConsentContent": "同意を撤回するとアプリの利用が制限され、データの削除を進めることができます。",
+  "settingsRevokeConsentContent": "同意を撤回すると、この子どもの写真から作成したキャラクターと絵本が直ちに削除され、復元できません。続行しますか？",
   "settingsCancel": "キャンセル",
   "settingsRevoke": "撤回",
   "settingsRevokeConsentError": "撤回の処理に失敗しました。ネットワークを確認してから再試行してください。",

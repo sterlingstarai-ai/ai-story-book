@@ -1327,7 +1327,7 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get settingsRevokeConsentContent =>
-      '동의를 철회하면 앱 이용이 제한되며, 데이터 삭제를 진행할 수 있습니다.';
+      '동의를 철회하면 이 아이 사진으로 만든 캐릭터와 책이 즉시 삭제되며 복구할 수 없습니다. 계속하시겠어요?';
 
   @override
   String get settingsCancel => '취소';

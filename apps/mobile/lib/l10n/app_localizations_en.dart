@@ -1381,7 +1381,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsRevokeConsentContent =>
-      'If you revoke consent, app usage will be restricted and you can proceed with data deletion.';
+      'Revoking consent immediately and permanently deletes the characters and books made from this child\'s photo. This cannot be undone. Continue?';
 
   @override
   String get settingsCancel => 'Cancel';
