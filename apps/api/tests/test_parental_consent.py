@@ -132,10 +132,15 @@ async def test_photo_character_reuse_gated_text_not(db_session, consent_enforced
 
 
 @pytest.mark.asyncio
-async def test_photos_consent_evaluated_independently_of_granted(
+async def test_photos_only_consent_does_not_open_photo_gate(
     db_session, consent_enforced
 ):
-    # 최근 비철회 행의 photos=True 이면 granted(필수동의) 값과 무관하게 사진 게이트 통과
+    """R1-7: photos-only 행(granted=False)은 사진 게이트를 열지 못한다.
+
+    이전 계약은 'photos를 granted와 독립 평가'였고, 그 결과
+    `{privacy:false, data_processing:false, photos:true}` 하나로 **필수 보호자 동의 없이**
+    아동 사진을 수집할 수 있었다. photos는 필수 동의의 하위 항목이지 대체재가 아니다.
+    """
     db_session.add(
         UserConsent(
             user_key="uk-decouple",
@@ -146,7 +151,26 @@ async def test_photos_consent_evaluated_independently_of_granted(
         )
     )
     await db_session.commit()
-    await require_photo_consent(db_session, "uk-decouple")  # raise 없음
+    with pytest.raises(AuthorizationError):
+        await require_photo_consent(db_session, "uk-decouple")
+
+
+@pytest.mark.asyncio
+async def test_photos_with_required_consent_opens_photo_gate(
+    db_session, consent_enforced
+):
+    """반대 방향 봉인: 필수 동의(granted)까지 갖춘 photos 행은 정상 통과해야 한다."""
+    db_session.add(
+        UserConsent(
+            user_key="uk-decouple-ok",
+            privacy=True,
+            photos=True,
+            data_processing=True,
+            granted=True,
+        )
+    )
+    await db_session.commit()
+    await require_photo_consent(db_session, "uk-decouple-ok")  # raise 없음
 
 
 @pytest.mark.asyncio
@@ -259,10 +283,10 @@ async def test_revoke_closes_gate_for_photos_only_consent(
 ):
     h = {"X-User-Key": "cccccccc-cccc-4ccc-8ccc-cccccccccccc"}
     uk = h["X-User-Key"]
-    # photos=true·granted=false(필수동의 미충족) — 게이트는 photos 독립 평가로 통과
+    # R1-7: 게이트는 granted+photos 를 함께 요구한다 — 필수 동의까지 받아야 열린다.
     await client.post(
         "/v1/consent",
-        json={"privacy": False, "photos": True, "data_processing": False},
+        json={"privacy": True, "photos": True, "data_processing": True},
         headers=h,
     )
     await require_photo_consent(db_session, uk)  # raise 없음

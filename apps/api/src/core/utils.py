@@ -94,3 +94,19 @@ def derive_age_band(birth_year: int, birth_month: int, ref=None) -> str:
     if age < 7:
         return "5-7"
     return "7-9"
+
+
+def redact_path(path: str) -> str:
+    """로그·관측에 남길 경로에서 capability URL(공유 토큰)을 가린다.
+
+    `/share/{token}` 은 인증 없이 아동 콘텐츠를 여는 **자격증명 그 자체**다. 로그에 원문이
+    남으면 로그 접근자가 무인증으로 재생할 수 있다.
+
+    R4: 예전에는 이 함수가 `main.py` 안에 있었고 AccessLogMiddleware만 사용했다. 그 결과
+    예외 핸들러 5곳(APIError/HTTPException/Validation/unhandled 2종)이 우회해 **에러가 난
+    요청의 토큰은 그대로 유출**됐다 — 마스킹 규칙이 두 벌이면 한 쪽이 샌다. 정본을 여기
+    한 곳에 두고 모든 로깅 경로가 이걸 쓴다.
+    """
+    if isinstance(path, str) and path.startswith("/share/"):
+        return "/share/{token}"
+    return path

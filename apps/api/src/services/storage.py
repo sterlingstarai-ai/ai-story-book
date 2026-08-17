@@ -125,11 +125,31 @@ async def ensure_bucket_exists():
                 raise StorageError(f"Failed to create bucket: {e}")
 
 
+def _public_url_bases() -> list[str]:
+    """키 역산에 인정할 공개 URL prefix 목록(현재 + 과거 도메인).
+
+    R4: prefix를 '현재 s3_public_url' 하나로만 보면, CDN/도메인을 바꾸는 순간 **그 전에 저장된
+    전 객체**의 역산이 None이 되어 파기가 조용한 no-op이 된다(아동 likeness 영구 잔존).
+    `S3_LEGACY_PUBLIC_URLS`(콤마 구분)에 과거 base를 남겨두면 계속 파기 대상이 된다.
+    """
+    bases: list[str] = []
+    for raw in [
+        settings.s3_public_url,
+        *(settings.s3_legacy_public_urls or "").split(","),
+    ]:
+        cleaned = (raw or "").strip().rstrip("/")
+        if cleaned:
+            bases.append(cleaned + "/")
+    return list(dict.fromkeys(bases))
+
+
 def key_from_public_url(url: Optional[str]) -> Optional[str]:
     """저장된 공개 URL({s3_public_url}/{key})에서 S3 키를 복원한다. 우리 버킷이 아니면 None."""
-    base = (settings.s3_public_url or "").rstrip("/") + "/"
-    if url and base != "/" and url.startswith(base):
-        return url[len(base):]
+    if not url:
+        return None
+    for base in _public_url_bases():
+        if url.startswith(base):
+            return url[len(base):]
     return None
 
 
@@ -276,9 +296,51 @@ async def _delete_prefix_keys(prefix: str) -> list[str]:
     return failed
 
 
+async def copy_object_to_new_key(source_url: str, new_key: str) -> Optional[str]:
+    """우리 버킷 안의 객체를 새 키로 **서버측 복사**하고 새 공개 URL을 반환한다 (H6).
+
+    연령 리텔은 삽화를 재생성하지 않고 원본 URL을 그대로 복사해 두 책이 **같은 S3 객체**를
+    가리켰다. 삭제 경로(`collect_book_image_keys` → 역산 파기)는 배타 소유를 가정하므로,
+    둘 중 하나만 지워도 남은 책의 표지·전 페이지가 404가 된다.
+
+    다운로드/업로드가 아니라 S3 `copy_object` (서버측)라 대역폭·지연이 거의 없다.
+    우리 버킷이 아닌 URL(역산 불가)이면 None — 호출부가 공유 여부를 판단한다.
+    """
+    source_key = key_from_public_url(source_url)
+    if not source_key:
+        return None
+
+    await ensure_bucket_exists()
+    client = get_s3_client()
+    try:
+        await _call_s3(
+            client.copy_object,
+            Bucket=settings.s3_bucket,
+            CopySource={"Bucket": settings.s3_bucket, "Key": source_key},
+            Key=new_key,
+        )
+    except ClientError as e:
+        logger.error(
+            "Failed to copy object", source_key=source_key, new_key=new_key, error=str(e)
+        )
+        raise StorageError(f"Failed to copy object: {e}")
+
+    return f"{settings.s3_public_url.rstrip('/')}/{new_key}"
+
+
+def book_file_prefix(book_id: str) -> str:
+    """책 파일 prefix — durable 파기 큐(outbox)가 같은 대상을 재실행할 수 있도록 노출."""
+    return f"books/{book_id}/"
+
+
+def character_file_prefix(character_id: str) -> str:
+    """캐릭터 원본(아동 사진/그림) prefix — 위와 동일한 이유로 상수화."""
+    return f"characters/{character_id}/"
+
+
 async def delete_book_files(book_id: str) -> list[str]:
     """Delete all files for a book. Returns keys that FAILED to delete ([] = ok, H8)."""
-    return await _delete_prefix_keys(f"books/{book_id}/")
+    return await _delete_prefix_keys(book_file_prefix(book_id))
 
 
 async def delete_keys(keys: list[str]) -> list[str]:

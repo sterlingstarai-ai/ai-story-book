@@ -21,6 +21,10 @@ dependencies:
 
   # Local Storage
   shared_preferences: ^2.2.2
+  # M1(2026-08-17 감사): X-User-Key는 이 앱의 **유일한 자격증명**이다. SharedPreferences는
+  # 평문 XML/plist라 기기 백업·이전으로 유출되면 그대로 계정 탈취다 → iOS Keychain /
+  # Android Keystore(EncryptedSharedPreferences)로 이관한다.
+  flutter_secure_storage: ^9.2.2
 
   # UI
   flutter_svg: ^2.0.9
@@ -53,6 +57,11 @@ dependencies:
   # Android 소모성 소비(consumePurchase) 명시 호출용 — in_app_purchase의 transitive
   # 의존을 직접 참조(depend_on_referenced_packages 회피). 버전은 lockfile과 일치.
   in_app_purchase_android: ^0.4.0
+  # R0(2026-08-17 감사, 🔴C1): iOS에서 StoreKit1을 강제하기 위해 플랫폼 애드온을 직접 참조.
+  # 0.4.8부터 StoreKit2가 기본이라 serverVerificationData가 legacy 앱 영수증이 아니라 JWS로
+  # 바뀌었고, 백엔드의 legacy /verifyReceipt가 21002(malformed)로 전량 실패한다.
+  # 버전은 lockfile(0.4.8)과 일치.
+  in_app_purchase_storekit: ^0.4.8
 
   # Image Picker
   image_picker: ^1.0.7

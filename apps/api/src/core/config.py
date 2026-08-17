@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     s3_secret_key: str = ""
     s3_bucket: str = "storybook"
     s3_public_url: str = "http://localhost:9000/storybook"
+    # 과거 공개 URL base(콤마 구분). 도메인/CDN을 바꿔도 그 이전에 저장된 URL에서 S3 키를
+    # 역산할 수 있어야 파기(계정삭제·동의철회)가 조용한 no-op이 되지 않는다.
+    s3_legacy_public_urls: str = ""
 
     # LLM
     llm_provider: str = "openai"  # openai, anthropic
@@ -128,7 +131,15 @@ class Settings(BaseSettings):
     # 모두 우회되므로, 개별 식별자와 무관한 상한으로 LLM/이미지 청구서 폭증을 막는다.
     # 0 이하 = 비활성. 운영은 실측 트래픽 기준으로 넉넉히 잡고 알림으로 조기 인지한다.
     daily_generation_budget: int = 0
-    max_pending_jobs: int = 100  # Max pending jobs in queue before rejecting
+    # 전역(전 사용자 합산) 큐 상한 — 워커 용량을 넘어선 '시스템 과부하' 신호(503).
+    # M11/R3-4로 per-user 상한과 분리되면서 의미가 바뀌었다: 한 사용자가 혼자 도달할 수
+    # 없도록 per-user 상한보다 훨씬 크게 잡는다(운영이 워커 수에 맞춰 조정).
+    max_pending_jobs: int = 500
+    # M11/R3-4: 사용자당 동시 대기 잡 상한(429). 전역 상한만 있으면 한 사용자가 큐를 채워
+    # 전 사용자를 503으로 만든다(공유자원 고갈 DoS).
+    # ⚠ X-User-Key는 클라이언트 발급이라 키 로테이션으로 이 상한도 우회된다 — 이 값은
+    # '단일 클라이언트의 사고성 폭주' 방어이고, 비용의 실질 상한은 daily_generation_budget이다.
+    max_pending_jobs_per_user: int = 10
 
     # Free plan enforcement
     free_plan_enforcement_enabled: bool = True
@@ -162,6 +173,10 @@ class Settings(BaseSettings):
     # 구독 게이트 하위 표면에 도달할 방법이 없었다. 기본값 False = 운영에서 훅은 존재하지
     # 않는다(404). 켜더라도 ADMIN_API_KEY 가 추가로 필요하다.
     enable_test_hooks: bool = False
+    # M5/R2-5: Apple shared secret은 팀(master) 단위로도 발급되므로, 영수증의 bundle_id를
+    # 우리 앱 것과 대조하지 않으면 같은 팀 다른 앱의 영수증이 크레딧을 발급받는다.
+    # 미설정이면 검증 생략(하위호환) — 대신 운영 readiness가 막는다.
+    apple_bundle_id: str = ""
 
     # CORS
     cors_origins: str = (

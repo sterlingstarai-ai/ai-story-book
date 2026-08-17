@@ -774,8 +774,17 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
       return;
     }
 
-    final transactionId = purchase.purchaseID ??
-        '${purchase.productID}-${DateTime.now().millisecondsSinceEpoch}';
+    // R0-2(2026-08-17 보안감사): purchaseID가 없을 때 시간 기반 가짜 id를 만들면
+    // **멱등성이 파괴된다**. 재시도마다 값이 달라지므로 (1) Apple은 그 id를 영수증에서
+    // 찾지 못해 영구 검증 실패, (2) Google은 서버 dedup 키가 매번 달라져 **이중 지급** 여지가
+    // 생긴다. 식별자가 없으면 검증을 **진행하지 않고** 트랜잭션을 pending으로 남긴다 —
+    // 스토어가 다음 실행 purchaseStream 으로 재전달할 때 id와 함께 다시 처리된다.
+    // (여기서 completePurchase 를 호출하면 미지급 상태로 대금이 영구 유실된다.)
+    final transactionId = purchase.purchaseID;
+    if (transactionId == null || transactionId.isEmpty) {
+      debugPrint('purchaseID 없음 — 검증 보류(다음 실행 재전달로 재시도)');
+      return;
+    }
     // 검증 진행 중인 동일 트랜잭션의 중복 스트림 이벤트는 drop한다(MI2). 여기서 complete를
     // 호출하면 원 이벤트의 검증 결과와 무관하게 트랜잭션이 마무리돼 대금 유실 위험이 있다.
     if (_verifyingTransactions.contains(transactionId)) {

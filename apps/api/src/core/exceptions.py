@@ -9,6 +9,8 @@ from fastapi.responses import JSONResponse
 from typing import Optional, Any
 import structlog
 
+from src.core.utils import redact_path
+
 logger = structlog.get_logger()
 
 
@@ -281,7 +283,7 @@ async def api_exception_handler(request: Request, exc: APIError) -> JSONResponse
         "API error",
         error_code=exc.error_code,
         message=exc.message,
-        path=request.url.path,
+        path=redact_path(request.url.path),
     )
     return api_error_response(exc, request_id=_get_request_id(request))
 
@@ -296,7 +298,7 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
         status_code=exc.status_code,
         error_code=code,
         message=message,
-        path=request.url.path,
+        path=redact_path(request.url.path),
     )
 
     return JSONResponse(
@@ -328,7 +330,7 @@ async def validation_exception_handler(
         "Validation error",
         error_code="VALIDATION_ERROR",
         errors_count=len(details),
-        path=request.url.path,
+        path=redact_path(request.url.path),
     )
 
     return JSONResponse(

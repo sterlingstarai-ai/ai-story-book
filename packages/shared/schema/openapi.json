@@ -5462,7 +5462,7 @@
         ]
       },
       "post": {
-        "description": "보호자 동의 기록. granted 는 필수 동의(개인정보+데이터 처리) 충족 시 True.\n\n유저당 비철회 동의 행은 최대 1개가 되도록, 새 동의 시 기존 비철회 행을 폐기(supersede)한다.",
+        "description": "보호자 동의 기록. granted 는 필수 동의(개인정보+데이터 처리) 충족 시 True.\n\n유저당 비철회 동의 행은 최대 1개가 되도록, 새 동의 시 기존 비철회 행을 폐기(supersede)한다.\n\nM9/R1-6: **사진 동의 항목을 해제**(photos=true → false)하는 재-grant는 철회와 같은\n파기 의무를 진다. 항목만 끄고 기수집 아동 사진·파생물을 남기면 '동의 철회'와 '동의\n항목 해제'의 의미가 이원화되고, 사용자가 사진 사용을 껐는데 얼굴은 그대로 남는다.",
         "operationId": "grant_consent_v1_consent_post",
         "parameters": [
           {
@@ -6279,16 +6279,6 @@
         "operationId": "apple_webhook_v1_iap_webhook_apple_post",
         "parameters": [
           {
-            "in": "query",
-            "name": "token",
-            "required": false,
-            "schema": {
-              "default": "",
-              "title": "Token",
-              "type": "string"
-            }
-          },
-          {
             "in": "header",
             "name": "X-Webhook-Token",
             "required": false,
@@ -6345,16 +6335,6 @@
       "post": {
         "operationId": "google_webhook_v1_iap_webhook_google_post",
         "parameters": [
-          {
-            "in": "query",
-            "name": "token",
-            "required": false,
-            "schema": {
-              "default": "",
-              "title": "Token",
-              "type": "string"
-            }
-          },
           {
             "in": "header",
             "name": "X-Webhook-Token",

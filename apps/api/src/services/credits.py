@@ -343,50 +343,62 @@ class CreditsService:
         already = await db.execute(
             select(CreditTransaction.id)
             .where(
+                CreditTransaction.user_key == user_key,
                 CreditTransaction.reference_id == reference_id,
                 CreditTransaction.transaction_type == "clawback",
             )
             .limit(1)
         )
         if already.first() is not None:
-            return False  # 이미 회수됨
+            return False  # 이미 회수됨(앱 레벨 1차)
 
         try:
             await self.get_or_create_credits(db, user_key, commit=False)
-            # 원자적 차감 후 음수 클램프(두 문장 모두 같은 트랜잭션 내 → SQLite/PG 공통).
-            await db.execute(
-                update(UserCredits)
-                .where(UserCredits.user_key == user_key)
-                .values(credits=UserCredits.credits - amount)
-            )
-            await db.execute(
-                update(UserCredits)
-                .where(UserCredits.user_key == user_key, UserCredits.credits < 0)
-                .values(credits=0)
-            )
-            balance_result = await db.execute(
-                select(UserCredits.credits).where(UserCredits.user_key == user_key)
-            )
-            new_balance = balance_result.scalar_one()
-            await self._record_transaction(
-                db=db,
-                user_key=user_key,
-                amount=-amount,
-                balance_after=new_balance,
-                transaction_type="clawback",
-                description=description,
-                reference_id=reference_id,
-                commit=False,
-            )
-            if commit:
-                await db.commit()
-            else:
+            # M2/R2-2: 위 pre-check는 트랜잭션 **밖**의 check-then-write다 — 동시 중복
+            # 환불 웹훅 두 건이 모두 '아직 회수 안 됨'을 통과할 수 있다. 정본 방어는
+            # `uq_credit_transactions_clawback` 부분 유니크이며, refund_for_job과 동일하게
+            # SAVEPOINT로 감싸 IntegrityError를 흡수한다(호출자의 미커밋 작업 — 영수증 상태
+            # 갱신 등 — 을 폐기하지 않도록).
+            async with db.begin_nested():
+                # 원자적 차감 후 음수 클램프(두 문장 모두 같은 트랜잭션 내 → SQLite/PG 공통).
+                await db.execute(
+                    update(UserCredits)
+                    .where(UserCredits.user_key == user_key)
+                    .values(credits=UserCredits.credits - amount)
+                )
+                await db.execute(
+                    update(UserCredits)
+                    .where(UserCredits.user_key == user_key, UserCredits.credits < 0)
+                    .values(credits=0)
+                )
+                balance_result = await db.execute(
+                    select(UserCredits.credits).where(UserCredits.user_key == user_key)
+                )
+                new_balance = balance_result.scalar_one()
+                await self._record_transaction(
+                    db=db,
+                    user_key=user_key,
+                    amount=-amount,
+                    balance_after=new_balance,
+                    transaction_type="clawback",
+                    description=description,
+                    reference_id=reference_id,
+                    commit=False,
+                )
                 await db.flush()
-            return True
+        except IntegrityError:
+            # 동시 이중 회수 차단(멱등) — 차감도 SAVEPOINT와 함께 롤백된다.
+            return False
         except Exception:
             if commit:
                 await db.rollback()
             raise
+
+        if commit:
+            await db.commit()
+        else:
+            await db.flush()
+        return True
 
     async def get_active_subscription(
         self,
@@ -434,6 +446,31 @@ class CreditsService:
             sub.current_period_end = now - timedelta(seconds=1)
         if commit:
             await db.commit()
+
+    async def supersede_cancelled_subscription_for_plan(
+        self,
+        db: AsyncSession,
+        user_key: str,
+        plan: str,
+    ) -> None:
+        """같은 plan의 cancelled 잔여 구독을 새 결제로 대체(종료)한다 (H3/R2-1).
+
+        취소 후 재결제하면 그 결제가 잔여기간을 **대체**한다. 종료하지 않으면 같은 plan에
+        entitlement를 주는 행이 둘(cancelled 잔여 + 신규 active) 남아, 이후 웹훅·환불이
+        어느 행을 가리키는지가 모호해진다. active 구독은 건드리지 않는다(그 경우는 애초에
+        already_subscribed로 걸러진다).
+        """
+        result = await db.execute(
+            select(Subscription).where(
+                Subscription.user_key == user_key,
+                Subscription.plan == plan,
+                Subscription.status == "cancelled",
+            )
+        )
+        now = utcnow()
+        for sub in result.scalars().all():
+            sub.status = "expired"
+            sub.current_period_end = now - timedelta(seconds=1)
 
     async def create_subscription(
         self,

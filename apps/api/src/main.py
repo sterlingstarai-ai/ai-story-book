@@ -33,6 +33,7 @@ from src.routers import (
 from src.core.audio_feature import audio_readiness_issues
 from src.core.database import get_db  # noqa: F401
 from src.core.rate_limit import check_rate_limit, rate_limiter
+from src.core.utils import redact_path
 from src.core.exceptions import (
     APIError,
     api_exception_handler,
@@ -91,11 +92,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
-def _redact_path(path: str) -> str:
-    """capability URL(공유 토큰)을 로그/관측에서 가린다 — 로그 유출 시 무인증 재생 방지."""
-    if path.startswith("/share/"):
-        return "/share/{token}"
-    return path
+# 정본은 `src.core.utils.redact_path` — 예외 핸들러와 **같은 규칙**을 공유해야 한다.
+_redact_path = redact_path
 
 
 class AccessLogMiddleware(BaseHTTPMiddleware):
@@ -340,7 +338,7 @@ async def storybook_error_handler(request: Request, exc: StoryBookError):
         error_code=exc.code.value,
         message=exc.message,
         detail_keys=sorted((exc.details or {}).keys()),
-        path=request.url.path,
+        path=_redact_path(request.url.path),
     )
     content = {
         "detail": client_message,
@@ -362,7 +360,9 @@ async def storybook_error_handler(request: Request, exc: StoryBookError):
 # Global exception handler
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error("Unhandled exception", error=str(exc), path=request.url.path)
+    logger.error(
+        "Unhandled exception", error=str(exc), path=_redact_path(request.url.path)
+    )
     message = (
         str(exc) if settings.debug else "서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
     )
@@ -407,6 +407,12 @@ def _iap_readiness_issues() -> list[str]:
 
     if not settings.iap_webhook_secret:
         issues.append("iap_webhook_secret_missing")
+
+    # M5/R2-5: Apple 검증을 쓰면서 기대 bundle_id가 없으면 cross-app 영수증 리플레이가
+    # 무검증으로 통과한다(shared secret이 팀 단위일 때). 검증기는 하위호환으로 통과시키므로
+    # 여기서 배포를 막는다 — '조용히 검증 안 함'을 남기지 않는다.
+    if has_apple and not settings.apple_bundle_id:
+        issues.append("apple_bundle_id_missing")
 
     return issues
 
@@ -480,6 +486,19 @@ async def _build_readiness_payload(
         if missing_keys:
             keys_status = "unhealthy"
 
+    # H4/R3-1: 전역 일일 생성 예산이 프로덕션에서 꺼져 있으면(0/미설정) 비용 폭증에 무방비다.
+    # 직전 감사가 '출시 최소 조건'으로 승격한 완화책이 배포 산출물 미배선으로 실제로는
+    # 꺼져 있었다 — 조용히 넘기지 않고 관측 가능하게 남긴다. (차단이 아니라 **경고**:
+    # 값 산정은 오너 결정이고, 미설정만으로 배포를 죽이면 기존 배포가 즉시 멈춘다.)
+    warnings: list[str] = []
+    if not settings.testing and int(settings.daily_generation_budget or 0) <= 0:
+        warnings.append("cost_budget_disabled")
+        logger.error(
+            "cost budget guardrail NOT CONFIGURED — DAILY_GENERATION_BUDGET<=0 "
+            "(전역 비용 상한 없음)",
+            daily_generation_budget=settings.daily_generation_budget,
+        )
+
     overall_status = (
         "healthy"
         if db_status == "healthy"
@@ -501,11 +520,20 @@ async def _build_readiness_payload(
             "provider_keys": keys_status,
             "llm_provider": settings.llm_provider,
             "image_provider": settings.image_provider,
+            # H4/R3-1: 비용 가드레일이 켜져 있는지를 공개 payload에서도 boolean으로 노출한다
+            # (값·상세는 감추되 '꺼져 있음'은 운영이 프로브만으로 알 수 있어야 한다).
+            "cost_budget": (
+                "disabled"
+                if int(settings.daily_generation_budget or 0) <= 0
+                else "configured"
+            ),
         },
     }
     # M9: 상세 missing_keys는 인증된 detailed에만. 공개 ready는 provider_keys boolean만.
     if missing_keys and expose_missing_keys:
         payload["missing_keys"] = missing_keys
+    if warnings and expose_missing_keys:
+        payload["warnings"] = warnings
     if include_metrics:
         payload["jobs"] = job_metrics
         payload["config"] = {

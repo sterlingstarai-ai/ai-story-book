@@ -22,6 +22,20 @@ from src.services.iap_verifier import IAPVerificationResult, iap_verifier
 def _fake_verification(
     product_id: str, store_txn: str, expires_date_ms: Optional[int] = None
 ) -> IAPVerificationResult:
+    """스토어 검증 결과 스텁.
+
+    R2-6: 구독 상품의 `expires_date_ms` 부재는 이제 '만료'로 fail-closed 취급된다(부재는
+    유효함의 증거가 아니다). 실제 Apple/Google 구독 영수증은 항상 만료 시각을 싣고 오므로,
+    스텁도 구독 상품이면 **미래 만료**를 기본값으로 채운다 — 그래야 이 스텁을 쓰는
+    테스트들이 '리플레이·복원·권한이전' 이라는 원래 관심사를 검증한다. 만료 시나리오는
+    호출부가 명시값을 넘겨서 만든다.
+    """
+    if expires_date_ms is None and product_id.startswith("subscription_"):
+        from datetime import timedelta
+
+        from src.core.utils import utcnow
+
+        expires_date_ms = int((utcnow() + timedelta(days=30)).timestamp() * 1000)
     return IAPVerificationResult(
         verified=True,
         source="apple_store",
@@ -473,7 +487,7 @@ async def test_sandbox_receipt_allowed_when_in_allowlist(client, db_session, mon
 
 @pytest.mark.asyncio
 async def test_webhook_token_via_header(client, monkeypatch):
-    """웹훅 토큰을 X-Webhook-Token 헤더로 전달 가능(쿼리 폴백도 유지)."""
+    """웹훅 토큰을 X-Webhook-Token 헤더로 전달(헤더 전용 — 쿼리 폴백 제거됨)."""
     monkeypatch.setattr(settings, "testing", False)
     monkeypatch.setattr(settings, "iap_webhook_secret", "wh-secret")
 
@@ -687,24 +701,37 @@ async def test_webhook_targets_receipt_subscription_not_latest(client, db_sessio
 # ───────────────────────── M14: 구독 환불 clawback ─────────────────────────
 @pytest.mark.asyncio
 async def test_refund_webhook_claws_back_subscription_credits(client, db_session):
-    """구독 상품 환불 웹훅은 지급된 월간 크레딧을 회수한다(0클램프)."""
+    """구독 상품 환불 웹훅은 **실제 지급된** 월간 크레딧을 회수한다(0클램프).
+
+    M3/R2-3: 회수액의 정본은 플랜 상수가 아니라 원장(credit_transactions)이다. 그래서
+    픽스처도 실제 지급 경로와 동일하게 구성한다 — 영수증이 개설한 구독 + 그 구독을
+    reference_id로 하는 'subscription' 지급 원장.
+    """
     from datetime import timedelta
 
     from src.core.utils import utcnow
+    from src.models.db import CreditTransaction
 
     user = "m14-sub-refund"
     db_session.add(UserCredits(user_key=user, credits=30, total_purchased=0))
+    subscription = Subscription(
+        user_key=user, plan="premium", status="active", credits_per_month=30,
+        current_period_start=utcnow(), current_period_end=utcnow() + timedelta(days=30),
+    )
+    db_session.add(subscription)
+    await db_session.flush()
     db_session.add(
-        Subscription(
-            user_key=user, plan="premium", status="active", credits_per_month=30,
-            current_period_start=utcnow(), current_period_end=utcnow() + timedelta(days=30),
+        CreditTransaction(
+            user_key=user, amount=30, balance_after=30,
+            transaction_type="subscription", description="프리미엄 구독 크레딧",
+            reference_id=str(subscription.id),
         )
     )
     db_session.add(
         IAPReceipt(
             user_key=user, platform="apple", product_id="subscription_premium",
             transaction_id="m14-tx", store_transaction_id="STORE-M14",
-            status="verified", payload={},
+            status="verified", subscription_id=subscription.id, payload={},
         )
     )
     await db_session.commit()
@@ -831,22 +858,41 @@ async def test_webhook_rejected_when_secret_unset_in_production(client, monkeypa
 
 @pytest.mark.asyncio
 async def test_webhook_requires_matching_token_when_secret_set(client, monkeypatch):
-    """시크릿 설정 시: 잘못된 토큰 거부(403), 올바른 토큰 통과(200)."""
+    """시크릿 설정 시: 잘못된 토큰 거부(403), 올바른 토큰 통과(200) — 헤더 전용."""
     monkeypatch.setattr(settings, "testing", False)
     monkeypatch.setattr(settings, "iap_webhook_secret", "wh-secret")
 
     bad = await client.post(
-        "/v1/iap/webhook/apple?token=wrong",
+        "/v1/iap/webhook/apple",
         json={"transaction_id": "unknown-tx", "status": "refunded"},
+        headers={"X-Webhook-Token": "wrong"},
     )
     assert bad.status_code == 403, bad.text
 
     ok = await client.post(
-        "/v1/iap/webhook/apple?token=wh-secret",
+        "/v1/iap/webhook/apple",
         json={"transaction_id": "unknown-tx", "status": "refunded"},
+        headers={"X-Webhook-Token": "wh-secret"},
     )
     # 인증 통과 — 미지의 transaction_id는 'ignored'로 처리되나 인증 자체는 성공.
     assert ok.status_code == 200, ok.text
+
+
+@pytest.mark.asyncio
+async def test_webhook_rejects_querystring_token(client, monkeypatch):
+    """감사 iap.py:614 봉인: ?token= 쿼리 폴백이 제거돼 로그 유출 경로가 닫혔다.
+
+    올바른 시크릿을 쿼리로만 넘기고 헤더는 비우면 이제 거부(403)된다 — 쿼리는 nginx
+    액세스 로그($request)에 평문 기록되므로 인증 채널로 인정하지 않는다.
+    """
+    monkeypatch.setattr(settings, "testing", False)
+    monkeypatch.setattr(settings, "iap_webhook_secret", "wh-secret")
+
+    resp = await client.post(
+        "/v1/iap/webhook/apple?token=wh-secret",
+        json={"transaction_id": "unknown-tx", "status": "refunded"},
+    )
+    assert resp.status_code == 403, resp.text
 
 
 # ── 감사 #14/#7: 만료 영수증 restore의 부작용 2종 ──
@@ -1002,3 +1048,270 @@ async def test_orphan_google_suffix_refund_reapplies_on_verify(
         )
     ).scalar_one()
     assert event.applied is True
+
+
+# ══════════════════ R2 (2026-08-17 보안감사): 결제 정합 회귀 ══════════════════
+
+
+@pytest.mark.asyncio
+async def test_cancelled_subscription_is_reactivated_by_new_purchase(
+    client, headers, db_session, monkeypatch
+):
+    """H3/R2-1: 취소(cancelled, 잔여기간 내) 상태의 새 검증 결제가 구독을 **재활성**한다.
+
+    수정 전에는 `already_subscribed` 가드가 `get_active_subscription`
+    (status ∈ {active, cancelled})을 그대로 써서, 이 결제를 삼키고 구독을 만들지도
+    갱신하지도 않았다 — 과금은 되고 권한은 미지급, 서버측 복구 수단 없음.
+
+    red-proof: 가드의 `and active_subscription.status == "active"` 를 지우면
+    status가 'already_subscribed'로 돌아오고 active 구독이 없어 FAIL한다.
+    """
+    from datetime import timedelta
+
+    from src.core.utils import utcnow
+
+    user = headers["X-User-Key"]
+    db_session.add(
+        Subscription(
+            user_key=user, plan="premium", status="cancelled", credits_per_month=30,
+            current_period_start=utcnow() - timedelta(days=5),
+            current_period_end=utcnow() + timedelta(days=25),
+        )
+    )
+    await db_session.commit()
+
+    async def fake_verify(**kwargs):
+        return _fake_verification(kwargs["product_id"], "STORE-REACTIVATE-1")
+
+    monkeypatch.setattr(iap_verifier, "verify_purchase", fake_verify)
+
+    r = await client.post(
+        "/v1/iap/verify",
+        headers=headers,
+        json={
+            "platform": "apple",
+            "product_id": "subscription_premium",
+            "transaction_id": "reactivate-tx-1",
+            "receipt_data": "AAAA",
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "verified", r.json()
+
+    db_session.expire_all()
+    subs = (
+        await db_session.execute(
+            select(Subscription).where(Subscription.user_key == user)
+        )
+    ).scalars().all()
+    active = [s for s in subs if s.status == "active"]
+    assert len(active) == 1, [(s.plan, s.status) for s in subs]
+    assert active[0].plan == "premium"
+    # 대체된 옛 cancelled 행은 종료돼 entitlement가 둘로 갈리지 않는다.
+    assert all(s.status != "cancelled" for s in subs), [
+        (s.plan, s.status) for s in subs
+    ]
+
+
+@pytest.mark.asyncio
+async def test_active_webhook_restores_cancelled_subscription(client, db_session):
+    """H3/R2-1: 'active' 통지가 cancelled 구독을 복귀시킨다(cancelled는 터미널이 아니다).
+
+    red-proof: `_STATUS_RANK`에 `"cancelled": 2` 를 되돌리면 sticky 가드가 조기 반환해
+    구독이 cancelled에 갇혀 FAIL한다.
+    """
+    from datetime import timedelta
+
+    from src.core.utils import utcnow
+
+    user = "r21-webhook-active"
+    subscription = Subscription(
+        user_key=user, plan="basic", status="cancelled", credits_per_month=10,
+        current_period_start=utcnow(), current_period_end=utcnow() + timedelta(days=20),
+    )
+    db_session.add(subscription)
+    await db_session.flush()
+    subscription_id = subscription.id
+    db_session.add(
+        IAPReceipt(
+            user_key=user, platform="apple", product_id="subscription_basic",
+            transaction_id="r21-tx", store_transaction_id="STORE-R21",
+            status="cancelled", subscription_id=subscription_id, payload={},
+        )
+    )
+    await db_session.commit()
+
+    r = await client.post(
+        "/v1/iap/webhook/apple",
+        json={"transaction_id": "r21-tx", "status": "active"},
+    )
+    assert r.status_code == 200, r.text
+
+    db_session.expire_all()
+    refreshed = (
+        await db_session.execute(
+            select(Subscription).where(Subscription.id == subscription_id)
+        )
+    ).scalar_one()
+    assert refreshed.status == "active"
+
+
+@pytest.mark.asyncio
+async def test_refunded_receipt_stays_sticky_against_active_webhook(client, db_session):
+    """H4 유지 확인: 터미널(refunded)은 여전히 'active' 통지로 뒤집히지 않는다.
+
+    R2-1이 sticky 범위를 좁혔으므로, 좁히다가 환불 부활까지 열지 않았음을 반대 방향으로 봉인.
+    """
+    from datetime import timedelta
+
+    from src.core.utils import utcnow
+
+    user = "r21-refund-sticky"
+    subscription = Subscription(
+        user_key=user, plan="basic", status="expired", credits_per_month=10,
+        current_period_start=utcnow() - timedelta(days=40),
+        current_period_end=utcnow() - timedelta(seconds=1),
+    )
+    db_session.add(subscription)
+    await db_session.flush()
+    subscription_id = subscription.id
+    db_session.add(
+        IAPReceipt(
+            user_key=user, platform="apple", product_id="subscription_basic",
+            transaction_id="r21-refund-tx", store_transaction_id="STORE-R21-REF",
+            status="refunded", subscription_id=subscription_id, payload={},
+        )
+    )
+    await db_session.commit()
+
+    r = await client.post(
+        "/v1/iap/webhook/apple",
+        json={"transaction_id": "r21-refund-tx", "status": "active"},
+    )
+    assert r.status_code == 200, r.text
+
+    db_session.expire_all()
+    refreshed = (
+        await db_session.execute(
+            select(Subscription).where(Subscription.id == subscription_id)
+        )
+    ).scalar_one()
+    assert refreshed.status == "expired"
+
+
+@pytest.mark.asyncio
+async def test_zero_grant_subscription_refund_does_not_claw_back(client, db_session):
+    """M3/R2-3: 0지급 영수증(restored/already_subscribed)의 환불은 크레딧을 차감하지 않는다.
+
+    수정 전에는 플랜 고정액(30)을 회수해, 아무 잘못 없는 사용자의 잔액이 사라졌다.
+
+    red-proof: `_granted_subscription_credits(...)` 를 다시
+    `SUBSCRIPTION_PLANS[plan]["credits_per_month"]` 로 되돌리면 잔액이 30 → 0이 되어 FAIL.
+    """
+    from datetime import timedelta
+
+    from src.core.utils import utcnow
+
+    user = "r23-zero-grant"
+    db_session.add(UserCredits(user_key=user, credits=30, total_purchased=0))
+    subscription = Subscription(
+        user_key=user, plan="premium", status="active", credits_per_month=30,
+        current_period_start=utcnow(), current_period_end=utcnow() + timedelta(days=30),
+    )
+    db_session.add(subscription)
+    await db_session.flush()
+    # 복원 영수증 — grant_credits=False 였으므로 'subscription' 지급 원장이 없다.
+    db_session.add(
+        IAPReceipt(
+            user_key=user, platform="apple", product_id="subscription_premium",
+            transaction_id="r23-tx", store_transaction_id="STORE-R23",
+            status="restored", subscription_id=subscription.id, payload={},
+        )
+    )
+    await db_session.commit()
+
+    r = await client.post(
+        "/v1/iap/webhook/apple",
+        json={"transaction_id": "r23-tx", "status": "refunded"},
+    )
+    assert r.status_code == 200, r.text
+    assert await _balance(db_session, user) == 30  # 무고한 차감 없음
+
+
+@pytest.mark.asyncio
+async def test_google_license_test_purchase_rejected_in_production(monkeypatch):
+    """M4/R2-4: 운영(strict)에서 Google purchaseType=0(라이선스/테스트 구매)은 fail-closed.
+
+    Apple sandbox 영수증 차단과 대칭 — 무결제 지급 채널을 남기지 않는다.
+
+    red-proof: `_assert_google_purchase_valid`의 purchase_type 가드를 지우면 예외가
+    발생하지 않아 이 테스트가 FAIL한다.
+    """
+    from src.core.exceptions import ValidationError
+
+    monkeypatch.setattr(settings, "testing", False)
+    with pytest.raises(ValidationError):
+        iap_verifier._assert_google_purchase_valid(
+            google_data={"orderId": "GPA.1", "purchaseState": 0, "purchaseType": 0},
+            expected_transaction_id="GPA.1",
+            is_subscription=False,
+        )
+    # 정상(실결제)은 통과 — 반대 방향 봉인.
+    iap_verifier._assert_google_purchase_valid(
+        google_data={"orderId": "GPA.1", "purchaseState": 0},
+        expected_transaction_id="GPA.1",
+        is_subscription=False,
+    )
+
+
+@pytest.mark.asyncio
+async def test_google_missing_order_id_is_rejected(monkeypatch):
+    """R2-6: orderId 부재 시 매칭을 '스킵'하면 리플레이 dedup이 무력해진다 — 거부한다."""
+    from src.core.exceptions import ValidationError
+
+    monkeypatch.setattr(settings, "testing", False)
+    with pytest.raises(ValidationError):
+        iap_verifier._assert_google_purchase_valid(
+            google_data={"purchaseState": 0},
+            expected_transaction_id="GPA.1",
+            is_subscription=False,
+        )
+
+
+def test_apple_bundle_id_mismatch_is_rejected(monkeypatch):
+    """M5/R2-5: 기대 bundle_id와 다른 앱의 영수증은 거부한다(master secret 하 cross-app 리플레이).
+
+    red-proof: `_assert_apple_bundle_id(...)` 호출을 지우면 예외가 없어 FAIL한다.
+    """
+    from src.core.exceptions import ValidationError
+
+    monkeypatch.setattr(settings, "apple_bundle_id", "com.aistorybook.app")
+
+    # 일치 → 통과
+    iap_verifier._assert_apple_bundle_id(
+        {"receipt": {"bundle_id": "com.aistorybook.app"}}, matched={}
+    )
+    # 불일치 → 거부
+    with pytest.raises(ValidationError):
+        iap_verifier._assert_apple_bundle_id(
+            {"receipt": {"bundle_id": "com.attacker.other"}}, matched={}
+        )
+
+
+def test_subscription_receipt_without_expiry_is_treated_as_expired():
+    """R2-6: 구독 영수증에 expires_date_ms 가 없으면 '만료 아님'으로 fail-open하지 않는다."""
+    from src.routers.iap import _subscription_expired
+
+    # 스텁 기본값을 우회해 '만료 필드가 아예 없는' 구독 영수증을 만든다.
+    no_expiry = IAPVerificationResult(
+        verified=True,
+        source="apple_store",
+        environment="Production",
+        store_transaction_id="S1",
+        store_product_id="subscription_premium",
+        raw={},
+        expires_date_ms=None,
+    )
+    assert _subscription_expired(no_expiry, is_subscription=True) is True
+    # 크레딧팩(비구독)은 만료 필드가 원래 없다 — 영향 없음.
+    assert _subscription_expired(no_expiry, is_subscription=False) is False

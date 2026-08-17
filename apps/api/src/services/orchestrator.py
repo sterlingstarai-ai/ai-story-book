@@ -243,6 +243,28 @@ async def mark_job_failed(job_id: str, error_code: ErrorCode, message: str):
                     "failed-job refund error", job_id=job_id, error=str(refund_exc)
                 )
 
+            # M12/R3-5: 실패한 잡이 이미 S3에 올려둔 이미지는 책 행이 없어 어떤 파기 경로도
+            # 닿지 않는 고아다(아동 얼굴 파생 포함). 잡에 기록해 둔 키를 durable 파기 큐에
+            # 넣어 스윕이 정리하게 한다.
+            try:
+                keys = job.image_keys if isinstance(job.image_keys, list) else []
+                if keys:
+                    from src.services.purge_queue import enqueue_purge_keys
+
+                    enqueue_purge_keys(
+                        session,
+                        user_key=job.user_key,
+                        reason="failed_job_images",
+                        keys=[str(k) for k in keys if k],
+                    )
+                    await session.commit()
+            except Exception as purge_exc:  # noqa: BLE001
+                logger.warning(
+                    "failed-job image purge enqueue error",
+                    job_id=job_id,
+                    error=str(purge_exc),
+                )
+
     logger.error("Job failed", job_id=job_id, error_code=error_code, message=message)
 
 
@@ -772,6 +794,12 @@ async def generate_all_images(
         else:
             image_urls[prompt.page] = result
 
+    # M12/R3-5: 여기까지 온 이미지들은 **이미 S3에 영속화**돼 있다. 아래에서 잡이 실패하면
+    # 책 행이 만들어지지 않아 image_url 역산 경로가 아예 존재하지 않고, 아동 얼굴 파생
+    # 일러스트가 어떤 파기 경로에도 닿지 않는 고아가 된다. 실패 여부와 무관하게 잡 레코드에
+    # 키를 남겨 계정삭제·동의철회·정리 배치가 도달할 수 있게 한다(실패해도 생성은 계속).
+    await record_job_image_keys(job_id, list(image_urls.values()))
+
     # 25% 이상 실패 시 전체 실패 처리 (8페이지 기준 2페이지 이상 실패)
     max_failures = max(1, len(image_prompts.pages) // 4)
     if len(failed_pages) > max_failures:
@@ -781,6 +809,40 @@ async def generate_all_images(
         )
 
     return image_urls
+
+
+async def record_job_image_keys(job_id: str, image_urls: list) -> None:
+    """생성 잡이 영속화한 이미지 키를 잡 레코드에 누적 기록한다 (M12/R3-5).
+
+    추적성이 목적이므로 실패해도 생성 자체는 막지 않는다(로그만) — 다만 조용히 넘기면
+    고아 추적 수단이 사라지므로 warning으로 남긴다.
+    """
+    from src.services.storage import key_from_public_url
+
+    keys = [k for k in (key_from_public_url(u) for u in image_urls if u) if k]
+    if not keys:
+        return
+    try:
+        from sqlalchemy import select
+
+        from src.core.database import AsyncSessionLocal
+        from src.models.db import Job
+
+        async with AsyncSessionLocal() as session:
+            job = (
+                await session.execute(select(Job).where(Job.id == job_id))
+            ).scalar_one_or_none()
+            if job is None:
+                return
+            existing = job.image_keys if isinstance(job.image_keys, list) else []
+            job.image_keys = list(dict.fromkeys([*existing, *keys]))
+            await session.commit()
+    except Exception as exc:  # pragma: no cover - 방어적
+        logger.warning(
+            "failed to record job image keys (orphan tracking degraded)",
+            job_id=job_id,
+            error=str(exc),
+        )
 
 
 async def generate_image(prompt, reference_image_url: Optional[str] = None) -> str:
@@ -1357,6 +1419,7 @@ async def regenerate_page(
         # N1/#10: 교체된 구버전 이미지 키를 커밋 후 파기하기 위해 캡처.
         replaced_image_url = None
         new_image_url = None
+        orphaned_image_url = None
 
         if mode in ["image", "both"]:
             # Generate new image
@@ -1376,16 +1439,58 @@ async def regenerate_page(
                 if image_url:
                     replaced_image_url = page.image_url
                     new_image_url = image_url
-                    page.image_url = image_url
 
         page.updated_at = utcnow()
+
+        if new_image_url:
+            # R1-7 fence: 이미지 생성은 트랜잭션 밖에서 수 분 걸린다. 그 사이 다른
+            # 재생성/인페인트가 같은 페이지를 갱신했다면, 무조건 write-back하면 그쪽 이미지가
+            # 어떤 행에서도 참조되지 않는 **추적불가 고아**(아동 likeness 포함)가 된다.
+            # 우리가 읽은 값이 아직 그대로일 때만 쓰고, 아니면 우리 쪽을 고아로 인정해 파기한다.
+            await session.flush()
+            fence = await session.execute(
+                _fenced_image_update(page.id, replaced_image_url, new_image_url)
+            )
+            if fence.rowcount == 0:
+                logger.warning(
+                    "concurrent page image write-back lost fence; purging own output",
+                    book_id=book_id,
+                    page=page_number,
+                )
+                orphaned_image_url = new_image_url
+                replaced_image_url = None
+                new_image_url = None
+
         await session.commit()
 
     # N1/#10: 커밋 성공 후에만 구버전 키 파기(커밋 실패 시 살아있는 이미지를 지우지 않도록).
     await _purge_replaced_image(replaced_image_url, new_image_url)
+    # fence 패자의 산출물도 같은 계약으로 파기(참조 없는 아동 likeness 잔존 방지).
+    await _purge_replaced_image(orphaned_image_url, None)
 
     logger.info(
         "Page regeneration complete", book_id=book_id, page=page_number, mode=mode
+    )
+
+
+def _fenced_image_update(page_id, expected_url, new_url):
+    """`image_url`이 아직 expected_url 일 때만 new_url로 바꾸는 조건부 UPDATE (fence).
+
+    lease/CAS 없는 write-back은 동시 재생성에서 서로를 덮어써 고아를 만든다. NULL 비교는
+    `=` 로 매칭되지 않으므로 분기한다.
+    """
+    from sqlalchemy import update
+
+    from src.models.db import Page
+
+    condition = (
+        Page.image_url.is_(None) if expected_url is None else Page.image_url == expected_url
+    )
+    return (
+        update(Page)
+        .where(Page.id == page_id, condition)
+        .values(image_url=new_url)
+        .execution_options(synchronize_session=False)
     )
 
 
@@ -1470,15 +1575,35 @@ async def inpaint_page(
         )
         image_url = await generate_image(inpaint_prompt)
         replaced_image_url = None
+        new_image_url = None
+        orphaned_image_url = None
         if image_url:
             replaced_image_url = page.image_url
-            page.image_url = image_url
+            new_image_url = image_url
 
         page.updated_at = utcnow()
+
+        if new_image_url:
+            # R1-7 fence: 재생성 경로와 동일 — 동시 갱신에 졌으면 우리 산출물을 파기한다.
+            await session.flush()
+            fence = await session.execute(
+                _fenced_image_update(page.id, replaced_image_url, new_image_url)
+            )
+            if fence.rowcount == 0:
+                logger.warning(
+                    "concurrent inpaint write-back lost fence; purging own output",
+                    book_id=book_id,
+                    page=page_number,
+                )
+                orphaned_image_url = new_image_url
+                replaced_image_url = None
+                new_image_url = None
+
         await session.commit()
 
     # N1/#10: 인페인트도 새 키에 저장되므로 이전 버전이 고아가 된다 — 커밋 후 파기.
-    await _purge_replaced_image(replaced_image_url, image_url)
+    await _purge_replaced_image(replaced_image_url, new_image_url)
+    await _purge_replaced_image(orphaned_image_url, None)
 
     logger.info("Page inpaint complete", book_id=book_id, page=page_number)
 

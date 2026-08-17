@@ -710,25 +710,46 @@ def test_regenerate_request_requires_feedback_for_text_mode():
 
 
 class _RegenRes:
-    def __init__(self, v):
+    def __init__(self, v, rowcount=1):
         self._v = v
+        self.rowcount = rowcount
 
     def scalar_one_or_none(self):
         return self._v
 
 
 class _RegenSession:
-    """regenerate_page용 최소 fake 세션 — execute가 순서대로 book/page/draft 반환."""
+    """regenerate_page용 최소 fake 세션 — execute가 순서대로 book/page/draft 반환.
 
-    def __init__(self, rows):
+    R1-7: image_url write-back은 조건부 UPDATE(fence)로 나간다. UPDATE 문은 행 순서
+    시퀀스에서 소비하지 않고 `fence_rowcount`(기본 1 = 내가 이김)를 돌려준다 —
+    0으로 주입하면 '동시 재생성 패배' 분기를 단일 프로세스에서 결정적으로 유발할 수 있다.
+    """
+
+    def __init__(self, rows, fence_rowcount: int = 1):
         self._rows = list(rows)
         self._i = 0
         self.committed = False
+        self.fence_rowcount = fence_rowcount
+        self.fenced_updates = 0
 
-    async def execute(self, _q):
+    async def execute(self, q):
+        if q.__class__.__name__ == "Update":
+            self.fenced_updates += 1
+            if self.fence_rowcount == 1:
+                # fence 승리 = 실제 DB라면 행이 갱신된다. ORM 객체를 쓰는 fake이므로
+                # 같은 효과를 여기서 반영한다(패배 시엔 반영하지 않음 — 그게 요점).
+                for row in self._rows:
+                    if hasattr(row, "image_url"):
+                        row.image_url = q.compile().params.get("image_url")
+                        break
+            return _RegenRes(None, rowcount=self.fence_rowcount)
         row = self._rows[self._i]
         self._i += 1
         return _RegenRes(row)
+
+    async def flush(self):
+        return None
 
     async def commit(self):
         self.committed = True

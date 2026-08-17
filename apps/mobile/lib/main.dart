@@ -11,7 +11,9 @@ import 'l10n/app_localizations.dart';
 import 'providers/providers.dart';
 import 'screens/screens.dart';
 import 'services/analytics.dart';
+import 'services/iap_platform_init.dart';
 import 'services/screen_time_service.dart';
+import 'services/user_service.dart';
 import 'utils/constants.dart';
 import 'widgets/age_gate_dialog.dart';
 
@@ -43,8 +45,19 @@ void main() async {
     ),
   );
 
+  // R0(🔴C1): iOS StoreKit1 강제. **반드시 InAppPurchase.instance 첫 접근 전에** —
+  // 플러그인 등록이 그 접근에서 일어나고, 등록 시점 플래그로 SK1/SK2 옵저버가 정해진다.
+  // 늦게 호출하면 이미 SK2로 등록돼 serverVerificationData가 JWS로 나가고, 백엔드
+  // legacy verifyReceipt가 21002로 전량 실패한다(과금됐는데 미지급).
+  await IapPlatformInit.ensureStoreKit1();
+
   // SharedPreferences 초기화
   final prefs = await SharedPreferences.getInstance();
+
+  // M1(🟠): X-User-Key(유일 자격증명)를 Keychain/Keystore에서 로드하고, 기존 평문
+  // SharedPreferences 값이 있으면 이관 후 평문을 삭제한다. 동기 `getUserKey()`가
+  // 이 캐시를 쓰므로 runApp 전에 완료돼야 한다.
+  await UserService.bootstrapUserKey(prefs);
 
   runApp(
     ProviderScope(

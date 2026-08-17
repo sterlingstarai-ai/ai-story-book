@@ -53,6 +53,7 @@ class IAPVerifierService:
                 product_id=product_id,
                 transaction_id=transaction_id,
                 receipt_data=receipt_data,
+                is_subscription=is_subscription,
             )
         if platform == "google":
             return await self._verify_google(
@@ -72,6 +73,7 @@ class IAPVerifierService:
         product_id: str,
         transaction_id: str,
         receipt_data: Optional[str],
+        is_subscription: bool = False,
     ) -> IAPVerificationResult:
         if not receipt_data:
             raise ValidationError("Apple 영수증(receipt_data)이 필요합니다.")
@@ -89,6 +91,7 @@ class IAPVerifierService:
                 product_id=product_id,
                 transaction_id=transaction_id,
                 raw={"reason": "apple_store_config_missing"},
+                is_subscription=is_subscription,
             )
 
         payload = {
@@ -115,6 +118,7 @@ class IAPVerifierService:
                     product_id=product_id,
                     transaction_id=transaction_id,
                     raw={"reason": "apple_verification_failed"},
+                    is_subscription=is_subscription,
                 )
             raise
 
@@ -123,6 +127,10 @@ class IAPVerifierService:
             expected_product_id=product_id,
             expected_transaction_id=transaction_id,
         )
+        # M5/R2-5: bundle_id는 추출만 하고 검증하지 않았다. Apple의 shared secret은
+        # **앱 단위가 아니라 팀 단위(master)** 로도 발급되므로, 그 경우 같은 팀의 다른 앱
+        # 영수증이 그대로 통과해 우리 크레딧·구독을 발급받는다(cross-app 리플레이).
+        self._assert_apple_bundle_id(apple_data, matched=matched or {})
         if not matched:
             raise ValidationError(
                 "Apple 영수증에서 결제 내역을 찾을 수 없습니다.",
@@ -152,6 +160,29 @@ class IAPVerifierService:
                 ),
             },
         )
+
+    def _assert_apple_bundle_id(self, apple_data: dict, *, matched: dict) -> None:
+        """영수증의 bundle_id가 기대값(APPLE_BUNDLE_ID)과 일치하는지 강제한다 (M5/R2-5).
+
+        기대값이 설정되지 않았으면 검증하지 않는다(하위호환) — 대신 readiness가
+        `apple_bundle_id_missing`으로 운영 배포를 막는다(무음 미검증 금지).
+        """
+        expected = _coerce_str(getattr(settings, "apple_bundle_id", None))
+        if not expected:
+            return
+        actual = _coerce_str(matched.get("bid")) or _coerce_str(
+            (apple_data.get("receipt") or {}).get("bundle_id")
+        )
+        if actual is None:
+            raise ValidationError(
+                "Apple 영수증에서 앱 식별자를 확인할 수 없습니다.",
+                details={"reason": "bundle_id_missing"},
+            )
+        if actual != expected:
+            raise ValidationError(
+                "다른 앱의 영수증입니다.",
+                details={"reason": "bundle_id_mismatch"},
+            )
 
     async def _verify_google(
         self,
@@ -186,6 +217,7 @@ class IAPVerifierService:
                 product_id=product_id,
                 transaction_id=transaction_id,
                 raw={"reason": "google_store_config_missing"},
+                is_subscription=is_subscription,
             )
 
         try:
@@ -213,6 +245,7 @@ class IAPVerifierService:
                     product_id=product_id,
                     transaction_id=transaction_id,
                     raw={"reason": "google_verification_failed"},
+                    is_subscription=is_subscription,
                 )
             raise
 
@@ -393,13 +426,35 @@ class IAPVerifierService:
         is_subscription: bool,
     ) -> None:
         order_id = _coerce_str(google_data.get("orderId"))
-        if order_id and not self._is_transaction_match(expected_transaction_id, order_id):
+        if order_id is None:
+            # R2-6: orderId 부재를 '매칭 스킵'으로 처리하면 리플레이 dedup의 정본 키가
+            # 사라진다(같은 토큰을 임의 transaction_id로 무한 재제출). 운영에서는 거부한다.
+            # 테스트 훅(ENABLE_TEST_HOOKS)이 켜진 환경만 예외로 통과시킨다.
+            if not (settings.testing or settings.enable_test_hooks):
+                raise ValidationError(
+                    "Google 결제 주문번호를 확인할 수 없습니다.",
+                    details={"reason": "order_id_missing"},
+                )
+        elif not self._is_transaction_match(expected_transaction_id, order_id):
             raise ValidationError(
                 "Google 결제 주문번호가 일치하지 않습니다.",
                 details={
                     "expected": expected_transaction_id,
                     "actual": order_id,
                 },
+            )
+
+        # M4/R2-4: purchaseType=0 은 라이선스 테스터/프로모 구매 = **무결제**다. Apple의
+        # sandbox 영수증을 운영에서 차단하는 것과 대칭으로 fail-closed 거부한다. 없으면
+        # 라이선스 테스터 계정 하나로 크레딧·구독을 무한 발급할 수 있다.
+        # (1 = 프로모 코드, 2 = 리워드 — 이들도 무결제이므로 함께 막는다.)
+        purchase_type = google_data.get("purchaseType")
+        if purchase_type is not None and not (
+            settings.testing or settings.enable_test_hooks
+        ):
+            raise ValidationError(
+                "무결제(테스트/프로모) 구매는 운영에서 지급되지 않습니다.",
+                details={"purchase_type": purchase_type},
             )
 
         if is_subscription:
@@ -439,6 +494,7 @@ class IAPVerifierService:
         product_id: str,
         transaction_id: str,
         raw: Optional[dict] = None,
+        is_subscription: bool = False,
     ) -> IAPVerificationResult:
         # 보안: 로컬(무검증) 성공은 위조 영수증을 그대로 통과시키는 fail-open이다.
         # mode=local, hybrid의 설정누락/검증실패 폴백이 모두 이 단일 지점을 지나므로,
@@ -450,6 +506,15 @@ class IAPVerifierService:
                 "스토어 검증이 구성되지 않아 결제를 확인할 수 없습니다.",
                 details={"iap_verification": "unavailable"},
             )
+        # R2-6: 구독은 `expires_date_ms` 부재를 '만료'로 fail-closed 취급한다. 로컬(무검증)
+        # 스텁이 그 필드를 비워두면 dev/test 에서 구독이 **절대 생성되지 않는** 인위적 실패가
+        # 된다. 스텁은 '검증에 성공한 유효 구독'을 흉내 내는 것이므로 미래 만료를 채운다
+        # (운영에서는 이 함수 자체가 위에서 fail-closed로 막힌다).
+        expires_date_ms = None
+        if is_subscription:
+            from datetime import timedelta
+
+            expires_date_ms = int((utcnow() + timedelta(days=30)).timestamp() * 1000)
         return IAPVerificationResult(
             verified=True,
             source=source,
@@ -457,6 +522,7 @@ class IAPVerifierService:
             store_transaction_id=transaction_id,
             store_product_id=product_id,
             raw=raw or {},
+            expires_date_ms=expires_date_ms,
         )
 
     def _resolve_google_access_token(self) -> Optional[str]:

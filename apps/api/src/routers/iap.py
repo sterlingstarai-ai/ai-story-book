@@ -7,9 +7,9 @@ from datetime import timedelta
 import hmac
 from typing import Optional, Literal
 
-from fastapi import APIRouter, Depends, Header, Query
+from fastapi import APIRouter, Depends, Header
 from pydantic import BaseModel, Field
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
@@ -19,8 +19,8 @@ from src.core.database import get_db
 from src.core.dependencies import get_user_key
 from src.core.exceptions import AuthorizationError, ValidationError
 from src.core.utils import utcnow
-from src.models.db import IAPReceipt, IapWebhookEvent, Subscription
-from src.services.credits import SUBSCRIPTION_PLANS, credits_service
+from src.models.db import CreditTransaction, IAPReceipt, IapWebhookEvent, Subscription
+from src.services.credits import credits_service
 from src.services.iap_verifier import _strip_google_order_suffix, iap_verifier
 
 router = APIRouter()
@@ -68,12 +68,19 @@ def _review_sandbox_allowlist() -> set:
     return {p.strip() for p in raw.split(",") if p.strip()}
 
 
-def _subscription_expired(verification) -> bool:
+def _subscription_expired(verification, *, is_subscription: bool = True) -> bool:
     """스토어 만료 시각이 과거인 구독 영수증인지(MA1). 만료 영수증으로 active 구독을
-    재활성하면 periodic_credits가 영구 리필하므로 지급/재활성을 막는다."""
+    재활성하면 periodic_credits가 영구 리필하므로 지급/재활성을 막는다.
+
+    R2-6: 구독 항목에 `expires_date_ms` 가 **없으면** 예전엔 '만료 아님'으로 통과시켰다.
+    부재는 '유효함'의 증거가 아니라 unknown이며, 그 fail-open은 만료 판정을 우회하는
+    가장 쉬운 경로가 된다(파싱 실패·필드명 변경·조작된 응답 모두 여기로 떨어진다).
+    구독은 만료 시각을 **필수**로 강제한다. 비구독(크레딧팩)은 원래 이 필드가 없으므로
+    영향 없음.
+    """
     expires_ms = getattr(verification, "expires_date_ms", None)
     if not expires_ms:
-        return False
+        return bool(is_subscription)
     return expires_ms < int(utcnow().timestamp() * 1000)
 
 
@@ -282,10 +289,20 @@ async def verify_iap(
             verification_source=verification.source,
         )
 
-    # 이미 같은 플랜이 활성이면 보상 없이 영수증만 기록.
+    # 이미 같은 플랜이 **active**면 보상 없이 영수증만 기록.
+    #
+    # H3/R2-1: 예전에는 `get_active_subscription`(status ∈ {active, cancelled})을 그대로 썼다.
+    # 그 결과 서버-취소(cancelled, 잔여기간 내) 상태에서 들어온 **새 검증 결제**가
+    # already_subscribed로 삼켜져 구독이 생성되지도 갱신되지도 않았다 — 과금은 되고 권한은
+    # 미지급, 자가치유 수단 없음. cancelled는 '재활성 가능'한 상태이므로 이 가드에서 제외하고
+    # 아래 정상 경로로 흘려보내 create_subscription이 재활성하게 한다.
     if plan:
         active_subscription = await credits_service.get_active_subscription(db, user_key)
-        if active_subscription and active_subscription.plan == plan:
+        if (
+            active_subscription
+            and active_subscription.plan == plan
+            and active_subscription.status == "active"
+        ):
             receipt = IAPReceipt(
                 user_key=user_key,
                 platform=request.platform,
@@ -323,6 +340,10 @@ async def verify_iap(
         if plan:
             # 만료 영수증(MA1)은 active 구독을 만들지 않는다(무한 리필 차단). 영수증만 기록.
             if not _subscription_expired(verification):
+                # H3/R2-1: 취소 후 재결제 — 잔여 cancelled 행은 이 결제로 대체(종료)한다.
+                await credits_service.supersede_cancelled_subscription_for_plan(
+                    db, user_key, plan
+                )
                 new_sub = await credits_service.create_subscription(
                     db, user_key, plan, commit=False
                 )
@@ -391,13 +412,39 @@ async def verify_iap(
     )
 
 
-# 상태 우선순위(sticky): 터미널(refunded/expired) > cancelled > 그 외. 낮은 순위로 되돌리지
-# 않는다 — 환불/만료된 영수증이 이후 active 통지로 뒤집히지 않게 한다(H4).
-_STATUS_RANK = {"refunded": 3, "expired": 3, "cancelled": 2}
+# 상태 우선순위(sticky): **터미널(refunded/expired)만** 되돌릴 수 없다 — 환불/만료된 영수증이
+# 이후 active 통지로 뒤집히지 않게 한다(H4).
+#
+# H3/R2-1: 예전에는 cancelled 도 rank 2 로 sticky였다. 그런데 취소는 터미널이 아니라
+# **되돌릴 수 있는** 상태다(사용자가 스토어에서 자동갱신을 다시 켜거나 재결제). sticky면
+# 스토어의 'active' 갱신 통지가 조기 반환으로 버려져, 서버는 영원히 cancelled에 갇히고
+# 갱신 청구만 계속된다. 복구 수단이 수동 DB 개입뿐이었다.
+_STATUS_RANK = {"refunded": 3, "expired": 3}
 
 
 def _status_rank(status: Optional[str]) -> int:
     return _STATUS_RANK.get(status or "", 1)
+
+
+async def _granted_subscription_credits(db: AsyncSession, receipt: IAPReceipt) -> int:
+    """이 영수증이 개설한 구독으로 **실제 지급된** 크레딧 합계 (M3/R2-3).
+
+    `create_subscription(grant_credits=True)` 는 `reference_id=str(subscription.id)` 로
+    'subscription' 타입 원장을 남긴다. 그 합계가 곧 회수 가능한 상한이다.
+    - subscription_id 가 없는 레거시 영수증: 원장을 특정할 수 없으므로 0(회수 안 함) —
+      무고한 차감보다 미회수가 낫다(회수 실패는 로그로 관측 가능).
+    - restored / already_subscribed 영수증: 애초에 지급이 없어 합계가 0이다.
+    """
+    if receipt.subscription_id is None:
+        return 0
+    total = await db.scalar(
+        select(func.coalesce(func.sum(CreditTransaction.amount), 0)).where(
+            CreditTransaction.user_key == receipt.user_key,
+            CreditTransaction.transaction_type == "subscription",
+            CreditTransaction.reference_id == str(receipt.subscription_id),
+        )
+    )
+    return max(0, int(total or 0))
 
 
 async def _apply_status_to_receipt(
@@ -423,6 +470,7 @@ async def _apply_status_to_receipt(
     # 구독 취소/만료/환불 동기화. 'refunded'를 누락하면 환불된 구독이 active로 남아
     # periodic_credits가 매월 영구 리필 → buy→consume→refund 무한 무료 크레딧.
     if receipt.product_id in SUBSCRIPTION_PRODUCTS and status in {
+        "active",
         "cancelled",
         "expired",
         "refunded",
@@ -445,10 +493,17 @@ async def _apply_status_to_receipt(
             )
             subscription = sub_result.scalars().first()
         if subscription:
-            # cancelled는 기간 만료까지 사용 유지, expired/refunded는 즉시 권한 종료.
-            subscription.status = "cancelled" if status == "cancelled" else "expired"
-            if status in {"expired", "refunded"}:
-                subscription.current_period_end = utcnow() - timedelta(seconds=1)
+            if status == "active":
+                # H3/R2-1: 스토어가 '다시 활성'을 통지하면 서버도 복귀한다. 터미널
+                # (refunded/expired) 영수증은 위 sticky 가드에서 이미 걸러졌으므로 여기까지
+                # 오지 않는다 — 환불 후 부활은 여전히 불가능하다.
+                if subscription.status == "cancelled":
+                    subscription.status = "active"
+            else:
+                # cancelled는 기간 만료까지 사용 유지, expired/refunded는 즉시 권한 종료.
+                subscription.status = "cancelled" if status == "cancelled" else "expired"
+                if status in {"expired", "refunded"}:
+                    subscription.current_period_end = utcnow() - timedelta(seconds=1)
 
     # 소비성 크레딧팩 환불 → 지급했던 크레딧 회수(멱등). add_credits가 사용한 것과 같은
     # reference_id(store_transaction_id 우선)로 회수해 이중 처리하지 않는다.
@@ -466,18 +521,29 @@ async def _apply_status_to_receipt(
 
     # M14: 구독 상품 환불도 지급된 월간 크레딧을 회수(0클램프·멱등). 회수 안 하면
     # buy→30크레딧→refund 사이클마다 무비용 적립된다.
+    #
+    # M3/R2-3: 회수액은 **이 영수증이 실제로 지급한 액수**여야 한다. 플랜 고정액을 회수하면
+    # 0지급 영수증(restored / already_subscribed — 둘 다 grant_credits 없음)의 환불이
+    # 아무 잘못 없는 사용자의 크레딧을 차감한다. 원장(credit_transactions)에서 이 구독에
+    # 실제 지급된 액수를 읽어 연동하고, 0지급이면 0회수(=no-op)한다.
     if status == "refunded" and receipt.product_id in SUBSCRIPTION_PRODUCTS:
-        plan = SUBSCRIPTION_PRODUCTS[receipt.product_id]
-        clawback_amount = SUBSCRIPTION_PLANS[plan]["credits_per_month"]
+        clawback_amount = await _granted_subscription_credits(db, receipt)
         clawback_ref = receipt.store_transaction_id or receipt.transaction_id
-        await credits_service.clawback_credits(
-            db=db,
-            user_key=receipt.user_key,
-            amount=clawback_amount,
-            reference_id=clawback_ref,
-            description="구독 환불 회수",
-            commit=False,
-        )
+        if clawback_amount > 0:
+            await credits_service.clawback_credits(
+                db=db,
+                user_key=receipt.user_key,
+                amount=clawback_amount,
+                reference_id=clawback_ref,
+                description="구독 환불 회수",
+                commit=False,
+            )
+        else:
+            logger.info(
+                "subscription refund clawback skipped (no credits were granted)",
+                transaction_id=receipt.transaction_id,
+                receipt_status=receipt.status,
+            )
 
 
 async def _reapply_orphan_events(db: AsyncSession, receipt: IAPReceipt) -> None:
@@ -595,23 +661,23 @@ async def _apply_webhook_status(
 
 
 async def _require_webhook_secret(
-    token: str = Query(default=""),
     x_webhook_token: Optional[str] = Header(default=None, alias="X-Webhook-Token"),
 ):
     """IAP 웹훅 인증: iap_webhook_secret이 설정되면 토큰이 일치해야 한다.
 
     Apple/Google이 호출하는 공개 엔드포인트가 무인증이면 알려진 transaction id로 구독
-    상태를 변조(취소성 공격)할 수 있다. 토큰은 X-Webhook-Token 헤더 우선, 미제공 시
-    ?token= 쿼리로 폴백(하위호환·쿼리는 로그/리퍼러 노출 위험이라 헤더 권장, L10).
-    시크릿 미설정 시 운영(testing=False)에서는 무인증 상태변조를 막기 위해 거부한다
-    (fail-closed). dev/test에서만 통과해 기존 동작을 유지한다.
+    상태를 변조(취소성 공격)할 수 있다. 토큰은 **X-Webhook-Token 헤더로만** 받는다.
+    이 엔드포인트는 스토어가 직접 호출하지 않고 신뢰된 어댑터가 호출하므로(커스텀 스키마)
+    헤더 전달이 가능하다. 과거 ?token= 쿼리 폴백은 nginx 액세스 로그($request)에 시크릿이
+    평문 기록되는 유출 경로였다(감사 iap.py:614/L10) — 제거했다. 시크릿 미설정 시
+    운영(testing=False)에서는 무인증 상태변조를 막기 위해 거부한다(fail-closed).
     """
     secret = settings.iap_webhook_secret
     if not secret:
         if not settings.testing:
             raise AuthorizationError("웹훅 인증이 구성되지 않았습니다.")
         return
-    provided = x_webhook_token if x_webhook_token is not None else token
+    provided = x_webhook_token if x_webhook_token is not None else ""
     if not hmac.compare_digest(provided, secret):
         raise AuthorizationError("유효하지 않은 웹훅 토큰입니다.")
 

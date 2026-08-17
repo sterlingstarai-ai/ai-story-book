@@ -1,7 +1,7 @@
 """결제 우회/웹훅 인증 — 운영 보안 가드.
 
 - /v1/credits/subscribe 유료 플랜 직접 지급을 운영에서 차단(검증 IAP만).
-- IAP 웹훅은 시크릿 설정 시 ?token= 일치를 요구(무인증 상태 변조 차단).
+- IAP 웹훅은 시크릿 설정 시 X-Webhook-Token 헤더 일치를 요구(무인증 상태 변조 차단).
 """
 
 import pytest
@@ -118,12 +118,20 @@ async def test_iap_webhook_requires_secret_when_configured(client, monkeypatch):
     r = await client.post("/v1/iap/webhook/apple", json=body)
     assert r.status_code == 403, r.text
 
-    # 틀린 토큰 → 403
-    r = await client.post("/v1/iap/webhook/apple?token=wrong", json=body)
+    # 틀린 토큰(헤더) → 403
+    r = await client.post(
+        "/v1/iap/webhook/apple", json=body, headers={"X-Webhook-Token": "wrong"}
+    )
     assert r.status_code == 403, r.text
 
-    # 올바른 토큰 → 가드 통과(핸들러 진입 — 403 아님)
+    # 쿼리 토큰은 이제 인증 채널이 아니다(로그 유출 방지, 감사 iap.py:614) → 403
     r = await client.post("/v1/iap/webhook/apple?token=s3cret", json=body)
+    assert r.status_code == 403, r.text
+
+    # 올바른 토큰(헤더) → 가드 통과(핸들러 진입 — 403 아님)
+    r = await client.post(
+        "/v1/iap/webhook/apple", json=body, headers={"X-Webhook-Token": "s3cret"}
+    )
     assert r.status_code != 403, r.text
 
 

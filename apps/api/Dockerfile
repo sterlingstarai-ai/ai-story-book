@@ -61,4 +61,9 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 EXPOSE 8000
 
 # Default command (API server)
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# M6(2026-08-17 감사): `--no-access-log` 필수. uvicorn 기본 액세스 로그는 **원문 경로**를
+# 찍으므로 `/share/<hex32>` 공유 토큰(capability URL)이 그대로 남는다 — 앱의
+# AccessLogMiddleware(_redact_path)와 nginx의 `access_log off` 마스킹이 uvicorn 한 줄로
+# 무력화되고, 로그 접근자가 무인증으로 아동 콘텐츠를 재생할 수 있다.
+# 앱이 이미 마스킹된 구조화 액세스 로그를 발행하므로 관측성 손실은 없다.
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]

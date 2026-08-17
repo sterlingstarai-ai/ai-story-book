@@ -273,3 +273,56 @@ def test_dependency_scan_blocks_high_severity(ci_data):
             )
             return
     raise AssertionError("repo(fs) Trivy 스캔 스텝을 찾지 못함")
+
+
+# ── 2026-08-17 보안감사: 실PG FK 게이트가 CI에서 실제로 도는가 ────────────────
+
+
+def _find_step(ci_data: dict, job: str, needle: str) -> dict | None:
+    for step in _steps(ci_data, job):
+        if needle in (step.get("name") or "") or needle in (step.get("run") or ""):
+            return step
+    return None
+
+
+def test_real_pg_fk_gate_runs_in_ci(ci_data):
+    """실 PostgreSQL FK 게이트가 CI 스텝으로 배선돼 있다.
+
+    아동 PII 파기·FK 위반 클래스는 SQLite 스위트가 구조적으로 못 잡는다
+    (`data_deletion.py` 독스트링). 이 테스트 파일이 CI에 없으면 그 클래스는 **무방비**다.
+
+    red-proof: ci.yml 에서 'Real-PostgreSQL FK gate' 스텝을 지우면 FAIL.
+    """
+    step = _find_step(ci_data, "api-test", "tests/test_pg_fk_erasure.py")
+    assert step is not None, (
+        "ci.yml 에 실PG FK 게이트 스텝이 없다 — 아동 PII 파기 회귀가 CI에서 무방비"
+    )
+
+
+def test_real_pg_fk_gate_has_database_url_env(ci_data):
+    """게이트 스텝에 `E2E_PG_DATABASE_URL` 이 주입돼 있다.
+
+    이 변수가 없으면 `tests/test_pg_fk_erasure.py` 는 **전건 skip 후 exit 0** 이다 —
+    즉 게이트가 조용히 사라지고 CI는 green으로 보인다(이 저장소가 반복해서 당한 false-green).
+
+    red-proof: 스텝의 env 에서 E2E_PG_DATABASE_URL 을 지우면 FAIL.
+    """
+    step = _find_step(ci_data, "api-test", "tests/test_pg_fk_erasure.py")
+    assert step is not None
+    env = step.get("env") or {}
+    assert "E2E_PG_DATABASE_URL" in env, (
+        "E2E_PG_DATABASE_URL 미주입 — 게이트가 전건 skip으로 조용히 무력화된다"
+    )
+    assert str(env["E2E_PG_DATABASE_URL"]).startswith("postgresql+asyncpg://"), env
+
+
+def test_real_pg_fk_gate_runs_before_create_all_gate(ci_data):
+    """FK 게이트가 C1 워커 게이트보다 **앞선다**.
+
+    FK 게이트는 `alembic upgrade head` 로 스키마를 세우고, C1 게이트는 `create_all` 을 쓴다.
+    순서가 뒤집히면 alembic 이 이미 존재하는 테이블을 만들려다 실패한다.
+    """
+    names = [(s.get("name") or "") + (s.get("run") or "") for s in _steps(ci_data, "api-test")]
+    fk_at = next(i for i, n in enumerate(names) if "test_pg_fk_erasure.py" in n)
+    c1_at = next(i for i, n in enumerate(names) if "test_celery_worker_pg.py" in n)
+    assert fk_at < c1_at, "실PG FK 게이트는 C1(create_all) 게이트보다 먼저 돌아야 한다"

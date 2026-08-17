@@ -45,6 +45,68 @@ Important properties:
 - image defaults can be overridden with `API_IMAGE` and `WORKER_IMAGE`
 - `IMAGE_TAG` is propagated through `scripts/deploy.sh --image-tag`
 
+## TLS termination (H9 — required before any real traffic)
+
+**Until this section is done, the edge serves plain HTTP and `X-User-Key` — the only
+credential in the system — travels in clear text along with children's photos.** One
+passive observer on the path is a full account takeover. This is a launch blocker.
+
+`infra/nginx/nginx.conf` now terminates TLS: port 80 serves only the ACME challenge and
+301-redirects everything else; port 443 serves the app with HSTS
+(`max-age=63072000; includeSubDomains`). nginx will **refuse to start** without
+certificates at `/etc/nginx/ssl/{fullchain.pem,privkey.pem}` — that is intentional
+fail-closed behaviour, not a bug: it makes a plaintext production deploy impossible.
+
+Owner steps (once per domain):
+
+```bash
+cd infra
+
+# 1. Point the DNS A/AAAA record at this host FIRST (ACME HTTP-01 validates over :80).
+
+# 2. Bring up nginx with a temporary self-signed pair so :80 can serve the challenge.
+mkdir -p nginx/ssl
+openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
+  -keyout nginx/ssl/privkey.pem -out nginx/ssl/fullchain.pem \
+  -subj "/CN=$DOMAIN"
+docker compose -f docker-compose.prod.yml up -d nginx
+
+# 3. Issue the real certificate (webroot challenge served by the :80 listener).
+docker compose -f docker-compose.prod.yml run --rm certbot certonly \
+  --webroot -w /var/www/certbot \
+  -d "$DOMAIN" --email "$OPS_EMAIL" --agree-tos --no-eff-email
+
+# 4. Point nginx at the issued files and reload.
+ln -sf /etc/letsencrypt/live/$DOMAIN/fullchain.pem nginx/ssl/fullchain.pem
+ln -sf /etc/letsencrypt/live/$DOMAIN/privkey.pem   nginx/ssl/privkey.pem
+docker compose -f docker-compose.prod.yml exec nginx nginx -s reload
+```
+
+Renewal is automatic: the `certbot` service retries `certbot renew` every 12h. Reload
+nginx after renewal (cron on the host, or `docker compose exec nginx nginx -s reload`).
+
+Verification (all three must hold):
+
+```bash
+curl -sSI  http://$DOMAIN/health  | head -1          # expect 301
+curl -sSI https://$DOMAIN/health  | grep -i strict-  # expect Strict-Transport-Security
+curl -sS  https://$DOMAIN/health/ready | jq .status  # expect healthy
+```
+
+## Cost guardrail (H4 — required before any real traffic)
+
+`DAILY_GENERATION_BUDGET` is the **only** control that caps the LLM/image bill.
+`X-User-Key` is a client-generated UUID, so every per-user control (rate limit, daily
+20 books, free-plan monthly limit) is bypassed by rotating the key. The variable is now
+wired into `.env.example` and `docker-compose.prod.yml`, but **it defaults to 0 = OFF**.
+
+Pick the value from spend tolerance, not from traffic: one book costs roughly `$0.32`
+(`~$0.48` with regeneration headroom). `budget = tolerable_daily_spend / cost_per_book`.
+
+`/health/ready` reports `services.cost_budget: "disabled"` and the API logs an
+`error`-level line on every readiness probe while it is unset. That is a warning, not a
+block — deploying with it off is an explicit choice, and it is the wrong one for GA.
+
 ## Deploy script
 
 Usage:
@@ -144,6 +206,9 @@ If the image tag is known-good, rollback does not require a new build.
 
 ## Production safety rules
 
+- Do not serve production traffic over plain HTTP (H9). TLS termination is configured
+  in `infra/nginx/nginx.conf`; certificates are an owner step (see "TLS termination").
+- Do not deploy with `DAILY_GENERATION_BUDGET=0` (H4). It is the only global cost cap.
 - Do not rely on test ad units in release builds
 - Do not allow silent share/IAP/POD fallback in production
 - Do not allow silent TTS/STT mock fallback in production (H1). Audio ships

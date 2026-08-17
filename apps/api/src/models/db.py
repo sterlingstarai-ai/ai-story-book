@@ -50,6 +50,10 @@ class Job(Base):
     idempotency_key = Column(String(80), nullable=True, index=True)
     retry_count = Column(Integer, default=0)  # Number of retry attempts
     last_retry_at = Column(DateTime, nullable=True)  # Last retry timestamp
+    # M12/R3-5: 이 잡이 S3에 영속화한 이미지 키 목록. 잡이 실패하면 책 행이 만들어지지
+    # 않아 image_url 역산 경로가 존재하지 않고, 이미 올라간 아동 얼굴 파생 일러스트가
+    # 어떤 파기 경로에도 닿지 않는 고아가 된다 — 생성 시점에 여기 기록해 추적 가능하게.
+    image_keys = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
@@ -339,6 +343,18 @@ class CreditTransaction(Base):
             unique=True,
             sqlite_where=text("transaction_type = 'purchase'"),
             postgresql_where=text("transaction_type = 'purchase'"),
+        ),
+        # M2/R2-2: clawback(환불 회수)도 refund/purchase와 같은 DB 레벨 멱등이 필요하다.
+        # clawback_credits는 트랜잭션 밖 check-then-write라 동시 중복 환불 웹훅 두 건이
+        # 모두 '아직 회수 안 됨'을 통과해 크레딧을 이중 회수한다(사용자 손해). 회수는
+        # (user_key, reference_id)당 1회.
+        Index(
+            "uq_credit_transactions_clawback",
+            "user_key",
+            "reference_id",
+            unique=True,
+            sqlite_where=text("transaction_type = 'clawback'"),
+            postgresql_where=text("transaction_type = 'clawback'"),
         ),
         Index(
             "ix_credit_transactions_reference_type",
@@ -729,3 +745,29 @@ class QuizAnswer(Base):
     created_at = Column(DateTime, default=utcnow)
 
     book = relationship("Book")
+
+
+class StoragePurgeTask(Base):
+    """스토리지 파기 지시(outbox) — 아동 PII 파기의 durable 레코드 (M8/R1-5).
+
+    계정 삭제·동의 철회는 DB 행을 먼저 지우므로, 그 뒤 S3 파기가 실패·중단되면 키를
+    되찾을 방법이 없다(행이 없어 URL 역산 불가). 파기 '의도'를 삭제와 같은 트랜잭션에
+    커밋해 두면, 즉시 실행이 실패해도 job_monitor 스윕이 멱등 재실행할 수 있다.
+    """
+
+    __tablename__ = "storage_purge_tasks"
+    __table_args__ = (
+        Index("ix_storage_purge_tasks_status", "status", "id"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    # 파기 대상 소유자(감사·역추적용). 행 삭제 후에도 남는 유일한 연결고리다.
+    user_key = Column(String(80), nullable=True, index=True)
+    reason = Column(String(40), nullable=False)  # account_deletion | consent_revoke | ...
+    kind = Column(String(20), nullable=False)  # keys | prefix
+    target = Column(Text, nullable=False)  # S3 키 또는 prefix
+    status = Column(String(20), nullable=False, default="pending")  # pending|done|failed
+    attempts = Column(Integer, nullable=False, default=0)
+    last_error = Column(String(300), nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)

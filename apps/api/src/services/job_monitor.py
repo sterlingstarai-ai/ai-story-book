@@ -75,6 +75,16 @@ class JobMonitor:
             except Exception as e:
                 logger.error("Job monitor error", error=str(e))
 
+            # M8/R1-5: 계정삭제·동의철회에서 중단·실패한 아동 PII 파기 지시(outbox)를
+            # 멱등 재실행한다. 이 스윕이 없으면 durable 레코드가 '기록만 되고 영원히
+            # 실행되지 않는' 장부가 된다.
+            try:
+                from src.services.purge_queue import sweep_pending_purges
+
+                await sweep_pending_purges()
+            except Exception as e:
+                logger.error("Storage purge sweep error", error=str(e))
+
             await asyncio.sleep(MONITOR_INTERVAL_SECONDS)
 
     async def check_and_recover_jobs(self):

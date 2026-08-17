@@ -179,12 +179,19 @@ async def test_profile_idor_update_delete_blocked(client, db_session):
     assert "내아이" in names and "해킹" not in names
 
 
-# ── 동의: photos는 granted(필수동의)와 독립 ──
+# ── 동의: photos 게이트는 granted(필수동의)를 함께 요구한다 (R1-7) ──
 @pytest.mark.asyncio
-async def test_consent_photos_independent_of_granted(client):
-    # 사진만 동의(필수 미동의) → granted=False지만 photos 게이트는 열려야(독립 평가).
+async def test_consent_photos_requires_required_consent(client):
+    # 사진만 동의(필수 미동의) → 게이트가 열리면 필수 보호자 동의 없이 아동 사진 수집이 된다.
     r = await client.post("/v1/consent", headers=H,
                           json={"privacy": False, "photos": True, "data_processing": False})
     assert r.status_code == 200, r.text
     r = await client.get("/v1/consent", headers=H)
-    assert r.json()["photos"] is True  # photos는 granted와 무관하게 활성
+    assert r.json()["photos"] is False  # 게이트 기준으로 보정된 값
+
+    # 필수 동의까지 갖추면 열린다.
+    r = await client.post("/v1/consent", headers=H,
+                          json={"privacy": True, "photos": True, "data_processing": True})
+    assert r.status_code == 200, r.text
+    r = await client.get("/v1/consent", headers=H)
+    assert r.json()["photos"] is True
