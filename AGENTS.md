@@ -1,5 +1,11 @@
 # PROJECT KNOWLEDGE BASE
 
+## LOCAL CONTINUITY (updated 2026-09-06)
+
+- Read `~/.codex/memories/ai-story-book.md` if present for local preferences and the current handoff. Keep its personal content out of tracked files.
+- Current release and quality status lives in `docs/LAUNCH_STATUS.md`, `docs/ILLUSTRATION_QUALITY_GATE.md`, and `docs/RELEASE_PREPARATION.md`. Passing code tests does not mean illustration quality or public release is approved.
+- The generated repository map below is historical; verify current symbols and line numbers before using them.
+
 **Generated:** 2026-07-02 11:32 KST
 **Commit:** 9ef043f
 **Branch:** fix/launch-blockers-audit-triage-20260628

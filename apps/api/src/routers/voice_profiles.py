@@ -16,11 +16,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
 from src.core.database import get_db
+from src.core.audio_feature import require_audio_supported
 from src.core.dependencies import get_user_key
 from src.core.exceptions import InternalServerError, NotFoundError, ValidationError
 from src.core.utils import utcnow
 from src.models.db import VoiceProfile
-from src.services.storage import delete_keys, key_from_public_url, storage_service
+from src.services.storage import (
+    key_from_public_url, storage_service, media_url, canonical_media_url, voice_sample_prefix,
+)
+from src.services.purge_queue import enqueue_purge_keys, run_purge_tasks
 
 router = APIRouter()
 logger = structlog.get_logger()
@@ -30,7 +34,7 @@ _MAX_SAMPLE_AUDIO_BYTES = 15 * 1024 * 1024
 class VoiceProfileCreateRequest(BaseModel):
     label: str = Field(min_length=1, max_length=40)
     relationship: Optional[str] = Field(default=None, max_length=30)
-    sample_audio_url: str = Field(min_length=8, max_length=500)
+    sample_audio_url: str = Field(min_length=8, max_length=4096)
     provider_voice_id: Optional[str] = Field(default=None, max_length=120)
     consented: bool = False
 
@@ -38,7 +42,7 @@ class VoiceProfileCreateRequest(BaseModel):
 class VoiceProfileUpdateRequest(BaseModel):
     label: Optional[str] = Field(default=None, min_length=1, max_length=40)
     relationship: Optional[str] = Field(default=None, max_length=30)
-    sample_audio_url: Optional[str] = Field(default=None, min_length=8, max_length=500)
+    sample_audio_url: Optional[str] = Field(default=None, min_length=8, max_length=4096)
     provider_voice_id: Optional[str] = Field(default=None, max_length=120)
     consented: Optional[bool] = None
     active: Optional[bool] = None
@@ -75,19 +79,25 @@ def _normalize_required_url(value: str, *, user_key: str) -> str:
         raise ValidationError("유효한 샘플 오디오 URL이 필요합니다.")
 
     key = key_from_public_url(normalized)
-    if key is not None and not key.startswith(f"voice-samples/{user_key}/"):
+    if key is not None and not key.startswith((voice_sample_prefix(user_key), f"voice-samples/{user_key}/")):
         raise ValidationError(
             "샘플 오디오 URL은 본인이 업로드한 파일이어야 합니다.",
         )
-    return normalized
+    return canonical_media_url(key) if key else normalized
 
 
 def _serialize(profile: VoiceProfile) -> dict:
+    sample_url = profile.sample_audio_url
+    key = key_from_public_url(sample_url)
+    if key and key.startswith(f"voice-samples/{profile.user_key}/"):
+        # Legacy paths contain the full account credential. Keep them for deletion,
+        # but never issue a new download URL exposing that credential.
+        sample_url = ""
     return {
         "id": profile.id,
         "label": profile.label,
         "relationship": profile.relationship,
-        "sample_audio_url": profile.sample_audio_url,
+        "sample_audio_url": media_url(sample_url),
         "provider_voice_id": profile.provider_voice_id,
         "consented": profile.consented,
         "active": profile.active,
@@ -123,17 +133,18 @@ async def upload_voice_sample(
     sample: UploadFile = File(..., description="음성 샘플 파일"),
     user_key: str = Depends(get_user_key),
 ):
+    require_audio_supported()
     if not sample.content_type or not sample.content_type.startswith("audio/"):
         raise ValidationError("오디오 파일만 업로드 가능합니다.")
 
-    data = await sample.read()
+    data = await sample.read(_MAX_SAMPLE_AUDIO_BYTES + 1)
     if not data:
         raise ValidationError("빈 파일은 업로드할 수 없습니다.")
     if len(data) > _MAX_SAMPLE_AUDIO_BYTES:
         raise ValidationError("샘플 오디오는 15MB 이하여야 합니다.")
 
     ext = _audio_extension(sample.content_type, sample.filename)
-    object_key = f"voice-samples/{user_key}/{utcnow().strftime('%Y%m%d')}_{uuid.uuid4().hex}{ext}"
+    object_key = f"{voice_sample_prefix(user_key)}{utcnow().strftime('%Y%m%d')}_{uuid.uuid4().hex}{ext}"
 
     try:
         url = await storage_service.upload_bytes(
@@ -147,7 +158,7 @@ async def upload_voice_sample(
         ) from exc
 
     return {
-        "sample_audio_url": url,
+        "sample_audio_url": media_url(url),
         "content_type": sample.content_type,
         "size_bytes": len(data),
     }
@@ -175,6 +186,7 @@ async def create_voice_profile(
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
 ):
+    require_audio_supported()
     count_result = await db.execute(
         select(VoiceProfile.id).where(VoiceProfile.user_key == user_key)
     )
@@ -230,6 +242,10 @@ async def update_voice_profile(
     if not profile:
         raise NotFoundError("음성 프로필", profile_id)
 
+    if (request.sample_audio_url is not None or request.provider_voice_id is not None
+            or request.active is True or request.consented is True):
+        require_audio_supported()
+
     # R1-7: 파기 대상은 **변경 적용 전**의 원본이다. 예전에는 setattr 루프 뒤에
     # `profile.sample_audio_url`을 읽어 purge_url을 잡았다 — sample_audio_url 교체와
     # consented=false가 같은 요청에 오면 **방금 올린 새 파일을 지우고 옛 샘플은 남겼다**.
@@ -270,16 +286,17 @@ async def update_voice_profile(
     if previous_sample_url and profile.sample_audio_url != previous_sample_url:
         purge_url = previous_sample_url
 
+    purge_tasks = _enqueue_sample_purge(db, user_key, purge_url)
     await db.commit()
     await db.refresh(profile)
 
     if purge_url:
-        failed_keys = await _purge_sample_audio(purge_url)
+        failed_keys = await run_purge_tasks(db, purge_tasks)
         if failed_keys:
             logger.warning(
                 "Voice sample purge failures on consent withdrawal",
                 profile_id=profile.id,
-                failed_keys=failed_keys,
+                failed_key_count=len(failed_keys),
             )
     logger.info(
         "Voice profile updated",
@@ -287,27 +304,17 @@ async def update_voice_profile(
         active=profile.active,
         consented=profile.consented,
     )
-    return _serialize(profile)
+    result = _serialize(profile)
+    if purge_url:
+        result["purge_retry_pending"] = bool(failed_keys)
+    return result
 
 
 
-async def _purge_sample_audio(sample_audio_url: Optional[str]) -> list[str]:
-    """음성 샘플 원본을 스토리지에서 파기하고 **실패한 키 목록**을 반환한다(S1).
-
-    가족 음성은 biometric-adjacent PII이고 sample_audio_url은 만료 없는 안정 공개 URL이라,
-    행만 지우면 링크 유출·캐시 시 계속 접근 가능하다. 계정 삭제(users.py)·캐릭터 단건
-    삭제(characters.py)와 동일하게 '삭제/철회 = 원본 즉시 파기'를 집행한다.
-    실패는 삼키지 않고 반환해 호출부가 status=partial로 표면화한다(H8 계약).
-    """
+def _enqueue_sample_purge(db: AsyncSession, user_key: str, sample_audio_url: Optional[str]):
+    """Persist deletion intent in the same transaction that drops the sample reference."""
     key = key_from_public_url(sample_audio_url)
-    if not key:
-        # 우리 버킷이 아닌 외부 URL(역산 불가) — 파기 대상 아님.
-        return []
-    try:
-        return await delete_keys([key])
-    except Exception as exc:  # pragma: no cover - 방어적
-        logger.warning("voice sample purge failed", error=str(exc))
-        return [key]
+    return enqueue_purge_keys(db, user_key=user_key, reason="voice_sample_removal", keys=[key] if key else [])
 
 
 @router.post("/{profile_id}/revoke-consent")
@@ -334,15 +341,16 @@ async def revoke_voice_profile_consent(
     profile.active = False
     profile.provider_voice_id = None
     profile.sample_audio_url = ""
+    purge_tasks = _enqueue_sample_purge(db, user_key, sample_audio_url)
     await db.commit()
     await db.refresh(profile)
 
-    failed_keys = await _purge_sample_audio(sample_audio_url)
+    failed_keys = await run_purge_tasks(db, purge_tasks)
     if failed_keys:
         logger.warning(
             "Voice sample purge failures on consent revoke",
             profile_id=profile.id,
-            failed_keys=failed_keys,
+            failed_key_count=len(failed_keys),
         )
 
     logger.info(
@@ -353,7 +361,7 @@ async def revoke_voice_profile_consent(
     return {
         "status": "partial" if failed_keys else "success",
         "profile": _serialize(profile),
-        **({"failed_keys": failed_keys} if failed_keys else {}),
+        "purge_retry_pending": bool(failed_keys),
     }
 
 
@@ -378,14 +386,15 @@ async def delete_voice_profile(
     sample_audio_url = profile.sample_audio_url
 
     await db.delete(profile)
+    purge_tasks = _enqueue_sample_purge(db, user_key, sample_audio_url)
     await db.commit()
 
-    failed_keys = await _purge_sample_audio(sample_audio_url)
+    failed_keys = await run_purge_tasks(db, purge_tasks)
     if failed_keys:
         logger.warning(
             "Voice sample delete failures",
             profile_id=profile_id,
-            failed_keys=failed_keys,
+            failed_key_count=len(failed_keys),
         )
 
     logger.info(
@@ -396,5 +405,5 @@ async def delete_voice_profile(
     return {
         "status": "partial" if failed_keys else "success",
         "profile_id": profile_id,
-        **({"failed_keys": failed_keys} if failed_keys else {}),
+        "purge_retry_pending": bool(failed_keys),
     }

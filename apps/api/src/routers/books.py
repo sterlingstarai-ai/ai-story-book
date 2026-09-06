@@ -11,13 +11,14 @@ from fastapi import (
 )
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, or_
+from sqlalchemy import select, func, and_, or_, update
 from typing import Optional
 import math
 import uuid
 import structlog
 
 from src.core.audio_feature import require_audio_supported
+from src.services.storage import media_url
 from src.core.cost_budget import consume_daily_generation_budget
 from src.core.database import get_db
 from src.core.book_assets import build_generation_warnings, build_page_asset_status
@@ -38,6 +39,8 @@ from src.models.dto import (
     RetellResponse,
 )
 from src.models.db import ChildProfile, Job, Book, Page, Character
+from src.models.dto import Style
+from src.models.generation_options import GenerationOptionsResponse
 from src.services.orchestrator import start_book_generation
 from src.services.job_runners import (
     run_audio_job,
@@ -103,6 +106,25 @@ async def _resolve_effective_plan(db: AsyncSession, user_key: str) -> str:
     return normalized if normalized else "free"
 
 
+def _allowed_styles_for_plan(effective_plan: str) -> list[Style]:
+    return [
+        style for style in Style
+        if not _is_free_plan_policy_enabled()
+        or effective_plan != "free"
+        or style.value in _FREE_PLAN_ALLOWED_STYLES
+    ]
+
+
+@router.get("/generation-options", response_model=GenerationOptionsResponse)
+async def get_generation_options(
+    db: AsyncSession = Depends(get_db),
+    user_key: str = Depends(get_user_key),
+):
+    """Account-specific choices using the same policy enforced on creation."""
+    effective_plan = await _resolve_effective_plan(db, user_key)
+    return GenerationOptionsResponse(allowed_styles=_allowed_styles_for_plan(effective_plan))
+
+
 async def _count_monthly_book_creations(db: AsyncSession, user_key: str) -> int:
     # '이번 달'도 사용자 tz 로컬 기준(일일 한도·스트릭과 일관, H2).
     from src.services.streak import load_user_tz
@@ -134,7 +156,7 @@ async def _enforce_free_plan_create_limits(
         return
 
     normalized_style = _normalize_style(style)
-    if normalized_style not in _FREE_PLAN_ALLOWED_STYLES:
+    if normalized_style not in {style.value for style in _allowed_styles_for_plan(effective_plan)}:
         raise PaymentRequiredError(
             "무료 플랜은 watercolor/cartoon 스타일만 지원합니다. 베이직 이상으로 업그레이드해주세요.",
             details={"reason": PaymentReason.FREE_PLAN_STYLE},
@@ -174,23 +196,23 @@ async def _enforce_free_plan_feature_access(
 def _build_page_dict(p) -> dict:
     """Build standardized page response dict from a Page model."""
     asset_status = build_page_asset_status(
-        p.image_url,
+        media_url(p.image_url),
         audio_urls=[
-            getattr(p, "audio_url", None),
-            getattr(p, "audio_url_ko", None),
-            getattr(p, "audio_url_en", None),
+            media_url(getattr(p, "audio_url", None)),
+            media_url(getattr(p, "audio_url_ko", None)),
+            media_url(getattr(p, "audio_url_en", None)),
         ],
     )
     return {
         "page_number": p.page_number,
         "text": p.text,
-        "image_url": p.image_url or "",
+        "image_url": media_url(p.image_url) or "",
         "image_prompt": p.image_prompt,
-        "audio_url": p.audio_url,
+        "audio_url": media_url(p.audio_url),
         "text_ko": p.text_ko,
         "text_en": p.text_en,
-        "audio_url_ko": p.audio_url_ko,
-        "audio_url_en": p.audio_url_en,
+        "audio_url_ko": media_url(p.audio_url_ko),
+        "audio_url_en": media_url(p.audio_url_en),
         "vocab": p.vocab,
         "comprehension_questions": p.comprehension,
         "quiz": p.quiz,
@@ -210,7 +232,7 @@ def _build_book_dict(book, pages, include_job_id: bool = False) -> dict:
         "language": book.language,
         "target_age": book.target_age,
         "style": book.style,
-        "cover_image_url": book.cover_image_url or "",
+        "cover_image_url": media_url(book.cover_image_url) or "",
         "series_id": book.series_id,
         "series_index": book.series_index,
         "title_ko": book.title_ko,
@@ -224,8 +246,8 @@ def _build_book_dict(book, pages, include_job_id: bool = False) -> dict:
         result["job_id"] = book.job_id
         result["theme"] = book.theme
         result["character_id"] = book.character_id
-        result["pdf_url"] = book.pdf_url
-        result["audio_url"] = book.audio_url
+        result["pdf_url"] = media_url(book.pdf_url)
+        result["audio_url"] = media_url(book.audio_url)
     return result
 
 
@@ -252,6 +274,8 @@ async def _create_job_with_credit(
     credit_description: str,
     idempotency_key: Optional[str] = None,
     profile_id: Optional[str] = None,
+    validated_style: object = None,
+    character_ids: Optional[list[str]] = None,
 ):
     """
     Create a queued job with credit deduction, **atomically**.
@@ -262,6 +286,9 @@ async def _create_job_with_credit(
     이제 크래시 창이 닫힌다 — 커밋 전이면 DB가 차감까지 함께 롤백, 커밋 후면 둘 다 영속.
     실패 시 롤백이 차감을 되돌리므로 **별도 환불 경로가 필요 없다**.
     """
+    from src.services.photo_lifecycle import lock_photo_account
+
+    await lock_photo_account(db, user_key)
     has_credits = await credits_service.has_credits(db, user_key, required=1)
     if not has_credits:
         raise PaymentRequiredError(
@@ -287,6 +314,15 @@ async def _create_job_with_credit(
         )
 
     try:
+        # The credit UPDATE above holds this user's row lock until commit.
+        # Recheck the count while serialized so simultaneous taps cannot all
+        # pass a read-then-insert daily/pending limit.
+        await check_guardrails(db, user_key)
+        if validated_style is not None:
+            await _enforce_free_plan_create_limits(db, user_key, validated_style)
+        from src.services.photo_book_references import selection_is_photo_derived
+
+        photo_derived = await selection_is_photo_derived(db, user_key, character_ids or [])
         job = Job(
             id=job_id,
             status="queued",
@@ -295,16 +331,19 @@ async def _create_job_with_credit(
             user_key=user_key,
             profile_id=profile_id,
             idempotency_key=idempotency_key,
+            photo_derived=photo_derived,
         )
         db.add(job)
         await db.commit()  # 차감 + 잡 INSERT 를 함께 커밋(원자적).
+    except APIError:
+        await db.rollback()
+        raise
     except Exception as e:
         # 롤백이 차감까지 되돌린다 — 환불 트랜잭션 없이 원상복구.
         logger.error(
             "Job creation failed; deduction rolled back atomically",
             job_id=job_id,
-            user_key=user_key,
-            error=str(e),
+            error_type=type(e).__name__,
         )
         await db.rollback()
         raise InternalServerError(
@@ -320,21 +359,21 @@ async def _mark_job_failed_with_refund(
     fail_message: str,
     refund_description: str,
 ) -> None:
-    """Mark job failed and refund one credit in a single DB transaction."""
-    result = await db.execute(select(Job).where(Job.id == job_id))
-    job = result.scalar_one_or_none()
-    if job:
-        job.status = "failed"
-        job.error_code = ErrorCode.QUEUE_FAILED.value
-        job.error_message = fail_message[:300]
+    """Persist failure before refund; the monitor retries an interrupted refund."""
+    result = await db.execute(
+        update(Job).where(
+            Job.id == job_id, Job.user_key == user_key,
+            Job.status.in_(["queued", "running"]),
+        ).values(status="failed", error_code=ErrorCode.QUEUE_FAILED.value,
+                 error_message=fail_message[:300], updated_at=utcnow())
+    )
+    await db.commit()
+    if result.rowcount != 1:
+        return
 
-    await credits_service.add_credits(
-        db=db,
-        user_key=user_key,
-        amount=1,
-        transaction_type="refund",
+    await credits_service.refund_for_job(
+        db, user_key, job_id,
         description=refund_description,
-        reference_id=job_id,
     )
 
 
@@ -468,8 +507,12 @@ async def enforce_book_spec_access(
 
     if spec.reference_image_base64:
         await require_photo_consent(db, user_key)
+        raise APIError(409, "CHARACTER_APPROVAL_REQUIRED", "사진으로 캐릭터를 만든 뒤 모습을 확인해주세요.")
     # 사진/그림 파생 캐릭터(아동 얼굴 데이터)를 재사용하면 동의를 강제(철회 후 차단)
     await require_consent_for_characters(db, user_key, char_ids)
+    from src.services.photo_book_references import selected_character_ids, validate_photo_book_selection
+
+    await validate_photo_book_selection(db, user_key, selected_character_ids(spec))
     return char_ids
 
 
@@ -488,6 +531,10 @@ async def consume_generation_budget(*, endpoint: str) -> None:
 
     호출부는 실제 비용이 나가는 지점에 최대한 가깝게 배치한다.
     """
+    if endpoint.startswith("books.") or endpoint == "streak.today_generate":
+        from src.services.illustration_quality_pipeline import quality_enabled_for_operation
+
+        quality_enabled_for_operation()
     budget_ok, budget_used = await consume_daily_generation_budget()
     if budget_ok:
         return
@@ -636,7 +683,7 @@ async def schedule_book_generation(
                 error=str(refund_error),
             )
         raise InternalServerError(
-            "작업 시작에 실패했습니다. 크레딧은 환불되었습니다."
+            "작업 시작에 실패했습니다. 사용한 크레딧은 자동으로 환불 처리됩니다."
         ) from e
 
 
@@ -656,8 +703,6 @@ async def create_book(
     - GET /v1/books/{job_id}로 상태 조회
     - 크레딧 1개 필요
     """
-    # Check guardrails (daily limit, system load)
-    await check_guardrails(db, user_key)
     scoped_profile_id = await _validate_profile_ownership(db, user_key, profile_id)
 
     # Check idempotency
@@ -677,6 +722,7 @@ async def create_book(
                 estimated_time_seconds=120,
             )
 
+    await check_guardrails(db, user_key)
     await _enforce_free_plan_create_limits(db, user_key, spec.style)
     await enforce_book_spec_access(db, user_key, spec)
 
@@ -692,8 +738,10 @@ async def create_book(
         job_id=job_id,
         current_step="queued",  # M32
         credit_description="책 생성",
+        character_ids=spec.character_ids or ([spec.character_id] if spec.character_id else []),
         idempotency_key=idempotency_key,
         profile_id=scoped_profile_id,
+        validated_style=spec.style,
     )
 
     # Start background task (Celery or FastAPI BackgroundTasks)
@@ -852,6 +900,11 @@ async def regenerate_book_page(
 
     # H5/R3-2: 페이지 재생성은 LLM 재작성 + 이미지 재생성을 유발하는 실비용 경로다.
     # M10/R3-3: 소유권·상태·페이지 존재 검증을 모두 통과한 뒤 소비.
+    from src.services.photo_book_references import existing_book_is_photo_derived, reference_for_existing_book
+
+    photo_derived = await existing_book_is_photo_derived(db, book)
+    if photo_derived:
+        await reference_for_existing_book(job_id, user_key)
     await consume_generation_budget(endpoint="books.regenerate")
 
     # Create regeneration task
@@ -863,6 +916,7 @@ async def regenerate_book_page(
         progress=0,
         current_step="페이지 재생성 대기 중",
         user_key=user_key,
+        photo_derived=photo_derived,
     )
     db.add(regen_job)
     try:
@@ -981,6 +1035,11 @@ async def inpaint_book_page(
         raise ValidationError("마스크 이미지가 너무 큽니다(최대 10MB).")
 
     # H5/R3-2: 인페인트도 유료 이미지 호출이다. M10/R3-3: 검증 통과 후, 업로드·생성 직전.
+    from src.services.photo_book_references import existing_book_is_photo_derived, reference_for_existing_book
+
+    photo_derived = await existing_book_is_photo_derived(db, book)
+    if photo_derived:
+        await reference_for_existing_book(job_id, user_key)
     await consume_generation_budget(endpoint="books.inpaint")
 
     # 마스크 업로드 → S3
@@ -996,6 +1055,7 @@ async def inpaint_book_page(
         progress=0,
         current_step="부분 재생성 대기 중",
         user_key=user_key,
+        photo_derived=photo_derived,
         # F2: 마스크 키를 잡에 기록 — 계정 삭제(전 잡 image_keys 수집)가 이 고아를 파기.
         image_keys=[mask_key],
     )
@@ -1048,8 +1108,6 @@ async def create_series_next(
     - 같은 캐릭터로 새로운 이야기 생성
     - previous_book_id가 있으면 연속성 유지, 없으면 topic 기반 생성
     """
-    # Check guardrails (daily limit, system load)
-    await check_guardrails(db, user_key)
     scoped_profile_id = await _validate_profile_ownership(db, user_key, profile_id)
 
     # H18: 재시도(타임아웃 후 재탭) 이중 생성·이중 차감 방지 — 기존 잡 반환.
@@ -1070,6 +1128,7 @@ async def create_series_next(
                 estimated_time_seconds=120,
             )
 
+    await check_guardrails(db, user_key)
     from src.models.db import Character
 
     # Verify character exists
@@ -1087,6 +1146,9 @@ async def create_series_next(
     # 사진/그림 파생 캐릭터(아동 얼굴 데이터)로 시리즈 속편 생성 시 보호자 동의 강제(철회 후 차단)
     if getattr(character, "from_photo", False):
         await require_photo_consent(db, user_key)
+        from src.services.photo_book_references import validate_photo_book_selection
+
+        await validate_photo_book_selection(db, user_key, [character.id])
 
     prev_book = None
     if request.previous_book_id:
@@ -1106,6 +1168,8 @@ async def create_series_next(
     effective_style = request.style
     if effective_style is None and prev_book and prev_book.style in {s.value for s in _Style}:
         effective_style = _Style(prev_book.style)
+    if effective_style is None:
+        effective_style = _Style.watercolor
     await _enforce_free_plan_create_limits(db, user_key, effective_style)
 
     # H5/R3-2 + M10/R3-3: 실비용 직전, 선검증 통과 후 예산 소비.
@@ -1120,8 +1184,10 @@ async def create_series_next(
         job_id=job_id,
         current_step="시리즈 생성 대기 중",
         credit_description="시리즈 생성",
+        character_ids=[request.character_id],
         idempotency_key=idempotency_key,
         profile_id=scoped_profile_id,
+        validated_style=effective_style,
     )
 
     # Start background task for series generation
@@ -1280,6 +1346,11 @@ async def retell_book(
     # H5/R3-2: retell은 유료 LLM 호출인데 예산·크레딧 어느 쪽도 계량하지 않았다 —
     # 예산을 켜도 우회되는 무계량 청구 채널이었다. M10/R3-3에 따라 소유권·멱등 검증을
     # 모두 통과한 뒤(=실비용 직전) 소비한다.
+    from src.services.photo_book_references import existing_book_is_photo_derived, reference_for_existing_book
+
+    photo_derived = await existing_book_is_photo_derived(db, source)
+    character_reference = await reference_for_existing_book(source.job_id, user_key) if photo_derived else None
+    source_job = await db.get(Job, source.job_id)
     await consume_generation_budget(endpoint="books.retell")
 
     # 본문만 새 연령대로 다시 쓰기 (텍스트 전용 LLM 호출)
@@ -1304,6 +1375,15 @@ async def retell_book(
             is_input=False,
         )
 
+    if getattr(settings, "illustration_quality_enabled", False):
+        from src.services.illustration_quality_edits import publish_verified_retell
+
+        new_book_id = await publish_verified_retell(
+            source_book_id=book_id, user_key=user_key, retold=retold,
+            target_age=request.target_age.value, idempotency_key=idempotency_key,
+        )
+        return RetellResponse(book_id=new_book_id, target_age=request.target_age)
+
     # 새 잡(크레딧 미소모) + 새 책 + 페이지
     new_job_id = f"retell_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
     new_book_id = f"book_{uuid.uuid4().hex[:16]}"
@@ -1312,7 +1392,14 @@ async def retell_book(
     # 같은 S3 객체를 가리켰고, 삭제 경로(image_url 역산 파기)는 배타 소유를 가정하므로
     # 둘 중 하나만 지워도 남은 책의 표지·전 페이지가 404가 됐다. 서버측 copy로 리텔이 자기
     # 객체를 갖게 한다(다운로드/업로드 없음). 실패는 fail-closed — 공유 상태로 만들지 않는다.
+    from src.services.purge_queue import enqueue_purge_prefix, cancel_purge_task
+
+    copy_guard = enqueue_purge_prefix(db, user_key=user_key, reason="retell_copy_guard", prefix=f"images/retell/{new_book_id}/")
+    await db.commit()
     copied_keys: list[str] = []
+    new_character_reference = await _copy_retell_image(
+        character_reference, new_book_id, "character-reference", copied_keys
+    )
     new_cover_url = await _copy_retell_image(
         source.cover_image_url, new_book_id, "cover", copied_keys
     )
@@ -1324,12 +1411,24 @@ async def retell_book(
             )
         )
 
+    from src.services.photo_lifecycle import lock_photo_account
+
+    await lock_photo_account(db, user_key)
+    surviving_source = await db.scalar(select(Book.id).where(Book.id == book_id, Book.user_key == user_key))
+    if surviving_source is None:
+        raise NotFoundError("Book", book_id)
+    if photo_derived:
+        await require_photo_consent(db, user_key)
+    cancel_purge_task(copy_guard)
     db.add(
         Job(
             id=new_job_id,
             status="done",
             user_key=user_key,
             idempotency_key=idempotency_key,  # H17/G19: 재시도 dedup 키
+            photo_derived=photo_derived,
+            character_reference_url=new_character_reference,
+            character_reference_version=source_job.character_reference_version if source_job else None,
             # M12: 복제본 키를 잡에 기록 — 커밋 실패 시에도 파기가 도달할 수 있게.
             image_keys=copied_keys or None,
         )
@@ -1667,14 +1766,14 @@ async def get_page_audio(
     # 이미 생성된 오디오는 무료 플랜도 반환 — 글 못 읽는 아동에게 낭독은 유일한 소비
     # 경로라, 기존 오디오까지 결제벽으로 막지 않는다(비독자 접근성).
     if language == "en" and audio_url_en:
-        return {"audio_url": audio_url_en}
+        return {"audio_url": media_url(audio_url_en)}
     if language == "ko" and audio_url_ko:
-        return {"audio_url": audio_url_ko}
+        return {"audio_url": media_url(audio_url_ko)}
     if language == "ko" and audio_url_default and book_language == "ko":
-        return {"audio_url": audio_url_default}
+        return {"audio_url": media_url(audio_url_default)}
     # H3/MA5: ja/zh/es는 책 언어와 일치할 때 기본 슬롯(audio_url)에서 캐시 반환.
     if language not in ("ko", "en") and language == book_language and audio_url_default:
-        return {"audio_url": audio_url_default}
+        return {"audio_url": media_url(audio_url_default)}
 
     # 신규 합성(비용 발생)은 유료 기능. 단, 비독자 저연령(3-5)은 오디오가 책을 소비하는
     # 유일한 수단이므로 무료 플랜에서도 허용한다. 그 외 연령은 결제 게이트.
@@ -1715,7 +1814,7 @@ async def get_page_audio(
             page.audio_url = audio_url
         await db.commit()
 
-        return {"audio_url": audio_url}
+        return {"audio_url": media_url(audio_url)}
 
     except Exception as e:
         try:

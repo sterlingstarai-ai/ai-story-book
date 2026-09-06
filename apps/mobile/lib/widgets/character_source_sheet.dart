@@ -11,8 +11,12 @@ import '../core/photo_consent.dart';
 import '../l10n/app_localizations.dart';
 import '../providers/providers.dart';
 import '../services/api_client.dart';
+import '../services/selected_photo_cache.dart';
+import '../models/character.dart';
+import 'character_avatar_preview.dart';
 import '../utils/constants.dart';
 import 'age_gate_dialog.dart';
+import 'common_widgets.dart';
 
 /// DioException 으로 래핑된 ApiError 까지 추출(create_screen 패턴과 동일).
 ApiError? _extractApiError(Object error) {
@@ -31,6 +35,9 @@ String _errorMessage(AppLocalizations l, Object error, String fallback) {
   if (apiError == null) {
     return fallback;
   }
+  if (apiError.code == 'PHOTO_PROCESSING_UNAVAILABLE') {
+    return l.characterAvatarUnavailable;
+  }
   if (apiError.statusCode == 403) {
     return apiError.message;
   }
@@ -48,7 +55,7 @@ Future<String?> showCharacterSourceSheet(
   return showModalBottomSheet<String>(
     context: context,
     isScrollControlled: true,
-    backgroundColor: AppColors.surface,
+    backgroundColor: AppPalette.of(context).surface,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
     ),
@@ -68,6 +75,7 @@ class CharacterSourceSheet extends ConsumerStatefulWidget {
 
 class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
   bool _busy = false;
+  bool _choosingPhoto = false;
   // H17/G19: 사진 캐릭터 생성 시도-단위 멱등키.
   String? _attemptKey;
   String? _attemptSig;
@@ -95,74 +103,75 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
             name: widget.childName,
             language: language,
           );
+      if (!mounted) return;
       ref.invalidate(charactersProvider);
-      if (mounted) {
-        Navigator.pop(context, id);
-      }
+      Navigator.pop(context, id);
     } catch (error) {
       _showError(_errorMessage(l, error, l.characterSourceCreateFailed));
     }
   }
 
   Future<void> _usePhoto(ImageSource source) async {
-    if (_busy) {
-      return;
-    }
+    if (_busy || _choosingPhoto) return;
     final l = AppLocalizations.of(context);
-    // 아동 얼굴 사진 업로드는 보호자 게이트 뒤에서만(세션 내 검증되어 있으면 통과).
-    // 게이트 통과 → 사진 선택 → JIT 동의(아래) 순으로 이중 보호. M24: 공용 헬퍼 공유.
-    if (!await ensureAgeGate(context, ref)) {
-      return; // 보호자 확인 실패/취소 → 사진 업로드 중단
-    }
+    final cleanSelectedPhoto = ref.read(selectedPhotoCacheCleanerProvider);
+    setState(() => _choosingPhoto = true);
     try {
-      final XFile? image = await _picker.pickImage(
-        source: source,
-        maxWidth: 1024,
-        imageQuality: 85,
-      );
-      if (image == null) {
-        return;
-      }
-      final api = ref.read(apiClientProvider);
-      // 사진(아동 얼굴)은 선택 동의 — 실제 사용 시점에 받는다(JIT, 데이터 최소수집).
-      if (!await _ensurePhotoConsent(api)) {
-        // 동의 거부/취소 시 선택된 임시 이미지(아동 얼굴)를 즉시 폐기.
+      var currentSource = source;
+      while (mounted) {
+        XFile? image;
+        Character? character;
+        String? id;
         try {
-          await File(image.path).delete();
-        } catch (_) {}
-        return;
-      }
-      setState(() => _busy = true);
-      // H17/G19: 타임아웃 후 재시도가 중복 캐릭터를 만들지 않도록 시도-단위 키를 재사용.
-      final attemptSig = '${image.path}|${widget.childName ?? ''}';
-      if (_attemptKey == null || _attemptSig != attemptSig) {
-        _attemptKey = const Uuid().v4();
-        _attemptSig = attemptSig;
-      }
-      final result = await api.createCharacterFromPhoto(
-        File(image.path),
-        name: widget.childName,
-        idempotencyKey: _attemptKey,
-      );
-      _attemptKey = null; // 성공 → 다음 생성은 새 키
-      _attemptSig = null;
-      ref.invalidate(charactersProvider);
-      if (!mounted) {
-        return;
-      }
-      final id = result['character_id']?.toString();
-      if (id != null) {
-        Navigator.pop(context, id);
-      } else {
-        // 2xx인데 character_id 누락 — _busy를 풀어 시트 잠금을 방지
-        _showError(l.characterSourcePhotoMissingId);
+          if (!await ensureAgeGate(context, ref) || !mounted) return;
+          image = await _picker.pickImage(
+              source: currentSource, maxWidth: 1024, imageQuality: 85);
+          if (image == null || !mounted) return;
+          final api = ref.read(apiClientProvider);
+          if (!await _ensurePhotoConsent(api) || !mounted) return;
+          setState(() => _busy = true);
+          final attemptSig = '${image.path}|${widget.childName ?? ''}';
+          if (_attemptKey == null || _attemptSig != attemptSig) {
+            _attemptKey = const Uuid().v4();
+            _attemptSig = attemptSig;
+          }
+          final result = await api.createCharacterFromPhoto(File(image.path),
+              name: widget.childName, idempotencyKey: _attemptKey);
+          _attemptKey = null;
+          _attemptSig = null;
+          id = result['character_id']?.toString();
+          if (id == null || id.isEmpty) {
+            throw const FormatException('Missing character id');
+          }
+          try {
+            character = Character.fromJson(result);
+          } on FormatException {/* GET resolves legacy upload envelopes. */}
+        } finally {
+          await cleanSelectedPhoto(image);
+          if (mounted) setState(() => _busy = false);
+        }
+        if (!mounted) return;
+        ref.invalidate(charactersProvider);
+        final preview = await showCharacterAvatarPreview(context,
+            characterId: id, initialCharacter: character);
+        if (!mounted) return;
+        ref.invalidate(charactersProvider);
+        if (preview?.character?.canUseInBook == true) {
+          Navigator.pop(context, preview!.character!.id);
+          return;
+        }
+        if (preview?.chooseAnotherPhoto != true) return;
+        currentSource = ImageSource.gallery;
       }
     } catch (error) {
-      _showError(_errorMessage(
-        l,
-        error,
-        l.characterSourcePhotoFailed,
-      ));
+      _showError(_errorMessage(l, error, l.characterSourcePhotoFailed));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _choosingPhoto = false;
+          _busy = false;
+        });
+      }
     }
   }
 
@@ -180,74 +189,81 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
     final l = AppLocalizations.of(context);
     final language = Localizations.localeOf(context).languageCode;
     final presetsAsync = ref.watch(characterPresetsProvider(language));
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(l.characterSourceTitle, style: AppTextStyles.heading3),
-            const SizedBox(height: AppSpacing.xs),
-            Text(
-              l.characterSourceSubtitle,
-              style: AppTextStyles.caption.copyWith(color: AppColors.textHint),
+    return AdaptiveModalSheet(
+      title: l.characterSourceTitle,
+      subtitle: l.characterSourceSubtitle,
+      contentPadding: const EdgeInsets.all(AppSpacing.lg),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(minimumSize: const Size(64, 64)),
+              onPressed: _busy || _choosingPhoto
+                  ? null
+                  : () => _usePhoto(ImageSource.camera),
+              icon: const Icon(Icons.camera_alt_outlined),
+              label: Text(l.characterSourcePhotoCamera),
             ),
-            const SizedBox(height: AppSpacing.md),
-            Row(
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(minimumSize: const Size(64, 64)),
+              onPressed: _busy || _choosingPhoto
+                  ? null
+                  : () => _usePhoto(ImageSource.gallery),
+              icon: const Icon(Icons.photo_library_outlined),
+              label: Text(l.characterSourceGallery),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Text(
+            l.characterSourcePresetSectionLabel,
+            style: AppTextStyles.bodySmall,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          presetsAsync.when(
+            loading: () => const Padding(
+              padding: EdgeInsets.all(AppSpacing.lg),
+              child: Center(child: CircularProgressIndicator()),
+            ),
+            error: (_, __) => Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed:
-                        _busy ? null : () => _usePhoto(ImageSource.camera),
-                    icon: const Icon(Icons.camera_alt_outlined),
-                    label: Text(l.characterSourcePhotoCamera),
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed:
-                        _busy ? null : () => _usePhoto(ImageSource.gallery),
-                    icon: const Icon(Icons.photo_library_outlined),
-                    label: Text(l.characterSourceGallery),
-                  ),
+                Text(l.characterSourcePresetLoadError),
+                TextButton.icon(
+                  style: TextButton.styleFrom(minimumSize: const Size(64, 64)),
+                  onPressed: () =>
+                      ref.invalidate(characterPresetsProvider(language)),
+                  icon: const Icon(Icons.refresh),
+                  label: Text(l.retry),
                 ),
               ],
             ),
-            const SizedBox(height: AppSpacing.md),
-            Text(
-              l.characterSourcePresetSectionLabel,
-              style: AppTextStyles.caption.copyWith(color: AppColors.textHint),
+            data: (presets) => Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.sm,
+              children: presets
+                  .map(
+                    (preset) => _PresetChip(
+                      key: Key('preset_${preset['preset_id']}'),
+                      name: preset['name']?.toString() ?? '',
+                      onTap: _busy ? null : () => _useFromPreset(preset),
+                    ),
+                  )
+                  .toList(),
             ),
-            const SizedBox(height: AppSpacing.sm),
-            presetsAsync.when(
-              loading: () => const Padding(
-                padding: EdgeInsets.all(AppSpacing.lg),
-                child: Center(child: CircularProgressIndicator()),
-              ),
-              error: (_, __) => Text(l.characterSourcePresetLoadError),
-              data: (presets) => Wrap(
-                spacing: AppSpacing.sm,
-                runSpacing: AppSpacing.sm,
-                children: presets
-                    .map(
-                      (preset) => _PresetChip(
-                        key: Key('preset_${preset['preset_id']}'),
-                        name: preset['name']?.toString() ?? '',
-                        onTap: _busy ? null : () => _useFromPreset(preset),
-                      ),
-                    )
-                    .toList(),
-              ),
+          ),
+          if (_busy)
+            const Padding(
+              padding: EdgeInsets.only(top: AppSpacing.md),
+              child: LinearProgressIndicator(),
             ),
-            if (_busy)
-              const Padding(
-                padding: EdgeInsets.only(top: AppSpacing.md),
-                child: LinearProgressIndicator(),
-              ),
-          ],
-        ),
+        ],
       ),
     );
   }
@@ -261,31 +277,37 @@ class _PresetChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(AppRadius.md),
-      child: Container(
-        width: 88,
-        padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-        decoration: BoxDecoration(
-          color: AppColors.primaryLight,
-          borderRadius: BorderRadius.circular(AppRadius.md),
-          border: Border.all(color: AppColors.divider),
-        ),
-        child: Column(
-          children: [
-            const CircleAvatar(
-              radius: 20,
-              backgroundColor: AppColors.primaryMedium,
-              child: Icon(Icons.face, color: AppColors.primary),
-            ),
-            const SizedBox(height: AppSpacing.xs),
-            Text(
-              name,
-              style: AppTextStyles.caption,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
+    return Semantics(
+      button: true,
+      enabled: onTap != null,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        child: Container(
+          width: 100,
+          constraints:
+              const BoxConstraints(minHeight: AppSizing.minTouchTarget),
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+          decoration: BoxDecoration(
+            color: AppPalette.of(context).primaryLight,
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            border: Border.all(color: AppPalette.of(context).divider),
+          ),
+          child: Column(
+            children: [
+              CircleAvatar(
+                radius: 20,
+                backgroundColor: AppPalette.of(context).primaryLight,
+                child: Icon(Icons.face, color: AppPalette.of(context).primary),
+              ),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                name,
+                style: AppTextStyles.bodySmall,
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
         ),
       ),
     );

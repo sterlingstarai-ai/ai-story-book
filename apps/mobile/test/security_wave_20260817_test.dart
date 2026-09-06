@@ -11,10 +11,12 @@ import 'package:ai_story_book/services/user_service.dart';
 
 /// 인메모리 보안 저장소 페이크 — 실 Keychain/Keystore 대신.
 class _FakeSecureStorage extends FlutterSecureStorage {
-  _FakeSecureStorage({this.writeThrows = false}) : super();
+  _FakeSecureStorage({this.writeThrows = false, this.readThrows = false})
+      : super();
 
   final Map<String, String> store = <String, String>{};
   final bool writeThrows;
+  bool readThrows;
   int writeCalls = 0;
 
   @override
@@ -27,6 +29,7 @@ class _FakeSecureStorage extends FlutterSecureStorage {
     MacOsOptions? mOptions,
     WindowsOptions? wOptions,
   }) async {
+    if (readThrows) throw Exception('keystore read failed');
     return store[key];
   }
 
@@ -139,20 +142,53 @@ void main() {
       expect(service.getUserKey(), legacyKey);
     });
 
-    test('부트스트랩 없이 새 키가 필요해도 평문에 쓰지 않는다', () async {
+    test('부트스트랩 없이 동기 경로에서 새 계정을 만들지 않는다', () async {
       SharedPreferences.setMockInitialValues(<String, Object>{});
       final prefs = await SharedPreferences.getInstance();
       final secure = _FakeSecureStorage();
-      final service = UserService(prefs, secureStorage: secure);
+      expect(() => UserService(prefs, secureStorage: secure).getUserKey(),
+          throwsA(isA<UserKeyUnavailable>()));
+      expect(secure.writeCalls, 0);
+    });
 
-      final key = service.getUserKey();
+    test('기존 키 읽기 실패는 새 키로 덮어쓰지 않고 재시도로 복구한다', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final prefs = await SharedPreferences.getInstance();
+      final secure = _FakeSecureStorage(readThrows: true);
+      const original = '11111111-2222-4333-8444-555555555555';
+      secure.store['user_key'] = original;
+      await expectLater(
+          UserService.bootstrapUserKey(prefs, secureStorage: secure),
+          throwsA(isA<UserKeyUnavailable>()));
+      expect(secure.writeCalls, 0);
+      expect(secure.store['user_key'], original);
+      secure.readThrows = false;
+      expect(await UserService.bootstrapUserKey(prefs, secureStorage: secure),
+          original);
+    });
 
-      expect(key.length, greaterThanOrEqualTo(10));
-      expect(
-        prefs.getString('user_key'),
-        isNull,
-        reason: '어떤 경로로도 새 평문 자격증명이 생기면 안 된다',
-      );
+    test('신규 키 저장 실패 시 임시 계정으로 진행하지 않는다', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final prefs = await SharedPreferences.getInstance();
+      final secure = _FakeSecureStorage(writeThrows: true);
+      await expectLater(
+          UserService.bootstrapUserKey(prefs, secureStorage: secure),
+          throwsA(isA<UserKeyUnavailable>()));
+      expect(() => UserService(prefs).getUserKey(),
+          throwsA(isA<UserKeyUnavailable>()));
+    });
+
+    test('사용 이력이 있는데 키가 사라지면 신규 설치로 취급하지 않는다', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final prefs = await SharedPreferences.getInstance();
+      final secure = _FakeSecureStorage();
+      await UserService.bootstrapUserKey(prefs, secureStorage: secure);
+      UserService.resetCacheForTest();
+      secure.store.clear();
+      await expectLater(
+          UserService.bootstrapUserKey(prefs, secureStorage: secure),
+          throwsA(isA<UserKeyUnavailable>()));
+      expect(secure.writeCalls, 1);
     });
   });
 
@@ -200,8 +236,10 @@ void main() {
         return false;
       }
 
-      await IapPlatformInit.ensureStoreKit1(isIOS: true, enableStoreKit1: enable);
-      await IapPlatformInit.ensureStoreKit1(isIOS: true, enableStoreKit1: enable);
+      await IapPlatformInit.ensureStoreKit1(
+          isIOS: true, enableStoreKit1: enable);
+      await IapPlatformInit.ensureStoreKit1(
+          isIOS: true, enableStoreKit1: enable);
       expect(calls, 1);
     });
 

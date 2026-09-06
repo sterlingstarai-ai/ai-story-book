@@ -98,7 +98,7 @@ class BookSpec(BaseModel):
     language: Language = Language.ko
     target_age: TargetAge
     style: Style
-    page_count: int = Field(ge=4, le=12, default=8)
+    page_count: int = Field(ge=4, le=12, default=12, description="본문 쪽수 (표지 제외)")
     theme: Optional[Theme] = None
     character: Optional[CharacterSpec] = None
     character_id: Optional[str] = Field(
@@ -280,15 +280,15 @@ class PageResult(BaseModel):
 
     page_number: int = Field(ge=1, le=12)
     text: str = Field(min_length=1, max_length=800)
-    image_url: str = Field(min_length=8, max_length=500)
+    image_url: str = Field(min_length=8, max_length=4096)
     image_prompt: Optional[str] = Field(default=None, max_length=1400)
-    audio_url: Optional[str] = Field(default=None, max_length=500)
+    audio_url: Optional[str] = Field(default=None, max_length=4096)
 
     # 다국어 지원 (v0.3)
     text_ko: Optional[str] = Field(default=None, max_length=800)
     text_en: Optional[str] = Field(default=None, max_length=800)
-    audio_url_ko: Optional[str] = Field(default=None, max_length=500)
-    audio_url_en: Optional[str] = Field(default=None, max_length=500)
+    audio_url_ko: Optional[str] = Field(default=None, max_length=4096)
+    audio_url_en: Optional[str] = Field(default=None, max_length=4096)
 
     # 학습 자산 (v0.3)
     vocab: Optional[List[VocabItem]] = None
@@ -302,7 +302,7 @@ class AssetStatusDetail(BaseModel):
 
     state: str = Field(min_length=1, max_length=30)
     reason: Optional[str] = Field(default=None, max_length=120)
-    url: Optional[str] = Field(default=None, max_length=500)
+    url: Optional[str] = Field(default=None, max_length=4096)
 
 
 class GenerationWarningInfo(BaseModel):
@@ -322,13 +322,13 @@ class BookResult(BaseModel):
     language: Language
     target_age: TargetAge
     style: str
-    cover_image_url: str = Field(min_length=8, max_length=500)
+    cover_image_url: str = Field(min_length=8, max_length=4096)
     pages: List[PageResult] = Field(max_length=12)
     character_sheet: Optional[CharacterSheet] = (
         None  # Made optional for API responses without full sheet
     )
-    pdf_url: Optional[str] = Field(default=None, max_length=500)
-    audio_url: Optional[str] = Field(default=None, max_length=500)
+    pdf_url: Optional[str] = Field(default=None, max_length=4096)
+    audio_url: Optional[str] = Field(default=None, max_length=4096)
     created_at: datetime
 
     # 시리즈 관련 (v0.3)
@@ -487,7 +487,7 @@ class SeriesNextRequest(BaseModel):
     # 상속 계산 — 명시값이 있으면 그 값, 없고 prev_book 있으면 원작 값, 둘 다 없으면 기본(5-7/watercolor).
     target_age: Optional[TargetAge] = None
     style: Optional[Style] = None
-    page_count: int = Field(ge=4, le=12, default=8)
+    page_count: int = Field(ge=4, le=12, default=12, description="본문 쪽수 (표지 제외)")
     forbidden_elements: Optional[List[str]] = Field(default=None, max_length=20)
 
 # ==================== Character API Models ====================
@@ -517,6 +517,17 @@ class CharacterResponse(BaseModel):
     visual_style_notes: str
     distinctive_features: Optional[List[str]] = None
     created_at: datetime
+    from_photo: bool = False
+    avatar_status: Literal["not_required", "generating", "preview", "approved", "failed"] = "not_required"
+    avatar_url: Optional[str] = None
+    avatar_version: int = Field(default=0, ge=0)
+    avatar_retry_allowed: bool = False
+
+
+class CharacterAvatarVersionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version: int = Field(ge=0, strict=True)
 
 
 class CharacterListResponse(BaseModel):
@@ -574,3 +585,38 @@ class LibraryResponse(BaseModel):
     total: int
     next_cursor: Optional[str] = None
     has_more: bool = False
+
+
+class RecoveryStatusResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+    recovery_code_created_at: Optional[datetime] = None
+
+
+class RecoveryCodeResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    recovery_code: str
+    created_at: datetime
+
+
+class RecoverAccountRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    recovery_code: str = Field(pattern=r"^ASB-R1-[A-Za-z0-9_-]{43}$", max_length=50, repr=False)
+    new_user_key: str = Field(pattern=r"^asb_device_[A-Za-z0-9_-]{43}$", max_length=54, repr=False)
+
+
+class RecoverAccountResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["recovered"] = "recovered"
+    recovery_code: Optional[str] = None
+    created_at: datetime
+
+
+class AccountSessionResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["active"] = "active"

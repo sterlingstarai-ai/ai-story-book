@@ -4,6 +4,9 @@ PDF Generation Service
 """
 
 import io
+import math
+import re
+from copy import copy
 from typing import Optional
 from urllib.parse import urlparse
 import ipaddress
@@ -129,7 +132,10 @@ class PDFService:
         """책을 PDF로 생성"""
         language = getattr(book.language, "value", book.language)
         # CJK 폰트를 못 구하면 여기서 시끄럽게 실패한다 — 글자가 ■ 인 PDF를 배달하지 않는다.
-        self.font_name = resolve_pdf_font(language)
+        # The exported singleton serves concurrent requests. Keep font choice
+        # local while image downloads yield, or another book can change it.
+        renderer = copy(self)
+        renderer.font_name = resolve_pdf_font(language)
 
         buffer = io.BytesIO()
 
@@ -137,16 +143,17 @@ class PDFService:
         width, height = self.page_size
 
         # 표지 페이지
-        await self._draw_cover_page(c, book, width, height)
+        c.setTitle(book.title)
+        await renderer._draw_cover_page(c, book, width, height)
         c.showPage()
 
         # 본문 페이지들
         for page in book.pages:
-            await self._draw_content_page(c, page, width, height)
+            await renderer._draw_content_page(c, page, width, height)
             c.showPage()
 
         # 마지막 페이지 (끝)
-        self._draw_end_page(c, book, width, height)
+        renderer._draw_end_page(c, book, width, height)
 
         c.save()
         buffer.seek(0)
@@ -155,66 +162,58 @@ class PDFService:
     async def _draw_cover_page(
         self, c: canvas.Canvas, book: BookResult, width: float, height: float
     ):
-        """표지 페이지 그리기"""
-        # 배경 이미지
+        """Portrait artwork and a separate opaque title panel."""
+        artwork_width = width * 0.52
+        c.setFillAlpha(1)
+        c.setFillColorRGB(0.98, 0.97, 0.94)
+        c.rect(0, 0, width, height, fill=1, stroke=0)
         if book.cover_image_url:
             try:
                 image_data = await self._fetch_image(book.cover_image_url)
                 if image_data:
                     img = ImageReader(io.BytesIO(image_data))
-                    c.drawImage(
-                        img,
-                        0,
-                        0,
-                        width=width,
-                        height=height,
-                        preserveAspectRatio=True,
-                        anchor="c",
-                    )
+                    self._draw_image_box(c, img, 0, 0, artwork_width, height, fill=True)
             except Exception as e:
                 # 이미지 로드 실패 시 배경색으로 대체
                 logger.warning("Cover image load failed, using fallback", error=str(e))
-                c.setFillColorRGB(0.4, 0.4, 0.8)
-                c.rect(0, 0, width, height, fill=1)
-
-        # 반투명 오버레이
-        c.setFillColorRGB(0, 0, 0, 0.4)
-        c.rect(0, 0, width, height * 0.4, fill=1)
-
-        # 제목
-        c.setFillColorRGB(1, 1, 1)
-        c.setFont(self.font_name, 48)
-
-        # 제목 텍스트 중앙 정렬
-        title = book.title
-        title_width = c.stringWidth(title, self.font_name, 48)
-        x = (width - title_width) / 2
-        c.drawString(x, height * 0.2, title)
+        title_x = artwork_width + self.margin * 0.8
+        title_width = width - title_x - self.margin * 0.8
+        lines, font_size, leading = self._fit_text(
+            " ".join(book.title.split()), title_width, height * 0.48,
+            preferred_size=36, minimum_size=20, leading_ratio=1.45,
+        )
+        block_height = self._block_height(lines, font_size, leading)
+        title_top = height * 0.52 + block_height / 2
+        c.setFillColorRGB(0.36, 0.43, 0.29)
+        c.setFont(DEFAULT_FONT, 11)
+        c.drawString(title_x, title_top + 38, "AI STORY BOOK")
+        c.setFillColorRGB(0.15, 0.20, 0.14)
+        self._draw_lines(c, lines, title_x, title_top, font_size, leading)
+        c.setFillColorRGB(0.59, 0.64, 0.43)
+        c.rect(title_x, title_top - block_height - 28, 40, 3, fill=1, stroke=0)
 
     async def _draw_content_page(
         self, c: canvas.Canvas, page: PageResult, width: float, height: float
     ):
-        """본문 페이지 그리기"""
-        # 레이아웃: 왼쪽 이미지, 오른쪽 텍스트
-        image_width = width * 0.55
-        text_width = width * 0.40
-
-        # 이미지 영역
+        """Fit readable text, adding continuation sheets instead of truncation."""
+        split_x = width * 0.55
+        text_x = split_x + self.margin * 0.55
+        text_width = width - text_x - self.margin
+        text_top = height - self.margin - 42
+        available_height = text_top - self.margin
+        lines, font_size, leading = self._fit_text(
+            page.text, text_width, available_height,
+            preferred_size=24, minimum_size=18, leading_ratio=1.5,
+        )
+        ascent, descent = pdfmetrics.getAscentDescent(self.font_name, font_size)
+        lines_per_sheet = max(1, math.floor((available_height - ascent + descent) / leading) + 1)
+        parts = max(1, math.ceil(len(lines) / lines_per_sheet))
+        img = None
         if page.image_url:
             try:
                 image_data = await self._fetch_image(page.image_url)
                 if image_data:
                     img = ImageReader(io.BytesIO(image_data))
-                    img_height = height - (self.margin * 2)
-                    c.drawImage(
-                        img,
-                        self.margin,
-                        self.margin,
-                        width=image_width - self.margin,
-                        height=img_height,
-                        preserveAspectRatio=True,
-                        anchor="nw",
-                    )
             except Exception as e:
                 logger.warning(
                     "Page image load failed",
@@ -222,36 +221,37 @@ class PDFService:
                     error=str(e),
                 )
 
-        # 텍스트 영역
-        text_x = image_width + self.margin
-        text_y = height - self.margin - 50
-
-        # 페이지 번호
-        c.setFillColorRGB(0.6, 0.6, 0.6)
-        c.setFont(self.font_name, 14)
-        c.drawString(text_x, height - self.margin, f"- {page.page_number} -")
-
-        # 본문 텍스트
-        c.setFillColorRGB(0.1, 0.1, 0.1)
-        c.setFont(self.font_name, 24)
-
-        # 텍스트 줄바꿈 처리
-        lines = self._wrap_text(page.text, text_width - self.margin, 24)
-        line_height = 36
-
-        for i, line in enumerate(lines):
-            y = text_y - (i * line_height)
-            if y < self.margin:
-                break
-            c.drawString(text_x, y, line)
+        for part in range(parts):
+            if part:
+                c.showPage()
+            c.setFillAlpha(1)
+            c.setFillColorRGB(0.99, 0.985, 0.97)
+            c.rect(0, 0, width, height, fill=1, stroke=0)
+            if img:
+                self._draw_image_box(
+                    c, img, self.margin, self.margin,
+                    split_x - self.margin * 1.5, height - self.margin * 2,
+                )
+            c.setFillColorRGB(0.44, 0.49, 0.39)
+            c.setFont(self.font_name, 12)
+            label = f"{page.page_number:02d}"
+            if parts > 1:
+                label += f"  ({part + 1}/{parts})"
+            c.drawString(text_x, height - self.margin, label)
+            c.setFillColorRGB(0.13, 0.16, 0.12)
+            self._draw_lines(
+                c, lines[part * lines_per_sheet:(part + 1) * lines_per_sheet],
+                text_x, text_top, font_size, leading,
+            )
 
     def _draw_end_page(
         self, c: canvas.Canvas, book: BookResult, width: float, height: float
     ):
         """마지막 페이지 그리기"""
         # 배경
-        c.setFillColorRGB(0.95, 0.95, 0.95)
-        c.rect(0, 0, width, height, fill=1)
+        c.setFillAlpha(1)
+        c.setFillColorRGB(0.98, 0.97, 0.94)
+        c.rect(0, 0, width, height, fill=1, stroke=0)
 
         # 끝 텍스트
         c.setFillColorRGB(0.3, 0.3, 0.3)
@@ -263,9 +263,14 @@ class PDFService:
         c.drawString((width - text_width) / 2, height / 2 + 50, end_text)
 
         # 제목 (작은 글씨)
-        c.setFont(self.font_name, 18)
-        title_width = c.stringWidth(book.title, self.font_name, 18)
-        c.drawString((width - title_width) / 2, height / 2 - 20, book.title)
+        title_width = width - self.margin * 4
+        lines, font_size, leading = self._fit_text(
+            " ".join(book.title.split()), title_width, height * 0.28,
+            preferred_size=20, minimum_size=16, leading_ratio=1.5,
+        )
+        self._draw_lines(
+            c, lines, width / 2, height / 2 - 15, font_size, leading, centered=True,
+        )
 
         # 저작권
         c.setFont(self.font_name, 12)
@@ -274,28 +279,89 @@ class PDFService:
         copy_width = c.stringWidth(copyright_text, self.font_name, 12)
         c.drawString((width - copy_width) / 2, self.margin, copyright_text)
 
+    def _draw_image_box(self, c, img, x, y, width, height, *, fill=False):
+        """Draw without stretching; crop only the deliberate full-height cover."""
+        image_width, image_height = img.getSize()
+        scale = (max if fill else min)(width / image_width, height / image_height)
+        draw_width, draw_height = image_width * scale, image_height * scale
+        c.saveState()
+        clip = c.beginPath()
+        clip.rect(x, y, width, height)
+        c.clipPath(clip, stroke=0, fill=0)
+        c.drawImage(
+            img, x + (width - draw_width) / 2, y + (height - draw_height) / 2,
+            width=draw_width, height=draw_height,
+        )
+        c.restoreState()
+
+    def _draw_lines(self, c, lines, x, top, font_size, leading, *, centered=False):
+        c.setFont(self.font_name, font_size)
+        ascent, _ = pdfmetrics.getAscentDescent(self.font_name, font_size)
+        for index, line in enumerate(lines):
+            draw = c.drawCentredString if centered else c.drawString
+            draw(x, top - ascent - index * leading, line)
+
+    def _block_height(self, lines, font_size, leading):
+        ascent, descent = pdfmetrics.getAscentDescent(self.font_name, font_size)
+        return max(0, len(lines) - 1) * leading + ascent - descent
+
+    def _fit_text(
+        self, text, max_width, max_height, *, preferred_size, minimum_size, leading_ratio,
+    ):
+        for font_size in range(preferred_size, minimum_size - 1, -1):
+            lines = self._wrap_text(text, max_width, font_size)
+            leading = font_size * leading_ratio
+            if self._block_height(lines, font_size, leading) <= max_height:
+                return lines, font_size, leading
+        # The caller paginates at the readable floor instead of discarding text.
+        return lines, minimum_size, minimum_size * leading_ratio
+
     def _wrap_text(self, text: str, max_width: float, font_size: int) -> list[str]:
-        """텍스트를 지정된 너비에 맞게 줄바꿈 (한국어 문자 단위 지원)"""
+        """Use actual font metrics and preserve words unless one exceeds a line."""
+        def fits(value):
+            return pdfmetrics.stringWidth(value, self.font_name, font_size) <= max_width
+
         lines = []
-        current_line = ""
-        current_width = 0.0
+        for paragraph in text.split("\n"):
+            current = ""
+            for word in re.findall(r"\S+", paragraph):
+                candidate = f"{current} {word}" if current else word
+                if fits(candidate):
+                    current = candidate
+                    continue
+                if current:
+                    lines.append(current)
+                    current = ""
+                if fits(word):
+                    current = word
+                    continue
+                # Japanese/Chinese paragraphs and unusually long Korean words
+                # have no spaces. Split only these tokens, keeping punctuation
+                # off the start of a new line and opening brackets off the end.
+                chunks = self._split_long_token(word, fits)
+                lines.extend(chunks[:-1])
+                current = chunks[-1]
+            lines.append(current)
+        return lines or [""]
 
-        for char in text:
-            # 한글/CJK 문자는 font_size, 영문/숫자는 font_size * 0.5
-            char_width = font_size if ord(char) > 127 else font_size * 0.5
-
-            if current_width + char_width > max_width and current_line:
-                lines.append(current_line)
-                current_line = ""
-                current_width = 0.0
-
-            current_line += char
-            current_width += char_width
-
-        if current_line:
-            lines.append(current_line)
-
-        return lines
+    @staticmethod
+    def _split_long_token(token, fits):
+        closing = set(",.;:!?…。，、？！：；)]}〉》」』】）］｝’”»\"")
+        opening = set("([{〈《「『【（［｛‘“«")
+        chunks = []
+        current = ""
+        for char in token:
+            if current and not fits(current + char):
+                carry = ""
+                if (char in closing or current[-1] in opening) and len(current) > 1:
+                    carry = current[-1]
+                    current = current[:-1]
+                chunks.append(current)
+                current = carry
+            current += char
+        if current:
+            chunks.append(current)
+        return chunks
 
     def _is_url_allowed(self, url: str) -> bool:
         """URL이 허용된 도메인인지 확인 (SSRF 방지)"""
@@ -349,6 +415,11 @@ class PDFService:
     async def _fetch_image(self, url: str) -> Optional[bytes]:
         """URL에서 이미지 다운로드 (SSRF 보호 포함)"""
         try:
+            from src.services.storage import key_from_public_url, get_object_bytes
+            key = key_from_public_url(url)
+            if key:
+                data, _ = await get_object_bytes(key)
+                return data if len(data) <= MAX_IMAGE_SIZE else None
             # Validate URL before fetching
             if not self._is_url_allowed(url):
                 logger.warning("Image URL not allowed", url=url[:100])

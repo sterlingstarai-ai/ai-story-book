@@ -1,7 +1,6 @@
 """#9 [H17/H18/G19]: 사진·그림 캐릭터 생성의 서버측 멱등.
 
-두 엔드포인트는 요청 안에서 vision 분석 + (그림은) 시트 이미지 3장을 동기로 수행해 최대
-수분이 걸린다. 클라이언트가 타임아웃돼도 서버는 완주하므로 재시도가 중복 캐릭터를 만든다
+두 엔드포인트는 상태를 먼저 저장하고 worker가 분석·대표 그림 한 장을 생성한다. 클라이언트가 타임아웃돼도 서버는 완주하므로 재시도가 중복 캐릭터를 만든다
 (서재 오염 + vision·이미지 비용 이중 지출). Job/PodOrder와 동일한 멱등 인프라를 부여한다.
 
 NOTE: 이 두 엔드포인트는 크레딧을 차감하지 않는다(코드 실측). 따라서 '이중 차감'이 아니라
@@ -13,13 +12,21 @@ false-green 방지: 엔드포인트 자체는 실경로로 통과시키고, mock
 
 import uuid
 
+from tests import test_character_avatar as avatar_helpers
+
+from src.services.character_avatar import generate_character_avatar
+
 import pytest
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from src.models.db import Character
 
-PNG = b"\x89PNG\r\n\x1a\n"
+avatar_io = avatar_helpers.avatar_io
+source_image = avatar_helpers.source_image
+
+
+PNG = source_image()
 
 
 def _character_payload(name: str = "토리") -> dict:
@@ -46,42 +53,9 @@ def _character_payload(name: str = "토리") -> dict:
 
 
 @pytest.fixture
-def photo_seams(monkeypatch):
-    """외부 경계만 대체: vision 분석 호출 수를 세고, 스토리지/이미지 생성은 무해화."""
-    from src.routers import characters as characters_router
-
-    calls = {"photo": 0, "drawing": 0, "sheets": 0}
-
-    async def fake_from_photo(**kwargs):
-        calls["photo"] += 1
-        return _character_payload()
-
-    async def fake_from_drawing(**kwargs):
-        calls["drawing"] += 1
-        return _character_payload("두리")
-
-    async def fake_upload(**kwargs):
-        return "https://cdn.example.com/characters/src.png"
-
-    async def fake_generate_image(prompt):
-        calls["sheets"] += 1
-        return "https://cdn.example.com/sheet.png"
-
-    monkeypatch.setattr(
-        characters_router.photo_character_service,
-        "create_character_from_photo",
-        fake_from_photo,
-    )
-    monkeypatch.setattr(
-        characters_router.photo_character_service,
-        "create_character_from_drawing",
-        fake_from_drawing,
-    )
-    monkeypatch.setattr(
-        characters_router.storage_service, "upload_bytes", fake_upload
-    )
-    monkeypatch.setattr(characters_router, "generate_image", fake_generate_image)
-    return calls
+def photo_seams(avatar_io):
+    """Fake external boundaries; routes, worker claims and persistence are real."""
+    return avatar_io
 
 
 async def _grant_photo_consent(client, headers) -> None:
@@ -181,7 +155,10 @@ async def test_from_photo_is_idempotent_across_client_retry(
     assert first.status_code == 200, first.text
     assert second.status_code == 200, second.text
     assert first.json()["character_id"] == second.json()["character_id"], "중복 캐릭터 생성"
-    assert photo_seams["photo"] == 1, "재시도에서 vision 재분석 = 비용 이중 지출"
+    cid = first.json()["character_id"]
+    assert await generate_character_avatar(cid, 1, headers["X-User-Key"])
+    assert not await generate_character_avatar(cid, 1, headers["X-User-Key"])
+    assert photo_seams["analysis"] == photo_seams["image"] == 1, "재시도에서 비용 이중 지출"
 
     rows = (
         await db_session.execute(
@@ -208,11 +185,11 @@ async def test_from_drawing_is_idempotent_across_client_retry(
     assert first.status_code == 200, first.text
     assert second.status_code == 200, second.text
     assert first.json()["character_id"] == second.json()["character_id"], "중복 캐릭터 생성"
-    assert photo_seams["drawing"] == 1, "재시도에서 그림 재분석 = 비용 이중 지출"
-    sheets_after_first = 3
-    assert photo_seams["sheets"] == sheets_after_first, (
-        "재시도에서 시트 이미지를 다시 생성하면 이미지 비용이 이중 지출된다"
-    )
+    cid = first.json()["character_id"]
+    assert await generate_character_avatar(cid, 1, headers["X-User-Key"])
+    assert not await generate_character_avatar(cid, 1, headers["X-User-Key"])
+    assert photo_seams["analysis"] == photo_seams["image"] == 1
+
 
     rows = (
         await db_session.execute(
@@ -244,7 +221,9 @@ async def test_different_keys_create_distinct_characters(
     )
     assert a.status_code == 200 and b.status_code == 200
     assert a.json()["character_id"] != b.json()["character_id"]
-    assert photo_seams["photo"] == 2
+    for result in (a, b):
+        assert await generate_character_avatar(result.json()["character_id"], 1, headers["X-User-Key"])
+    assert photo_seams["analysis"] == photo_seams["image"] == 2
 
 
 @pytest.mark.asyncio

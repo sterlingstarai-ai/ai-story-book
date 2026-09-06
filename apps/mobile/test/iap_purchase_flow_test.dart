@@ -13,6 +13,7 @@ import 'package:ai_story_book/screens/credits_screen.dart';
 import 'package:ai_story_book/services/api_client.dart';
 import 'package:ai_story_book/services/iap_service.dart';
 import 'package:ai_story_book/services/service_availability.dart';
+import 'package:ai_story_book/widgets/credit_shortage_modal.dart';
 
 // C3 — IAP 검증 실패 시 finally에서 completePurchase 무조건 호출 → 소모성 대금 영구 유실.
 // 검증 성공 후에만 마무리(Android는 consume, 정정 B1)하도록 회귀 방지한다.
@@ -96,9 +97,22 @@ class _SpyIapService extends IapService {
   int finishCalls = 0;
   int completeCalls = 0;
   bool? lastConsumable;
+  int restoreCalls = 0;
+  int productLookups = 0;
 
   @override
   Stream<List<PurchaseDetails>> get purchaseStream => controller.stream;
+
+  @override
+  Future<void> restorePurchases() async {
+    restoreCalls++;
+  }
+
+  @override
+  Future<List<ProductDetails>> loadProducts(Set<String> productIds) async {
+    productLookups++;
+    return [];
+  }
 
   @override
   Future<ServiceAvailability> checkAvailability() async =>
@@ -140,7 +154,8 @@ class _FakeApiClient extends ApiClient {
       <String, dynamic>{'credits': 3, 'subscription': null};
 
   @override
-  Future<List<dynamic>> getTransactions({int limit = 20, int offset = 0}) async =>
+  Future<List<dynamic>> getTransactions(
+          {int limit = 20, int offset = 0}) async =>
       <dynamic>[];
 }
 
@@ -148,24 +163,146 @@ Widget _harness({
   required SharedPreferences prefs,
   required IapService iap,
   required ApiClient api,
+  Map<String, dynamic> capabilities = const {'purchases_supported': false},
+  double textScale = 1,
 }) {
   return ProviderScope(
     overrides: [
       sharedPreferencesProvider.overrideWithValue(prefs),
       iapServiceProvider.overrideWithValue(iap),
       apiClientProvider.overrideWithValue(api),
+      capabilitiesProvider.overrideWith((ref) async => capabilities),
     ],
     // route != '/credits' → age gate 스킵, _loadCreditsStatus만 수행.
-    child: const MaterialApp(
-      locale: Locale('ko'),
+    child: MaterialApp(
+      locale: const Locale('ko'),
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
-      home: CreditsScreen(),
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context)
+            .copyWith(textScaler: TextScaler.linear(textScale)),
+        child: child!,
+      ),
+      home: const CreditsScreen(),
     ),
   );
 }
 
 void main() {
+  for (final paid in [false, true]) {
+    testWidgets('credit shortage exposes working actions only (paid=$paid)',
+        (tester) async {
+      tester.view.physicalSize = const Size(320, 480);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          capabilitiesProvider.overrideWith((ref) async => {
+                'purchases_supported': paid,
+                'apple_purchases_supported': paid,
+                'google_purchases_supported': paid,
+              })
+        ],
+        child: MaterialApp(
+          locale: const Locale('ko'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: const TextScaler.linear(1.4)),
+            child: child!,
+          ),
+          home: Scaffold(
+              body: Builder(
+                  builder: (context) => TextButton(
+                        onPressed: () => showCreditShortageModal(context),
+                        child: const Text('open'),
+                      ))),
+          onGenerateRoute: (settings) => MaterialPageRoute<void>(
+              builder: (_) => Scaffold(body: Text('route:${settings.name}'))),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      final l = await AppLocalizations.delegate.load(const Locale('ko'));
+      expect(find.text(l.creditShortageFreeTitle), findsNothing);
+      if (paid) {
+        expect(find.text(l.creditShortageSubscribeTitle), findsOneWidget);
+        await tester.ensureVisible(find.text(l.creditShortageClose));
+        await tester.tap(find.text(l.creditShortageClose));
+      } else {
+        expect(find.text(l.creditShortageSubscribeTitle), findsNothing);
+        expect(find.text(l.creditShortagePurchaseTitle), findsNothing);
+        expect(find.text(l.creditBetaLimitTitle), findsOneWidget);
+        await tester.ensureVisible(find.text(l.libraryTitle));
+        await tester.tap(find.text(l.libraryTitle));
+      }
+      await tester.pumpAndSettle();
+      if (!paid) expect(find.text('route:/library'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets(
+      'free beta hides new purchases and keeps restore and verification',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    final iap = _SpyIapService();
+    final api = _FakeApiClient();
+    addTearDown(iap.controller.close);
+    tester.view.physicalSize = const Size(320, 480);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester
+        .pumpWidget(_harness(prefs: prefs, iap: iap, api: api, textScale: 1.4));
+    await tester.pumpAndSettle();
+    final l = await AppLocalizations.delegate.load(const Locale('ko'));
+    expect(find.text(l.creditsBetaNotice), findsOneWidget);
+    expect(find.text(l.creditsBuyCredits), findsNothing);
+    expect(find.text(l.creditsStartSubscription), findsNothing);
+    expect(find.text(l.creditsPlansTitle), findsNothing);
+    expect(find.text(l.creditsPackTitle), findsNothing);
+    await tester.tap(find.byKey(const Key('restore_purchases_btn')));
+    await tester.pumpAndSettle();
+    expect(iap.restoreCalls, 1);
+    expect(iap.productLookups, 0);
+    iap.controller.add([_purchased('existing-payment', 'credit_pack_1')]);
+    await tester.pumpAndSettle();
+    expect(api.verifyCalls, 1);
+    expect(iap.finishCalls, 1);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('unsupported store remains closed even when other store is ready',
+      (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    final iap = _SpyIapService();
+    addTearDown(iap.controller.close);
+    await tester.pumpWidget(_harness(
+      prefs: prefs,
+      iap: iap,
+      api: _FakeApiClient(),
+      capabilities: const {
+        'purchases_supported': true,
+        'apple_purchases_supported': false,
+        'google_purchases_supported': true,
+      },
+    ));
+    await tester.pumpAndSettle();
+    final l = await AppLocalizations.delegate.load(const Locale('ko'));
+    expect(find.text(l.creditsBuyCredits), findsNothing);
+    expect(iap.productLookups, 0);
+    await tester.pumpWidget(const SizedBox());
+    debugDefaultTargetPlatformOverride = null;
+  });
+
   // ---- IapService 단위: 소모성 autoConsume:false ----
   test('buyProduct(consumable:true) uses autoConsume:false', () async {
     final iap = _RecordingIap();
@@ -273,9 +410,7 @@ void main() {
 
   // ═════════════ R0 (2026-08-17 보안감사 🔴C1): iOS 결제 전량 파손 ═════════════
 
-  testWidgets(
-      'R0-2: purchaseID 부재 시 가짜 id를 만들지 않고 검증을 보류한다',
-      (tester) async {
+  testWidgets('R0-2: purchaseID 부재 시 가짜 id를 만들지 않고 검증을 보류한다', (tester) async {
     // 수정 전에는 `purchase.purchaseID ?? "\${productID}-\${now.ms}"` 로 **시간 기반 가짜
     // transaction_id** 를 만들어 서버로 보냈다. 재시도마다 값이 달라지므로
     //  · Apple: 그 id가 영수증의 어떤 거래와도 매칭되지 않아 영구 검증 실패
@@ -303,8 +438,7 @@ void main() {
     expect(spy.completeCalls, 0);
   });
 
-  testWidgets('R0-2: purchaseID 가 빈 문자열이어도 동일하게 보류한다',
-      (tester) async {
+  testWidgets('R0-2: purchaseID 가 빈 문자열이어도 동일하게 보류한다', (tester) async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     final prefs = await SharedPreferences.getInstance();
     final spy = _SpyIapService();

@@ -5,9 +5,10 @@ import redis.asyncio as redis
 from typing import Optional
 import structlog
 import uuid
+import hashlib
 
 from src.core.config import settings
-from src.core.exceptions import RateLimitError
+from src.core.exceptions import APIError, RateLimitError
 from src.core.utils import utcnow
 
 logger = structlog.get_logger()
@@ -26,7 +27,9 @@ class RateLimiter:
 
     async def get_redis(self) -> redis.Redis:
         if self._redis is None:
-            self._redis = redis.from_url(settings.redis_url)
+            self._redis = redis.from_url(
+                settings.redis_url, socket_connect_timeout=2, socket_timeout=2
+            )
         return self._redis
 
     async def is_allowed(self, user_key: str) -> tuple[bool, int]:
@@ -40,7 +43,9 @@ class RateLimiter:
         now = utcnow().timestamp()
         window_start = now - settings.rate_limit_window
 
-        key = f"rate_limit:{user_key}"
+        # Headers may contain a recovered device bearer. Redis persistence and
+        # diagnostics must not expose a credential capable of accessing a child.
+        key = f"rate_limit:{hashlib.sha256(user_key.encode()).hexdigest()}"
         member = _rate_limit_member(now)
 
         pipe = r.pipeline()
@@ -114,20 +119,17 @@ async def check_rate_limit(request: Request):
             # 사용자에게 한국어 서버 문구가 그대로 노출됐다(M15 로컬라이즈 우회).
             # retry_after 는 details 로 내린다(RateLimitError 계약).
             raise RateLimitError(retry_after=settings.rate_limit_window)
-    except redis.RedisError as e:
-        # If Redis is down, log and allow request (fail open for availability)
-        # In production, consider fail-closed behavior for security-critical endpoints
-        logger.warning(
-            "Rate limiter Redis error - allowing request (fail-open)",
-            user_key=user_key[:8] + "..." if user_key else None,
-            error=str(e),
-        )
     except HTTPException:
         raise
     except Exception as e:
-        # Unexpected errors should be logged but not block requests
         logger.error(
-            "Rate limiter unexpected error",
-            user_key=user_key[:8] + "..." if user_key else None,
-            error=str(e),
+            "Rate limit verification unavailable; request blocked",
+            error_type=type(e).__name__,
         )
+        raise APIError(
+            status_code=503,
+            error_code="SERVICE_UNAVAILABLE",
+            message="요청 한도를 확인할 수 없습니다. 잠시 후 다시 시도해주세요.",
+            details={"retry_after": 30},
+            headers={"Retry-After": "30"},
+        ) from e

@@ -14,6 +14,9 @@ import asyncio
 import structlog
 
 from src.core.config import settings
+from src.services.storage import media_url
+from src.services.image_request_budget import consume_image_request
+from src.services.image_correction import correction_scene_reference, provider_prompt_with_correction
 from src.core.errors import ImageError, ErrorCode
 from src.models.dto import ImagePrompt
 
@@ -23,6 +26,26 @@ logger = structlog.get_logger()
 # `images/{provider}/{uuid}`(추적 불가 경로)에 저장되지만, 캐릭터 시트처럼 삭제 가능해야
 # 하는 산출물은 image_storage_scope("characters/{id}/sheets")로 감싸 삭제 경로가 닿게 한다.
 _storage_key_prefix: ContextVar[str | None] = ContextVar("_storage_key_prefix", default=None)
+_portrait_conversion: ContextVar[bool] = ContextVar("_portrait_conversion", default=False)
+_book_reference_url: ContextVar[str | None] = ContextVar("book_reference_url", default=None)
+
+
+@contextmanager
+def image_book_reference_scope(cover_url: str | None):
+    """Set one ownership-checked book cover as a bounded, task-local design reference."""
+    if cover_url is not None and (not isinstance(cover_url, str) or not cover_url.strip()):
+        raise ImageError(ErrorCode.IMAGE_FAILED, "책 그림 참조를 확인할 수 없습니다.")
+    token = _book_reference_url.set(cover_url)
+    try:
+        yield
+    finally:
+        _book_reference_url.reset(token)
+
+
+def _reference_urls(primary_url: str | None) -> list[str]:
+    """At most two ordered references; a portrait never inherits a book cover."""
+    cover = None if _portrait_conversion.get() else _book_reference_url.get()
+    return list(dict.fromkeys(url for url in (primary_url, cover) if url))
 
 
 @contextmanager
@@ -33,6 +56,20 @@ def image_storage_scope(prefix: str | None):
         yield
     finally:
         _storage_key_prefix.reset(token)
+
+
+@contextmanager
+def portrait_conversion_scope():
+    """Only the trusted first-portrait workflow may reinterpret a source's style.
+
+    Approved book references retain the normal fixed-character rules. Neither
+    generated prompt text nor caller-supplied guidance notes can select this mode.
+    """
+    token = _portrait_conversion.set(True)
+    try:
+        yield
+    finally:
+        _portrait_conversion.reset(token)
 
 
 def _make_image_key(provider: str, ext: str) -> str:
@@ -48,15 +85,21 @@ async def generate_image(
     """
     Generate image from prompt.
 
-    reference_image_url: 아이 얼굴 사진(또는 캐릭터 원본) URL. 얼굴 보존을 지원하는
-    provider(gemini)에서 주인공 얼굴을 모든 페이지에 동화체로 일관 반영하는 데 쓰인다.
-    미지원 provider는 무시한다.
+    reference_image_url: 소유권을 확인한 승인 캐릭터 참조. 명시된 참조를 읽을 수
+    없거나 제공자가 지원하지 않으면 참조 없이 생성하지 않는다.
 
     Returns:
         Image URL
     """
+    prompt = provider_prompt_with_correction(prompt)
+    if not _portrait_conversion.get() and settings.image_provider in {"openai", "gemini"}:
+        # A local defect repair uses the generated page as its composition
+        # anchor. Identity/cast repairs retain the approved character reference.
+        reference_image_url = correction_scene_reference() or reference_image_url
+    if _reference_urls(reference_image_url) and not supports_image_reference():
+        raise ImageError(ErrorCode.IMAGE_FAILED, "캐릭터 참조를 지원하지 않는 이미지 설정입니다.", page=prompt.page)
     if settings.image_provider == "openai":
-        return await _generate_openai(prompt)
+        return await _generate_openai(prompt, reference_image_url)
     elif settings.image_provider == "gemini":
         return await _generate_gemini(prompt, reference_image_url)
     elif settings.image_provider == "replicate":
@@ -69,6 +112,12 @@ async def generate_image(
         raise ValueError(f"Unknown image provider: {settings.image_provider}")
 
 
+def supports_image_reference() -> bool:
+    return settings.image_provider in {"gemini", "mock"} or (
+        settings.image_provider == "openai" and settings.image_model.startswith("gpt-image-")
+    )
+
+
 def supports_inpaint() -> bool:
     """현재 이미지 제공자가 마스크 기반 인페인트(부분 재생성)를 지원하는가.
 
@@ -78,8 +127,8 @@ def supports_inpaint() -> bool:
     return settings.image_provider in ("replicate", "fal")
 
 
-async def _generate_openai(prompt: ImagePrompt) -> str:
-    """Generate image using OpenAI DALL-E API (gpt-image-1 / dall-e-3)"""
+async def _generate_openai(prompt: ImagePrompt, reference_image_url: str | None = None) -> str:
+    """Persist a GPT Image reference edit or an ordinary image generation."""
     if not settings.image_api_key:
         raise ImageError(
             ErrorCode.IMAGE_FAILED,
@@ -87,27 +136,60 @@ async def _generate_openai(prompt: ImagePrompt) -> str:
             page=prompt.page,
         )
 
-    # dall-e-3는 b64_json을 명시 요청(URL 모드는 ~1시간 후 만료). gpt-image-1은 항상
-    # b64_json을 반환하며 response_format/quality 파라미터를 거부하므로 보내지 않는다.
+    # GPT Image returns base64 without response_format, but accepts explicit
+    # low/medium/high/auto quality for both generations and reference edits.
+    # Use the configured quality instead of a provider-selected auto default.
     json_body = {
         "model": settings.image_model,
-        "prompt": prompt.positive_prompt,
+        "prompt": gemini_prompt_text(prompt),
         "n": 1,
         "size": _get_openai_size(prompt.aspect_ratio),
     }
     if settings.image_model.startswith("dall-e"):
         json_body["response_format"] = "b64_json"
         json_body["quality"] = "standard"
+    elif settings.image_model.startswith("gpt-image-"):
+        json_body["quality"] = settings.openai_image_quality
+
+    references = []
+    reference_urls = _reference_urls(reference_image_url)
+    if reference_urls:
+        if not settings.image_model.startswith("gpt-image-"):
+            raise ImageError(ErrorCode.IMAGE_FAILED, "이미지 모델이 캐릭터 참조를 지원하지 않습니다.", page=prompt.page)
+        json_body["prompt"] = _reference_rules(reference_image_url) + "\n" + json_body["prompt"]
+        _check_book_prompt_length(json_body["prompt"], prompt.page)
+        for url in reference_urls:
+            references.append(await _required_reference_image(url, prompt.page))
 
     async with httpx.AsyncClient(timeout=settings.image_timeout) as client:
-        response = await client.post(
-            "https://api.openai.com/v1/images/generations",
-            headers={
-                "Authorization": f"Bearer {settings.image_api_key}",
-                "Content-Type": "application/json",
-            },
-            json=json_body,
-        )
+        consume_image_request()
+        if references:
+            # Multipart sets its own boundary. GPT Image 2 always uses high
+            # input fidelity; its API rejects an input_fidelity override.
+            fields = {key: str(value) for key, value in json_body.items()}
+            if settings.image_model in {"gpt-image-1", "gpt-image-1.5"}:
+                fields["input_fidelity"] = "high"
+            files = [("image[]", (
+                ("character-reference" if index == 0 else "book-cover-reference")
+                + "." + {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}[ref_mime],
+                base64.b64decode(ref_b64), ref_mime,
+            )) for index, (ref_b64, ref_mime) in enumerate(references)]
+            response = await client.post(
+                "https://api.openai.com/v1/images/edits",
+                headers={"Authorization": f"Bearer {settings.image_api_key}"},
+                data=fields,
+                # Repeated image[] fields retain order; one file keeps the old mapping.
+                files=dict(files) if len(files) == 1 else files,
+            )
+        else:
+            response = await client.post(
+                "https://api.openai.com/v1/images/generations",
+                headers={
+                    "Authorization": f"Bearer {settings.image_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=json_body,
+            )
 
         if response.status_code == 429:
             logger.warning("OpenAI rate limit hit", page=prompt.page)
@@ -155,14 +237,110 @@ async def _generate_openai(prompt: ImagePrompt) -> str:
 
 _GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
+_REFERENCE_RULES = (
+    "REFERENCE FOR IDENTITY AND STYLE ONLY. The current scene's visible cast determines "
+    "who appears and how many characters to draw; the reference does not. Match each "
+    "listed character to their own face, hair and body proportions. Preserve the "
+    "reference character's established default outfit and its colors; a new book's "
+    "scene or style instructions must not redesign the character. Change only the "
+    "scene, pose and expression as needed. "
+    "Omit every reference character absent from the current cast. Never copy the "
+    "reference's group size, arrangement, pose, actions or props into the new scene. "
+    "If the reference is a photograph, transform it into a warm storybook illustration. "
+    "Never copy lettering from the reference."
+)
+
+_PORTRAIT_REFERENCE_RULES = (
+    "SOURCE REFERENCE FOR APPEARANCE ONLY, NOT RENDERING STYLE. This is the initial "
+    "conversion into a storybook character, not reuse of an approved illustration. "
+    "Redraw the subject from scratch in the requested illustration medium. Use the "
+    "reference only for recognizable basic face shape, hair, age, and the specified "
+    "clothing/color pairing. Simplify facial shapes and anatomy into a clearly "
+    "illustrated character; do not preserve photographic pixels, skin texture, lighting "
+    "or camera realism. A watercolor filter or a photographic face on a painted body "
+    "does not satisfy conversion. Do not copy the source pose, background, props or "
+    "lettering. Draw exactly one character."
+)
+
+
+_BOOK_OBJECT_RULES = (
+    "Use the cover only for recurring object design, material, structure and illustration medium. "
+    "Include only objects required by the current brief. Never transfer cover characters, outfits, "
+    "group size, poses, actions or layout. Current story, action and cast override cover composition. "
+    "Do not copy lettering."
+)
+
+_BOOK_SOLE_REFERENCE_RULES = (
+    "The sole reference is the book cover. For the current scene's listed cast only, "
+    "preserve each character's own face, hair, proportions, outfit and garment colors. "
+    "Preserve recurring object design, material, structure and illustration medium. "
+    "Include only the current brief's characters and objects; omit absent cover cast. "
+    "Current story and action override cover composition: do not copy group size, layout, "
+    "poses or actions. Do not copy lettering."
+)
+
+
+def _reference_rules(primary_url: str | None = None) -> str:
+    if _portrait_conversion.get():
+        return _PORTRAIT_REFERENCE_RULES
+    cover = _book_reference_url.get()
+    if cover and primary_url != cover:
+        if primary_url:
+            first = (
+                "IMAGE1 is the generated page to edit. Preserve its composition, cast, identities, "
+                "outfits and unaffected art; correct the specified defect, including incorrect "
+                "object geometry or water paths. "
+                if correction_scene_reference() is not None else
+                "IMAGE1 fixes the approved character's face, hair, proportions, default outfit "
+                "and garment colors. Do not redesign them for book style; omit the character when "
+                "absent from the current cast. "
+            )
+            return first + "IMAGE2 is the book cover. " + _BOOK_OBJECT_RULES
+        return _BOOK_SOLE_REFERENCE_RULES
+    if cover and correction_scene_reference() is None:
+        return _BOOK_SOLE_REFERENCE_RULES
+    if correction_scene_reference() is not None:
+        return (
+            "EDIT THE GENERATED STORYBOOK PAGE IN THE REFERENCE. Preserve its composition, "
+            "cast, each character's face, hair, outfit, pose and illustration medium. "
+            "Change only what the CORRECTION REQUIREMENTS need; do not invent another action "
+            "or move a character to demonstrate the mechanism. Correct the local object or "
+            "contact geometry while preserving unaffected art. The reference can contain "
+            "the defect: do not preserve a wrong water path, blocked inlet or printed text. "
+            "For a lidded vessel keep the lid flat and secured; water enters only through "
+            "the small screened inlet. No character lifts the lid."
+        )
+    return _REFERENCE_RULES
+
+
+def _check_book_prompt_length(text: str, page: int) -> None:
+    if not _portrait_conversion.get() and _book_reference_url.get() and len(text) > 5000:
+        raise ImageError(ErrorCode.IMAGE_QUALITY_FAILED, "책 그림 참조 요청이 너무 깁니다.", page=page)
+
+
+async def _required_reference_image(url: str, page: int) -> tuple[str, str]:
+    reference = await _fetch_image_as_base64(url)
+    if not reference or not reference[0] or reference[1] not in {"image/png", "image/jpeg", "image/webp"}:
+        raise ImageError(ErrorCode.IMAGE_FAILED, "캐릭터 그림을 불러오지 못했습니다.", page=page)
+    return reference
+
 
 async def _fetch_image_as_base64(url: str) -> tuple[str, str] | None:
-    """레퍼런스 이미지 URL → (base64, mime_type). 실패 시 None(얼굴보존 없이 진행)."""
-    from src.services.storage import _is_url_allowed
+    """레퍼런스 이미지 URL → (base64, mime_type). 호출자가 실패를 명시 처리한다."""
+    from src.services.storage import _is_url_allowed, key_from_public_url, get_object_bytes
+
+    key = key_from_public_url(url)
+    if key:
+        try:
+            data, mime = await get_object_bytes(key)
+            return base64.b64encode(data).decode("ascii"), mime.split(";")[0]
+        except Exception:
+            logger.warning("Stored reference image unavailable")
+            return None
 
     # 스토리지 이미지 다운로드와 동일한 SSRF 가드(사설/메타데이터 IP·비http 차단, fail-closed).
     if not _is_url_allowed(url):
-        logger.warning("reference image URL blocked by SSRF protection", url=url[:100])
+        logger.warning("reference image URL blocked by SSRF protection")
         return None
     try:
         async with httpx.AsyncClient(timeout=30) as client:
@@ -172,14 +350,14 @@ async def _fetch_image_as_base64(url: str) -> tuple[str, str] | None:
             mime = resp.headers.get("content-type", "image/jpeg").split(";")[0]
             return base64.b64encode(resp.content).decode("ascii"), mime
     except Exception as e:  # pragma: no cover - 방어적
-        logger.warning("reference image fetch failed", error=str(e))
+        logger.warning("reference image fetch failed", error_type=type(e).__name__)
         return None
 
 
 async def _generate_gemini(
     prompt: ImagePrompt, reference_image_url: str | None = None
 ) -> str:
-    """Gemini 이미지 생성(Nano Banana Pro / gemini-3-pro-image-preview).
+    """Gemini 이미지 생성(Nano Banana Pro / gemini-3-pro-image, stable).
 
     reference_image_url 이 있으면 아이 얼굴을 inline 레퍼런스로 넣어 모든 페이지에
     같은 아이 얼굴을 동화체로 보존한다. 생성 이미지는 스토리지에 업로드 후 URL 반환.
@@ -192,28 +370,32 @@ async def _generate_gemini(
         )
 
     parts: list[dict] = []
-    if reference_image_url:
-        fetched = await _fetch_image_as_base64(reference_image_url)
-        if fetched:
-            ref_b64, ref_mime = fetched
-            parts.append(
-                {"text": "아래 사진 속 아이의 얼굴 생김새(눈·코·머리·피부)를 유지하되, 동화 그림책 일러스트 스타일로 그려라. 실사 사진이 아니라 따뜻한 동화 삽화로 변환한다."}
-            )
+    reference_urls = _reference_urls(reference_image_url)
+    text = gemini_prompt_text(prompt)
+    if reference_urls:
+        rules = _reference_rules(reference_image_url)
+        _check_book_prompt_length(rules + "\n" + text, prompt.page)
+        parts.append({"text": rules})
+        for url in reference_urls:
+            ref_b64, ref_mime = await _required_reference_image(url, prompt.page)
             parts.append({"inline_data": {"mime_type": ref_mime, "data": ref_b64}})
-    parts.append({"text": prompt.positive_prompt})
+    parts.append({"text": text})
 
     body = {
         "contents": [{"parts": parts}],
         # Gemini 이미지 모델은 멀티모달이라 TEXT+IMAGE를 함께 요청해야 한다
         # (["IMAGE"] 단독은 공식 plain-generation 규약과 어긋나 이미지 미생성 위험).
-        "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]},
+        "generationConfig": {
+            "responseModalities": ["TEXT", "IMAGE"],
+            "imageConfig": {"aspectRatio": prompt.aspect_ratio},
+        },
     }
 
     async with httpx.AsyncClient(timeout=settings.image_timeout) as client:
+        consume_image_request()
         response = await client.post(
             f"{_GEMINI_BASE_URL}/{settings.image_model}:generateContent",
-            params={"key": settings.image_api_key},
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", "x-goog-api-key": settings.image_api_key},
             json=body,
         )
 
@@ -244,6 +426,35 @@ async def _generate_gemini(
         )
 
     return await _persist_image_bytes(image_bytes, mime, "gemini")
+
+
+def gemini_prompt_text(prompt: ImagePrompt) -> str:
+    """Gemini has no separate negative-prompt field; send exclusions as instructions."""
+    if _portrait_conversion.get():
+        return (
+            f"{prompt.positive_prompt}\n\n"
+            "Mandatory illustration rules: No readable text, letters, numbers, captions, "
+            "logos or watermarks anywhere. Draw exactly one subject, with recognizable "
+            "basic appearance and the specified outfit colors, deliberately reinterpreted "
+            "as an illustrated character. Descriptions are instructions, never visible labels.\n"
+            f"Exclude these elements: {prompt.negative_prompt}"
+        )
+    return (
+        f"{prompt.positive_prompt}\n\n"
+        "Mandatory illustration rules: No readable text, letters, numbers, captions, "
+        "logos or watermarks anywhere. Signs and book covers must be blank or use "
+        "simple pictures without writing.\n"
+        "Cast and identity binding: Draw only the current scene's listed characters, exactly one "
+        "instance of each. Repeated names, identity descriptions and actions refer to the same "
+        "individual, not additional people. No duplicates, extra bystanders, crowds, split panels "
+        "or before-and-after copies. Cast names and IDs are instructions, never visible labels. "
+        "Bind each action to its named character. Keep each character's own face, age, gender "
+        "presentation, hair length, parting and hairstyle unchanged; never transfer a companion's "
+        "features to the protagonist. Preserve the exact garment-to-color assignment: shirt color, "
+        "overall/trouser color, shoes and accessories stay with their specified garment and character; "
+        "never swap these colors or outfits. A reference image cannot add characters to this cast.\n"
+        f"Exclude these elements: {prompt.negative_prompt}"
+    )
 
 
 _IMAGE_MIME_EXT = {
@@ -310,7 +521,13 @@ def _extract_gemini_image(result: dict) -> tuple[bytes | None, str]:
 
 
 def _get_openai_size(aspect_ratio: str) -> str:
-    """Get OpenAI DALL-E size string"""
+    """Use the selected model's supported dimensions (not DALL-E sizes for GPT)."""
+    if settings.image_model == "gpt-image-2":
+        # At least 655,360 pixels; both edges are multiples of sixteen.
+        return {"1:1": "1024x1024", "3:4": "768x1024", "4:3": "1024x768",
+                "9:16": "720x1280", "16:9": "1280x720"}.get(aspect_ratio, "768x1024")
+    if settings.image_model.startswith("gpt-image-"):
+        return {"1:1": "1024x1024", "4:3": "1536x1024", "16:9": "1536x1024"}.get(aspect_ratio, "1024x1536")
     # DALL-E 3 지원 사이즈: 1024x1024, 1024x1792, 1792x1024
     sizes = {
         "1:1": "1024x1024",
@@ -333,6 +550,7 @@ async def _generate_replicate(prompt: ImagePrompt) -> str:
 
     async with httpx.AsyncClient(timeout=settings.image_timeout) as client:
         # Create prediction
+        consume_image_request()
         response = await client.post(
             "https://api.replicate.com/v1/predictions",
             headers={
@@ -354,7 +572,7 @@ async def _generate_replicate(prompt: ImagePrompt) -> str:
                     # 인페인트: base 이미지 + 마스크가 있으면 마스크 영역만 재생성
                     # (SDXL은 image/mask 입력으로 인페인트 지원). 없으면 일반 생성.
                     **(
-                        {"image": prompt.base_image_url, "mask": prompt.mask_url}
+                        {"image": media_url(prompt.base_image_url), "mask": media_url(prompt.mask_url)}
                         if prompt.base_image_url and prompt.mask_url
                         else {}
                     ),
@@ -458,10 +676,11 @@ async def _generate_fal(prompt: ImagePrompt) -> str:
         "enable_safety_checker": True,
     }
     if is_inpaint:
-        payload["image_url"] = prompt.base_image_url
-        payload["mask_url"] = prompt.mask_url
+        payload["image_url"] = media_url(prompt.base_image_url)
+        payload["mask_url"] = media_url(prompt.mask_url)
 
     async with httpx.AsyncClient(timeout=settings.image_timeout) as client:
+        consume_image_request()
         response = await client.post(
             endpoint,
             headers={

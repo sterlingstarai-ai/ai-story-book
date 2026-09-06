@@ -13,6 +13,7 @@ import httpx
 import structlog
 
 from src.core.config import settings
+from src.services.storage import media_url
 from src.core.exceptions import ValidationError
 
 logger = structlog.get_logger()
@@ -191,7 +192,7 @@ class PodProviderService:
         # 아트워크(pdf_url) 미첨부 주문은 pending_artwork로 구분 저장(확정불가).
         artwork_attached = bool(pdf_url)
         if artwork_attached:
-            item["files"] = [{"type": "default", "url": pdf_url}]
+            item["files"] = [{"type": "default", "url": media_url(pdf_url, expires_in=86400)}]
 
         payload: dict = {
             "external_id": local_order_id,

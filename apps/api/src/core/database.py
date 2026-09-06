@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 from sqlalchemy.pool import NullPool
 
 from src.core.config import settings
+from src.core.database_options import database_options
 
 
 def _require_database_url() -> str:
@@ -18,31 +19,24 @@ def _require_database_url() -> str:
 
 def make_sync_url(url: str) -> str:
     """Convert database URL to sync driver format"""
-    if "postgresql+asyncpg://" in url:
-        return url.replace("postgresql+asyncpg://", "postgresql://")
-    if "sqlite+aiosqlite://" in url:
-        return url.replace("sqlite+aiosqlite://", "sqlite://")
-    return url
+    return database_options(url, asynchronous=False)[0]
 
 
 def make_async_url(url: str) -> str:
     """Convert database URL to async driver format"""
-    if "postgresql://" in url and "asyncpg" not in url:
-        return url.replace("postgresql://", "postgresql+asyncpg://")
-    if "sqlite://" in url and "aiosqlite" not in url:
-        return url.replace("sqlite://", "sqlite+aiosqlite://")
-    return url
+    return database_options(url, asynchronous=True)[0]
 
 
 # Sync engine (for Alembic migrations)
 database_url = _require_database_url()
-sync_database_url = make_sync_url(database_url)
+_TLS_OPTIONS = {"ssl_mode": settings.database_ssl_mode, "ssl_root_cert": settings.database_ssl_root_cert}
+sync_database_url, _ = database_options(database_url, asynchronous=False, **_TLS_OPTIONS)
 engine = create_engine(sync_database_url, echo=settings.debug)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Async engine (for API)
-async_database_url = make_async_url(database_url)
-_ASYNC_ENGINE_KWARGS = {"echo": settings.debug}
+async_database_url, _async_connect_args = database_options(database_url, asynchronous=True, **_TLS_OPTIONS)
+_ASYNC_ENGINE_KWARGS = {"echo": settings.debug, "connect_args": _async_connect_args}
 async_engine = create_async_engine(async_database_url, **_ASYNC_ENGINE_KWARGS)
 AsyncSessionLocal = async_sessionmaker(
     bind=async_engine,

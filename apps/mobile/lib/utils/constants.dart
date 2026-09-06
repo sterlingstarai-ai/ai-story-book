@@ -11,8 +11,8 @@ class AppColors {
   static const warning = Color(0xFFF59E0B);
 
   static const textPrimary = Color(0xFF1F2937);
-  static const textSecondary = Color(0xFF6B7280);
-  static const textHint = Color(0xFF9CA3AF);
+  static const textSecondary = Color(0xFF596273);
+  static const textHint = Color(0xFF596273);
 
   static const divider = Color(0xFFE5E7EB);
 
@@ -42,42 +42,66 @@ class AppColors {
 /// 앱 텍스트 스타일
 class AppTextStyles {
   static const heading1 = TextStyle(
+    fontFamily: 'Pretendard',
     fontSize: 28,
     fontWeight: FontWeight.bold,
-    color: AppColors.textPrimary,
   );
 
   static const heading2 = TextStyle(
+    fontFamily: 'Pretendard',
     fontSize: 22,
     fontWeight: FontWeight.bold,
-    color: AppColors.textPrimary,
   );
 
   static const heading3 = TextStyle(
+    fontFamily: 'Pretendard',
     fontSize: 18,
     fontWeight: FontWeight.w600,
-    color: AppColors.textPrimary,
   );
 
   static const body = TextStyle(
+    fontFamily: 'Pretendard',
     fontSize: 16,
-    color: AppColors.textPrimary,
   );
 
   static const bodySmall = TextStyle(
+    fontFamily: 'Pretendard',
     fontSize: 14,
-    color: AppColors.textSecondary,
   );
 
   static const caption = TextStyle(
+    fontFamily: 'Pretendard',
     fontSize: 12,
-    color: AppColors.textHint,
   );
 
   static const button = TextStyle(
+    fontFamily: 'Pretendard',
     fontSize: 16,
     fontWeight: FontWeight.w600,
   );
+}
+
+/// Semantic surface colors shared by every route in both appearance modes.
+class AppPalette {
+  const AppPalette(this.isDark);
+
+  factory AppPalette.of(BuildContext context) =>
+      AppPalette(Theme.of(context).brightness == Brightness.dark);
+
+  final bool isDark;
+  Color get background =>
+      isDark ? const Color(0xFF15151D) : AppColors.background;
+  Color get surface => isDark ? const Color(0xFF23232F) : AppColors.surface;
+  Color get textPrimary =>
+      isDark ? const Color(0xFFF3F4F6) : AppColors.textPrimary;
+  Color get textSecondary =>
+      isDark ? const Color(0xFFBEC2CE) : AppColors.textSecondary;
+  Color get textHint => textSecondary;
+  Color get divider => isDark ? const Color(0xFF464655) : AppColors.divider;
+  Color get primary =>
+      isDark ? const Color(0xFFB6AEFF) : const Color(0xFF4F46E5);
+  Color get primaryLight =>
+      isDark ? const Color(0xFF34304D) : const Color(0xFFF0EFFE);
 }
 
 /// 앱 간격

@@ -4,6 +4,7 @@ Storage Service: S3/Minio 파일 업로드
 
 import asyncio
 import inspect
+from functools import lru_cache
 from typing import Optional
 
 import boto3
@@ -11,7 +12,7 @@ from botocore.config import Config
 from botocore.exceptions import ClientError
 import httpx
 import structlog
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote
 import ipaddress
 import socket
 
@@ -82,7 +83,8 @@ def get_s3_client():
         endpoint_url=settings.s3_endpoint,
         aws_access_key_id=settings.s3_access_key,
         aws_secret_access_key=settings.s3_secret_key,
-        config=Config(signature_version="s3v4"),
+        region_name=settings.s3_region,
+        config=Config(signature_version="s3v4", s3={"addressing_style": settings.s3_addressing_style}),
     )
 
 
@@ -112,17 +114,23 @@ async def ensure_bucket_exists():
         try:
             await _call_s3(client.head_bucket, Bucket=settings.s3_bucket)
             _bucket_verified = True
-        except ClientError:
+        except ClientError as error:
+            code = str(error.response.get("Error", {}).get("Code", ""))
+            if not settings.s3_auto_create_bucket or code not in {"404", "NoSuchBucket", "NotFound"}:
+                raise StorageError("Configured private bucket is unavailable or access was denied") from None
             try:
-                await _call_s3(client.create_bucket, Bucket=settings.s3_bucket)
+                options = {"Bucket": settings.s3_bucket}
+                if settings.s3_region != "us-east-1":
+                    options["CreateBucketConfiguration"] = {"LocationConstraint": settings.s3_region}
+                await _call_s3(client.create_bucket, **options)
                 logger.info("Created bucket", bucket=settings.s3_bucket)
                 logger.warning(
                     "Bucket created without public policy - configure access policy manually"
                 )
                 _bucket_verified = True
-            except ClientError as e:
-                logger.error("Failed to create bucket", error=str(e))
-                raise StorageError(f"Failed to create bucket: {e}")
+            except ClientError:
+                logger.error("Failed to create private bucket")
+                raise StorageError("Failed to create private bucket") from None
 
 
 def _public_url_bases() -> list[str]:
@@ -147,10 +155,75 @@ def key_from_public_url(url: Optional[str]) -> Optional[str]:
     """저장된 공개 URL({s3_public_url}/{key})에서 S3 키를 복원한다. 우리 버킷이 아니면 None."""
     if not url:
         return None
-    for base in _public_url_bases():
-        if url.startswith(base):
-            return url[len(base):]
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or parsed.username or parsed.password:
+        return None
+    bases = _public_url_bases() + [
+        f"{endpoint.rstrip('/')}/{settings.s3_bucket}/"
+        for endpoint in [settings.s3_endpoint, settings.s3_download_endpoint]
+        if endpoint
+    ]
+    # Re-signing and deletion must also recognize our configured bucket when
+    # an AWS endpoint uses virtual-hosted addressing. Never accept other buckets.
+    for endpoint in [settings.s3_endpoint, settings.s3_download_endpoint]:
+        if endpoint and settings.s3_addressing_style in {"virtual", "auto"}:
+            target = urlparse(endpoint)
+            bases.append(target._replace(netloc=f"{settings.s3_bucket}.{target.netloc}",
+                                         path=target.path.rstrip("/") + "/").geturl())
+    for base in bases:
+        expected = urlparse(base)
+        if (parsed.scheme, parsed.netloc) != (expected.scheme, expected.netloc):
+            continue
+        if parsed.path.startswith(expected.path):
+            key = unquote(parsed.path[len(expected.path):])
+            if key and all(part not in {"", ".", ".."} for part in key.split('/')):
+                return key
     return None
+
+
+def canonical_media_url(key: str) -> str:
+    """Stable DB reference; this URL does not imply anonymous bucket access."""
+    from urllib.parse import quote
+    return f"{settings.s3_public_url.rstrip('/')}/{quote(key, safe='/')}"
+
+
+def voice_sample_prefix(user_key: str) -> str:
+    """Opaque owner namespace: object URLs must never contain the bearer credential."""
+    import hashlib
+    owner = hashlib.sha256(f"voice-samples:v2:{user_key}".encode()).hexdigest()
+    return f"voice-samples/v2/{owner}/"
+
+
+@lru_cache(maxsize=4)
+def _signing_client(endpoint: str, access_key: str, secret_key: str, region: str, addressing_style: str):
+    return boto3.client(
+        "s3", endpoint_url=endpoint,
+        aws_access_key_id=access_key, aws_secret_access_key=secret_key,
+        region_name=region,
+        config=Config(signature_version="s3v4", s3={"addressing_style": addressing_style}),
+    )
+
+
+def media_url(url: Optional[str], *, expires_in: Optional[int] = None) -> Optional[str]:
+    """Sign a known-owned asset at the response/provider boundary, never during persistence.
+
+    Callers must first check ownership; never pass arbitrary client-submitted URLs here.
+    External legacy assets and deliberate placeholders are returned unchanged.
+    """
+    key = key_from_public_url(url)
+    if key is None:
+        return url
+    if not settings.s3_access_key or not settings.s3_secret_key:
+        raise StorageError("Media download signing is not configured")
+    client = _signing_client(
+        settings.s3_download_endpoint or settings.s3_endpoint,
+        settings.s3_access_key, settings.s3_secret_key,
+        settings.s3_region, settings.s3_addressing_style,
+    )
+    return client.generate_presigned_url(
+        "get_object", Params={"Bucket": settings.s3_bucket, "Key": key},
+        ExpiresIn=expires_in or settings.s3_download_ttl_seconds,
+    )
 
 
 async def get_object_bytes(key: str) -> tuple[bytes, str]:

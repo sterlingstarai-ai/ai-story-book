@@ -1,4 +1,5 @@
 import pytest
+import hashlib
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -37,13 +38,14 @@ async def test_is_allowed_uses_unique_zset_member(monkeypatch: pytest.MonkeyPatc
     now_ts = fixed_dt.timestamp()
     window_start = now_ts - settings.rate_limit_window
 
-    pipe.zremrangebyscore.assert_called_once_with("rate_limit:test-user", 0, window_start)
+    key = f"rate_limit:{hashlib.sha256(b'test-user').hexdigest()}"
+    pipe.zremrangebyscore.assert_called_once_with(key, 0, window_start)
     pipe.zadd.assert_called_once_with(
-        "rate_limit:test-user",
+        key,
         {f"{now_ts}:abc123": now_ts},
     )
-    pipe.zcard.assert_called_once_with("rate_limit:test-user")
-    pipe.expire.assert_called_once_with("rate_limit:test-user", settings.rate_limit_window + 1)
+    pipe.zcard.assert_called_once_with(key)
+    pipe.expire.assert_called_once_with(key, settings.rate_limit_window + 1)
 
     assert allowed is True
     assert remaining == max(0, settings.rate_limit_requests - 1)

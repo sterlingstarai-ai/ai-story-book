@@ -1,9 +1,14 @@
-import 'dart:async';
+import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
+
+class UserKeyUnavailable implements Exception {
+  const UserKeyUnavailable();
+}
 
 /// 사용자 서비스 (user_key 관리)
 ///
@@ -17,11 +22,16 @@ import 'package:uuid/uuid.dart';
 /// 기존 평문 값은 부팅 시 1회 이관 후 삭제한다.
 class UserService {
   static const _userKeyKey = 'user_key';
+  static const _initializedKey = 'user_key_initialized_v1';
+  static const _pendingRecoveryKey = 'pending_recovered_user_key_v1';
+  static const deletionCommittedKey = 'account_deletion_committed_v1';
+  static const recoveryBackupNeededKey = 'recovery_backup_needed_v1';
   static const _activeProfileIdKey = 'active_profile_id_v1';
 
   /// Android 는 Keystore 로 암호화된 SharedPreferences 백엔드를 명시해야 한다
   /// (기본 백엔드는 구형 기기에서 평문으로 떨어질 수 있다).
-  static const _secureOptions = AndroidOptions(encryptedSharedPreferences: true);
+  static const _secureOptions =
+      AndroidOptions(encryptedSharedPreferences: true);
   static const _defaultSecureStorage = FlutterSecureStorage(
     aOptions: _secureOptions,
   );
@@ -31,6 +41,7 @@ class UserService {
   /// 보안 저장소 접근은 비동기인데 `getUserKey()` 는 앱 전반에서 동기로 쓰인다. 앱 부팅에서
   /// 한 번 읽어 캐시하고, 이후 동기 접근은 그 값을 돌려준다.
   static String? _cachedUserKey;
+  static bool _credentialUnavailable = false;
 
   final SharedPreferences _prefs;
   final FlutterSecureStorage _secureStorage;
@@ -53,9 +64,13 @@ class UserService {
     String? key;
     try {
       key = await secure.read(key: _userKeyKey);
-    } catch (error) {
-      // 보안 저장소 장애(예: Keystore 손상)에서 앱을 못 켜게 만들지는 않는다.
-      debugPrint('secure storage read 실패: $error');
+    } catch (_) {
+      // 읽기 실패는 신규 설치가 아니다. 기존 키를 절대 덮어쓰지 않는다.
+      throw const UserKeyUnavailable();
+    }
+
+    if (key != null && !_isValidKey(key)) {
+      throw const UserKeyUnavailable();
     }
 
     if (!_isValidKey(key)) {
@@ -70,14 +85,17 @@ class UserService {
           );
           await prefs.remove(_userKeyKey);
           key = legacy;
-        } catch (error) {
-          debugPrint('user_key 보안 저장소 이관 실패(평문 유지): $error');
+        } catch (_) {
+          debugPrint('user_key 보안 저장소 이관 실패(다음 부팅에서 재시도)');
           key = legacy; // 이관 실패 시에도 계정은 유지 — 다음 부팅에서 재시도.
         }
       }
     }
 
     if (!_isValidKey(key)) {
+      if (prefs.getBool(_initializedKey) == true) {
+        throw const UserKeyUnavailable();
+      }
       key = const Uuid().v4();
       try {
         await secure.write(
@@ -85,23 +103,29 @@ class UserService {
           value: key,
           aOptions: _secureOptions,
         );
-      } catch (error) {
-        debugPrint('user_key 보안 저장소 저장 실패: $error');
+        if (await secure.read(key: _userKeyKey) != key) {
+          throw const UserKeyUnavailable();
+        }
+      } catch (_) {
+        // 영속화되지 않은 임시 계정으로 결제·책 생성을 시작하지 않는다.
+        throw const UserKeyUnavailable();
       }
     }
 
+    await prefs.setBool(_initializedKey, true);
     _cachedUserKey = key;
+    _credentialUnavailable = false;
     return key!;
   }
 
   static bool _isValidKey(String? value) => value != null && value.length >= 10;
 
-  /// user_key 가져오기 (없으면 생성)
+  /// 부트스트랩이 확인한 키를 읽는다. 동기 경로에서는 새 계정을 만들지 않는다.
   ///
   /// 정상 경로에서는 [bootstrapUserKey] 가 채운 캐시를 돌려준다. 부트스트랩이 돌지 않은
-  /// 컨텍스트(단위 테스트 등)에서는 레거시 평문을 **읽기만** 하고, 새 키는 평문에 쓰지 않고
-  /// 보안 저장소에 비동기로 쓴다 — 어떤 경로로도 새 평문 자격증명이 생기지 않게.
+  /// 컨텍스트(기존 테스트 등)에서는 레거시 값을 읽을 수 있다.
   String getUserKey() {
+    if (_credentialUnavailable) throw const UserKeyUnavailable();
     if (_isValidKey(_cachedUserKey)) {
       return _cachedUserKey!;
     }
@@ -110,16 +134,102 @@ class UserService {
       _cachedUserKey = legacy;
       return legacy!;
     }
-    final generated = const Uuid().v4();
-    _cachedUserKey = generated;
-    unawaited(
-      _secureStorage
-          .write(key: _userKeyKey, value: generated, aOptions: _secureOptions)
-          .catchError((Object error) {
-        debugPrint('user_key 저장 실패: $error');
-      }),
-    );
-    return generated;
+    throw const UserKeyUnavailable();
+  }
+
+  /// Stage a credential durably before the server invalidates the old device.
+  Future<String> prepareRecoveryKey() async {
+    final existing = await pendingRecoveryKey();
+    if (existing != null) return existing;
+    final random = Random.secure();
+    final bytes = List<int>.generate(32, (_) => random.nextInt(256));
+    final key = 'asb_device_${base64UrlEncode(bytes).replaceAll('=', '')}';
+    try {
+      await _secureStorage.write(
+          key: _pendingRecoveryKey, value: key, aOptions: _secureOptions);
+      if (await _secureStorage.read(key: _pendingRecoveryKey) != key) {
+        throw const UserKeyUnavailable();
+      }
+    } catch (_) {
+      throw const UserKeyUnavailable();
+    }
+    return key;
+  }
+
+  Future<String?> pendingRecoveryKey() async {
+    try {
+      final key = await _secureStorage.read(key: _pendingRecoveryKey);
+      if (key != null &&
+          !RegExp(r'^asb_device_[A-Za-z0-9_-]{43}$').hasMatch(key)) {
+        throw const UserKeyUnavailable();
+      }
+      return key;
+    } catch (_) {
+      throw const UserKeyUnavailable();
+    }
+  }
+
+  Future<void> discardPendingRecoveryKey() async {
+    try {
+      await _secureStorage.delete(
+          key: _pendingRecoveryKey, aOptions: _secureOptions);
+    } catch (_) {
+      throw const UserKeyUnavailable();
+    }
+  }
+
+  /// A failed write leaves the staged key available to reconcile on restart.
+  /// Clear every old account preference before exposing the recovered credential.
+  Future<void> activatePendingRecoveryKey() async {
+    final key = await pendingRecoveryKey();
+    if (key == null) throw const UserKeyUnavailable();
+    _credentialUnavailable = true;
+    try {
+      await _secureStorage.write(
+          key: _userKeyKey, value: key, aOptions: _secureOptions);
+      if (await _secureStorage.read(key: _userKeyKey) != key) {
+        throw const UserKeyUnavailable();
+      }
+      if (!await _prefs.clear() ||
+          !await _prefs.setBool(_initializedKey, true) ||
+          !await _prefs.setBool(recoveryBackupNeededKey, true)) {
+        throw const UserKeyUnavailable();
+      }
+      _cachedUserKey = key;
+      await discardPendingRecoveryKey();
+      _credentialUnavailable = false;
+    } catch (_) {
+      // The old key may already be revoked. Never keep using it on this process.
+      _cachedUserKey = null;
+      throw const UserKeyUnavailable();
+    }
+  }
+
+  /// Called only after the server confirms account deletion, including a durable
+  /// media purge retry. The marker makes storage failure retryable at bootstrap.
+  Future<void> completeAccountDeletion() async {
+    _credentialUnavailable = true;
+    try {
+      if (!await _prefs.setBool(deletionCommittedKey, true)) {
+        throw const UserKeyUnavailable();
+      }
+      final key = const Uuid().v4();
+      await _secureStorage.write(
+          key: _userKeyKey, value: key, aOptions: _secureOptions);
+      if (await _secureStorage.read(key: _userKeyKey) != key) {
+        throw const UserKeyUnavailable();
+      }
+      await discardPendingRecoveryKey();
+      if (!await _prefs.clear() ||
+          !await _prefs.setBool(_initializedKey, true)) {
+        throw const UserKeyUnavailable();
+      }
+      _cachedUserKey = key;
+      _credentialUnavailable = false;
+    } catch (_) {
+      _cachedUserKey = null;
+      throw const UserKeyUnavailable();
+    }
   }
 
   /// user_key 초기화 (디버그용)
@@ -128,14 +238,16 @@ class UserService {
     await _prefs.remove(_userKeyKey);
     try {
       await _secureStorage.delete(key: _userKeyKey, aOptions: _secureOptions);
-    } catch (error) {
-      debugPrint('user_key 삭제 실패: $error');
+      await _prefs.remove(_initializedKey);
+    } catch (_) {
+      debugPrint('user_key 삭제 실패');
     }
   }
 
   @visibleForTesting
   static void resetCacheForTest() {
     _cachedUserKey = null;
+    _credentialUnavailable = false;
   }
 
   String? getActiveProfileId() {

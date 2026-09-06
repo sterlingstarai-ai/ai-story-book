@@ -18,6 +18,21 @@ from src.core.database import Base
 from src.core.utils import utcnow
 
 
+class AccountIdentity(Base):
+    """Stable legacy ownership with independently revocable, hashed credentials."""
+
+    __tablename__ = "account_identities"
+
+    user_key = Column(String(80), primary_key=True)
+    device_key_hash = Column(String(64), nullable=True, unique=True)
+    recovery_code_hash = Column(String(64), nullable=True, unique=True)
+    previous_recovery_code_hash = Column(String(64), nullable=True, index=True)
+    recovery_code_created_at = Column(DateTime, nullable=True)
+    deleted = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
 class Job(Base):
     __tablename__ = "jobs"
     __table_args__ = (
@@ -54,6 +69,10 @@ class Job(Base):
     # 않아 image_url 역산 경로가 존재하지 않고, 이미 올라간 아동 얼굴 파생 일러스트가
     # 어떤 파기 경로에도 닿지 않는 고아가 된다 — 생성 시점에 여기 기록해 추적 가능하게.
     image_keys = Column(JSON, nullable=True)
+    # Keep photo lineage and the immutable approved reference after Character deletion.
+    photo_derived = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    character_reference_url = Column(String(500), nullable=True)
+    character_reference_version = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
@@ -165,6 +184,29 @@ class Book(Base):
     series = relationship("Series", back_populates="books")
 
 
+class ContentReport(Base):
+    """A reason and version reference, never a second copy of child content."""
+
+    __tablename__ = "content_reports"
+    __table_args__ = (
+        UniqueConstraint(
+            "book_id", "page_number", "reason", "content_fingerprint",
+            name="uq_content_report_version_reason",
+        ),
+        Index("ix_content_reports_status_created", "status", "created_at"),
+    )
+
+    id = Column(String(60), primary_key=True)
+    book_id = Column(String(60), ForeignKey("books.id", ondelete="CASCADE"), nullable=False)
+    page_number = Column(Integer, nullable=False)
+    reason = Column(String(40), nullable=False)
+    content_fingerprint = Column(String(64), nullable=False)
+    status = Column(String(20), nullable=False, default="pending")
+    resolution = Column(String(40), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
 class Page(Base):
     __tablename__ = "pages"
     __table_args__ = (
@@ -234,6 +276,17 @@ class Character(Base):
     from_photo = Column(Boolean, nullable=False, default=False)
     # 원본 사진/그림 URL — 얼굴 보존 이미지 생성(gemini)의 레퍼런스로 사용
     source_image_url = Column(String(500), nullable=True)
+    avatar_status = Column(String(20), nullable=False, default="not_required", server_default="not_required")
+    avatar_url = Column(String(500), nullable=True)
+    avatar_version = Column(Integer, nullable=False, default=0, server_default="0")
+    avatar_attempts = Column(Integer, nullable=False, default=0, server_default="0")
+    avatar_requested_at = Column(DateTime, nullable=True)
+    avatar_started_at = Column(DateTime, nullable=True)
+    avatar_expires_at = Column(DateTime, nullable=True, index=True)
+    avatar_approved_at = Column(DateTime, nullable=True)
+    avatar_style = Column(String(40), nullable=True)
+    avatar_source_kind = Column(String(10), nullable=True)
+    avatar_error_code = Column(String(60), nullable=True)
     user_key = Column(String(80), nullable=False, index=True)
     # 클라이언트 시도-단위 멱등키(H17/G19). 재시도 시 기존 캐릭터를 반환해 재분석을 막는다.
     idempotency_key = Column(String(80), nullable=True)

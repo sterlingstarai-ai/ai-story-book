@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:ai_story_book/l10n/app_localizations.dart';
 import 'package:ai_story_book/providers/providers.dart';
@@ -9,9 +10,15 @@ import 'package:ai_story_book/widgets/age_gate_dialog.dart';
 
 // M24: 두 사진 진입점이 공유하는 공용 게이트. 세션 검증 상태에 따라 다이얼로그를
 // 띄우거나 통과시키는지 검증(진입점 간 이중 보호 일치의 토대).
-Widget _host(ParentalControlService svc, void Function(bool) onResult) {
+Future<Widget> _host(
+    ParentalControlService svc, void Function(bool) onResult) async {
+  SharedPreferences.setMockInitialValues({});
+  final prefs = await SharedPreferences.getInstance();
   return ProviderScope(
-    overrides: [parentalControlServiceProvider.overrideWithValue(svc)],
+    overrides: [
+      parentalControlServiceProvider.overrideWithValue(svc),
+      sharedPreferencesProvider.overrideWithValue(prefs),
+    ],
     child: MaterialApp(
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
@@ -28,11 +35,12 @@ Widget _host(ParentalControlService svc, void Function(bool) onResult) {
 }
 
 void main() {
-  testWidgets('ensureAgeGate passes without a dialog when already verified (M24)',
+  testWidgets(
+      'ensureAgeGate passes without a dialog when already verified (M24)',
       (tester) async {
     final svc = ParentalControlService()..markAgeGateVerified();
     bool? result;
-    await tester.pumpWidget(_host(svc, (r) => result = r));
+    await tester.pumpWidget(await _host(svc, (r) => result = r));
     await tester.tap(find.text('go'));
     await tester.pumpAndSettle();
 
@@ -43,7 +51,7 @@ void main() {
   testWidgets('ensureAgeGate shows the age gate when not verified (M24)',
       (tester) async {
     final svc = ParentalControlService(); // 미검증
-    await tester.pumpWidget(_host(svc, (_) {}));
+    await tester.pumpWidget(await _host(svc, (_) {}));
     await tester.tap(find.text('go'));
     await tester.pumpAndSettle();
 

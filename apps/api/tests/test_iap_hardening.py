@@ -755,6 +755,7 @@ async def test_refund_webhook_claws_back_subscription_credits(client, db_session
 # ───────────────────────── F1/N2: readiness 게이트 ─────────────────────────
 @pytest.mark.asyncio
 async def test_readiness_blocks_when_iap_not_strict_in_production(client, monkeypatch):
+    monkeypatch.setattr(settings, "purchases_enabled", True)
     monkeypatch.setattr(settings, "testing", False)
     monkeypatch.setattr(settings, "iap_verification_mode", "local")
     monkeypatch.setattr(settings, "apple_iap_shared_secret", None)
@@ -775,6 +776,7 @@ async def test_readiness_blocks_when_iap_not_strict_in_production(client, monkey
 
 @pytest.mark.asyncio
 async def test_readiness_iap_ok_when_strict_and_configured(client, monkeypatch):
+    monkeypatch.setattr(settings, "purchases_enabled", True)
     monkeypatch.setattr(settings, "testing", False)
     monkeypatch.setattr(settings, "iap_verification_mode", "strict")
     monkeypatch.setattr(settings, "apple_iap_shared_secret", "shared-secret")

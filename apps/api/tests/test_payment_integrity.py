@@ -264,7 +264,15 @@ async def test_refund_for_job_absorbs_db_duplicate(db_session, monkeypatch):
 
     # 두 번째 호출에서 already-체크가 미스하도록 강제(경쟁 세션이 방금 커밋한 상황 재현) →
     # add_credits가 uq_refund 위반 → 세이브포인트 흡수 → False, 잔액 불변.
-    monkeypatch.setattr(credits_service, "_job_already_refunded", _always_false)
+    already_refunded = credits_service._job_already_refunded
+    checks = 0
+
+    async def miss_once(*args, **kwargs):
+        nonlocal checks
+        checks += 1
+        return False if checks == 1 else await already_refunded(*args, **kwargs)
+
+    monkeypatch.setattr(credits_service, "_job_already_refunded", miss_once)
     assert await credits_service.refund_for_job(db_session, uk, "job-a") is False
     db_session.expire_all()
     assert await _balance(db_session, uk) == 3

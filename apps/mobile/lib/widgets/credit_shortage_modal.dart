@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/purchase_availability.dart';
 import '../l10n/app_localizations.dart';
+import '../providers/providers.dart';
 import '../utils/constants.dart';
 
 Future<void> showCreditShortageModal(
@@ -19,7 +23,7 @@ Future<void> showCreditShortageModal(
   );
 }
 
-class _CreditShortageSheet extends StatelessWidget {
+class _CreditShortageSheet extends ConsumerWidget {
   const _CreditShortageSheet({
     this.title,
     this.message,
@@ -29,19 +33,29 @@ class _CreditShortageSheet extends StatelessWidget {
   final String? message;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
-    final resolvedTitle = title != null && title!.trim().isNotEmpty
-        ? title!.trim()
-        : l10n.creditShortageTitle;
-    final resolvedMessage = message != null && message!.trim().isNotEmpty
-        ? message!.trim()
-        : l10n.creditShortageMessage;
+    final canPurchase = ref.watch(capabilitiesProvider).maybeWhen(
+          data: (caps) => purchasesSupportedForPlatform(caps,
+              platform: defaultTargetPlatform, isWeb: kIsWeb),
+          orElse: () => false,
+        );
+    final resolvedTitle = !canPurchase
+        ? l10n.creditBetaLimitTitle
+        : title != null && title!.trim().isNotEmpty
+            ? title!.trim()
+            : l10n.creditShortageTitle;
+    final resolvedMessage = !canPurchase
+        ? l10n.creditBetaLimitMessage
+        : message != null && message!.trim().isNotEmpty
+            ? message!.trim()
+            : l10n.creditShortageMessage;
 
     return Container(
-      decoration: const BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
+      decoration: BoxDecoration(
+        color: AppPalette.of(context).surface,
+        borderRadius:
+            const BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
       ),
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.lg,
@@ -51,7 +65,8 @@ class _CreditShortageSheet extends StatelessWidget {
       ),
       child: SafeArea(
         top: false,
-        child: Column(
+        child: SingleChildScrollView(
+            child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -60,7 +75,7 @@ class _CreditShortageSheet extends StatelessWidget {
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: AppColors.divider,
+                  color: AppPalette.of(context).divider,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -73,32 +88,48 @@ class _CreditShortageSheet extends StatelessWidget {
               style: AppTextStyles.bodySmall,
             ),
             const SizedBox(height: AppSpacing.lg),
-            _ActionCard(
-              icon: Icons.ondemand_video,
-              title: l10n.creditShortageFreeTitle,
-              subtitle: l10n.creditShortageFreeSubtitle,
-              onTap: () => Navigator.pop(context),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            _ActionCard(
-              icon: Icons.workspace_premium,
-              title: l10n.creditShortageSubscribeTitle,
-              subtitle: l10n.creditShortageSubscribeSubtitle,
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.pushNamed(context, '/credits');
-              },
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            _ActionCard(
-              icon: Icons.local_offer,
-              title: l10n.creditShortagePurchaseTitle,
-              subtitle: l10n.creditShortagePurchaseSubtitle,
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.pushNamed(context, '/credits');
-              },
-            ),
+            if (canPurchase)
+              _ActionCard(
+                icon: Icons.workspace_premium,
+                title: l10n.creditShortageSubscribeTitle,
+                subtitle: l10n.creditShortageSubscribeSubtitle,
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.pushNamed(context, '/credits');
+                },
+              ),
+            if (canPurchase) const SizedBox(height: AppSpacing.sm),
+            if (canPurchase)
+              _ActionCard(
+                icon: Icons.local_offer,
+                title: l10n.creditShortagePurchaseTitle,
+                subtitle: l10n.creditShortagePurchaseSubtitle,
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.pushNamed(context, '/credits');
+                },
+              ),
+            if (!canPurchase) ...[
+              _ActionCard(
+                icon: Icons.auto_stories,
+                title: l10n.libraryTitle,
+                subtitle: l10n.creditBetaLibrarySubtitle,
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.pushNamed(context, '/library');
+                },
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              _ActionCard(
+                icon: Icons.account_balance_wallet_outlined,
+                title: l10n.creditsTitle,
+                subtitle: l10n.creditBetaStatusSubtitle,
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.pushNamed(context, '/credits');
+                },
+              ),
+            ],
             const SizedBox(height: AppSpacing.md),
             Center(
               child: TextButton(
@@ -107,7 +138,7 @@ class _CreditShortageSheet extends StatelessWidget {
               ),
             ),
           ],
-        ),
+        )),
       ),
     );
   }
@@ -135,7 +166,7 @@ class _ActionCard extends StatelessWidget {
         width: double.infinity,
         padding: const EdgeInsets.all(AppSpacing.md),
         decoration: BoxDecoration(
-          color: AppColors.primaryLight,
+          color: AppPalette.of(context).primaryLight,
           borderRadius: BorderRadius.circular(AppRadius.md),
           border: Border.all(color: AppColors.primaryMedium),
         ),

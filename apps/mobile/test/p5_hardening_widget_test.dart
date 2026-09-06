@@ -85,6 +85,13 @@ Widget _buildHarness(
 }
 
 class _InteractiveMockApiClient extends ApiClient {
+  @override
+  Future<Map<String, dynamic>> getCapabilities() async => {
+        'pod_ordering_supported': true,
+        'audio_supported': true,
+        'inpaint_supported': false,
+      };
+
   _InteractiveMockApiClient({
     Map<String, dynamic>? settingsPayload,
     List<Map<String, dynamic>>? profiles,
@@ -537,6 +544,9 @@ void main() {
       await tester.pumpWidget(_buildHarness(
         const StartupGateScreen(),
         prefs: consentOnlyPrefs,
+        overrides: [
+          apiClientProvider.overrideWithValue(_InteractiveMockApiClient())
+        ],
       ));
       await tester.pumpAndSettle();
       expect(find.byType(OnboardingScreen), findsOneWidget);
@@ -575,7 +585,8 @@ void main() {
       expect(find.text('설정이 저장되었습니다.'), findsOneWidget);
     });
 
-    testWidgets('SettingsScreen has no language dropdown — device locale is source of truth (L13)',
+    testWidgets(
+        'SettingsScreen has no language dropdown — device locale is source of truth (L13)',
         (tester) async {
       final prefs = await _createPrefs();
       final api = _InteractiveMockApiClient();
@@ -590,7 +601,8 @@ void main() {
       expect(find.byType(DropdownButton<String>), findsNothing);
     });
 
-    testWidgets('SettingsScreen shows unified 1.0.0 version, not stale 0.1.0 (L20)',
+    testWidgets(
+        'SettingsScreen shows unified 1.0.0 version, not stale 0.1.0 (L20)',
         (tester) async {
       final prefs = await _createPrefs();
       final api = _InteractiveMockApiClient();
@@ -682,10 +694,16 @@ void main() {
         find.widgetWithText(TextFormField, '이름/라벨'),
         '엄마 목소리',
       );
+      await tester.tap(find.widgetWithText(ExpansionTile, '오디오 링크로 직접 연결'));
+      await tester.pumpAndSettle();
+      await tester
+          .ensureVisible(find.widgetWithText(TextFormField, '샘플 오디오 URL'));
       await tester.enterText(
         find.widgetWithText(TextFormField, '샘플 오디오 URL'),
         'https://example.com/sample.m4a',
       );
+      await tester
+          .ensureVisible(find.widgetWithText(SwitchListTile, '보호자 동의 완료'));
       await tester.tap(find.widgetWithText(SwitchListTile, '보호자 동의 완료'));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, '추가'));

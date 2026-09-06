@@ -1,0 +1,45 @@
+# Disposable, localhost-only dependencies. No existing volumes or .env files are used.
+# API/worker processes are launched by scripts/run_runtime_e2e.py, which injects
+# PHOTO_ANALYSIS_PROVIDER=mock and PHOTO_PROCESSING_ENABLED=false explicitly.
+# These are application settings, not settings for the dependency containers below.
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: runtime_test
+      POSTGRES_PASSWORD: disposable-runtime-password
+      POSTGRES_DB: runtime_test
+    ports:
+      - "127.0.0.1::5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U runtime_test -d runtime_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  redis:
+    image: redis:7-alpine
+    command: redis-server --save "" --appendonly no
+    ports:
+      - "127.0.0.1::6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  minio:
+    image: minio/minio:latest
+    environment:
+      MINIO_ROOT_USER: runtime_test
+      MINIO_ROOT_PASSWORD: disposable-runtime-password
+    command: server /data
+    ports:
+      - "127.0.0.1::9000"
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/minio/health/live"]
+      interval: 2s
+      timeout: 3s
+      retries: 30

@@ -2073,73 +2073,30 @@ async def test_voice_sample_upload_returns_url(
 
 
 @pytest.mark.asyncio
-async def test_character_from_drawing_creates_character_and_sheet(
-    client: AsyncClient,
-    headers: dict,
-    monkeypatch: pytest.MonkeyPatch,
+async def test_character_from_drawing_creates_one_pending_portrait(
+    client: AsyncClient, headers: dict, monkeypatch: pytest.MonkeyPatch,
 ):
-    from src.routers import characters as characters_router
+    from src.services import character_avatar as avatars
+    from tests.test_character_avatar import source_image
+    from unittest.mock import AsyncMock
 
-    async def _mock_create_character_from_drawing(*args, **kwargs):
-        return {
-            "name": kwargs.get("user_name") or "그림 친구",
-            "master_description": "cute character based on child drawing",
-            "appearance": {
-                "hair_color": "갈색",
-                "hair_style": "짧은 머리",
-                "eye_color": "검은색",
-                "skin_tone": "밝음",
-                "distinctive_features": ["큰 미소"],
-            },
-            "clothing": {
-                "top": "파란 티셔츠",
-                "bottom": "노란 바지",
-                "accessories": ["별 배지"],
-            },
-            "personality_traits": ["밝은", "용감한"],
-            "visual_style_notes": "storybook_crayon style",
-            "sheet_scene_prompts": [
-                "front pose",
-                "side walk pose",
-                "happy jump pose",
-            ],
-        }
-
-    async def _mock_upload_bytes(*args, **kwargs):
-        return "https://cdn.example.com/characters/source-drawing.png"
-
-    async def _mock_generate_image(prompt):
-        return f"https://images.example.com/sheet-{prompt.page}.png"
-
-    monkeypatch.setattr(
-        characters_router.photo_character_service,
-        "create_character_from_drawing",
-        _mock_create_character_from_drawing,
-    )
-    monkeypatch.setattr(
-        characters_router.storage_service,
-        "upload_bytes",
-        _mock_upload_bytes,
-    )
-    monkeypatch.setattr(characters_router, "generate_image", _mock_generate_image)
-
+    generate = AsyncMock()
+    monkeypatch.setattr(avatars, "generate_image", generate)
     create_res = await client.post(
         "/v1/characters/from-drawing",
-        files={"drawing": ("kid-drawing.png", b"pngdata", "image/png")},
-        data={
-            "name": "그림이",
-            "style": "storybook_crayon",
-            "generate_sheet": "true",
-        },
+        files={"drawing": ("synthetic-drawing.jpg", source_image(), "image/jpeg")},
+        data={"name": "그림이", "style": "storybook_crayon", "generate_sheet": "true"},
         headers=headers,
     )
-    assert create_res.status_code == 200
+    assert create_res.status_code == 200, create_res.text
     payload = create_res.json()
     assert payload["name"] == "그림이"
-    assert payload["source_image_url"] == "https://cdn.example.com/characters/source-drawing.png"
-    assert len(payload["character_sheet_urls"]) == 3
-    assert payload["character_sheet_urls"][0].startswith("https://images.example.com/")
-
+    assert payload["avatar_status"] == "generating"
+    assert payload["avatar_version"] == 1
+    assert payload["from_photo"] is True
+    assert "source_image_url" not in payload
+    assert "character_sheet_urls" not in payload
+    generate.assert_not_awaited()  # queued work is exercised by lifecycle tests
     list_res = await client.get("/v1/characters", headers=headers)
     assert list_res.status_code == 200
     assert len(list_res.json()["characters"]) == 1

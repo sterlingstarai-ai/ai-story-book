@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
@@ -7,7 +8,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/api_error.dart';
 import '../core/env_config.dart';
 import '../models/models.dart';
+import '../models/generation_options.dart';
 import '../services/api_client.dart';
+import '../services/account_recovery_service.dart';
 import '../services/iap_service.dart';
 import '../services/kakao_share_service.dart';
 import '../services/parental_control_service.dart';
@@ -62,15 +65,62 @@ final apiClientProvider = Provider<ApiClient>((ref) {
   final userKey = userService.getUserKey();
   final profileId = userService.getActiveProfileId();
 
-  return ApiClient(
+  final client = ApiClient(
     baseUrl: baseUrl,
     userKey: userKey,
     profileId: profileId,
   );
+  ref.onDispose(client.close);
+  return client;
 });
 
-/// 배포 환경 기능 가용성(inpaint_supported·audio_supported) — UI 게이팅용.
-/// 실패 시 보수적으로 미지원(H1/G9: 오디오 비활성 배포에서 낭독/발음 탭마다 500 방지).
+final accountRecoveryServiceProvider = Provider<AccountRecoveryService>((ref) {
+  final baseUrl = ref.watch(apiBaseUrlProvider);
+  return AccountRecoveryService(
+    userService: ref.watch(userServiceProvider),
+    preferences: ref.watch(sharedPreferencesProvider),
+    clientForKey: (key) => ApiClient(baseUrl: baseUrl, userKey: key),
+  );
+});
+
+/// Drop every account/profile-scoped in-memory value after credential rotation.
+void invalidateRecoveredAccount(WidgetRef ref) {
+  invalidateAccountScope(ProviderScope.containerOf(ref.context, listen: false));
+}
+
+void invalidateAccountScope(ProviderContainer container) {
+  container.read(parentalControlServiceProvider).resetAgeGateSession();
+  container.read(screenTimeStateProvider.notifier).forgetAccountSession();
+  PaintingBinding.instance.imageCache.clear();
+  PaintingBinding.instance.imageCache.clearLiveImages();
+  container.invalidate(apiClientProvider);
+  container.invalidate(libraryProvider);
+  container.invalidate(libraryBrowseProvider);
+  container.invalidate(charactersProvider);
+  container.invalidate(bookDetailProvider);
+  container.invalidate(homeStreakProvider);
+  container.invalidate(growthReportProvider);
+  container.invalidate(peerComparisonProvider);
+  container.invalidate(weeklyReadingTrendProvider);
+  container.invalidate(currentJobProvider);
+  container.invalidate(jobPollingProvider);
+  container.invalidate(bookCreationProvider);
+  container.invalidate(todayAttemptKeyProvider);
+  container.invalidate(todayAttemptSigProvider);
+  container.invalidate(currentPageIndexProvider);
+  container.invalidate(pageRegenerationProvider);
+  container.invalidate(screenTimeStateProvider);
+}
+
+/// Current account entitlements, refreshed each time the creation screen opens.
+final generationOptionsProvider =
+    FutureProvider.autoDispose<GenerationOptions>((ref) async {
+  // Never infer entitlements locally or retain another account's style choices.
+  final api = ref.watch(apiClientProvider);
+  return api.getGenerationOptions();
+});
+
+/// 배포 환경 기능 가용성. 실패 시 보수적으로 미지원으로 처리한다.
 final capabilitiesProvider = FutureProvider<Map<String, dynamic>>((ref) async {
   final api = ref.read(apiClientProvider);
   try {
@@ -133,6 +183,12 @@ class ScreenTimeNotifier extends Notifier<ScreenTimeSnapshot> {
       unawaited(_flushElapsedUsage());
     });
     return ScreenTimeSnapshot.initial();
+  }
+
+  void forgetAccountSession() {
+    _sessionStartedAt = null;
+    _stopHeartbeat();
+    state = ScreenTimeSnapshot.initial();
   }
 
   Future<void> initialize() async {
@@ -528,6 +584,11 @@ class LibraryBrowseNotifier extends AsyncNotifier<LibraryBrowseState> {
     }
     final api = ref.read(apiClientProvider);
     await api.deleteBook(bookId);
+    final prefs = ref.read(sharedPreferencesProvider);
+    await prefs.remove('book_cache_${bookId}_v1');
+    await prefs.remove('reading_progress_${bookId}_v1');
+    ref.invalidate(bookDetailProvider(bookId));
+    ref.invalidate(libraryProvider);
 
     final updatedBooks =
         current.books.where((book) => book.id != bookId).toList();
@@ -547,6 +608,11 @@ class LibraryBrowseNotifier extends AsyncNotifier<LibraryBrowseState> {
     }
     final api = ref.read(apiClientProvider);
     final updated = await api.updateBookTitle(bookId, title);
+    // Never let the detail fallback resurrect the old title after a rename.
+    final prefs = ref.read(sharedPreferencesProvider);
+    await prefs.remove('book_cache_${bookId}_v1');
+    ref.invalidate(bookDetailProvider(bookId));
+    ref.invalidate(libraryProvider);
 
     final updatedBooks = current.books
         .map((book) => book.id == bookId ? updated : book)
@@ -693,7 +759,8 @@ final appLocaleCodeProvider = Provider<String>((ref) {
 final growthReportProvider = FutureProvider<GrowthReport>((ref) async {
   final api = ref.read(apiClientProvider);
   // 서버가 레벨 라벨을 사용자 언어로 내려주도록 기기 로캘을 전달한다(S2).
-  final data = await api.getGrowthReport(language: ref.watch(appLocaleCodeProvider));
+  final data =
+      await api.getGrowthReport(language: ref.watch(appLocaleCodeProvider));
   final level = data['reading_level'];
   final levelMap = level is Map ? level : const <String, dynamic>{};
   return GrowthReport(
@@ -860,8 +927,9 @@ final charactersProvider =
 /// 기본 제공 캐릭터 프리셋 Provider ('우리 아이를 주인공으로' 기본 이미지 선택)
 ///
 /// 언어코드(앱 로케일)를 family 인자로 받아 표시 텍스트를 로케일별로 서빙받는다.
-final characterPresetsProvider = FutureProvider.family<
-    List<Map<String, dynamic>>, String>((ref, language) async {
+final characterPresetsProvider =
+    FutureProvider.family<List<Map<String, dynamic>>, String>(
+        (ref, language) async {
   return ref.read(apiClientProvider).getCharacterPresets(language: language);
 });
 
@@ -984,16 +1052,29 @@ class BookCreationNotifier extends AsyncNotifier<void> {
 
 /// 책 상세 조회 Provider
 final bookDetailProvider =
-    FutureProvider.family<BookResult, String>((ref, bookId) async {
-  final api = ref.read(apiClientProvider);
+    FutureProvider.autoDispose.family<BookResult, String>((ref, bookId) async {
+  final api = ref.watch(apiClientProvider);
   final prefs = ref.read(sharedPreferencesProvider);
   final cacheKey = 'book_cache_${bookId}_v1';
+  var active = true;
+  ref.onDispose(() => active = false);
 
   try {
     final book = await api.getBook(bookId);
-    await prefs.setString(cacheKey, jsonEncode(book.toJson()));
+    if (active) await prefs.setString(cacheKey, jsonEncode(book.toJson()));
     return book;
   } catch (error) {
+    final apiError = error is ApiError
+        ? error
+        : error is DioException
+            ? ApiError.fromDioException(error)
+            : null;
+    if (apiError == null ||
+        !{'CONNECTION_ERROR', 'NETWORK_ERROR', 'TIMEOUT'}
+            .contains(apiError.code)) {
+      await prefs.remove(cacheKey);
+      rethrow;
+    }
     final cached = prefs.getString(cacheKey);
     if (cached != null && cached.isNotEmpty) {
       try {

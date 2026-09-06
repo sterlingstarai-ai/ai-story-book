@@ -5,8 +5,7 @@ X-User-Key는 클라이언트가 임의 발급하는 UUID라 사실상 미인증
 LLM/이미지 실비용이 무제한 소진된다. 완전 해법(디바이스 attestation)은 제품 결정이므로,
 이번에는 **서버측 전역 상한**만 둬서 청구서 폭증을 막는다.
 
-정책(창업자 결정): Redis 장애로 카운터를 읽을 수 없으면 **fail-open + 알림 강화** —
-가용성을 지키되 '비용 가드레일이 무음으로 비활성'되는 상태를 error 로그로 반드시 남긴다.
+Redis 장애로 비용 한도를 확인할 수 없으면 신규 생성은 503으로 중단한다.
 """
 
 import pytest
@@ -103,13 +102,10 @@ async def test_budget_sets_expiry_so_counters_do_not_leak(budget_env):
 
 
 @pytest.mark.asyncio
-async def test_budget_fails_open_but_alerts_when_redis_down(monkeypatch, caplog):
-    """창업자 결정: Redis 장애 시 fail-open + **알림 강화**.
-
-    무음 통과(감사 #8이 지적한 fail-open의 핵심 문제)를 금지 — 비용 가드레일이 비활성
-    됐다는 사실이 error 레벨로 반드시 남아야 운영이 즉시 인지한다.
-    """
+async def test_budget_fails_closed_and_alerts_when_redis_down(monkeypatch, caplog):
+    """Redis 장애 시 비용이 발생하는 요청은 한도 확인 전까지 차단한다."""
     from src.core import cost_budget
+    from src.core.exceptions import APIError
 
     monkeypatch.setattr(settings, "daily_generation_budget", 1)
 
@@ -119,10 +115,11 @@ async def test_budget_fails_open_but_alerts_when_redis_down(monkeypatch, caplog)
     monkeypatch.setattr(cost_budget.rate_limiter, "get_redis", broken_get_redis)
 
     with caplog.at_level("ERROR"):
-        allowed, used = await consume_daily_generation_budget()
+        with pytest.raises(APIError) as exc:
+            await consume_daily_generation_budget()
 
-    assert allowed is True, "가용성 우선 — 장애 창에서 생성을 막지 않는다"
-    assert used == 0
+    assert exc.value.status_code == 503
+    assert exc.value.headers == {"Retry-After": "30"}
     assert any(
         record.levelname == "ERROR" for record in caplog.records
     ), "비용 가드레일 비활성이 무음이면 운영이 인지하지 못한다"

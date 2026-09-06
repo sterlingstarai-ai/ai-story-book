@@ -15,9 +15,14 @@ os.environ["TESTING"] = "true"
 os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///./test_{os.getpid()}.db"
 os.environ["LLM_PROVIDER"] = "mock"
 os.environ["IMAGE_PROVIDER"] = "mock"
+os.environ["PHOTO_ANALYSIS_PROVIDER"] = "mock"
+os.environ["PHOTO_PROCESSING_ENABLED"] = "false"
+os.environ["ILLUSTRATION_QUALITY_ENABLED"] = "false"
 # IAP 기본값은 운영 안전을 위해 strict(fail-closed)이므로, 테스트는 로컬 검증 모드를
 # 명시 주입해 스토어 키 없이도 영수증 흐름을 검증한다(보안 기본값 변경과 한 세트).
 os.environ["IAP_VERIFICATION_MODE"] = "local"
+# Ordering is disabled by default; existing order tests exercise an explicitly enabled deployment.
+os.environ["POD_ORDERING_ENABLED"] = "true"
 # H1/G9: 운영 GA 기본값은 오디오 비활성(audio_feature_enabled=False)이며, 그 구성에서
 # 오디오 엔드포인트는 명시적 409(AUDIO_NOT_SUPPORTED)를 반환한다. 오디오 엔드포인트를
 # 통해 '다른' 동작(404·무료플랜 게이트 등)을 검증하는 테스트가 그 게이트에 걸리지 않도록
@@ -70,9 +75,18 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
 
 
 @pytest_asyncio.fixture(scope="function")
-async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
+async def client(db_session: AsyncSession, monkeypatch) -> AsyncGenerator[AsyncClient, None]:
     """Create a test client with database session override."""
     from src.services.credits import credits_service
+    from src.core.rate_limit import rate_limiter
+    from tests.fake_redis import FakeRedis
+
+    fake_redis = FakeRedis()
+
+    async def get_test_redis():
+        return fake_redis
+
+    monkeypatch.setattr(rate_limiter, "get_redis", get_test_redis)
 
     async def override_get_db():
         yield db_session

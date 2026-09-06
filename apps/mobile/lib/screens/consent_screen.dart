@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../l10n/app_localizations.dart';
 import '../providers/providers.dart';
 import '../utils/constants.dart';
+import 'account_recovery_screen.dart';
 
 /// 약관 버전 — 개정 시 올리면 재동의를 유발(서버 consent_version과 맞춤).
 const kConsentVersion = 'v2';
@@ -20,6 +21,7 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
   bool _photo = false;
   bool _dataProcess = false;
   bool _submitting = false;
+  bool _checkingPhoto = false;
 
   // 필수 동의는 개인정보·데이터 처리뿐. 사진(아동 얼굴)은 *선택* — 데이터 최소수집·자유 동의
   // 원칙(PIPA)에 맞춰 앱 진입을 막지 않고, 실제 '사진 주인공' 사용 시점에 동의받는다.
@@ -57,6 +59,7 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
     final confirmed = await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
+            scrollable: true,
             title: Text(l.settingsRevokeConsentTitle),
             content: Text(l.settingsRevokeConsentContent),
             actions: [
@@ -76,14 +79,20 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
   }
 
   Future<void> _accept() async {
-    if (!_canContinue || _submitting) {
+    if (!_canContinue || _submitting || _checkingPhoto) {
       return;
     }
     // 사진 동의를 끄고 제출하는 경우, 기수집 사진 파생물 파기 전에 확인을 받는다.
+    setState(() => _checkingPhoto = true);
     if (!_photo && !await _confirmPhotoDataDeletionIfNeeded()) {
+      if (mounted) setState(() => _checkingPhoto = false);
       return;
     }
-    setState(() => _submitting = true);
+    if (!mounted) return;
+    setState(() {
+      _checkingPhoto = false;
+      _submitting = true;
+    });
 
     final prefs = ref.read(sharedPreferencesProvider);
     final apiClient = ref.read(apiClientProvider);
@@ -121,6 +130,7 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
     showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
+        scrollable: true,
         title: Text(l.consentRejectDialogTitle),
         content: Text(l.consentRejectDialogContent),
         actions: [
@@ -137,7 +147,7 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: AppPalette.of(context).background,
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(AppSpacing.lg),
@@ -158,15 +168,31 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
                         l.consentSubtitle,
                         style: AppTextStyles.bodySmall,
                       ),
+                      TextButton.icon(
+                        onPressed: _submitting || _checkingPhoto
+                            ? null
+                            : () async {
+                                final recovered = await openAccountRecovery(
+                                    context, ref,
+                                    restoreOnly: true);
+                                if (!context.mounted || !recovered) return;
+                                Navigator.pushNamedAndRemoveUntil(
+                                    context, '/startup', (_) => false);
+                              },
+                        icon: const Icon(Icons.key_outlined),
+                        label: Text(l.recoveryRestoreTitle),
+                      ),
                       const SizedBox(height: AppSpacing.xl),
                       Container(
                         decoration: BoxDecoration(
-                          color: AppColors.primaryLight,
+                          color: AppPalette.of(context).primaryLight,
                           borderRadius: BorderRadius.circular(AppRadius.md),
                         ),
                         child: CheckboxListTile(
                           value: _privacy && _photo && _dataProcess,
-                          onChanged: (value) => _setAll(value ?? false),
+                          onChanged: _submitting || _checkingPhoto
+                              ? null
+                              : (value) => _setAll(value ?? false),
                           title: Text(
                             l.consentAgreeAll,
                             style: const TextStyle(fontWeight: FontWeight.w700),
@@ -177,14 +203,18 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
                       const Divider(height: AppSpacing.lg),
                       CheckboxListTile(
                         value: _privacy,
-                        onChanged: (value) =>
-                            setState(() => _privacy = value ?? false),
+                        onChanged: _submitting || _checkingPhoto
+                            ? null
+                            : (value) =>
+                                setState(() => _privacy = value ?? false),
                         title: Text(l.consentPrivacyRequired),
                       ),
                       CheckboxListTile(
                         value: _photo,
-                        onChanged: (value) =>
-                            setState(() => _photo = value ?? false),
+                        onChanged: _submitting || _checkingPhoto
+                            ? null
+                            : (value) =>
+                                setState(() => _photo = value ?? false),
                         title: Text(l.consentPhotoOptionalTitle),
                         subtitle: Text(
                           l.consentPhotoDisclosure,
@@ -194,8 +224,10 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
                       ),
                       CheckboxListTile(
                         value: _dataProcess,
-                        onChanged: (value) =>
-                            setState(() => _dataProcess = value ?? false),
+                        onChanged: _submitting || _checkingPhoto
+                            ? null
+                            : (value) =>
+                                setState(() => _dataProcess = value ?? false),
                         title: Text(l.consentDataProcessingRequired),
                       ),
                     ],
@@ -207,7 +239,9 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
                 width: double.infinity,
                 height: 64,
                 child: ElevatedButton(
-                  onPressed: (_canContinue && !_submitting) ? _accept : null,
+                  onPressed: (_canContinue && !_submitting && !_checkingPhoto)
+                      ? _accept
+                      : null,
                   child: _submitting
                       ? const SizedBox(
                           width: 24,
@@ -225,7 +259,7 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
                 width: double.infinity,
                 height: 64,
                 child: OutlinedButton(
-                  onPressed: _reject,
+                  onPressed: _submitting || _checkingPhoto ? null : _reject,
                   child: Text(l.consentRejectButton),
                 ),
               ),

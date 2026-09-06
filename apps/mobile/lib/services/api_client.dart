@@ -5,11 +5,18 @@ import 'package:uuid/uuid.dart';
 import '../core/api_error.dart';
 import '../core/app_telemetry.dart';
 import '../models/models.dart';
+import '../models/content_report.dart';
+import '../models/generation_options.dart';
 
 /// 현재 이미지 제공자가 부분 재생성(인페인트)을 지원하지 않을 때 던진다.
 /// 클라이언트는 이 신호로 전체 페이지 재생성으로 폴백한다.
 class InpaintUnsupportedException implements Exception {
   const InpaintUnsupportedException();
+}
+
+/// Account/profile changes are committed; remaining media deletion is retried by the server.
+class StoragePurgePending implements Exception {
+  const StoragePurgePending();
 }
 
 /// H17: 요청 내에서 이미지/오디오를 동기 처리하는 장시간 엔드포인트(retell·사진/그림
@@ -31,80 +38,170 @@ class ApiClient {
     bool enableLogging = kDebugMode,
   })  : _userKey = userKey,
         _profileId = profileId,
-        _dio = Dio(BaseOptions(
-          baseUrl: baseUrl,
-          connectTimeout: const Duration(seconds: 30),
-          receiveTimeout: const Duration(seconds: 30),
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        )) {
-    if (enableLogging) {
-      _dio.interceptors.add(LogInterceptor(
-        requestBody: true,
-        responseBody: true,
-      ));
-    }
+        _dio = Dio(
+          BaseOptions(
+            baseUrl: baseUrl,
+            connectTimeout: const Duration(seconds: 30),
+            receiveTimeout: const Duration(seconds: 30),
+            headers: {'Content-Type': 'application/json'},
+          ),
+        ) {
+    // Do not attach Dio's raw logger: headers contain the account credential,
+    // requests contain child data, and responses contain signed download URLs.
 
     // Request correlation + error handling interceptor
-    _dio.interceptors.add(InterceptorsWrapper(
-      onRequest: (options, handler) {
-        final requestId = _uuid.v4();
-        options.headers['X-Request-ID'] = requestId;
-        options.extra['requestId'] = requestId;
-        AppTelemetry.logInfo(
-          'api_request',
-          data: {
-            'requestId': requestId,
-            'method': options.method,
-            'path': options.path,
-          },
-        );
-        handler.next(options);
-      },
-      onResponse: (response, handler) {
-        AppTelemetry.logInfo(
-          'api_response',
-          data: {
-            'requestId': response.requestOptions.extra['requestId'],
-            'serverRequestId': response.headers.value('x-request-id'),
-            'statusCode': response.statusCode,
-            'path': response.requestOptions.path,
-          },
-        );
-        handler.next(response);
-      },
-      onError: (error, handler) {
-        final apiError = ApiError.fromDioException(error);
-        AppTelemetry.recordError(
-          apiError,
-          error.stackTrace,
-          context: 'api_error',
-          data: {
-            'requestId': error.requestOptions.extra['requestId'],
-            'serverRequestId': apiError.requestId,
-            'path': error.requestOptions.path,
-            'statusCode': apiError.statusCode,
-            'code': apiError.code,
-          },
-        );
-        handler.reject(
-          error.copyWith(
-            error: apiError,
-            message: apiError.userMessage,
-          ),
-        );
-      },
-    ));
+    _dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          final requestId = _uuid.v4();
+          options.headers['X-Request-ID'] = requestId;
+          options.extra['requestId'] = requestId;
+          if (enableLogging) {
+            AppTelemetry.logInfo(
+              'api_request',
+              data: {
+                'requestId': requestId,
+                'method': options.method,
+                'path': options.path,
+              },
+            );
+          }
+          handler.next(options);
+        },
+        onResponse: (response, handler) {
+          if (enableLogging) {
+            AppTelemetry.logInfo(
+              'api_response',
+              data: {
+                'requestId': response.requestOptions.extra['requestId'],
+                'serverRequestId': response.headers.value('x-request-id'),
+                'statusCode': response.statusCode,
+                'path': response.requestOptions.path,
+              },
+            );
+          }
+          handler.next(response);
+        },
+        onError: (error, handler) {
+          final apiError = ApiError.fromDioException(error);
+          AppTelemetry.recordError(
+            apiError,
+            error.stackTrace,
+            context: 'api_error',
+            data: {
+              'requestId': error.requestOptions.extra['requestId'],
+              'serverRequestId': apiError.requestId,
+              'path': error.requestOptions.path,
+              'statusCode': apiError.statusCode,
+              'code': apiError.code,
+            },
+          );
+          handler.reject(
+            error.copyWith(error: apiError, message: apiError.userMessage),
+          );
+        },
+      ),
+    );
   }
+
+  void close() => _dio.close(force: true);
 
   Map<String, String> get _headers => {
         'X-User-Key': _userKey,
-        if (_profileId != null && _profileId!.isNotEmpty)
-          'X-Profile-Id': _profileId!,
+        if (_profileId != null && _profileId.isNotEmpty)
+          'X-Profile-Id': _profileId,
       };
 
+  // ==================== Content reporting ====================
+
+  Future<ContentReportReceipt> reportBookContent(
+    String bookId, {
+    required int pageNumber,
+    required ContentReportReason reason,
+  }) async {
+    final response = await _dio.post(
+      '/v1/books/$bookId/reports',
+      data: {'page_number': pageNumber, 'reason': reason.apiValue},
+      options: Options(headers: _headers),
+    );
+    return ContentReportReceipt.fromJson(
+      _asJsonMap(response.data, context: 'content report receipt'),
+    );
+  }
+
+  // ==================== Account recovery ====================
+
+  Future<bool> hasAccountRecovery() async {
+    final response = await _dio.get(
+      '/v1/account/recovery',
+      options: Options(headers: _headers),
+    );
+    final data = _asJsonMap(response.data, context: 'recovery status');
+    if (data['enabled'] is! bool) {
+      throw const FormatException('Invalid recovery status');
+    }
+    return data['enabled'] as bool;
+  }
+
+  Future<String> createAccountRecoveryCode() async {
+    final response = await _dio.post(
+      '/v1/account/recovery-code',
+      options: Options(headers: _headers),
+    );
+    return _recoveryCode(response.data);
+  }
+
+  Future<void> validateAccountSession() async {
+    final response = await _dio.get(
+      '/v1/account/session',
+      options: Options(headers: _headers),
+    );
+    final data = _asJsonMap(response.data, context: 'account session');
+    if (data['status'] != 'active') {
+      throw const FormatException('Invalid account session');
+    }
+  }
+
+  /// Public recovery must not attach the previous account or profile credential.
+  Future<String?> recoverAccount({
+    required String recoveryCode,
+    required String newUserKey,
+  }) async {
+    final response = await _dio.post(
+      '/v1/account/recover',
+      data: {'recovery_code': recoveryCode, 'new_user_key': newUserKey},
+    );
+    final data = _asJsonMap(
+      response.data,
+      context: 'account recovery response',
+    );
+    if (data['status'] != 'recovered') {
+      throw const FormatException('Invalid recovery status');
+    }
+    return data['recovery_code'] == null ? null : _recoveryCode(data);
+  }
+
+  String _recoveryCode(dynamic value) {
+    final data = _asJsonMap(value, context: 'account recovery response');
+    final code = data['recovery_code'];
+    if (code is! String ||
+        !RegExp(r'^ASB-R1-[A-Za-z0-9_-]{43}$').hasMatch(code)) {
+      throw const FormatException('Invalid recovery code');
+    }
+    return code;
+  }
+
   // ==================== Books ====================
+
+  Future<GenerationOptions> getGenerationOptions() async {
+    final response = await _dio.get(
+      '/v1/books/generation-options',
+      options: Options(headers: _headers),
+    );
+    return GenerationOptions.fromJson(
+      _asJsonMap(response.data, context: 'generation options'),
+    );
+  }
 
   /// 책 생성 요청
   Future<CreateBookResponse> createBook(
@@ -176,10 +273,7 @@ class ApiClient {
       final response = await _dio.post(
         '/v1/books/$jobId/pages/$pageNumber/inpaint',
         data: formData,
-        options: Options(
-          headers: _headers,
-          contentType: 'multipart/form-data',
-        ),
+        options: Options(headers: _headers, contentType: 'multipart/form-data'),
       );
       final map = _asJsonMap(
         response.data,
@@ -356,12 +450,14 @@ class ApiClient {
     return characters
         .asMap()
         .entries
-        .map((entry) => Character.fromJson(
-              _asJsonMap(
-                entry.value,
-                context: '/v1/characters.characters[${entry.key}]',
-              ),
-            ))
+        .map(
+          (entry) => Character.fromJson(
+            _asJsonMap(
+              entry.value,
+              context: '/v1/characters.characters[${entry.key}]',
+            ),
+          ),
+        )
         .toList();
   }
 
@@ -373,8 +469,40 @@ class ApiClient {
     );
 
     return Character.fromJson(
-      _asJsonMap(response.data,
-          context: '/v1/characters/$characterId response'),
+      _asJsonMap(
+        response.data,
+        context: '/v1/characters/$characterId response',
+      ),
+    );
+  }
+
+  Future<Character> approveCharacterAvatar(
+    String characterId, {
+    required int version,
+  }) async {
+    if (version < 1) throw ArgumentError.value(version, 'version');
+    final response = await _dio.post(
+      '/v1/characters/$characterId/avatar/approve',
+      data: {'version': version},
+      options: Options(headers: _headers),
+    );
+    return Character.fromJson(
+      _asJsonMap(response.data, context: 'character avatar approval'),
+    );
+  }
+
+  Future<Character> regenerateCharacterAvatar(
+    String characterId, {
+    required int version,
+  }) async {
+    if (version < 1) throw ArgumentError.value(version, 'version');
+    final response = await _dio.post(
+      '/v1/characters/$characterId/avatar/regenerate',
+      data: {'version': version},
+      options: Options(headers: _headers),
+    );
+    return Character.fromJson(
+      _asJsonMap(response.data, context: 'character avatar regeneration'),
     );
   }
 
@@ -394,10 +522,7 @@ class ApiClient {
     String? idempotencyKey,
   }) async {
     final formData = FormData.fromMap({
-      'photo': await MultipartFile.fromFile(
-        photo.path,
-        filename: 'photo.jpg',
-      ),
+      'photo': await MultipartFile.fromFile(photo.path, filename: 'photo.jpg'),
       if (name != null) 'name': name,
       'style': style,
     });
@@ -419,8 +544,10 @@ class ApiClient {
       ),
     );
 
-    return _asJsonMap(response.data,
-        context: '/v1/characters/from-photo response');
+    return _asJsonMap(
+      response.data,
+      context: '/v1/characters/from-photo response',
+    );
   }
 
   /// 아이 그림에서 캐릭터 생성 + 시트 생성
@@ -480,14 +607,13 @@ class ApiClient {
     final response = await _dio.post(
       '/v1/characters/from-text',
       data: formData,
-      options: Options(
-        headers: _headers,
-        contentType: 'multipart/form-data',
-      ),
+      options: Options(headers: _headers, contentType: 'multipart/form-data'),
     );
 
-    return _asJsonMap(response.data,
-        context: '/v1/characters/from-text response');
+    return _asJsonMap(
+      response.data,
+      context: '/v1/characters/from-text response',
+    );
   }
 
   // ==================== Library ====================
@@ -540,15 +666,19 @@ class ApiClient {
   }
 
   /// 부모 전용 공개 공유 링크 생성(만료·철회 가능). 반환: {token, url, expires_at}.
-  Future<Map<String, dynamic>> createShareLink(String bookId,
-      {int expiresInDays = 0}) async {
+  Future<Map<String, dynamic>> createShareLink(
+    String bookId, {
+    int expiresInDays = 0,
+  }) async {
     final response = await _dio.post(
       '/v1/books/$bookId/share',
       data: {'expires_in_days': expiresInDays},
       options: Options(headers: _headers),
     );
-    return _asJsonMap(response.data,
-        context: '/v1/books/$bookId/share response');
+    return _asJsonMap(
+      response.data,
+      context: '/v1/books/$bookId/share response',
+    );
   }
 
   /// 이 책의 활성 공유 링크를 모두 철회.
@@ -575,10 +705,7 @@ class ApiClient {
   Future<List<int>> downloadPdf(String bookId) async {
     final response = await _dio.get<List<int>>(
       '/v1/books/$bookId/pdf',
-      options: Options(
-        headers: _headers,
-        responseType: ResponseType.bytes,
-      ),
+      options: Options(headers: _headers, responseType: ResponseType.bytes),
     );
 
     final data = response.data;
@@ -623,10 +750,11 @@ class ApiClient {
 
   /// 사용자 데이터 전체 삭제
   Future<void> deleteMyData() async {
-    await _dio.delete(
+    final response = await _dio.delete(
       '/v1/users/me',
       options: Options(headers: _headers),
     );
+    _checkPurgePending(response.data);
   }
 
   /// 프로필 목록
@@ -759,22 +887,28 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    final data =
-        _asJsonMap(response.data, context: '/v1/credits/balance response');
+    final data = _asJsonMap(
+      response.data,
+      context: '/v1/credits/balance response',
+    );
     return _asInt(data['credits'], field: 'credits');
   }
 
   /// 거래 내역 조회
-  Future<List<dynamic>> getTransactions(
-      {int limit = 20, int offset = 0}) async {
+  Future<List<dynamic>> getTransactions({
+    int limit = 20,
+    int offset = 0,
+  }) async {
     final response = await _dio.get(
       '/v1/credits/transactions',
       queryParameters: {'limit': limit, 'offset': offset},
       options: Options(headers: _headers),
     );
 
-    return _asJsonList(response.data,
-        context: '/v1/credits/transactions response');
+    return _asJsonList(
+      response.data,
+      context: '/v1/credits/transactions response',
+    );
   }
 
   /// 구독 시작
@@ -803,14 +937,8 @@ class ApiClient {
   }) async {
     final response = await _dio.post(
       '/v1/credits/add',
-      data: {
-        'amount': amount,
-        'transaction_id': transactionId,
-      },
-      options: Options(headers: {
-        ..._headers,
-        'X-Admin-Key': adminKey,
-      }),
+      data: {'amount': amount, 'transaction_id': transactionId},
+      options: Options(headers: {..._headers, 'X-Admin-Key': adminKey}),
     );
 
     final data = _asJsonMap(response.data, context: '/v1/credits/add response');
@@ -990,8 +1118,10 @@ class ApiClient {
       options: Options(headers: _headers),
     );
 
-    final data =
-        _asJsonMap(response.data, context: '/v1/streak/history response');
+    final data = _asJsonMap(
+      response.data,
+      context: '/v1/streak/history response',
+    );
     return _asJsonList(data['history'], context: '/v1/streak/history.history');
   }
 
@@ -1041,10 +1171,7 @@ class ApiClient {
     final response = await _dio.post(
       '/v1/voice-profiles/upload-sample',
       data: formData,
-      options: Options(
-        headers: _headers,
-        contentType: 'multipart/form-data',
-      ),
+      options: Options(headers: _headers, contentType: 'multipart/form-data'),
     );
     return _asJsonMap(
       response.data,
@@ -1071,8 +1198,10 @@ class ApiClient {
       },
       options: Options(headers: _headers),
     );
-    return _asJsonMap(response.data,
-        context: '/v1/voice-profiles create response');
+    return _asJsonMap(
+      response.data,
+      context: '/v1/voice-profiles create response',
+    );
   }
 
   /// 가족 음성 프로필 수정
@@ -1118,11 +1247,13 @@ class ApiClient {
 
   /// 가족 음성 프로필 동의 철회
   Future<Map<String, dynamic>> revokeVoiceProfileConsent(
-      String profileId) async {
+    String profileId,
+  ) async {
     final response = await _dio.post(
       '/v1/voice-profiles/$profileId/revoke-consent',
       options: Options(headers: _headers),
     );
+    _checkPurgePending(response.data);
     return _asJsonMap(
       response.data,
       context: '/v1/voice-profiles/$profileId/revoke-consent response',
@@ -1131,10 +1262,19 @@ class ApiClient {
 
   /// 가족 음성 프로필 삭제
   Future<void> deleteVoiceProfile(String profileId) async {
-    await _dio.delete(
+    final response = await _dio.delete(
       '/v1/voice-profiles/$profileId',
       options: Options(headers: _headers),
     );
+    _checkPurgePending(response.data);
+  }
+
+  static void _checkPurgePending(dynamic value) {
+    if (value is Map &&
+        (value['status'] == 'partial' ||
+            value['purge_retry_pending'] == true)) {
+      throw const StoragePurgePending();
+    }
   }
 
   /// 분기형 스토리 그래프 조회
@@ -1157,10 +1297,7 @@ class ApiClient {
   }) async {
     final response = await _dio.post(
       '/v1/branch/books/$bookId/initialize',
-      data: {
-        'nodes': nodes,
-        'overwrite': overwrite,
-      },
+      data: {'nodes': nodes, 'overwrite': overwrite},
       options: Options(headers: _headers),
     );
     return _asJsonMap(
@@ -1176,9 +1313,7 @@ class ApiClient {
     String? optionText,
     String? toNodeKey,
   }) async {
-    final payload = <String, dynamic>{
-      'current_node_key': currentNodeKey,
-    };
+    final payload = <String, dynamic>{'current_node_key': currentNodeKey};
     if (optionText != null) {
       payload['option_text'] = optionText;
     }
@@ -1243,10 +1378,7 @@ class ApiClient {
     final response = await _dio.post(
       '/v1/pronunciation/evaluate-audio',
       data: formData,
-      options: Options(
-        headers: _headers,
-        contentType: 'multipart/form-data',
-      ),
+      options: Options(headers: _headers, contentType: 'multipart/form-data'),
     );
     return _asJsonMap(
       response.data,
@@ -1275,10 +1407,7 @@ class ApiClient {
       },
       options: Options(headers: headers),
     );
-    return _asJsonMap(
-      response.data,
-      context: '/v1/pod/orders response',
-    );
+    return _asJsonMap(response.data, context: '/v1/pod/orders response');
   }
 
   /// POD 지역 견적(단가·배송비·통화) — 서버가 산출(표시-청구 일치 단일 소스, H20).
@@ -1365,10 +1494,7 @@ class CreateBookResponse {
   final String jobId;
   final String status;
 
-  CreateBookResponse({
-    required this.jobId,
-    required this.status,
-  });
+  CreateBookResponse({required this.jobId, required this.status});
 
   factory CreateBookResponse.fromJson(Map<String, dynamic> json) {
     return CreateBookResponse(

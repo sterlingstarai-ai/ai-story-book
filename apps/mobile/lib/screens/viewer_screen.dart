@@ -14,16 +14,19 @@ import 'package:audio_session/audio_session.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:printing/printing.dart';
 import '../core/api_error.dart';
+import '../core/media_urls.dart';
 import '../l10n/app_localizations.dart';
 import '../models/models.dart';
 import '../widgets/vocab_game_card.dart';
 import '../providers/providers.dart';
 import 'inpaint_screen.dart';
 import '../services/analytics.dart';
+import '../services/api_client.dart';
 import '../utils/constants.dart';
 import '../widgets/age_gate_dialog.dart';
 import '../widgets/common_widgets.dart';
 import '../widgets/credit_shortage_modal.dart';
+import '../widgets/content_report_sheet.dart';
 
 /// 책 뷰어 화면
 class ViewerScreen extends ConsumerStatefulWidget {
@@ -35,7 +38,9 @@ class ViewerScreen extends ConsumerStatefulWidget {
   ConsumerState<ViewerScreen> createState() => _ViewerScreenState();
 }
 
-class _ViewerScreenState extends ConsumerState<ViewerScreen> {
+class _ViewerScreenState extends ConsumerState<ViewerScreen>
+    with WidgetsBindingObserver {
+  Timer? _mediaRefreshTimer;
   late PageController _pageController;
   late final ConfettiController _completionConfettiController;
   final AudioPlayer _audioPlayer = AudioPlayer();
@@ -51,6 +56,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   // 페이지까지 안 가고 이탈하면 completed:false 로 1회 기록한다(이탈도 표본에 포함).
   int _maxPageReached = 0;
   bool _exitReadRecorded = false;
+  // Keep the reading session's identity: disposal may happen after providers
+  // have changed or become unavailable, and must never read a new profile.
+  late final ApiClient _readingSessionApi;
   bool _progressRestored = false;
   // 같은 세션에서 학습 시트 재오픈 시 동일 퀴즈 중복 기록 방지(성장 집계 왜곡 방지)
   final Set<String> _recordedQuiz = {};
@@ -82,6 +90,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   @override
   void initState() {
     super.initState();
+    _readingSessionApi = ref.read(apiClientProvider);
+    WidgetsBinding.instance.addObserver(this);
+    _mediaRefreshTimer = Timer.periodic(
+        const Duration(minutes: 1), (_) => _refreshMediaIfNeeded());
     _pageController = PageController();
     _completionConfettiController = ConfettiController(
       duration: const Duration(seconds: 3),
@@ -128,8 +140,24 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     });
   }
 
+  void _refreshMediaIfNeeded() {
+    final book = _activeBook;
+    if (!mounted || book == null) return;
+    if (mediaUrlNeedsRefresh(book.coverImageUrl) ||
+        book.pages.any((p) => mediaUrlNeedsRefresh(p.imageUrl))) {
+      ref.invalidate(bookDetailProvider(widget.bookId));
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _refreshMediaIfNeeded();
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _mediaRefreshTimer?.cancel();
     _recordAbandonedReadIfNeeded();
     // Cancel subscription to prevent memory leak
     _playerStateSubscription?.cancel();
@@ -149,16 +177,14 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     }
     _exitReadRecorded = true;
     final seconds = DateTime.now().difference(_viewStartedAt).inSeconds;
-    final api = ref.read(apiClientProvider);
-    // fire-and-forget: 화면은 사라지지만 ApiClient(Dio)는 provider에 살아있어 전송 완료됨.
+    // Reading metrics must not interrupt disposal. Future.sync also catches
+    // synchronous transport errors (for example a client closed at sign-out).
     unawaited(
-      api
-          .recordReading(
+      Future<Map<String, dynamic>>.sync(() => _readingSessionApi.recordReading(
             bookId: widget.bookId,
             readingTime: seconds < 0 ? 0 : seconds,
             completed: false,
-          )
-          .catchError((_) => <String, dynamic>{}),
+          )).catchError((_) => <String, dynamic>{}),
     );
   }
 
@@ -258,18 +284,6 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               if (_sleepModeEnabled && index > 0) {
                 await _playPageAudio(book, restart: true);
               }
-              if (index == totalPages - 1 && !_completionHandled) {
-                _completionHandled = true;
-                ref.read(analyticsProvider).logEvent(
-                  AnalyticsEvents.readingCompleted,
-                  params: {
-                    'book_id': widget.bookId,
-                    'reading_seconds':
-                        DateTime.now().difference(_viewStartedAt).inSeconds,
-                  },
-                );
-                _handleBookCompleted(book);
-              }
             },
             itemBuilder: (context, index) {
               if (index == 0) {
@@ -277,6 +291,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                 return _CoverPage(
                   title: book.getTitle(_selectedLanguage),
                   imageUrl: book.coverImageUrl,
+                  controlsVisible: _showControls,
                 );
               } else {
                 // 본문 페이지
@@ -285,6 +300,21 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                     ? (_selectedLanguage == 'ko' ? page.textEn : page.textKo)
                     : null;
                 return _ContentPage(
+                  topControlsInset: _showControls
+                      ? MediaQuery.paddingOf(context).top +
+                          AppSizing.minTouchTarget +
+                          AppSpacing.sm * 2
+                      : MediaQuery.paddingOf(context).top,
+                  controlsInset: _showControls
+                      ? 144 +
+                          (page.hasLearningContent ? 80 : 0) +
+                          MediaQuery.paddingOf(context).bottom +
+                          (MediaQuery.textScalerOf(context).scale(24) - 24)
+                              .clamp(0, 48)
+                      : 0,
+                  onComplete: index == totalPages - 1 && !_completionHandled
+                      ? () => _completeReading(book)
+                      : null,
                   pageNumber: page.pageNumber,
                   text: page.getText(_selectedLanguage),
                   secondaryText: secondaryText,
@@ -420,13 +450,13 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               Container(
                 padding: const EdgeInsets.all(AppSpacing.sm),
                 decoration: BoxDecoration(
-                  color: AppColors.primaryLight,
+                  color: AppPalette.of(context).primaryLight,
                   borderRadius: BorderRadius.circular(AppRadius.md),
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.card_giftcard,
-                        color: AppColors.primary, size: 20),
+                    Icon(Icons.card_giftcard,
+                        color: AppPalette.of(context).primary, size: 20),
                     const SizedBox(width: AppSpacing.sm),
                     Expanded(child: Text(l.viewerMilestoneRewardEarned)),
                   ],
@@ -445,10 +475,23 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     );
   }
 
+  Future<void> _completeReading(BookResult book) async {
+    if (_completionHandled || _currentPage != book.pages.length) return;
+    setState(() => _completionHandled = true);
+    ref.read(analyticsProvider).logEvent(
+      AnalyticsEvents.readingCompleted,
+      params: {
+        'book_id': widget.bookId,
+        'reading_seconds': DateTime.now().difference(_viewStartedAt).inSeconds,
+      },
+    );
+    await _handleBookCompleted(book);
+  }
+
   Future<void> _handleBookCompleted(BookResult book) async {
     await _clearReadingProgress();
     final readingSeconds = DateTime.now().difference(_viewStartedAt).inSeconds;
-    final api = ref.read(apiClientProvider);
+    final api = _readingSessionApi;
     int streak = 0;
 
     try {
@@ -457,6 +500,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
         readingTime: readingSeconds < 0 ? 0 : readingSeconds,
         completed: true,
       );
+      if (!mounted) return;
       final milestones = readResult['milestones'];
       if (milestones is List && milestones.isNotEmpty && mounted) {
         await _showMilestoneModal(milestones);
@@ -472,6 +516,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       // 완독 기록 실패는 읽기 흐름을 막지 않는다.
     }
 
+    if (!mounted) return;
     try {
       final prefs = ref.read(sharedPreferencesProvider);
       final reviewService = ref.read(reviewServiceProvider);
@@ -513,105 +558,107 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       builder: (dialogContext) => Dialog(
         backgroundColor: Colors.transparent,
         insetPadding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-        child: Stack(
-          alignment: Alignment.topCenter,
-          children: [
-            IgnorePointer(
-              child: SizedBox(
-                width: double.infinity,
-                height: 420,
-                child: ConfettiWidget(
-                  confettiController: _completionConfettiController,
-                  blastDirectionality: BlastDirectionality.explosive,
-                  emissionFrequency: 0.05,
-                  numberOfParticles: 24,
-                  maxBlastForce: 16,
-                  minBlastForce: 8,
-                  gravity: 0.25,
-                  shouldLoop: false,
-                  colors: const [
-                    AppColors.primary,
-                    AppColors.secondary,
-                    AppColors.success,
-                    Color(0xFFFFD166),
-                    Color(0xFFEF476F),
-                  ],
-                  createParticlePath: _buildConfettiStarPath,
+        child: SingleChildScrollView(
+          child: Stack(
+            alignment: Alignment.topCenter,
+            children: [
+              IgnorePointer(
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 420,
+                  child: ConfettiWidget(
+                    confettiController: _completionConfettiController,
+                    blastDirectionality: BlastDirectionality.explosive,
+                    emissionFrequency: 0.05,
+                    numberOfParticles: 24,
+                    maxBlastForce: 16,
+                    minBlastForce: 8,
+                    gravity: 0.25,
+                    shouldLoop: false,
+                    colors: const [
+                      AppColors.primary,
+                      AppColors.secondary,
+                      AppColors.success,
+                      Color(0xFFFFD166),
+                      Color(0xFFEF476F),
+                    ],
+                    createParticlePath: _buildConfettiStarPath,
+                  ),
                 ),
               ),
-            ),
-            Container(
-              margin: const EdgeInsets.only(top: AppSpacing.xxl),
-              padding: const EdgeInsets.all(AppSpacing.xl),
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(AppRadius.xl),
-                boxShadow: const [
-                  BoxShadow(
-                    color: AppColors.blackOverlayShadow,
-                    blurRadius: 16,
-                    offset: Offset(0, 8),
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 88,
-                    height: 88,
-                    decoration: BoxDecoration(
-                      color: AppColors.primaryLight,
-                      borderRadius: BorderRadius.circular(44),
+              Container(
+                margin: const EdgeInsets.only(top: AppSpacing.xxl),
+                padding: const EdgeInsets.all(AppSpacing.xl),
+                decoration: BoxDecoration(
+                  color: AppPalette.of(context).surface,
+                  borderRadius: BorderRadius.circular(AppRadius.xl),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: AppColors.blackOverlayShadow,
+                      blurRadius: 16,
+                      offset: Offset(0, 8),
                     ),
-                    child: const Icon(
-                      Icons.auto_awesome,
-                      size: 44,
-                      color: AppColors.primary,
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 88,
+                      height: 88,
+                      decoration: BoxDecoration(
+                        color: AppPalette.of(context).primaryLight,
+                        borderRadius: BorderRadius.circular(44),
+                      ),
+                      child: Icon(
+                        Icons.auto_awesome,
+                        size: 44,
+                        color: AppPalette.of(context).primary,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: AppSpacing.lg),
-                  Text(
-                    l.viewerCompletionTitle,
-                    style: AppTextStyles.heading2,
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  Text(
-                    streak >= 3
-                        ? l.viewerCompletionStreak(streak)
-                        : l.viewerCompletionMessage,
-                    style: AppTextStyles.bodySmall,
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: AppSpacing.xl),
-                  PrimaryButton(
-                    text: l.viewerCreateNextStory,
-                    onPressed: () {
-                      Navigator.pop(dialogContext);
-                      Navigator.pushNamedAndRemoveUntil(
-                        context,
-                        '/create',
-                        (route) => route.isFirst,
-                      );
-                    },
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  SecondaryButton(
-                    text: l.viewerGoToLibrary,
-                    onPressed: () {
-                      Navigator.pop(dialogContext);
-                      Navigator.pushNamedAndRemoveUntil(
-                        context,
-                        '/library',
-                        (route) => route.isFirst,
-                      );
-                    },
-                  ),
-                ],
+                    const SizedBox(height: AppSpacing.lg),
+                    Text(
+                      l.viewerCompletionTitle,
+                      style: AppTextStyles.heading2,
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    Text(
+                      streak >= 3
+                          ? l.viewerCompletionStreak(streak)
+                          : l.viewerCompletionMessage,
+                      style: AppTextStyles.bodySmall,
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: AppSpacing.xl),
+                    PrimaryButton(
+                      text: l.viewerCreateNextStory,
+                      onPressed: () {
+                        Navigator.pop(dialogContext);
+                        Navigator.pushNamedAndRemoveUntil(
+                          context,
+                          '/create',
+                          (route) => route.isFirst,
+                        );
+                      },
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    SecondaryButton(
+                      text: l.viewerGoToLibrary,
+                      onPressed: () {
+                        Navigator.pop(dialogContext);
+                        Navigator.pushNamedAndRemoveUntil(
+                          context,
+                          '/library',
+                          (route) => route.isFirst,
+                        );
+                      },
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -643,9 +690,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
 
   /// H1/G9: 이 배포에서 오디오(낭독·발음)를 제공하는가.
   /// 미지원이면 UI를 숨긴다 — 비활성 배포에서 탭마다 에러가 나던 문제 차단.
-  /// 미확정(로딩 중)은 노출하고 서버 409로 폴백(인페인트 게이팅과 동일 정책).
+  /// 로딩·조회 실패 중에는 지원을 확인할 수 없어 노출하지 않는다.
   bool _audioSupportedFrom(Map<String, dynamic>? caps) =>
-      caps == null ? true : caps['audio_supported'] == true;
+      caps?['audio_supported'] == true;
 
   Widget _buildControls(BookResult book, int totalPages) {
     final l = AppLocalizations.of(context);
@@ -667,8 +714,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               end: Alignment.bottomCenter,
               colors: [
                 AppColors.blackOverlayStrong,
+                AppColors.blackOverlayStrong,
                 Colors.transparent,
               ],
+              stops: [0, 0.9, 1],
             ),
           ),
           child: Row(
@@ -748,7 +797,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                       vertical: AppSpacing.xs,
                     ),
                     decoration: BoxDecoration(
-                      color: AppColors.whiteOverlay,
+                      color: AppColors.blackOverlayStrong,
                       borderRadius: BorderRadius.circular(999),
                     ),
                     child: Text(
@@ -828,36 +877,53 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       if (quiz > 0) l.viewerLearningQuizCount(quiz),
       if (compr > 0) l.viewerLearningQuestionCount(compr),
     ];
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.md),
-      child: GestureDetector(
-        key: const Key('viewer_learning_bar'),
-        onTap: () => _showLearningMode(book, page),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.md,
-            vertical: 13,
-          ),
-          decoration: BoxDecoration(
-            color: AppColors.primary,
-            borderRadius: BorderRadius.circular(AppRadius.md),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.menu_book_rounded,
-                  color: Colors.white, size: 18),
-              const SizedBox(width: AppSpacing.sm),
-              Text(
-                l.viewerLearningBar(parts.join(' · ')),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 14,
+    final label = l.viewerLearningBar(parts.join(' · '));
+    final compact = MediaQuery.sizeOf(context).width < 360 ||
+        MediaQuery.textScalerOf(context).scale(14) > 17;
+    return Semantics(
+      button: true,
+      label: label,
+      excludeSemantics: true,
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: AppSpacing.md),
+        child: GestureDetector(
+          key: const Key('viewer_learning_bar'),
+          onTap: () => _showLearningMode(book, page),
+          child: Container(
+            width: double.infinity,
+            constraints:
+                const BoxConstraints(minHeight: AppSizing.minTouchTarget),
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.md,
+              vertical: 13,
+            ),
+            decoration: BoxDecoration(
+              color: AppColors.primary,
+              borderRadius: BorderRadius.circular(AppRadius.md),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.menu_book_rounded,
+                    color: Colors.white, size: 18),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Text(
+                    compact ? l.viewerLearn : label,
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                      height: 1.3,
+                      letterSpacing: 0,
+                    ),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -934,7 +1000,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       String? audioUrl = page.getAudioUrl(_selectedLanguage);
 
       // 없으면 API에서 가져오기 (자동 생성)
-      if (audioUrl == null || audioUrl.isEmpty) {
+      if (audioUrl == null ||
+          audioUrl.isEmpty ||
+          mediaUrlNeedsRefresh(audioUrl)) {
         audioUrl = await apiClient.getPageAudioUrl(
           book.bookId,
           _currentPage,
@@ -1172,7 +1240,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     );
     showModalBottomSheet(
       context: context,
-      backgroundColor: AppColors.surface,
+      backgroundColor: AppPalette.of(context).surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
       ),
@@ -1181,7 +1249,24 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             const SizedBox(height: AppSpacing.lg),
-            if (_currentPage > 0)
+            ListTile(
+              minTileHeight: 64,
+              leading: const Icon(Icons.flag_outlined),
+              title: Text(l.reportContentTitle),
+              onTap: () {
+                final pageNumber = _currentPage == 0
+                    ? 0
+                    : book.pages[_currentPage - 1].pageNumber;
+                Navigator.pop(context);
+                unawaited(showContentReportSheet(
+                  this.context,
+                  ref,
+                  bookId: book.bookId,
+                  pageNumber: pageNumber,
+                ));
+              },
+            ),
+            if (_currentPage > 0 && audioOk)
               ListTile(
                 leading: Icon(
                   _followReadingEnabled
@@ -1320,43 +1405,48 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                 _downloadPdf(book);
               },
             ),
-            ListTile(
-              leading: const Icon(Icons.local_shipping_outlined),
-              title: Text(l.viewerOrderPhysicalBook),
-              subtitle: Text(l.viewerOrderPhysicalBookSubtitle),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.pushNamed(
-                  context,
-                  '/pod-order',
-                  arguments: {
-                    'bookId': book.bookId,
-                    'bookTitle': book.title,
-                  },
-                );
-              },
-            ),
-            ListTile(
-              leading: Icon(
-                _sleepModeEnabled ? Icons.bedtime_off : Icons.bedtime,
+            if (ref
+                    .read(capabilitiesProvider)
+                    .valueOrNull?['pod_ordering_supported'] ==
+                true)
+              ListTile(
+                leading: const Icon(Icons.local_shipping_outlined),
+                title: Text(l.viewerOrderPhysicalBook),
+                subtitle: Text(l.viewerOrderPhysicalBookSubtitle),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.pushNamed(
+                    context,
+                    '/pod-order',
+                    arguments: {
+                      'bookId': book.bookId,
+                      'bookTitle': book.title,
+                    },
+                  );
+                },
               ),
-              title: Text(_sleepModeEnabled
-                  ? l.viewerSleepModeStop
-                  : l.viewerSleepModeStart),
-              subtitle: Text(
-                _sleepModeEnabled
-                    ? l.viewerSleepModeRemaining(_sleepRemainingText())
-                    : l.viewerSleepModeDescription,
+            if (audioOk || _sleepModeEnabled)
+              ListTile(
+                leading: Icon(
+                  _sleepModeEnabled ? Icons.bedtime_off : Icons.bedtime,
+                ),
+                title: Text(_sleepModeEnabled
+                    ? l.viewerSleepModeStop
+                    : l.viewerSleepModeStart),
+                subtitle: Text(
+                  _sleepModeEnabled
+                      ? l.viewerSleepModeRemaining(_sleepRemainingText())
+                      : l.viewerSleepModeDescription,
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  if (_sleepModeEnabled) {
+                    unawaited(_stopSleepMode());
+                    return;
+                  }
+                  unawaited(_startSleepMode(book));
+                },
               ),
-              onTap: () {
-                Navigator.pop(context);
-                if (_sleepModeEnabled) {
-                  unawaited(_stopSleepMode());
-                  return;
-                }
-                unawaited(_startSleepMode(book));
-              },
-            ),
             ListTile(
               leading: const Icon(Icons.print_outlined),
               title: Text(l.viewerPrint),
@@ -1384,7 +1474,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   void _showLearningMode(BookResult book, PageResult page) {
     showModalBottomSheet(
       context: context,
-      backgroundColor: AppColors.surface,
+      backgroundColor: AppPalette.of(context).surface,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
@@ -1394,15 +1484,18 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
         minChildSize: 0.5,
         maxChildSize: 0.95,
         expand: false,
-        builder: (context, scrollController) => _LearningModeSheet(
-          page: page,
-          scrollController: scrollController,
-          onQuizAnswered: (correct, questionIndex) {
-            unawaited(_recordQuizAnswer(page, correct, questionIndex));
-          },
-          onVocabAnswered: (term, correct, index) {
-            unawaited(_recordVocabAnswer(page, term, correct, index));
-          },
+        builder: (context, scrollController) => SafeArea(
+          top: false,
+          child: _LearningModeSheet(
+            page: page,
+            scrollController: scrollController,
+            onQuizAnswered: (correct, questionIndex) {
+              unawaited(_recordQuizAnswer(page, correct, questionIndex));
+            },
+            onVocabAnswered: (term, correct, index) {
+              unawaited(_recordVocabAnswer(page, term, correct, index));
+            },
+          ),
         ),
       ),
     );
@@ -1465,7 +1558,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
 
     showModalBottomSheet(
       context: context,
-      backgroundColor: AppColors.surface,
+      backgroundColor: AppPalette.of(context).surface,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
@@ -1475,9 +1568,12 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
         minChildSize: 0.4,
         maxChildSize: 0.9,
         expand: false,
-        builder: (context, scrollController) => _ParentGuideSheet(
-          parentGuide: book.learningAssets!.parentGuide,
-          scrollController: scrollController,
+        builder: (context, scrollController) => SafeArea(
+          top: false,
+          child: _ParentGuideSheet(
+            parentGuide: book.learningAssets!.parentGuide,
+            scrollController: scrollController,
+          ),
         ),
       ),
     );
@@ -1639,9 +1735,13 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       }
     } catch (e) {
       if (mounted) {
+        final qualityFailed =
+            _extractApiError(e)?.code == 'IMAGE_QUALITY_FAILED';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(AppLocalizations.of(context).viewerRegenerateFailed),
+            content: Text(qualityFailed
+                ? AppLocalizations.of(context).viewerImageQualityFailed
+                : AppLocalizations.of(context).viewerRegenerateFailed),
             backgroundColor: AppColors.error,
           ),
         );
@@ -1676,6 +1776,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
         );
       }
     } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).hideCurrentSnackBar();
       if (await _handlePaymentRequired(e)) {
         return;
       }
@@ -1697,7 +1798,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
 
     showModalBottomSheet(
       context: context,
-      backgroundColor: AppColors.surface,
+      backgroundColor: AppPalette.of(context).surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
       ),
@@ -1909,7 +2010,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       bookId: book.bookId,
       shareUrl: shareUrl,
       title: book.title,
-      coverImageUrl: book.coverImageUrl,
+      coverImageUrl: "${shareUrl.replaceFirst(RegExp(r'/+$'), '')}/img/cover",
       buttonTitle: l.shareKakaoCardTitle,
       fallbackDescription: l.shareKakaoCardDescription,
       description: l.viewerKakaoDescription,
@@ -2058,10 +2159,10 @@ class _ShareButton extends StatelessWidget {
             width: AppSizing.minTouchTarget,
             height: AppSizing.minTouchTarget,
             decoration: BoxDecoration(
-              color: AppColors.primaryLight,
+              color: AppPalette.of(context).primaryLight,
               borderRadius: BorderRadius.circular(16),
             ),
-            child: Icon(icon, color: AppColors.primary, size: 28),
+            child: Icon(icon, color: AppPalette.of(context).primary, size: 28),
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(label, style: AppTextStyles.caption),
@@ -2073,10 +2174,12 @@ class _ShareButton extends StatelessWidget {
 
 /// 표지 페이지
 class _CoverPage extends StatelessWidget {
+  final bool controlsVisible;
   final String title;
   final String imageUrl;
 
   const _CoverPage({
+    required this.controlsVisible,
     required this.title,
     required this.imageUrl,
   });
@@ -2090,18 +2193,24 @@ class _CoverPage extends StatelessWidget {
         Semantics(
           label: l.viewerCoverImageSemantics(title),
           image: true,
-          child: CachedNetworkImage(
-            imageUrl: imageUrl,
-            fit: BoxFit.cover,
-            placeholder: (context, url) => const Center(
-              child: CircularProgressIndicator(color: Colors.white),
-            ),
-            errorWidget: (context, url, error) => Container(
-              color: AppColors.primary,
-              child:
-                  const Icon(Icons.broken_image, color: Colors.white, size: 64),
-            ),
-          ),
+          child: imageUrl.trim().isEmpty
+              ? Container(
+                  color: AppColors.primary,
+                  child: const Icon(Icons.auto_stories_rounded,
+                      color: Colors.white, size: 64),
+                )
+              : CachedNetworkImage(
+                  imageUrl: imageUrl,
+                  fit: BoxFit.contain,
+                  placeholder: (context, url) => const Center(
+                    child: CircularProgressIndicator(color: Colors.white),
+                  ),
+                  errorWidget: (context, url, error) => Container(
+                    color: AppColors.primary,
+                    child: const Icon(Icons.broken_image,
+                        color: Colors.white, size: 64),
+                  ),
+                ),
         ),
         Container(
           decoration: const BoxDecoration(
@@ -2118,7 +2227,7 @@ class _CoverPage extends StatelessWidget {
         Positioned(
           left: AppSpacing.lg,
           right: AppSpacing.lg,
-          bottom: 100,
+          bottom: controlsVisible ? 160 : 100,
           child: Text(
             title,
             style: const TextStyle(
@@ -2143,6 +2252,9 @@ class _CoverPage extends StatelessWidget {
 
 /// 본문 페이지
 class _ContentPage extends StatelessWidget {
+  final VoidCallback? onComplete;
+  final double topControlsInset;
+  final double controlsInset;
   final int pageNumber;
   final String text;
   final String? secondaryText;
@@ -2154,6 +2266,9 @@ class _ContentPage extends StatelessWidget {
   final VoidCallback onShowLearning;
 
   const _ContentPage({
+    this.onComplete,
+    required this.topControlsInset,
+    required this.controlsInset,
     required this.pageNumber,
     required this.text,
     this.secondaryText,
@@ -2170,98 +2285,106 @@ class _ContentPage extends StatelessWidget {
     final l = AppLocalizations.of(context);
     final hasLearning = page.hasLearningContent;
 
-    return Container(
+    return ColoredBox(
       color: AppColors.background,
       child: Column(
         children: [
-          // 이미지
+          SizedBox(height: topControlsInset),
           Expanded(
-            flex: 3,
-            child: Semantics(
-              label: l.viewerPageImageSemantics(pageNumber),
-              image: true,
-              child: CachedNetworkImage(
-                imageUrl: imageUrl,
-                fit: BoxFit.cover,
-                width: double.infinity,
-                placeholder: (context, url) => Container(
-                  color: AppColors.divider,
-                  child: const Center(child: CircularProgressIndicator()),
-                ),
-                errorWidget: (context, url, error) => Container(
-                  color: AppColors.divider,
-                  child: const Icon(Icons.broken_image, size: 64),
-                ),
-              ),
-            ),
-          ),
-
-          // 텍스트
-          Expanded(
-            flex: 2,
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(AppSpacing.lg),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Expanded(
-                    child: Center(
-                      child: SingleChildScrollView(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            _HighlightedStoryText(
-                              text: text,
-                              progress: followProgress,
-                              enabled: followReadingEnabled,
-                              style: const TextStyle(
+            child: LayoutBuilder(builder: (context, constraints) {
+              return SingleChildScrollView(
+                key: ValueKey('reader-content-$pageNumber'),
+                primary: false,
+                child: Column(
+                  children: [
+                    SizedBox(
+                      height: max(
+                          160.0,
+                          constraints.maxHeight *
+                              (onComplete == null ? 0.6 : 0.45)),
+                      child: Semantics(
+                        label: l.viewerPageImageSemantics(pageNumber),
+                        image: true,
+                        child: imageUrl.trim().isEmpty
+                            ? Container(
+                                width: double.infinity,
+                                color: AppColors.divider,
+                                child: const Icon(Icons.image_outlined,
+                                    size: 64, color: AppColors.textSecondary),
+                              )
+                            : CachedNetworkImage(
+                                imageUrl: imageUrl,
+                                fit: BoxFit.contain,
+                                width: double.infinity,
+                                placeholder: (context, url) => Container(
+                                  color: AppColors.divider,
+                                  child: const Center(
+                                      child: CircularProgressIndicator()),
+                                ),
+                                errorWidget: (context, url, error) => Container(
+                                  color: AppColors.divider,
+                                  child: const Icon(Icons.broken_image,
+                                      size: 64, color: AppColors.textSecondary),
+                                ),
+                              ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(AppSpacing.lg),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _HighlightedStoryText(
+                            text: text,
+                            progress: followProgress,
+                            enabled: followReadingEnabled,
+                            style: const TextStyle(
                                 fontSize: 20,
                                 height: 1.8,
-                                color: AppColors.textPrimary,
-                              ),
-                              highlightColor: AppColors.primary,
-                            ),
-                            if (secondaryText != null &&
-                                secondaryText!.trim().isNotEmpty) ...[
-                              const SizedBox(height: AppSpacing.lg),
-                              Container(
-                                width: double.infinity,
-                                height: 1,
-                                color: AppColors.divider,
-                              ),
-                              const SizedBox(height: AppSpacing.lg),
-                              _HighlightedStoryText(
-                                text: secondaryText!,
-                                progress: 0,
-                                enabled: false,
-                                style: const TextStyle(
+                                color: AppColors.textPrimary),
+                            highlightColor: AppColors.primary,
+                          ),
+                          if (secondaryText != null &&
+                              secondaryText!.trim().isNotEmpty) ...[
+                            const SizedBox(height: AppSpacing.lg),
+                            const Divider(color: AppColors.divider, height: 1),
+                            const SizedBox(height: AppSpacing.lg),
+                            _HighlightedStoryText(
+                              text: secondaryText!,
+                              progress: 0,
+                              enabled: false,
+                              style: const TextStyle(
                                   fontSize: 17,
                                   height: 1.7,
-                                  color: AppColors.textSecondary,
-                                ),
-                                highlightColor: AppColors.primary,
-                              ),
-                            ],
+                                  color: AppColors.textSecondary),
+                              highlightColor: AppColors.primary,
+                            ),
                           ],
-                        ),
+                          if (onComplete != null) ...[
+                            const SizedBox(height: AppSpacing.lg),
+                            PrimaryButton(
+                              key: const Key('viewer-finish-reading'),
+                              text: l.viewerFinishReading,
+                              onPressed: onComplete,
+                            ),
+                          ],
+                          if (hasLearning && controlsInset == 0)
+                            TextButton.icon(
+                              onPressed: onShowLearning,
+                              icon: const Icon(Icons.school, size: 18),
+                              label: Text(l.viewerLearn),
+                              style: TextButton.styleFrom(
+                                  foregroundColor: AppColors.primary),
+                            ),
+                        ],
                       ),
                     ),
-                  ),
-                  // 학습 모드 버튼
-                  if (hasLearning)
-                    TextButton.icon(
-                      onPressed: onShowLearning,
-                      icon: const Icon(Icons.school, size: 18),
-                      label: Text(l.viewerLearn),
-                      style: TextButton.styleFrom(
-                        foregroundColor: AppColors.primary,
-                      ),
-                    ),
-                ],
-              ),
-            ),
+                  ],
+                ),
+              );
+            }),
           ),
+          SizedBox(height: controlsInset),
         ],
       ),
     );
@@ -2294,7 +2417,10 @@ class _HighlightedStoryText extends StatelessWidget {
       );
     }
 
-    final segments = text.split(RegExp(r'(\s+)'));
+    final segments = RegExp(r'\s+|\S+')
+        .allMatches(text)
+        .map((match) => match.group(0)!)
+        .toList(growable: false);
     final words = segments.where((segment) => segment.trim().isNotEmpty).length;
     if (words == 0) {
       return Text(
@@ -2322,8 +2448,12 @@ class _HighlightedStoryText extends StatelessWidget {
     }).toList(growable: false);
 
     return RichText(
+      textScaler: MediaQuery.textScalerOf(context),
       textAlign: TextAlign.center,
-      text: TextSpan(children: spans),
+      text: TextSpan(
+        style: DefaultTextStyle.of(context).style.merge(style),
+        children: spans,
+      ),
     );
   }
 }
@@ -2354,7 +2484,7 @@ class _NavButton extends StatelessWidget {
           width: AppSizing.minTouchTarget,
           height: AppSizing.minTouchTarget,
           decoration: BoxDecoration(
-            color: enabled ? AppColors.whiteOverlay : Colors.transparent,
+            color: enabled ? AppColors.primary : Colors.transparent,
             borderRadius: BorderRadius.circular(AppSizing.minTouchTarget / 2),
           ),
           child: Icon(
@@ -2392,7 +2522,7 @@ class _AudioButton extends StatelessWidget {
           width: AppSizing.minTouchTarget,
           height: AppSizing.minTouchTarget,
           decoration: BoxDecoration(
-            color: isPlaying ? AppColors.primaryMuted : AppColors.whiteOverlay,
+            color: AppColors.primary,
             borderRadius: BorderRadius.circular(AppSizing.minTouchTarget / 2),
           ),
           child: isLoading
@@ -2515,7 +2645,7 @@ class _LearningModeSheetState extends State<_LearningModeSheet>
           width: 40,
           height: 4,
           decoration: BoxDecoration(
-            color: AppColors.divider,
+            color: AppPalette.of(context).divider,
             borderRadius: BorderRadius.circular(2),
           ),
         ),
@@ -2528,9 +2658,14 @@ class _LearningModeSheetState extends State<_LearningModeSheet>
         // 탭 바
         TabBar(
           controller: _tabController,
-          labelColor: AppColors.primary,
-          unselectedLabelColor: AppColors.textSecondary,
-          indicatorColor: AppColors.primary,
+          labelPadding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+          labelStyle:
+              AppTextStyles.bodySmall.copyWith(fontWeight: FontWeight.w600),
+          unselectedLabelStyle:
+              AppTextStyles.bodySmall.copyWith(fontWeight: FontWeight.w600),
+          labelColor: AppPalette.of(context).primary,
+          unselectedLabelColor: AppPalette.of(context).textSecondary,
+          indicatorColor: AppPalette.of(context).primary,
           tabs: [
             Tab(icon: const Icon(Icons.abc), text: l.viewerTabWord),
             Tab(
@@ -2610,13 +2745,14 @@ class _VocabDisplayCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: AppSpacing.sm),
       child: Padding(
         padding: const EdgeInsets.all(AppSpacing.md),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(item.word,
-                style:
-                    AppTextStyles.heading3.copyWith(color: AppColors.primary)),
-            const SizedBox(width: AppSpacing.sm),
-            Expanded(child: Text(item.meaning, style: AppTextStyles.body)),
+                style: AppTextStyles.heading3
+                    .copyWith(color: AppPalette.of(context).primary)),
+            const SizedBox(height: AppSpacing.sm),
+            Text(item.meaning, style: AppTextStyles.body),
           ],
         ),
       ),
@@ -2684,7 +2820,8 @@ class _ComprehensionCardState extends State<_ComprehensionCard> {
               if (_showAnswer)
                 Text(
                   l.viewerComprehensionAnswer(widget.question.answer!),
-                  style: AppTextStyles.body.copyWith(color: AppColors.primary),
+                  style: AppTextStyles.body
+                      .copyWith(color: AppPalette.of(context).primary),
                 )
               else
                 TextButton(
@@ -2768,25 +2905,38 @@ class _QuizCardState extends State<_QuizCard> {
               } else if (_showResult && isSelected && !isCorrect) {
                 backgroundColor = AppColors.error.withValues(alpha: 0.2);
               } else if (isSelected) {
-                backgroundColor = AppColors.primaryLight;
+                backgroundColor = AppPalette.of(context).primaryLight;
               }
 
-              return GestureDetector(
-                onTap: _showResult
-                    ? null
-                    : () => setState(() => _selectedIndex = optionIndex),
-                child: Container(
-                  width: double.infinity,
-                  margin: const EdgeInsets.only(bottom: AppSpacing.sm),
-                  padding: const EdgeInsets.all(AppSpacing.sm),
-                  decoration: BoxDecoration(
-                    color: backgroundColor,
-                    border: Border.all(
-                      color: isSelected ? AppColors.primary : AppColors.divider,
-                    ),
+              return Semantics(
+                button: true,
+                selected: isSelected,
+                enabled: !_showResult,
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                  child: InkWell(
                     borderRadius: BorderRadius.circular(AppRadius.sm),
+                    onTap: _showResult
+                        ? null
+                        : () => setState(() => _selectedIndex = optionIndex),
+                    child: Container(
+                      constraints: const BoxConstraints(
+                          minHeight: AppSizing.minTouchTarget),
+                      alignment: Alignment.centerLeft,
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(AppSpacing.md),
+                      decoration: BoxDecoration(
+                        color: backgroundColor,
+                        border: Border.all(
+                          color: isSelected
+                              ? AppPalette.of(context).primary
+                              : AppPalette.of(context).divider,
+                        ),
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
+                      ),
+                      child: Text(option),
+                    ),
                   ),
-                  child: Text(option),
                 ),
               );
             }),
@@ -2808,13 +2958,14 @@ class _QuizCardState extends State<_QuizCard> {
                     color: isCorrect ? AppColors.success : AppColors.error,
                   ),
                   const SizedBox(width: AppSpacing.sm),
-                  Text(
+                  Expanded(
+                      child: Text(
                     isCorrect ? l.viewerQuizCorrect : l.viewerQuizIncorrect,
                     style: TextStyle(
                       color: isCorrect ? AppColors.success : AppColors.error,
                       fontWeight: FontWeight.bold,
                     ),
-                  ),
+                  )),
                 ],
               ),
               if (widget.quiz.explanation != null) ...[
@@ -2822,7 +2973,7 @@ class _QuizCardState extends State<_QuizCard> {
                 Text(
                   widget.quiz.explanation!,
                   style: AppTextStyles.caption.copyWith(
-                    color: AppColors.textSecondary,
+                    color: AppPalette.of(context).textSecondary,
                   ),
                 ),
               ],
@@ -2855,7 +3006,7 @@ class _ParentGuideSheet extends StatelessWidget {
           width: 40,
           height: 4,
           decoration: BoxDecoration(
-            color: AppColors.divider,
+            color: AppPalette.of(context).divider,
             borderRadius: BorderRadius.circular(2),
           ),
         ),
@@ -2865,9 +3016,11 @@ class _ParentGuideSheet extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.family_restroom, color: AppColors.primary),
+            Icon(Icons.family_restroom, color: AppPalette.of(context).primary),
             const SizedBox(width: AppSpacing.sm),
-            Text(l.viewerParentGuideTitle, style: AppTextStyles.heading2),
+            Flexible(
+                child: Text(l.viewerParentGuideTitle,
+                    style: AppTextStyles.heading2)),
           ],
         ),
         const SizedBox(height: AppSpacing.md),
@@ -2928,9 +3081,9 @@ class _GuideSection extends StatelessWidget {
       children: [
         Row(
           children: [
-            Icon(icon, color: AppColors.primary, size: 20),
+            Icon(icon, color: AppPalette.of(context).primary, size: 20),
             const SizedBox(width: AppSpacing.sm),
-            Text(title, style: AppTextStyles.heading3),
+            Expanded(child: Text(title, style: AppTextStyles.heading3)),
           ],
         ),
         const SizedBox(height: AppSpacing.sm),

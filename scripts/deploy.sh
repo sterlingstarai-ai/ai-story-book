@@ -41,7 +41,8 @@ Commands:
   migrate  Run database migrations
   build    Pull configured images (image-based production deploy)
   cleanup  Clean up unused Docker resources
-  backup   Backup database
+  backup   Write a private, verified PostgreSQL custom-format backup (DB only)
+  smoke    Run the stateful smoke journey against configured PROD_API_URL
 EOF
 }
 
@@ -66,9 +67,6 @@ resolve_default_env_file() {
     ENV_FILE="infra/.env"
     return
   fi
-  if [ -f "$ROOT_DIR/.env" ]; then
-    ENV_FILE=".env"
-  fi
 }
 
 load_env_file() {
@@ -76,13 +74,16 @@ load_env_file() {
     log_error "No environment file found. Use --env-file or create infra/.env"
     exit 1
   fi
-  if [ ! -f "$ROOT_DIR/$ENV_FILE" ]; then
+  if [[ "$ENV_FILE" != /* ]]; then
+    ENV_FILE="$ROOT_DIR/$ENV_FILE"
+  fi
+  if [ ! -f "$ENV_FILE" ]; then
     log_error "Environment file ($ENV_FILE) not found"
     exit 1
   fi
   set -a
   # shellcheck disable=SC1090
-  source "$ROOT_DIR/$ENV_FILE"
+  source "$ENV_FILE"
   set +a
 }
 
@@ -119,8 +120,9 @@ configure_images() {
     repo_path="sterlingstarai-ai/ai-story-book"
   fi
 
-  export API_IMAGE="${API_IMAGE:-ghcr.io/${repo_path}/api:${IMAGE_TAG_OVERRIDE}}"
-  export WORKER_IMAGE="${WORKER_IMAGE:-ghcr.io/${repo_path}/worker:${IMAGE_TAG_OVERRIDE}}"
+  # An explicit release tag wins over stale API_IMAGE/WORKER_IMAGE values in .env.
+  export API_IMAGE="ghcr.io/${repo_path}/api:${IMAGE_TAG_OVERRIDE}"
+  export WORKER_IMAGE="ghcr.io/${repo_path}/worker:${IMAGE_TAG_OVERRIDE}"
   export IMAGE_TAG="$IMAGE_TAG_OVERRIDE"
 }
 
@@ -187,12 +189,56 @@ cleanup() {
 }
 
 backup_db() {
+  (
+  umask 077
+  if ! compose config --services | grep -Fxq postgres; then
+    log_error "External database: use scripts/backup_external.py and docs/BACKUP_RESTORE.md; this command requires an internal postgres service"
+    return 1
+  fi
   log_info "Backing up database..."
-  local timestamp backup_file
-  timestamp="$(date +%Y%m%d_%H%M%S)"
-  backup_file="$ROOT_DIR/backup_${timestamp}.sql"
-  compose exec -T postgres pg_dump -U "$DB_USER" "$DB_NAME" >"$backup_file"
+  # The private directory is ignored by Git. Publish only a complete, readable dump.
+  local backup_dir backup_file partial_file
+  backup_dir="$ROOT_DIR/backups"
+  (
+    umask 077
+    mkdir -p "$backup_dir"
+  )
+  chmod 700 "$backup_dir"
+  partial_file="$(mktemp "$backup_dir/postgres_$(date -u +%Y%m%dT%H%M%SZ)_XXXXXX")"
+  trap 'rm -f "${partial_file:-}"' EXIT
+  backup_file="${partial_file}.dump"
+  if ! compose exec -T postgres pg_dump --format=custom --no-owner --no-privileges \
+      -U "$DB_USER" "$DB_NAME" >"$partial_file" ||
+     ! compose exec -T postgres pg_restore --list <"$partial_file" >/dev/null; then
+    rm -f "$partial_file"
+    log_error "Database backup failed; incomplete output removed"
+    return 1
+  fi
+  mv "$partial_file" "$backup_file"
   log_info "Database backed up to $backup_file"
+  log_warn "This is DB-only. Keep matching private media and deletion records; see docs/BACKUP_RESTORE.md"
+  )
+}
+
+require_production_url() {
+  # Do not follow a redirect or accept a localhost TLS certificate mismatch as health.
+  if [[ "${PROD_API_URL:-}" != https://* ]] ||
+     [[ "$PROD_API_URL" == *[\?\#@\ ]* ]] ||
+     [[ "${PROD_API_URL#https://}" == */* ]]; then
+    log_error "PROD_API_URL must be an HTTPS origin without path, query or credentials"
+    return 1
+  fi
+  if [ -z "${PROD_API_URL#https://}" ]; then
+    log_error "PROD_API_URL needs a hostname"
+    return 1
+  fi
+}
+
+probe_health() {
+  local code
+  code="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+    --connect-timeout 5 --max-time 15 --proto '=https' "${PROD_API_URL}$1" 2>/dev/null)" || return 1
+  [ "$code" = 200 ]
 }
 
 # #5: 앱이 리슨할 때까지 대기한다. `compose up -d`는 컨테이너 '기동 시작'에서 리턴할 뿐
@@ -206,7 +252,7 @@ backup_db() {
 wait_for_liveness() {
   local attempt=1
   while [ "$attempt" -le "$HEALTH_WAIT_RETRIES" ]; do
-    if curl -fsS http://localhost/health/live >/dev/null 2>&1; then
+    if probe_health /health/live; then
       log_info "Service is live (attempt $attempt)"
       return 0
     fi
@@ -217,24 +263,34 @@ wait_for_liveness() {
   return 1
 }
 
+wait_for_readiness() {
+  local attempt=1
+  while [ "$attempt" -le "$HEALTH_WAIT_RETRIES" ]; do
+    if probe_health /health/ready; then
+      log_info "Readiness check passed (attempt $attempt)"
+      return 0
+    fi
+    sleep "$HEALTH_WAIT_INTERVAL"
+    attempt=$((attempt + 1))
+  done
+  log_error "Readiness did not recover within the deployment wait window"
+  return 1
+}
+
 health_check() {
   log_info "Running health checks..."
+  require_production_url || return 1
   if ! wait_for_liveness; then
     return 1
   fi
-  if curl -fsS http://localhost/health/live >/dev/null; then
+  if probe_health /health/live; then
     log_info "Liveness check passed"
   else
     log_error "Liveness check failed"
     return 1
   fi
 
-  if curl -fsS http://localhost/health/ready >/dev/null; then
-    log_info "Readiness check passed"
-  else
-    log_error "Readiness check failed"
-    return 1
-  fi
+  wait_for_readiness || return 1
 
   compose ps --format "table {{.Name}}\t{{.Status}}"
 }
@@ -309,6 +365,7 @@ case "$COMMAND" in
     # 마이그레이션을 먼저 적용(구 코드가 새 스키마와 잠깐 공존 — expand-then-contract 전제),
     # 그다음 서비스를 롤링 재기동. health 실패 시 이전 이미지로 자동 롤백.
     check_requirements
+    require_production_url
     capture_running_images
     pull_images
     run_migrations
@@ -360,6 +417,11 @@ case "$COMMAND" in
   backup)
     check_requirements
     backup_db
+    ;;
+  smoke)
+    check_requirements
+    require_production_url
+    "$ROOT_DIR/scripts/smoke.sh" "$PROD_API_URL"
     ;;
   *)
     print_help

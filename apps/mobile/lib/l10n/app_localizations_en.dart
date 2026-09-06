@@ -245,6 +245,19 @@ class AppLocalizationsEn extends AppLocalizations {
   String get createLanguageLabel => 'Story language';
 
   @override
+  String get createLengthLabel => 'Story length';
+
+  @override
+  String get createLengthStandard => '12 pages';
+
+  @override
+  String get createLengthShort => '8 pages';
+
+  @override
+  String get createLengthHint =>
+      '12 pages by default. Choose 8 for a shorter read. Cover not included.';
+
+  @override
   String get createTemplateSectionLabel => 'Start from a suggestion';
 
   @override
@@ -538,6 +551,26 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get libraryMenuDelete => 'Delete';
+
+  @override
+  String get loadingImageQualityFailed =>
+      'We couldn\'t finish the book because some illustrations couldn\'t be verified. Please try again.';
+
+  @override
+  String get loadingStepVerifyIllustrations =>
+      'Checking that the illustrations match the story';
+
+  @override
+  String get loadingStepRepairIllustrations =>
+      'Redrawing illustrations that need changes';
+
+  @override
+  String get loadingStepRecheckIllustrations =>
+      'Checking the updated illustrations';
+
+  @override
+  String get viewerImageQualityFailed =>
+      'The updated illustration couldn\'t be verified, so the changes weren\'t saved. Your existing book is unchanged.';
 
   @override
   String get loadingTitle => 'Creating your storybook';
@@ -936,7 +969,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get voiceProfilesUploading => 'Uploading...';
 
   @override
-  String get voiceProfilesUploadAudioButton => 'Upload audio file';
+  String get voiceProfilesUploadAudioButton => 'Choose audio';
 
   @override
   String get voiceProfilesConsentToggle => 'Guardian consent complete';
@@ -1342,12 +1375,12 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String parentDashboardLearningStreakLine(Object current, Object longest) {
-    return 'Current streak $current days · Best $longest days';
+    return 'Reading streak: $current days · Best: $longest days';
   }
 
   @override
   String parentDashboardLearningSessionLine(Object completed, Object total) {
-    return 'Completed sessions $completed / total sessions $total';
+    return 'Finished $completed of $total reading sessions';
   }
 
   @override
@@ -1774,10 +1807,11 @@ class AppLocalizationsEn extends AppLocalizations {
   String get charactersEmptyTitle => 'No characters yet';
 
   @override
-  String get charactersEmptySubtitle => 'Make a character from a photo!';
+  String get charactersEmptySubtitle =>
+      'Create a story companion with just a name and a few traits.';
 
   @override
-  String get charactersEmptyCreateButton => 'Make a character from a photo';
+  String get charactersEmptyCreateButton => 'Create a character';
 
   @override
   String get charactersLoadErrorTitle => 'Couldn\'t load characters';
@@ -1789,7 +1823,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get charactersFabCreating => 'Creating...';
 
   @override
-  String get charactersFabCreate => 'Make from photo';
+  String get charactersFabCreate => 'Create a character';
 
   @override
   String get charactersOptionsTitle => 'Make a new character';
@@ -1883,7 +1917,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get charactersAddCardSubtitle =>
-      'Make your own character from a photo';
+      'Describe a character or start with a photo or drawing';
 
   @override
   String get charactersDetailDescription => 'Description';
@@ -2338,7 +2372,10 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String viewerKakaoShareText(
-      Object title, Object deepLink, Object fallbackUrl) {
+    Object title,
+    Object deepLink,
+    Object fallbackUrl,
+  ) {
     return '📚 $title\n\nShare the storybook via KakaoTalk!\n$deepLink\n$fallbackUrl';
   }
 
@@ -2551,7 +2588,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get ageGateDescription =>
-      'Parent verification is required before accessing the purchase screen.';
+      'A parent or guardian needs to complete this check before continuing.';
 
   @override
   String get ageGateAnswerHint => 'Enter the correct answer';
@@ -2706,8 +2743,14 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String growthShareText(int booksRead, int levelNumber, String levelLabel,
-      int scoreValue, int vocabLearned, int currentStreak) {
+  String growthShareText(
+    int booksRead,
+    int levelNumber,
+    String levelLabel,
+    int scoreValue,
+    int vocabLearned,
+    int currentStreak,
+  ) {
     return '📚 Reading Growth Report\n\n📖 Books read: $booksRead\n⭐ Reading level: Lv.$levelNumber ($levelLabel)\n📊 Overall score: $scoreValue/100\n🔤 Words learned: $vocabLearned\n🔥 Reading streak: $currentStreak days\n\nGrowing reading one AI storybook at a time 📖';
   }
 
@@ -2741,7 +2784,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String growthHeroSemantic(
-      int levelNumber, String levelLabel, int scoreValue, String confidence) {
+    int levelNumber,
+    String levelLabel,
+    int scoreValue,
+    String confidence,
+  ) {
     return 'Estimated reading level $levelNumber, $levelLabel. Overall score from books read, vocabulary, accuracy, and completion: $scoreValue out of 100. Confidence: $confidence.';
   }
 
@@ -2955,4 +3002,363 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get growthLevelFluentReader => 'Fluent reader';
+
+  @override
+  String get accountOpening => 'Opening your account';
+
+  @override
+  String get accountUnavailableTitle => 'Unable to open your account';
+
+  @override
+  String get accountUnavailableMessage =>
+      'We could not open your saved account. Unlock your device and retry, or restore it with your recovery code. Keep this app installed while resolving access.';
+
+  @override
+  String get accountRetry => 'Try again';
+
+  @override
+  String get podOrderingUnavailable =>
+      'Physical book ordering is not available in this release.';
+
+  @override
+  String get loadingStatusUnavailable =>
+      'We could not check the progress of your story. It may still be creating. Check your connection, then check this story\'s status again.';
+
+  @override
+  String get voiceProfilesUnavailable =>
+      'Family voice is unavailable in this release. You can still delete saved voice samples or withdraw consent.';
+
+  @override
+  String get loadingStatusUnavailableTitle =>
+      'Let\'s check your story\'s progress';
+
+  @override
+  String get settingsSavedVoices => 'Manage saved voice samples';
+
+  @override
+  String get settingsSavedVoicesSubtitle =>
+      'Delete voice data or withdraw consent';
+
+  @override
+  String get creditsBetaNotice =>
+      'This is a limited free beta. New purchases are unavailable. You can use your existing balance and restore purchases for your current account. Restoring purchases does not recover your story library after changing devices or reinstalling the app.';
+
+  @override
+  String get creditBetaLimitTitle =>
+      'Check your available features and credits';
+
+  @override
+  String get creditBetaLimitMessage =>
+      'This feature is unavailable in the free beta, or you have reached your current limit. You can keep reading stories in your library and check your existing balance.';
+
+  @override
+  String get creditBetaLibrarySubtitle =>
+      'Read the stories you have already made';
+
+  @override
+  String get creditBetaStatusSubtitle =>
+      'Check your balance and existing purchases';
+
+  @override
+  String get accountDeletionPending =>
+      'Account data and consent have been removed. Some stored files are still being deleted. The server will retry automatically.';
+
+  @override
+  String get voiceDeletionPending =>
+      'This voice sample can no longer be used. Some stored files are still being deleted. The server will retry automatically.';
+
+  @override
+  String get recoveryTitle => 'Account recovery';
+
+  @override
+  String get recoveryDescription =>
+      'Save a recovery code in a password manager or another safe place before changing or losing this device. Creating a replacement invalidates the previous code.';
+
+  @override
+  String get recoveryEnabled => 'Recovery code is enabled';
+
+  @override
+  String get recoveryNotEnabled => 'Protect access to your library';
+
+  @override
+  String get recoveryCreateCode => 'Create recovery code';
+
+  @override
+  String get recoveryReplaceCode => 'Replace recovery code';
+
+  @override
+  String get recoverySaveTitle => 'Keep this code safe';
+
+  @override
+  String get recoverySaveMessage =>
+      'This code can restore your account and library. Anyone with it can take over the account. It is shown only now. Save it outside this app; keep it private.';
+
+  @override
+  String get recoveryCopy => 'Copy recovery code';
+
+  @override
+  String get recoveryCopied => 'Recovery code copied. Store it safely.';
+
+  @override
+  String get recoverySavedCheck => 'I saved the full code outside this app.';
+
+  @override
+  String get recoveryConfirmSuffix =>
+      'Enter the last 6 characters of the saved code';
+
+  @override
+  String get recoveryConfirmSaved => 'Confirm saved code';
+
+  @override
+  String get recoveryRestoreTitle => 'Restore an existing account';
+
+  @override
+  String get recoveryRestoreMessage =>
+      'Enter the recovery code you saved. This device will switch to that account, and its previous device will be signed out. The current and restored libraries are not combined. You will receive a new recovery code.';
+
+  @override
+  String get recoveryCodeLabel => 'Recovery code';
+
+  @override
+  String get recoveryRestoreButton => 'Restore this account';
+
+  @override
+  String get recoveryInvalidCode =>
+      'Enter the complete recovery code beginning with ASB-R1-.';
+
+  @override
+  String get recoveryFailed =>
+      'Recovery could not be confirmed. Check the code, connection, and secure storage, then retry here. If a request was interrupted, keep using this screen so the same device credential can be recovered.';
+
+  @override
+  String get recoverySucceeded => 'Your account has been restored';
+
+  @override
+  String get recoveryLoadError => 'Could not check recovery status. Try again.';
+
+  @override
+  String get recoveryIssueError =>
+      'The code could not be displayed. A previous code may have expired. Retry to create and save a new code.';
+
+  @override
+  String get recoveryBackupPending =>
+      'Save a new recovery code in Settings before losing access to this device.';
+
+  @override
+  String get recoveryContinue => 'Continue';
+
+  @override
+  String get recoverySwitchNeedsBackup =>
+      'Before switching accounts, save a recovery code for the account currently on this device so you can return to its library.';
+
+  @override
+  String get reportContentTitle => 'Report a problem';
+
+  @override
+  String get reportContentCover => 'Reporting this cover';
+
+  @override
+  String reportContentPage(int page) {
+    return 'Reporting page $page';
+  }
+
+  @override
+  String get reportContentHint =>
+      'Choose one reason. No name or contact details are needed.';
+
+  @override
+  String get reportContentHarmful => 'Violence or dangerous behavior';
+
+  @override
+  String get reportContentSexual => 'Sexual content';
+
+  @override
+  String get reportContentHate => 'Hate or bullying';
+
+  @override
+  String get reportContentPersonal => 'Personal information exposed';
+
+  @override
+  String get reportContentImage => 'Problem with the illustration';
+
+  @override
+  String get reportContentOther => 'Another content problem';
+
+  @override
+  String get reportContentSubmit => 'Send report';
+
+  @override
+  String get reportContentSending => 'Sending…';
+
+  @override
+  String get reportContentCancel => 'Cancel';
+
+  @override
+  String get reportContentClose => 'Back to story';
+
+  @override
+  String get reportContentReceived =>
+      'Your report has been received for review.';
+
+  @override
+  String get reportContentAlreadyReviewed =>
+      'This content problem was already reported and reviewed.';
+
+  @override
+  String get reportContentFailed =>
+      'The report could not be sent. Please try again.';
+
+  @override
+  String get homeReadingSubtitle => 'Which story shall we read today?';
+
+  @override
+  String get homeReadBook => 'Read story';
+
+  @override
+  String get viewerFinishReading => 'Finish reading';
+
+  @override
+  String get createAvailableStylesHint =>
+      'These illustration styles are available for your account.';
+
+  @override
+  String get createOptionsLoading => 'Checking available illustration styles…';
+
+  @override
+  String get createOptionsFailed =>
+      'We could not check available styles. Check your connection and try again.';
+
+  @override
+  String get createSafetyInputHint =>
+      'Change the topic to something suitable for children, then try again.';
+
+  @override
+  String get createSafetyOutputHint =>
+      'We could not safely complete this story. Please choose a different topic.';
+
+  @override
+  String get createDailyLimitHint =>
+      'You have reached today\'s creation limit. Read a saved story or create another tomorrow.';
+
+  @override
+  String get inpaintImageLoadFailed =>
+      'The illustration could not load. Reload it to continue editing.';
+
+  @override
+  String get voiceProfilesSampleRequiredUpload => 'Upload an audio file first.';
+
+  @override
+  String get voiceProfilesSampleSelected => 'Your audio sample is ready.';
+
+  @override
+  String get voiceProfilesSampleLinkOption => 'Use an audio link instead';
+
+  @override
+  String get parentDashboardEmptyReading =>
+      'No reading activity in this period yet. Read a story to start building your record.';
+
+  @override
+  String get settingsPagePreparing =>
+      'This information page is being prepared.';
+
+  @override
+  String get settingsPageOpenError =>
+      'We couldn’t open this page. Please try again shortly.';
+
+  @override
+  String get characterAvatarTitle => 'Meet your story character';
+
+  @override
+  String get characterAvatarGeneratingLabel => 'Creating their look';
+
+  @override
+  String get characterAvatarPreviewLabel => 'Ready for your review';
+
+  @override
+  String get characterAvatarApprovedLabel => 'Confirmed character';
+
+  @override
+  String get characterAvatarFailedLabel => 'Character needs attention';
+
+  @override
+  String get characterAvatarGeneratingBody =>
+      'We’re creating your story character. You can leave this screen and return from Characters.';
+
+  @override
+  String get characterAvatarPreviewBody =>
+      'Happy with this look? Once confirmed, this character can be used in future stories.';
+
+  @override
+  String get characterAvatarImageLabel => 'Story character preview';
+
+  @override
+  String get characterAvatarApprove => 'Use this character';
+
+  @override
+  String get characterAvatarRegenerate => 'Try another look';
+
+  @override
+  String get characterAvatarOtherPhoto => 'Choose another photo';
+
+  @override
+  String get characterAvatarLater => 'Review later';
+
+  @override
+  String get characterAvatarTakingLong =>
+      'This is taking longer to check. Try again shortly, or return from Characters later.';
+
+  @override
+  String get characterAvatarLoadError =>
+      'We couldn’t load this character. Please try again.';
+
+  @override
+  String get characterAvatarImageError =>
+      'We couldn’t load the preview. Please try again.';
+
+  @override
+  String get characterAvatarFailedBody =>
+      'This character isn’t ready yet. Try another look if available, or choose another photo.';
+
+  @override
+  String get characterAvatarRetryLimit =>
+      'We can’t create another look from this photo. You can choose a different photo.';
+
+  @override
+  String get characterAvatarChanged =>
+      'The preview changed. Please review the new look.';
+
+  @override
+  String get characterAvatarUpdateError =>
+      'We couldn’t confirm your request. Review the latest preview before trying again.';
+
+  @override
+  String get characterAvatarUnavailable =>
+      'Photo characters are unavailable right now. Choose a preset or try again later.';
+
+  @override
+  String get characterAvatarNeedsApproval =>
+      'Please confirm your character’s look before creating the story.';
+
+  @override
+  String get characterAvatarReferenceUnavailable =>
+      'The character image is unavailable. Please check it in Characters.';
+
+  @override
+  String get characterSelectionInvalid =>
+      'Please check your character selection.';
+
+  @override
+  String get characterAvatarHeroLabel => 'Hero of this book';
+
+  @override
+  String get characterAvatarApprovedDescription =>
+      'This character can join your next story, too.';
+
+  @override
+  String get characterAvatarPreparingDescription =>
+      'Your story character is being created.';
+
+  @override
+  String get characterAvatarFailedDescription =>
+      'Try creating again or choose another photo.';
 }

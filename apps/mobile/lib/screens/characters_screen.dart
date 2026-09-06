@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'package:dio/dio.dart';
+import '../core/api_error.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
@@ -11,6 +13,8 @@ import '../utils/constants.dart';
 import '../widgets/age_gate_dialog.dart';
 import '../widgets/app_shell.dart';
 import '../widgets/common_widgets.dart';
+import '../widgets/character_avatar_preview.dart';
+import '../services/selected_photo_cache.dart';
 
 enum _CharacterCreationMode {
   photo,
@@ -28,6 +32,7 @@ class CharactersScreen extends ConsumerStatefulWidget {
 class _CharactersScreenState extends ConsumerState<CharactersScreen> {
   final ImagePicker _picker = ImagePicker();
   bool _isCreatingCharacter = false;
+  bool _isChoosingImage = false;
   // H17/G19: 사진·그림 캐릭터 생성의 시도-단위 멱등키(재시도 재사용, 성공 시 리셋).
   String? _characterAttemptKey;
   String? _characterAttemptSig;
@@ -40,20 +45,21 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
     return AppShell(
       currentIndex: 3,
       appBar: AppBar(
-        backgroundColor: AppColors.background,
+        backgroundColor: AppPalette.of(context).background,
         elevation: 0,
         title: Text(l.charactersTitle, style: AppTextStyles.heading2),
         centerTitle: false,
         actions: [
           IconButton(
-            icon:
-                const Icon(Icons.add_circle_outline, color: AppColors.primary),
+            icon: Icon(Icons.add_circle_outline,
+                color: AppPalette.of(context).primary),
             onPressed:
                 _isCreatingCharacter ? null : () => _showCharacterOptions(),
             tooltip: l.charactersAddTooltip,
           ),
           IconButton(
-            icon: const Icon(Icons.refresh, color: AppColors.textPrimary),
+            icon:
+                Icon(Icons.refresh, color: AppPalette.of(context).textPrimary),
             onPressed: () => ref.read(charactersProvider.notifier).refresh(),
             tooltip: l.charactersRefreshTooltip,
           ),
@@ -62,30 +68,25 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
       body: charactersAsync.when(
         data: (characters) {
           if (characters.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  EmptyState(
-                    icon: Icons.people_outline,
-                    title: l.charactersEmptyTitle,
-                    subtitle: l.charactersEmptySubtitle,
-                  ),
-                  const SizedBox(height: AppSpacing.lg),
-                  PrimaryButton(
-                    text: l.charactersEmptyCreateButton,
-                    isFullWidth: false,
-                    onPressed: () => _showCharacterOptions(),
-                  ),
-                ],
-              ),
+            return EmptyState(
+              icon: Icons.people_outline,
+              title: l.charactersEmptyTitle,
+              subtitle: l.charactersEmptySubtitle,
+              buttonText: l.charactersEmptyCreateButton,
+              onButtonPressed:
+                  _isCreatingCharacter ? null : _showCharacterOptions,
             );
           }
 
           return RefreshIndicator(
             onRefresh: () => ref.read(charactersProvider.notifier).refresh(),
             child: ListView.separated(
-              padding: const EdgeInsets.all(AppSpacing.lg),
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.lg,
+                AppSpacing.lg,
+                AppSpacing.lg,
+                112,
+              ),
               itemCount: characters.length + 1, // +1 for add button
               separatorBuilder: (_, __) =>
                   const SizedBox(height: AppSpacing.md),
@@ -113,36 +114,45 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
         error: (error, _) => EmptyState(
           icon: Icons.error_outline,
           title: l.charactersLoadErrorTitle,
-          subtitle: error.toString(),
+          subtitle: l.errorConnection,
           buttonText: l.charactersRetry,
           onButtonPressed: () => ref.invalidate(charactersProvider),
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _isCreatingCharacter ? null : () => _showCharacterOptions(),
-        backgroundColor: AppColors.primary,
-        icon: _isCreatingCharacter
-            ? const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Colors.white,
-                ),
-              )
-            : const Icon(Icons.camera_alt),
-        label: Text(_isCreatingCharacter
-            ? l.charactersFabCreating
-            : l.charactersFabCreate),
-      ),
+      floatingActionButton: charactersAsync.valueOrNull?.isNotEmpty != true
+          ? null
+          : SizedBox(
+              height: AppSizing.minTouchTarget,
+              child: FloatingActionButton.extended(
+                onPressed:
+                    _isCreatingCharacter ? null : () => _showCharacterOptions(),
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                icon: _isCreatingCharacter
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.person_add_alt_1),
+                label: Text(_isCreatingCharacter
+                    ? l.charactersFabCreating
+                    : l.charactersFabCreate),
+              ),
+            ),
     );
   }
 
   void _showCharacterOptions() {
+    if (_isChoosingImage || _isCreatingCharacter) return;
     final l = AppLocalizations.of(context);
     showModalBottomSheet(
       context: context,
-      backgroundColor: AppColors.surface,
+      backgroundColor: AppPalette.of(context).surface,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
       ),
@@ -154,7 +164,8 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
           children: [
             const SizedBox(height: AppSpacing.lg),
             ListTile(
-              leading: const Icon(Icons.edit_note, color: AppColors.primary),
+              leading:
+                  Icon(Icons.edit_note, color: AppPalette.of(context).primary),
               title: Text(l.charactersOptionTextTitle),
               subtitle: Text(l.charactersOptionTextSubtitle),
               onTap: () {
@@ -164,7 +175,8 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
             ),
             const Divider(height: 1),
             ListTile(
-              leading: const Icon(Icons.camera_alt, color: AppColors.primary),
+              leading:
+                  Icon(Icons.camera_alt, color: AppPalette.of(context).primary),
               title: Text(l.charactersOptionCameraTitle),
               subtitle: Text(l.charactersOptionCameraSubtitle),
               onTap: () {
@@ -173,8 +185,8 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
               },
             ),
             ListTile(
-              leading:
-                  const Icon(Icons.photo_library, color: AppColors.primary),
+              leading: Icon(Icons.photo_library,
+                  color: AppPalette.of(context).primary),
               title: Text(l.charactersOptionGalleryTitle),
               subtitle: Text(l.charactersOptionGallerySubtitle),
               onTap: () {
@@ -184,8 +196,8 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
             ),
             const Divider(height: 1),
             ListTile(
-              leading:
-                  const Icon(Icons.brush_outlined, color: AppColors.primary),
+              leading: Icon(Icons.brush_outlined,
+                  color: AppPalette.of(context).primary),
               title: Text(l.charactersOptionDrawingTitle),
               subtitle: Text(l.charactersOptionDrawingSubtitle),
               onTap: () {
@@ -206,7 +218,7 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
   void _showTextInputForm() {
     showModalBottomSheet(
       context: context,
-      backgroundColor: AppColors.surface,
+      backgroundColor: AppPalette.of(context).surface,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
@@ -247,7 +259,11 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
         final l = AppLocalizations.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(l.charactersCreateFailed),
+            content: Text(e is DioException &&
+                    e.error is ApiError &&
+                    (e.error as ApiError).code == 'PHOTO_PROCESSING_UNAVAILABLE'
+                ? l.characterAvatarUnavailable
+                : l.charactersCreateFailed),
             backgroundColor: AppColors.error,
           ),
         );
@@ -263,59 +279,58 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
     ImageSource source, {
     _CharacterCreationMode creationMode = _CharacterCreationMode.photo,
   }) async {
+    if (_isChoosingImage || _isCreatingCharacter) return;
+    final cleanSelectedPhoto = ref.read(selectedPhotoCacheCleanerProvider);
+    setState(() => _isChoosingImage = true);
     try {
-      // M24: 사진 업로드 전 보호자 age gate(character_source_sheet와 동일 이중 보호).
-      if (!await ensureAgeGate(context, ref)) return;
-      if (!mounted) return;
-
-      final XFile? image = await _picker.pickImage(
-        source: source,
-        maxWidth: 1024,
-        maxHeight: 1024,
-        imageQuality: 85,
-      );
-
-      if (image == null) return;
-
-      // 사진/그림(아동 얼굴)은 사용 직전 JIT 보호자 동의 — 미동의 시 5요소 고지 후 받는다.
-      if (!mounted) return;
-      final api = ref.read(apiClientProvider);
-      if (!await ensurePhotoConsent(context, api)) {
-        // 동의 거부/취소 시 선택된 임시 이미지를 즉시 폐기(데이터 최소수집).
+      var currentSource = source;
+      String? previousName;
+      while (mounted) {
+        XFile? image;
+        CharacterAvatarPreviewResult? preview;
         try {
-          await File(image.path).delete();
-        } catch (_) {}
-        return;
+          if (!await ensureAgeGate(context, ref) || !mounted) return;
+          image = await _picker.pickImage(
+              source: currentSource,
+              maxWidth: 1024,
+              maxHeight: 1024,
+              imageQuality: 85);
+          if (image == null || !mounted) return;
+          final api = ref.read(apiClientProvider);
+          if (!await ensurePhotoConsent(context, api) || !mounted) return;
+          final name = previousName ?? await _showNameDialog();
+          if (name == null || !mounted) return;
+          previousName = name;
+          preview = await _createCharacterFromImage(File(image.path), name,
+              creationMode: creationMode,
+              onUploadFinished: () => cleanSelectedPhoto(image));
+        } finally {
+          await cleanSelectedPhoto(image);
+        }
+        if (!mounted || preview?.chooseAnotherPhoto != true) return;
+        currentSource = ImageSource.gallery;
       }
-
-      // 이름 입력 다이얼로그
-      final name = await _showNameDialog();
-      if (name == null) return;
-
-      await _createCharacterFromImage(
-        File(image.path),
-        name,
-        creationMode: creationMode,
-      );
-    } catch (e) {
+    } catch (_) {
       if (mounted) {
-        final l = AppLocalizations.of(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l.charactersImagePickFailed)),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content:
+                Text(AppLocalizations.of(context).charactersImagePickFailed)));
       }
+    } finally {
+      if (mounted) setState(() => _isChoosingImage = false);
     }
   }
 
   Future<String?> _showNameDialog() async {
     final l = AppLocalizations.of(context);
-    final controller = TextEditingController();
+    var name = '';
     final result = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(l.charactersNameDialogTitle),
         content: TextField(
-          controller: controller,
+          onChanged: (value) => name = value,
+          maxLength: 40,
           decoration: InputDecoration(
             hintText: l.charactersNameDialogHint,
             border: const OutlineInputBorder(),
@@ -329,13 +344,12 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(
-                context, controller.text.isEmpty ? null : controller.text),
+                context, name.trim().isEmpty ? null : name.trim()),
             child: Text(l.charactersConfirm),
           ),
         ],
       ),
     );
-    controller.dispose();
     return result;
   }
 
@@ -386,10 +400,11 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
     }
   }
 
-  Future<void> _createCharacterFromImage(
+  Future<CharacterAvatarPreviewResult?> _createCharacterFromImage(
     File photo,
     String? name, {
     _CharacterCreationMode creationMode = _CharacterCreationMode.photo,
+    required Future<void> Function() onUploadFinished,
   }) async {
     setState(() => _isCreatingCharacter = true);
 
@@ -424,27 +439,38 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
       _characterAttemptKey = null;
       _characterAttemptSig = null;
 
-      if (mounted) {
-        final l = AppLocalizations.of(context);
-        final characterName =
-            result['name']?.toString() ?? l.charactersDefaultName;
-        final rawSheetUrls = result['character_sheet_urls'];
-        final sheetCount = rawSheetUrls is List ? rawSheetUrls.length : 0;
-        final message =
-            creationMode == _CharacterCreationMode.drawing && sheetCount > 0
-                ? l.charactersCreatedWithSheetsSnack(characterName, sheetCount)
-                : l.charactersCreatedSnack(characterName);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(message)),
-        );
-        ref.read(charactersProvider.notifier).refresh();
+      await onUploadFinished();
+      if (!mounted) return null;
+      ref.invalidate(charactersProvider);
+      final id = result['character_id']?.toString();
+      if (id == null || id.isEmpty) {
+        throw const FormatException('Missing character id');
       }
+      Character? initial;
+      try {
+        initial = Character.fromJson(result);
+      } on FormatException {/* Reload full response in preview. */}
+      final preview = await showCharacterAvatarPreview(context,
+          characterId: id, initialCharacter: initial);
+      if (mounted) {
+        ref.invalidate(charactersProvider);
+        if (preview?.character?.canUseInBook == true) {
+          Navigator.pushNamed(context, '/create', arguments: {
+            'characterIds': [preview!.character!.id]
+          });
+        }
+      }
+      return preview;
     } catch (e) {
       if (mounted) {
         final l = AppLocalizations.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(l.charactersCreateFailed),
+            content: Text(e is DioException &&
+                    e.error is ApiError &&
+                    (e.error as ApiError).code == 'PHOTO_PROCESSING_UNAVAILABLE'
+                ? l.characterAvatarUnavailable
+                : l.charactersCreateFailed),
             backgroundColor: AppColors.error,
           ),
         );
@@ -454,13 +480,28 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
         setState(() => _isCreatingCharacter = false);
       }
     }
+    return null;
   }
 
-  void _showCharacterDetail(
-      BuildContext context, WidgetRef ref, Character character) {
+  Future<void> _showCharacterDetail(
+      BuildContext context, WidgetRef ref, Character character) async {
+    if (character.needsAvatarApproval && !character.canUseInBook) {
+      final result = await showCharacterAvatarPreview(context,
+          characterId: character.id, initialCharacter: character);
+      if (!mounted || !context.mounted) return;
+      ref.invalidate(charactersProvider);
+      if (result?.chooseAnotherPhoto == true) {
+        await _pickImage(ImageSource.gallery);
+      } else if (result?.character?.canUseInBook == true) {
+        Navigator.pushNamed(context, '/create', arguments: {
+          'characterIds': [result!.character!.id]
+        });
+      }
+      return;
+    }
     showModalBottomSheet(
       context: context,
-      backgroundColor: AppColors.surface,
+      backgroundColor: AppPalette.of(context).surface,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
@@ -497,10 +538,10 @@ class _AddCharacterCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(AppSpacing.lg),
         decoration: BoxDecoration(
-          color: AppColors.primaryLight,
+          color: AppPalette.of(context).primaryLight,
           borderRadius: BorderRadius.circular(AppRadius.md),
           border: Border.all(
-            color: AppColors.primary,
+            color: AppPalette.of(context).primary,
             width: 2,
             style: BorderStyle.solid,
           ),
@@ -511,7 +552,7 @@ class _AddCharacterCard extends StatelessWidget {
               width: 60,
               height: 60,
               decoration: BoxDecoration(
-                color: AppColors.primary,
+                color: AppPalette.of(context).primary,
                 borderRadius: BorderRadius.circular(AppRadius.md),
               ),
               child: isLoading
@@ -541,22 +582,22 @@ class _AddCharacterCard extends StatelessWidget {
                         ? l.charactersAddCardLoading
                         : l.charactersAddCardTitle,
                     style: AppTextStyles.heading3.copyWith(
-                      color: AppColors.primary,
+                      color: AppPalette.of(context).primary,
                     ),
                   ),
                   const SizedBox(height: AppSpacing.xs),
                   Text(
                     l.charactersAddCardSubtitle,
                     style: AppTextStyles.bodySmall.copyWith(
-                      color: AppColors.primary,
+                      color: AppPalette.of(context).primary,
                     ),
                   ),
                 ],
               ),
             ),
-            const Icon(
+            Icon(
               Icons.chevron_right,
-              color: AppColors.primary,
+              color: AppPalette.of(context).primary,
             ),
           ],
         ),
@@ -579,13 +620,14 @@ class _CharacterListItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return GestureDetector(
       onTap: onTap,
       onLongPress: onLongPress,
       child: Container(
         padding: const EdgeInsets.all(AppSpacing.md),
         decoration: BoxDecoration(
-          color: AppColors.surface,
+          color: AppPalette.of(context).surface,
           borderRadius: BorderRadius.circular(AppRadius.md),
           boxShadow: const [
             BoxShadow(
@@ -597,29 +639,7 @@ class _CharacterListItem extends StatelessWidget {
         ),
         child: Row(
           children: [
-            // 아바타
-            Container(
-              width: 60,
-              height: 60,
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [AppColors.primary, AppColors.secondary],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(AppRadius.md),
-              ),
-              child: Center(
-                child: Text(
-                  character.name.isNotEmpty ? character.name[0] : '?',
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            ),
+            CharacterAvatarThumbnail(character: character),
             const SizedBox(width: AppSpacing.md),
             // 정보
             Expanded(
@@ -630,39 +650,48 @@ class _CharacterListItem extends StatelessWidget {
                     character.name,
                     style: AppTextStyles.heading3,
                   ),
+                  if (character.needsAvatarApproval) ...[
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(characterAvatarStatusLabel(l, character),
+                        style: AppTextStyles.caption
+                            .copyWith(color: AppPalette.of(context).primary)),
+                  ],
                   const SizedBox(height: AppSpacing.xs),
                   Text(
-                    character.masterDescription,
+                    characterDisplayDescription(l, character),
                     style: AppTextStyles.bodySmall,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: AppSpacing.sm),
-                  Wrap(
-                    spacing: AppSpacing.xs,
-                    children: character.personalityTraits.take(3).map((trait) {
-                      return Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.sm,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.primaryLight,
-                          borderRadius: BorderRadius.circular(AppRadius.sm),
-                        ),
-                        child: Text(
-                          trait,
-                          style: AppTextStyles.caption.copyWith(
-                            color: AppColors.primary,
+                  if (!character.needsAvatarApproval) ...[
+                    const SizedBox(height: AppSpacing.sm),
+                    Wrap(
+                      spacing: AppSpacing.xs,
+                      children:
+                          character.personalityTraits.take(3).map((trait) {
+                        return Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.sm,
+                            vertical: 2,
                           ),
-                        ),
-                      );
-                    }).toList(),
-                  ),
+                          decoration: BoxDecoration(
+                            color: AppPalette.of(context).primaryLight,
+                            borderRadius: BorderRadius.circular(AppRadius.sm),
+                          ),
+                          child: Text(
+                            trait,
+                            style: AppTextStyles.caption.copyWith(
+                              color: AppPalette.of(context).primary,
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ],
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right, color: AppColors.textHint),
+            Icon(Icons.chevron_right, color: AppPalette.of(context).textHint),
           ],
         ),
       ),
@@ -690,7 +719,7 @@ class _CharacterDetailSheet extends StatelessWidget {
           width: 40,
           height: 4,
           decoration: BoxDecoration(
-            color: AppColors.divider,
+            color: AppPalette.of(context).divider,
             borderRadius: BorderRadius.circular(2),
           ),
         ),
@@ -702,28 +731,7 @@ class _CharacterDetailSheet extends StatelessWidget {
               // 헤더
               Row(
                 children: [
-                  Container(
-                    width: 80,
-                    height: 80,
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [AppColors.primary, AppColors.secondary],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(AppRadius.lg),
-                    ),
-                    child: Center(
-                      child: Text(
-                        character.name.isNotEmpty ? character.name[0] : '?',
-                        style: const TextStyle(
-                          fontSize: 36,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                  ),
+                  CharacterAvatarThumbnail(character: character, size: 80),
                   const SizedBox(width: AppSpacing.md),
                   Expanded(
                     child: Column(
@@ -745,86 +753,90 @@ class _CharacterDetailSheet extends StatelessWidget {
 
               // 설명
               _SectionTitle(l.charactersDetailDescription),
-              Text(character.masterDescription, style: AppTextStyles.body),
+              Text(characterDisplayDescription(l, character),
+                  style: AppTextStyles.body),
 
               const SizedBox(height: AppSpacing.lg),
 
-              // 성격
-              _SectionTitle(l.charactersDetailPersonality),
-              Wrap(
-                spacing: AppSpacing.sm,
-                runSpacing: AppSpacing.sm,
-                children: character.personalityTraits.map((trait) {
-                  return Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.md,
-                      vertical: AppSpacing.sm,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.primaryLight,
-                      borderRadius: BorderRadius.circular(AppRadius.md),
-                    ),
-                    child: Text(
-                      trait,
-                      style: AppTextStyles.body.copyWith(
-                        color: AppColors.primary,
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
-
-              const SizedBox(height: AppSpacing.lg),
-
-              // 외형
-              _SectionTitle(l.charactersDetailAppearance),
-              _DetailRow(l.charactersDetailAge, character.appearance.ageVisual),
-              _DetailRow(l.charactersDetailFace, character.appearance.face),
-              _DetailRow(l.charactersDetailHair, character.appearance.hair),
-              _DetailRow(l.charactersDetailSkin, character.appearance.skin),
-              _DetailRow(l.charactersDetailBody, character.appearance.body),
-
-              const SizedBox(height: AppSpacing.lg),
-
-              // 의상
-              _SectionTitle(l.charactersDetailClothing),
-              _DetailRow(l.charactersDetailTop, character.clothing.top),
-              _DetailRow(l.charactersDetailBottom, character.clothing.bottom),
-              _DetailRow(l.charactersDetailShoes, character.clothing.shoes),
-              _DetailRow(l.charactersDetailAccessories,
-                  character.clothing.accessories),
-
-              if (character.visualStyleNotes != null) ...[
-                const SizedBox(height: AppSpacing.lg),
-                _SectionTitle(l.charactersDetailStyleNotes),
-                Text(character.visualStyleNotes!, style: AppTextStyles.body),
-              ],
-
-              // 고유 특징(일관성 고정) — 모든 책·페이지에서 동일하게 유지되는 식별 표식
-              if (character.distinctiveFeatures != null &&
-                  character.distinctiveFeatures!.isNotEmpty) ...[
-                const SizedBox(height: AppSpacing.lg),
-                _SectionTitle(l.charactersDetailIdentityLock),
-                const SizedBox(height: AppSpacing.xs),
+              if (!character.needsAvatarApproval) ...[
+                // 성격
+                _SectionTitle(l.charactersDetailPersonality),
                 Wrap(
                   spacing: AppSpacing.sm,
                   runSpacing: AppSpacing.sm,
-                  children: character.distinctiveFeatures!.map((f) {
+                  children: character.personalityTraits.map((trait) {
                     return Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 6),
+                        horizontal: AppSpacing.md,
+                        vertical: AppSpacing.sm,
+                      ),
                       decoration: BoxDecoration(
-                        color: AppColors.primaryMedium,
-                        borderRadius: BorderRadius.circular(999),
+                        color: AppPalette.of(context).primaryLight,
+                        borderRadius: BorderRadius.circular(AppRadius.md),
                       ),
                       child: Text(
-                        f,
-                        style: AppTextStyles.caption
-                            .copyWith(color: AppColors.primary),
+                        trait,
+                        style: AppTextStyles.body.copyWith(
+                          color: AppPalette.of(context).primary,
+                        ),
                       ),
                     );
                   }).toList(),
                 ),
+
+                const SizedBox(height: AppSpacing.lg),
+
+                // 외형
+                _SectionTitle(l.charactersDetailAppearance),
+                _DetailRow(
+                    l.charactersDetailAge, character.appearance.ageVisual),
+                _DetailRow(l.charactersDetailFace, character.appearance.face),
+                _DetailRow(l.charactersDetailHair, character.appearance.hair),
+                _DetailRow(l.charactersDetailSkin, character.appearance.skin),
+                _DetailRow(l.charactersDetailBody, character.appearance.body),
+
+                const SizedBox(height: AppSpacing.lg),
+
+                // 의상
+                _SectionTitle(l.charactersDetailClothing),
+                _DetailRow(l.charactersDetailTop, character.clothing.top),
+                _DetailRow(l.charactersDetailBottom, character.clothing.bottom),
+                _DetailRow(l.charactersDetailShoes, character.clothing.shoes),
+                _DetailRow(l.charactersDetailAccessories,
+                    character.clothing.accessories),
+
+                if (character.visualStyleNotes != null) ...[
+                  const SizedBox(height: AppSpacing.lg),
+                  _SectionTitle(l.charactersDetailStyleNotes),
+                  Text(character.visualStyleNotes!, style: AppTextStyles.body),
+                ],
+
+                // 고유 특징(일관성 고정) — 모든 책·페이지에서 동일하게 유지되는 식별 표식
+                if (character.distinctiveFeatures != null &&
+                    character.distinctiveFeatures!.isNotEmpty) ...[
+                  const SizedBox(height: AppSpacing.lg),
+                  _SectionTitle(l.charactersDetailIdentityLock),
+                  const SizedBox(height: AppSpacing.xs),
+                  Wrap(
+                    spacing: AppSpacing.sm,
+                    runSpacing: AppSpacing.sm,
+                    children: character.distinctiveFeatures!.map((f) {
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: AppPalette.of(context).primaryLight,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          f,
+                          style: AppTextStyles.caption
+                              .copyWith(color: AppPalette.of(context).primary),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ],
               ],
 
               const SizedBox(height: AppSpacing.xl),
@@ -832,16 +844,18 @@ class _CharacterDetailSheet extends StatelessWidget {
               // 액션 버튼
               PrimaryButton(
                 text: l.charactersDetailCreateBookButton,
-                onPressed: () {
-                  Navigator.pop(context);
-                  Navigator.pushNamed(
-                    context,
-                    '/create',
-                    arguments: {
-                      'characterIds': [character.id],
-                    },
-                  );
-                },
+                onPressed: character.canUseInBook
+                    ? () {
+                        Navigator.pop(context);
+                        Navigator.pushNamed(
+                          context,
+                          '/create',
+                          arguments: {
+                            'characterIds': [character.id],
+                          },
+                        );
+                      }
+                    : null,
               ),
 
               const SizedBox(height: AppSpacing.md),
@@ -996,6 +1010,7 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
         return canonical;
     }
   }
+
   final Set<String> _selectedTraits = {};
 
   @override
@@ -1028,6 +1043,7 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
       ),
       child: SafeArea(
         child: SingleChildScrollView(
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           padding: const EdgeInsets.all(AppSpacing.lg),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -1039,15 +1055,15 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
                   width: 40,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: AppColors.divider,
+                    color: AppPalette.of(context).divider,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
               ),
               const SizedBox(height: AppSpacing.lg),
               Center(
-                child:
-                    Text(l.charactersFormTitle, style: AppTextStyles.heading2),
+                child: Text(l.charactersFormTitle,
+                    style: AppTextStyles.heading2, textAlign: TextAlign.center),
               ),
               const SizedBox(height: AppSpacing.xl),
 
@@ -1063,90 +1079,106 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
                     final role = entry.value;
                     final isSelected =
                         _selectedRoleIndex == index && !_isCustomRole;
-                    return GestureDetector(
-                      onTap: () => setState(() {
-                        _selectedRoleIndex = index;
-                        _isCustomRole = false;
-                      }),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.md,
-                          vertical: AppSpacing.sm,
-                        ),
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? AppColors.primaryLight
-                              : AppColors.surface,
-                          borderRadius: BorderRadius.circular(AppRadius.md),
-                          border: Border.all(
-                            color: isSelected
-                                ? AppColors.primary
-                                : AppColors.divider,
-                            width: isSelected ? 2 : 1,
+                    return Semantics(
+                      button: true,
+                      selected: isSelected,
+                      child: GestureDetector(
+                        onTap: () => setState(() {
+                          _selectedRoleIndex = index;
+                          _isCustomRole = false;
+                        }),
+                        child: Container(
+                          constraints: const BoxConstraints(
+                              minHeight: AppSizing.minTouchTarget),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.md,
+                            vertical: AppSpacing.sm,
                           ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(role.emoji,
-                                style: const TextStyle(fontSize: 20)),
-                            const SizedBox(width: AppSpacing.xs),
-                            Text(
-                              roleLabels[index],
-                              style: TextStyle(
-                                color: isSelected
-                                    ? AppColors.primary
-                                    : AppColors.textPrimary,
-                                fontWeight: isSelected
-                                    ? FontWeight.w600
-                                    : FontWeight.normal,
-                              ),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? AppPalette.of(context).primaryLight
+                                : AppPalette.of(context).surface,
+                            borderRadius: BorderRadius.circular(AppRadius.md),
+                            border: Border.all(
+                              color: isSelected
+                                  ? AppPalette.of(context).primary
+                                  : AppPalette.of(context).divider,
+                              width: isSelected ? 2 : 1,
                             ),
-                          ],
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(role.emoji,
+                                  style: const TextStyle(fontSize: 20)),
+                              const SizedBox(width: AppSpacing.xs),
+                              Flexible(
+                                child: Text(
+                                  roleLabels[index],
+                                  style: TextStyle(
+                                    color: isSelected
+                                        ? AppPalette.of(context).primary
+                                        : AppPalette.of(context).textPrimary,
+                                    fontWeight: isSelected
+                                        ? FontWeight.w600
+                                        : FontWeight.normal,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     );
                   }),
                   // 직접 입력 옵션
-                  GestureDetector(
-                    onTap: () => setState(() {
-                      _isCustomRole = true;
-                      _selectedRoleIndex = null;
-                    }),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.md,
-                        vertical: AppSpacing.sm,
-                      ),
-                      decoration: BoxDecoration(
-                        color: _isCustomRole
-                            ? AppColors.primaryLight
-                            : AppColors.surface,
-                        borderRadius: BorderRadius.circular(AppRadius.md),
-                        border: Border.all(
-                          color: _isCustomRole
-                              ? AppColors.primary
-                              : AppColors.divider,
-                          width: _isCustomRole ? 2 : 1,
+                  Semantics(
+                    button: true,
+                    selected: _isCustomRole,
+                    child: GestureDetector(
+                      onTap: () => setState(() {
+                        _isCustomRole = true;
+                        _selectedRoleIndex = null;
+                      }),
+                      child: Container(
+                        constraints: const BoxConstraints(
+                            minHeight: AppSizing.minTouchTarget),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.md,
+                          vertical: AppSpacing.sm,
                         ),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Text('✏️', style: TextStyle(fontSize: 20)),
-                          const SizedBox(width: AppSpacing.xs),
-                          Text(
-                            l.charactersFormCustomRole,
-                            style: TextStyle(
-                              color: _isCustomRole
-                                  ? AppColors.primary
-                                  : AppColors.textPrimary,
-                              fontWeight: _isCustomRole
-                                  ? FontWeight.w600
-                                  : FontWeight.normal,
-                            ),
+                        decoration: BoxDecoration(
+                          color: _isCustomRole
+                              ? AppPalette.of(context).primaryLight
+                              : AppPalette.of(context).surface,
+                          borderRadius: BorderRadius.circular(AppRadius.md),
+                          border: Border.all(
+                            color: _isCustomRole
+                                ? AppPalette.of(context).primary
+                                : AppPalette.of(context).divider,
+                            width: _isCustomRole ? 2 : 1,
                           ),
-                        ],
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text('✏️', style: TextStyle(fontSize: 20)),
+                            const SizedBox(width: AppSpacing.xs),
+                            Flexible(
+                              child: Text(
+                                l.charactersFormCustomRole,
+                                style: TextStyle(
+                                  color: _isCustomRole
+                                      ? AppPalette.of(context).primary
+                                      : AppPalette.of(context).textPrimary,
+                                  fontWeight: _isCustomRole
+                                      ? FontWeight.w600
+                                      : FontWeight.normal,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -1161,7 +1193,7 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
                   decoration: InputDecoration(
                     hintText: l.charactersFormCustomRoleHint,
                     filled: true,
-                    fillColor: AppColors.background,
+                    fillColor: AppPalette.of(context).background,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(AppRadius.md),
                       borderSide: BorderSide.none,
@@ -1177,10 +1209,11 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
               const SizedBox(height: AppSpacing.sm),
               TextField(
                 controller: _nameController,
+                maxLength: 40,
                 decoration: InputDecoration(
                   hintText: l.charactersFormNameHint,
                   filled: true,
-                  fillColor: AppColors.background,
+                  fillColor: AppPalette.of(context).background,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(AppRadius.md),
                     borderSide: BorderSide.none,
@@ -1195,8 +1228,8 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
               const SizedBox(height: AppSpacing.xs),
               Text(
                 l.charactersFormTraitsHelper,
-                style:
-                    AppTextStyles.caption.copyWith(color: AppColors.textHint),
+                style: AppTextStyles.caption
+                    .copyWith(color: AppPalette.of(context).textHint),
               ),
               const SizedBox(height: AppSpacing.sm),
               Wrap(
@@ -1204,36 +1237,46 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
                 runSpacing: AppSpacing.xs,
                 children: _suggestedTraits.map((trait) {
                   final isSelected = _selectedTraits.contains(trait);
-                  return GestureDetector(
-                    onTap: () => setState(() {
-                      if (isSelected) {
-                        _selectedTraits.remove(trait);
-                      } else {
-                        _selectedTraits.add(trait);
-                      }
-                    }),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.sm,
-                        vertical: AppSpacing.xs,
-                      ),
-                      decoration: BoxDecoration(
-                        color:
-                            isSelected ? AppColors.primary : AppColors.surface,
-                        borderRadius: BorderRadius.circular(AppRadius.sm),
-                        border: Border.all(
+                  return Semantics(
+                    button: true,
+                    selected: isSelected,
+                    child: GestureDetector(
+                      onTap: () => setState(() {
+                        if (isSelected) {
+                          _selectedTraits.remove(trait);
+                        } else {
+                          _selectedTraits.add(trait);
+                        }
+                      }),
+                      child: Container(
+                        constraints: const BoxConstraints(
+                            minHeight: AppSizing.minTouchTarget),
+                        alignment: Alignment.center,
+                        width: 112,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.sm,
+                          vertical: AppSpacing.sm,
+                        ),
+                        decoration: BoxDecoration(
                           color: isSelected
                               ? AppColors.primary
-                              : AppColors.divider,
+                              : AppPalette.of(context).surface,
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
+                          border: Border.all(
+                            color: isSelected
+                                ? AppPalette.of(context).primary
+                                : AppPalette.of(context).divider,
+                          ),
                         ),
-                      ),
-                      child: Text(
-                        _traitLabel(l, trait),
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: isSelected
-                              ? Colors.white
-                              : AppColors.textSecondary,
+                        child: Text(
+                          _traitLabel(l, trait),
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: isSelected
+                                ? Colors.white
+                                : AppPalette.of(context).textSecondary,
+                          ),
                         ),
                       ),
                     ),
@@ -1247,7 +1290,7 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
                   hintText: l.charactersFormTraitsExtraHint,
                   hintStyle: AppTextStyles.caption,
                   filled: true,
-                  fillColor: AppColors.background,
+                  fillColor: AppPalette.of(context).background,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(AppRadius.md),
                     borderSide: BorderSide.none,
@@ -1263,6 +1306,7 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
 
               // 생성 버튼
               PrimaryButton(
+                key: const Key('character-form-submit'),
                 text: l.charactersFormSubmit,
                 onPressed: () {
                   // 역할 확인

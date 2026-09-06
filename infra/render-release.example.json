@@ -1,0 +1,7 @@
+{
+  "commit_sha": "VERIFIED_40_CHARACTER_COMMIT_SHA",
+  "api_image": "ghcr.io/sterlingstarai-ai/ai-story-book/api:VERIFIED_40_CHARACTER_COMMIT_SHA",
+  "worker_image": "ghcr.io/sterlingstarai-ai/ai-story-book/worker:VERIFIED_40_CHARACTER_COMMIT_SHA",
+  "ci_status": "UNVERIFIED",
+  "ci_run_url": "https://github.com/sterlingstarai-ai/ai-story-book/actions/runs/VERIFIED_RUN_ID"
+}

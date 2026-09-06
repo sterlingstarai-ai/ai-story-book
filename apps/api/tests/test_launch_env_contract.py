@@ -1,0 +1,48 @@
+"""Production preflight accepts configured providers and rejects mismatched releases."""
+import os
+from pathlib import Path
+import subprocess
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[3]
+
+
+@pytest.mark.parametrize("overrides,passes", [
+    ({}, True),
+    ({"OPENAI_IMAGE_QUALITY": "low"}, True),
+    ({"OPENAI_IMAGE_QUALITY": "medium"}, True),
+    ({"OPENAI_IMAGE_QUALITY": "high"}, True),
+    ({"OPENAI_IMAGE_QUALITY": "auto"}, True),
+    ({"OPENAI_IMAGE_QUALITY": "hd"}, False),
+    ({"LLM_PROVIDER": "gemini", "LLM_MODEL": "gemini-test"}, False),
+    ({"ILLUSTRATION_QUALITY_ENABLED": "false"}, False),
+    ({"ILLUSTRATION_QUALITY_ENABLED": "invalid"}, False),
+    ({"LLM_MODEL": "gpt-6-astra"}, True),
+    ({"IMAGE_PROVIDER": "mock"}, False),
+    ({"LLM_MODEL": "gpt-4o-mini"}, False),
+    ({"IMAGE_MODEL": "dall-e-3"}, False),
+    ({"IMAGE_API_KEY": ""}, False),
+    ({"POD_ORDERING_ENABLED": "true", "POD_MODE": "local"}, False),
+])
+def test_production_env_validation(tmp_path, overrides, passes):
+    values = {
+        "DB_USER": "storybook", "DB_PASSWORD": "test-pass", "DB_NAME": "storybook",
+        "LLM_PROVIDER": "openai", "LLM_MODEL": "gpt-5.6-sol", "LLM_API_KEY": "test-key",
+        "ILLUSTRATION_QUALITY_ENABLED": "true",
+        "IMAGE_PROVIDER": "gemini", "IMAGE_MODEL": "gemini-3-pro-image", "IMAGE_API_KEY": "test-key",
+        "S3_ENDPOINT": "https://storage.test", "S3_ACCESS_KEY": "test-key",
+        "S3_SECRET_KEY": "test-key", "S3_BUCKET": "storybook", "CORS_ORIGINS": "https://app.test",
+        "IAP_VERIFICATION_MODE": "strict", "IAP_WEBHOOK_SECRET": "test-key",
+        "POD_ORDERING_ENABLED": "false",
+        "PROD_API_URL": "https://api.storybook.test",
+    }
+    values.update(overrides)
+    env_file = tmp_path / 'release.env'
+    env_file.write_text('\n'.join(f'{key}={value}' for key, value in values.items()))
+    result = subprocess.run(
+        ['bash', str(ROOT / 'scripts/check-env.sh'), '--mode', 'production', '--env-file', str(env_file)],
+        capture_output=True, text=True, env={**os.environ, **values},
+    )
+    assert (result.returncode == 0) is passes, result.stdout + result.stderr
+    assert 'test-key' not in result.stdout

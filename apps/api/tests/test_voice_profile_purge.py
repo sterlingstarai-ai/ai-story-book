@@ -35,7 +35,7 @@ def _expected_key(name: str) -> str:
 @pytest.fixture
 def delete_spy(monkeypatch):
     """최하위 스토리지 경계만 대체 — 파기 대상 키를 수집한다."""
-    from src.routers import voice_profiles as vp
+    from src.services import storage
 
     state = {"keys": [], "fail": []}
 
@@ -43,7 +43,7 @@ def delete_spy(monkeypatch):
         state["keys"].extend(keys)
         return list(state["fail"])
 
-    monkeypatch.setattr(vp, "delete_keys", fake_delete_keys, raising=False)
+    monkeypatch.setattr(storage, "delete_keys", fake_delete_keys)
     return state
 
 
@@ -90,7 +90,8 @@ async def test_delete_surfaces_storage_failure_as_partial(client, delete_spy):
     assert res.status_code == 200, res.text
     body = res.json()
     assert body["status"] == "partial", "파기 실패가 success로 위장되면 잔존을 관측 못 한다"
-    assert _expected_key(name) in body.get("failed_keys", [])
+    assert body["purge_retry_pending"] is True
+    assert USER not in res.text  # legacy object keys contain the bearer credential
 
 
 @pytest.mark.asyncio

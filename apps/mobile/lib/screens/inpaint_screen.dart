@@ -11,6 +11,7 @@ import '../l10n/app_localizations.dart';
 import '../providers/providers.dart';
 import '../services/api_client.dart';
 import '../utils/constants.dart';
+import '../widgets/common_widgets.dart';
 
 /// 부분 재생성(인페인트) — 페이지 이미지 위에 수정할 영역을 손가락으로 칠하고,
 /// 어떻게 바꿀지 입력하면 마스크 영역만 다시 그린다.
@@ -26,12 +27,17 @@ class InpaintScreen extends ConsumerStatefulWidget {
     required this.bookId,
     required this.pageNumber,
     required this.imageUrl,
+    this.imageProvider,
   });
 
   final String jobId;
   final String bookId;
   final int pageNumber;
   final String imageUrl;
+
+  /// Reuse an image already loaded by the host, or inject an in-memory image
+  /// when testing the editor without native cache/storage plugins.
+  final ImageProvider? imageProvider;
 
   @override
   ConsumerState<InpaintScreen> createState() => _InpaintScreenState();
@@ -44,6 +50,8 @@ class _InpaintScreenState extends ConsumerState<InpaintScreen> {
   final GlobalKey _canvasKey = GlobalKey();
   final List<List<Offset>> _strokes = [];
   bool _isLoading = false;
+  bool _imageReady = false;
+  int _imageAttempt = 0;
 
   @override
   void dispose() {
@@ -92,11 +100,15 @@ class _InpaintScreenState extends ConsumerState<InpaintScreen> {
     final image =
         await picture.toImage(size.width.round(), size.height.round());
     final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    image.dispose();
+    picture.dispose();
     return bytes?.buffer.asUint8List();
   }
 
   Future<void> _apply() async {
+    if (_isLoading || !_imageReady) return;
     final l = AppLocalizations.of(context);
+    final api = ref.read(apiClientProvider);
     final prompt = _promptController.text.trim();
     if (_strokes.isEmpty || prompt.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -106,22 +118,25 @@ class _InpaintScreenState extends ConsumerState<InpaintScreen> {
     }
     final box = _canvasKey.currentContext?.findRenderObject() as RenderBox?;
     if (box == null) return;
-    final maskBytes = await _rasterizeMask(box.size);
-    if (maskBytes == null) return;
-
     setState(() => _isLoading = true);
+    File? temporaryMask;
     try {
+      final maskBytes = await _rasterizeMask(box.size);
+      if (maskBytes == null || !mounted) return;
       final dir = await getTemporaryDirectory();
-      final file = File('${dir.path}/inpaint_mask_${widget.pageNumber}.png');
+      final file = File(
+          '${dir.path}/inpaint_mask_${widget.pageNumber}_${DateTime.now().microsecondsSinceEpoch}.png');
+      temporaryMask = file;
       await file.writeAsBytes(maskBytes, flush: true);
 
-      final newJobId = await ref.read(apiClientProvider).inpaintPage(
-            widget.jobId,
-            widget.pageNumber,
-            file,
-            prompt,
-          );
+      final newJobId = await api.inpaintPage(
+        widget.jobId,
+        widget.pageNumber,
+        file,
+        prompt,
+      );
       // M25: 실패/타임아웃을 성공으로 오분류하지 않는다.
+      if (!mounted) return;
       final outcome = await _waitForJob(newJobId);
       if (!mounted) return;
       switch (outcome) {
@@ -158,6 +173,15 @@ class _InpaintScreenState extends ConsumerState<InpaintScreen> {
           backgroundColor: AppColors.error,
         ),
       );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+      if (temporaryMask != null) {
+        try {
+          await temporaryMask.delete();
+        } catch (_) {
+          // The OS may already have removed a temporary file.
+        }
+      }
     }
   }
 
@@ -179,82 +203,148 @@ class _InpaintScreenState extends ConsumerState<InpaintScreen> {
     return _InpaintOutcome.timeout;
   }
 
+  void _markImageReady() {
+    if (_imageReady) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_imageReady) setState(() => _imageReady = true);
+    });
+  }
+
+  Widget _imageError(BuildContext context) {
+    final l = AppLocalizations.of(context);
+    return ColoredBox(
+      color: AppPalette.of(context).surface,
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.image_not_supported_outlined, size: 40),
+              const SizedBox(height: AppSpacing.sm),
+              Text(l.inpaintImageLoadFailed, textAlign: TextAlign.center),
+              TextButton.icon(
+                style: TextButton.styleFrom(minimumSize: const Size(64, 64)),
+                onPressed: () => setState(() => _imageAttempt++),
+                icon: const Icon(Icons.refresh),
+                label: Text(l.retry),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _illustration() {
+    final supplied = widget.imageProvider;
+    if (supplied != null) {
+      return Image(
+        key: ValueKey(_imageAttempt),
+        image: supplied,
+        fit: BoxFit.cover,
+        frameBuilder: (context, child, frame, synchronouslyLoaded) {
+          if (frame != null || synchronouslyLoaded) _markImageReady();
+          return child;
+        },
+        errorBuilder: (context, _, __) => _imageError(context),
+      );
+    }
+    return CachedNetworkImage(
+      key: ValueKey(_imageAttempt),
+      imageUrl: widget.imageUrl,
+      fit: BoxFit.cover,
+      imageBuilder: (context, provider) {
+        _markImageReady();
+        return Image(image: provider, fit: BoxFit.cover);
+      },
+      placeholder: (_, __) => const Center(child: CircularProgressIndicator()),
+      errorWidget: (context, _, __) => _imageError(context),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
     return Scaffold(
       appBar: AppBar(title: Text(l.inpaintTitle)),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            child: Text(l.inpaintInstructions, style: AppTextStyles.bodySmall),
-          ),
-          Expanded(
-            child: Center(
-              child: AspectRatio(
-                aspectRatio: 3 / 4,
-                child: GestureDetector(
-                  onPanStart: (d) => _startStroke(d.localPosition),
-                  onPanUpdate: (d) => _extendStroke(d.localPosition),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(AppRadius.md),
-                    child: Stack(
-                      key: _canvasKey,
-                      fit: StackFit.expand,
-                      children: [
-                        CachedNetworkImage(
-                          imageUrl: widget.imageUrl,
-                          fit: BoxFit.cover,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          padding: const EdgeInsets.all(AppSpacing.md),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(l.inpaintInstructions, style: AppTextStyles.bodySmall),
+              const SizedBox(height: AppSpacing.md),
+              Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 420),
+                  child: AspectRatio(
+                    aspectRatio: 3 / 4,
+                    child: GestureDetector(
+                      onTapUp: _isLoading || !_imageReady
+                          ? null
+                          : (d) => _startStroke(d.localPosition),
+                      onPanStart: _isLoading || !_imageReady
+                          ? null
+                          : (d) => _startStroke(d.localPosition),
+                      onPanUpdate: _isLoading || !_imageReady
+                          ? null
+                          : (d) => _extendStroke(d.localPosition),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(AppRadius.md),
+                        child: Stack(
+                          key: _canvasKey,
+                          fit: StackFit.expand,
+                          children: [
+                            _illustration(),
+                            IgnorePointer(
+                                child: CustomPaint(
+                                    painter: _MaskPainter(_strokes))),
+                          ],
                         ),
-                        CustomPaint(painter: _MaskPainter(_strokes)),
-                      ],
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            child: Column(
-              children: [
-                TextField(
-                  controller: _promptController,
-                  maxLength: 200,
-                  enabled: !_isLoading,
-                  decoration: InputDecoration(
-                    labelText: l.inpaintRegionPromptLabel,
-                    hintText: l.inpaintRegionPromptHint,
-                  ),
+              const SizedBox(height: AppSpacing.md),
+              TextButton.icon(
+                style: TextButton.styleFrom(minimumSize: const Size(64, 64)),
+                onPressed: _isLoading || _strokes.isEmpty
+                    ? null
+                    : () => setState(() => _strokes.clear()),
+                icon: const Icon(Icons.undo),
+                label: Text(l.inpaintReset),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              TextField(
+                controller: _promptController,
+                maxLength: 200,
+                minLines: 2,
+                maxLines: 4,
+                enabled: !_isLoading,
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  labelText: l.inpaintRegionPromptLabel,
+                  hintText: l.inpaintRegionPromptHint,
+                  alignLabelWithHint: true,
                 ),
-                const SizedBox(height: AppSpacing.sm),
-                Row(
-                  children: [
-                    TextButton.icon(
-                      onPressed: _isLoading
-                          ? null
-                          : () => setState(() => _strokes.clear()),
-                      icon: const Icon(Icons.undo),
-                      label: Text(l.inpaintReset),
-                    ),
-                    const Spacer(),
-                    FilledButton(
-                      onPressed: _isLoading ? null : _apply,
-                      child: _isLoading
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : Text(l.inpaintApply),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              PrimaryButton(
+                text: l.inpaintApply,
+                isLoading: _isLoading,
+                onPressed: !_imageReady ||
+                        _strokes.isEmpty ||
+                        _promptController.text.trim().isEmpty
+                    ? null
+                    : _apply,
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

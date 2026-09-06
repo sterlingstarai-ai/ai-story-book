@@ -42,9 +42,17 @@ PRODUCTION_REQUIRED_VARS=(
   "S3_SECRET_KEY"
   "S3_BUCKET"
   "CORS_ORIGINS"
-  # IAP: strict 모드·웹훅 서명 시크릿은 운영 필수(readiness도 최종 게이트).
+  "PROD_API_URL"
+  # IAP stays strict even during the free beta; enabled purchases require store keys below.
   "IAP_VERIFICATION_MODE"
-  "IAP_WEBHOOK_SECRET"
+)
+
+EXTERNAL_REQUIRED_VARS=(
+  "DATABASE_URL" "DATABASE_SSL_MODE" "DATABASE_SSL_ROOT_CERT"
+  "S3_REGION" "S3_ADDRESSING_STYLE" "S3_AUTO_CREATE_BUCKET"
+  "API_IMAGE" "WORKER_IMAGE"
+  "LLM_PROVIDER" "IMAGE_PROVIDER" "S3_ENDPOINT" "S3_ACCESS_KEY"
+  "S3_SECRET_KEY" "S3_BUCKET" "CORS_ORIGINS" "PROD_API_URL" "IAP_VERIFICATION_MODE"
 )
 
 LOCAL_OPTIONAL_VARS=(
@@ -77,12 +85,13 @@ print_help() {
 Environment Variable Validation Script
 
 Usage:
-  ./scripts/check-env.sh [--mode local|production|ci] [--env-file PATH]
+  ./scripts/check-env.sh [--mode local|production|external|ci] [--env-file PATH]
   ./scripts/check-env.sh --ci
 
 Modes:
   local       Validate API runtime variables (default)
   production  Validate infra/docker-compose production variables
+  external    Validate external PostgreSQL/private S3 deployment and release configuration
   ci          Validate repository env examples/schemas
 EOF
 }
@@ -178,8 +187,20 @@ run_ci_checks() {
 run_runtime_checks() {
   local required_vars_name="$1"
   local optional_vars_name="$2"
-  local -n required_vars="$required_vars_name"
-  local -n optional_vars="$optional_vars_name"
+  # macOS ships Bash 3.2, which has no nameref (local -n).
+  local required_vars=()
+  local optional_vars=()
+  case "$required_vars_name" in
+    LOCAL_REQUIRED_VARS) required_vars=("${LOCAL_REQUIRED_VARS[@]}") ;;
+    PRODUCTION_REQUIRED_VARS) required_vars=("${PRODUCTION_REQUIRED_VARS[@]}") ;;
+    EXTERNAL_REQUIRED_VARS) required_vars=("${EXTERNAL_REQUIRED_VARS[@]}") ;;
+    *) return 1 ;;
+  esac
+  case "$optional_vars_name" in
+    LOCAL_OPTIONAL_VARS) optional_vars=("${LOCAL_OPTIONAL_VARS[@]}") ;;
+    PRODUCTION_OPTIONAL_VARS) optional_vars=("${PRODUCTION_OPTIONAL_VARS[@]}") ;;
+    *) return 1 ;;
+  esac
   local has_errors=false
 
   echo "Checking required variables..."
@@ -197,11 +218,115 @@ run_runtime_checks() {
     check_var "$var_name" "false" || true
   done
 
+  if ! validate_provider_settings; then
+    has_errors=true
+  fi
+
   if [ "$has_errors" = true ]; then
     log_fail "Validation FAILED"
     exit 1
   fi
   log_ok "Validation PASSED"
+}
+
+flag_enabled() {
+  local value
+  value="$(printf '%s' "${1:-false}" | tr '[:upper:]' '[:lower:]')"
+  case "$value" in true|1|yes|on) return 0 ;; *) return 1 ;; esac
+}
+
+validate_provider_settings() {
+  local failed=false
+  case "${S3_ADDRESSING_STYLE:-path}" in
+    path|virtual|auto) ;;
+    *) log_fail "S3_ADDRESSING_STYLE must be path, virtual or auto"; failed=true ;;
+  esac
+  case "${DATABASE_SSL_MODE:-}" in
+    ""|disable|allow|prefer|require|verify-ca|verify-full) ;;
+    *) log_fail "DATABASE_SSL_MODE is not supported"; failed=true ;;
+  esac
+  for flag_name in PURCHASES_ENABLED POD_ORDERING_ENABLED AUDIO_FEATURE_ENABLED ILLUSTRATION_QUALITY_ENABLED PHOTO_PROCESSING_ENABLED S3_AUTO_CREATE_BUCKET; do
+    local flag_value
+    flag_value="$(printf '%s' "${!flag_name:-false}" | tr '[:upper:]' '[:lower:]')"
+    case "$flag_value" in true|false|1|0|yes|no|on|off) ;;
+      *) log_fail "$flag_name must be a boolean"; failed=true ;;
+    esac
+  done
+  case "${LLM_PROVIDER:-}" in
+    openai|anthropic|gemini|mock) ;;
+    *) log_fail "LLM_PROVIDER is not supported"; failed=true ;;
+  esac
+  case "${IMAGE_PROVIDER:-}" in
+    openai|gemini|replicate|fal|mock) ;;
+    *) log_fail "IMAGE_PROVIDER is not supported"; failed=true ;;
+  esac
+  case "${OPENAI_IMAGE_QUALITY:-medium}" in
+    low|medium|high|auto) ;;
+    *) log_fail "OPENAI_IMAGE_QUALITY must be low, medium, high or auto"; failed=true ;;
+  esac
+  case "${PHOTO_ANALYSIS_PROVIDER:-openai}" in
+    openai|mock) ;;
+    *) log_fail "PHOTO_ANALYSIS_PROVIDER is not supported"; failed=true ;;
+  esac
+  if flag_enabled "${PHOTO_PROCESSING_ENABLED:-false}"; then
+    if [ "${PHOTO_ANALYSIS_PROVIDER:-openai}" != openai ] || [ "${IMAGE_PROVIDER:-}" != openai ] ||
+       [ "${LLM_PROVIDER:-}" != openai ] || ! flag_enabled "${ILLUSTRATION_QUALITY_ENABLED:-false}"; then
+      log_fail "Enabled photo processing requires approved OpenAI analysis, image and QA configuration"; failed=true
+    fi
+    case "${IMAGE_MODEL:-}" in gpt-image-*) ;; *) log_fail "Photo processing requires GPT Image reference support"; failed=true ;; esac
+    check_var PHOTO_ANALYSIS_API_KEY true || failed=true
+    check_var PHOTO_ANALYSIS_MODEL true || failed=true
+  fi
+  if [ "$MODE" = production ] || [ "$MODE" = external ]; then
+    if ! flag_enabled "${ILLUSTRATION_QUALITY_ENABLED:-false}"; then
+      log_fail "Production requires ILLUSTRATION_QUALITY_ENABLED=true"; failed=true
+    fi
+    if [ "${IAP_VERIFICATION_MODE:-}" != strict ]; then
+      log_fail "Production requires IAP_VERIFICATION_MODE=strict"; failed=true
+    fi
+    if [ "${LLM_PROVIDER:-}" = mock ] || [ "${IMAGE_PROVIDER:-}" = mock ]; then
+      log_fail "Production requires live LLM and image providers"; failed=true
+    fi
+    for var_name in LLM_API_KEY IMAGE_API_KEY LLM_MODEL IMAGE_MODEL; do
+      check_var "$var_name" true || failed=true
+    done
+  fi
+  if flag_enabled "${ILLUSTRATION_QUALITY_ENABLED:-false}"; then
+    if [ "${LLM_PROVIDER:-}" != openai ]; then
+      log_fail "Illustration review requires an OpenAI vision model"; failed=true
+    else
+      case "${LLM_MODEL:-}" in
+        gpt-5.6-sol|gpt-6-astra|gpt-5.6) ;;
+        *) log_fail "Illustration review model is not supported"; failed=true ;;
+      esac
+    fi
+  fi
+  if { [ "$MODE" = production ] || [ "$MODE" = external ]; } && flag_enabled "${PURCHASES_ENABLED:-false}"; then
+    for var_name in APPLE_IAP_SHARED_SECRET APPLE_BUNDLE_ID GOOGLE_PLAY_PACKAGE_NAME IAP_WEBHOOK_SECRET; do
+      check_var "$var_name" true || failed=true
+    done
+    if [ -z "${GOOGLE_PLAY_ACCESS_TOKEN:-}" ] && [ -z "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON:-}" ] &&
+       { [ -z "${GOOGLE_PLAY_SERVICE_ACCOUNT_FILE:-}" ] || [ ! -f "${GOOGLE_PLAY_SERVICE_ACCOUNT_FILE:-}" ]; }; then
+      log_fail "Enabled purchases require Google Play authentication"; failed=true
+    fi
+  fi
+  if [ "${LLM_PROVIDER:-}" = gemini ] && [[ "${LLM_MODEL:-}" != gemini-* ]]; then
+    log_fail "LLM_MODEL must match the Gemini provider"; failed=true
+  fi
+  if [ "${LLM_PROVIDER:-}" = anthropic ] && [[ "${LLM_MODEL:-}" != claude-* ]]; then
+    log_fail "LLM_MODEL must match the Anthropic provider"; failed=true
+  fi
+  if [ "${IMAGE_PROVIDER:-}" = gemini ] && [[ "${IMAGE_MODEL:-}" != gemini-*-image* ]]; then
+    log_fail "IMAGE_MODEL must be an explicitly selected Gemini image model"; failed=true
+  fi
+  if { [ "$MODE" = production ] || [ "$MODE" = external ]; } && flag_enabled "${POD_ORDERING_ENABLED:-false}"; then
+    if [ "${POD_MODE:-local}" != strict ]; then
+      log_fail "POD_ORDERING_ENABLED requires POD_MODE=strict"; failed=true
+    fi
+    check_var PRINTFUL_API_KEY true || failed=true
+    check_var PRINTFUL_SYNC_VARIANT_ID true || failed=true
+  fi
+  [ "$failed" = false ]
 }
 
 while [[ $# -gt 0 ]]; do
@@ -259,6 +384,17 @@ case "$MODE" in
     fi
     load_env_file "$ENV_FILE"
     run_runtime_checks PRODUCTION_REQUIRED_VARS PRODUCTION_OPTIONAL_VARS
+    ;;
+  external)
+    # Explicit file selection prevents accidentally treating local API credentials
+    # as the external host configuration. The final gate only inspects values.
+    if [ -z "$ENV_FILE" ]; then
+      log_fail "External mode requires --env-file PATH"
+      exit 1
+    fi
+    load_env_file "$ENV_FILE"
+    run_runtime_checks EXTERNAL_REQUIRED_VARS PRODUCTION_OPTIONAL_VARS
+    bash "$ROOT_DIR/scripts/final-external-preflight.sh" --env-file "$ENV_FILE"
     ;;
   *)
     log_fail "Unknown mode: $MODE"

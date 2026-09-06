@@ -8,7 +8,6 @@ from typing import Optional
 from celery import shared_task
 
 from src.core.errors import ErrorCode, client_safe_message
-from sqlalchemy.exc import IntegrityError
 import structlog
 
 
@@ -21,6 +20,14 @@ logger = structlog.get_logger()
 # would re-insert rows keyed by the unique job_id (story_drafts/image_prompts/
 # books) and turn a recoverable redelivery into a permanent failure.
 _TERMINAL_JOB_STATUSES = frozenset({"done", "failed"})
+
+
+@shared_task(max_retries=0, acks_late=True, reject_on_worker_lost=True,
+             soft_time_limit=330, time_limit=360)
+def generate_character_avatar_task(character_id: str, version: int, user_key: str):
+    from src.services.character_avatar import generate_character_avatar
+
+    return run_async(generate_character_avatar(character_id, version, user_key))
 
 
 def is_redelivery_noop(status: Optional[str]) -> bool:
@@ -90,6 +97,14 @@ async def _mark_job_failed_async(
             )
         )
         transitioned = result.rowcount == 1
+        if transitioned:
+            from src.services.purge_queue import enqueue_purge_prefix
+
+            owner = await session.scalar(select(Job.user_key).where(Job.id == job_id))
+            enqueue_purge_prefix(
+                session, user_key=owner, reason="failed_job_images",
+                prefix=f"jobs/{job_id}/",
+            )
         await session.commit()
 
         if not transitioned:
@@ -133,6 +148,29 @@ async def _get_job_status_async(job_id: str) -> Optional[str]:
         return result.scalar_one_or_none()
 
 
+async def _claim_job_async(job_id: str) -> bool:
+    """Only one broker delivery may start paid work for a queued job.
+
+    A running job may still belong to a live worker. Re-delivery therefore never
+    restarts it; after a worker loss the SLA monitor fails and refunds the job.
+    This prevents duplicate provider charges without pretending to resume an
+    incomplete pipeline from persisted drafts.
+    """
+    from sqlalchemy import update
+
+    from src.core.database import AsyncSessionLocal
+    from src.core.utils import utcnow
+    from src.models.db import Job
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            update(Job).where(Job.id == job_id, Job.status == "queued")
+            .values(status="running", updated_at=utcnow())
+        )
+        await session.commit()
+        return result.rowcount == 1
+
+
 @shared_task(
     bind=True,
     max_retries=0,
@@ -173,27 +211,18 @@ async def _run_book_task_async(job_id: str, spec_dict: dict, user_key: str) -> d
         )
         return {"status": "skipped", "reason": "already_terminal", "job_id": job_id}
 
+    if not await _claim_job_async(job_id):
+        return {"status": "skipped", "reason": "already_claimed_or_missing", "job_id": job_id}
+
     try:
         spec = BookSpec(**spec_dict)
         result = await start_book_generation(job_id, spec, user_key)
 
+        if await _get_job_status_async(job_id) == "failed":
+            return {"status": "failed", "job_id": job_id}
+
         logger.info("Book generation completed", job_id=job_id)
         return {"status": "success", "book_id": result.book_id if result else None}
-
-    except IntegrityError as e:
-        # A duplicate-insert collision on the unique job_id means a prior (or
-        # concurrent) execution already claimed/created this job's rows. This is
-        # a recoverable redelivery, not a real failure: absorb it as a no-op
-        # rather than marking the job failed or re-raising (which would trigger
-        # yet another Celery redelivery → permanent failure loop). The offending
-        # session is owned and rolled back by the orchestrator's own context
-        # manager, so there is nothing to roll back here.
-        logger.warning(
-            "Absorbing idempotent redelivery collision",
-            job_id=job_id,
-            error=str(e),
-        )
-        return {"status": "skipped", "reason": "duplicate_redelivery", "job_id": job_id}
 
     except Exception as e:
         logger.error("Book generation failed", job_id=job_id, error=str(e))
@@ -293,20 +322,17 @@ async def _run_series_task_async(
         )
         return {"status": "skipped", "reason": "already_terminal", "job_id": job_id}
 
+    if not await _claim_job_async(job_id):
+        return {"status": "skipped", "reason": "already_claimed_or_missing", "job_id": job_id}
+
     try:
         result = await _run_series_generation_async(
             job_id, request_dict, user_key, character_id, prev_book_id
         )
+        if await _get_job_status_async(job_id) == "failed":
+            return {"status": "failed", "job_id": job_id}
         logger.info("Series generation completed", job_id=job_id)
         return {"status": "success", "book_id": result.book_id if result else None}
-
-    except IntegrityError as e:
-        logger.warning(
-            "Absorbing idempotent series redelivery collision",
-            job_id=job_id,
-            error=str(e),
-        )
-        return {"status": "skipped", "reason": "duplicate_redelivery", "job_id": job_id}
 
     except Exception as e:
         logger.error("Series generation failed", job_id=job_id, error=str(e))
@@ -337,7 +363,12 @@ async def _run_tracked_job_async(job_id: str, label: str, coro_factory) -> dict:
         )
         return {"status": "skipped", "reason": "already_terminal", "job_id": job_id}
 
+    if not await _claim_job_async(job_id):
+        return {"status": "skipped", "reason": "already_claimed_or_missing", "job_id": job_id}
+
     await coro_factory()
+    if await _get_job_status_async(job_id) == "failed":
+        return {"status": "failed", "job_id": job_id}
     logger.info("Long-running job completed", job_id=job_id, label=label)
     return {"status": "success", "job_id": job_id}
 

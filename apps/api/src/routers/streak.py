@@ -5,7 +5,7 @@ Streak Router
 
 import uuid
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, Field
@@ -13,8 +13,9 @@ from typing import Literal, Optional
 import structlog
 
 from src.core.database import get_db
-from src.core.dependencies import _UUID_RE, get_profile_id, get_user_key
+from src.core.dependencies import get_profile_id, get_user_key
 from src.core.exceptions import ValidationError
+from src.services.account_recovery import resolve_user_key
 from src.core.utils import utcnow
 from src.models.db import ChildProfile, Job
 from src.models.dto import (
@@ -140,20 +141,26 @@ async def get_streak_info(
     return StreakInfoResponse(**info)
 
 
-def get_optional_user_key(
+async def get_optional_user_key(
     x_user_key: Optional[str] = Header(
         default=None, description="Optional user key; fills today's book_id when present"
     ),
+    db: AsyncSession = Depends(get_db),
 ) -> Optional[str]:
     """익명 유지 엔드포인트용 선택적 user_key 추출(M22/G12).
 
-    GET /v1/streak/today 는 익명으로 유지하고, X-User-Key 가 유효 UUID로 제공될 때만
-    그 사용자의 오늘의 동화 book_id 를 채운다. 헤더 부재/무효 형식이면 None(익명 —
+    GET /v1/streak/today 는 익명으로 유지하고, X-User-Key 인증이 유효할 때만
+    그 사용자의 오늘의 동화 book_id 를 채운다. 헤더 부재/무효/폐기이면 None(익명 —
     book_id 미채움)으로 조용히 강등해 기존 익명 접근을 깨지 않는다.
     """
-    if not x_user_key or not _UUID_RE.match(x_user_key):
+    if not x_user_key:
         return None
-    return x_user_key
+    try:
+        return await resolve_user_key(db, x_user_key)
+    except HTTPException:
+        # Anonymous access stays public, but rejected credentials reveal no
+        # account-owned book id (including a revoked canonical UUID).
+        return None
 
 
 @router.get("/today", response_model=TodayStoryResponse)
@@ -270,8 +277,10 @@ async def generate_today_story(
         job_id=job_id,
         current_step="queued",  # M32
         credit_description="오늘의 동화 생성",
+        character_ids=spec.character_ids or ([spec.character_id] if spec.character_id else []),
         idempotency_key=idempotency_key,
         profile_id=scoped_profile_id,
+        validated_style=spec.style,
     )
     await schedule_book_generation(db, background_tasks, job_id, spec, user_key)
 

@@ -1,5 +1,13 @@
 import 'json_parsing.dart';
 
+enum CharacterAvatarStatus {
+  notRequired,
+  generating,
+  preview,
+  approved,
+  failed
+}
+
 /// 캐릭터 시트 모델
 class Character {
   final String id;
@@ -13,6 +21,19 @@ class Character {
   /// 식별 가능한 고유 특징(안경/주근깨 등) — 같은 캐릭터를 일관되게 유지
   final List<String>? distinctiveFeatures;
   final DateTime createdAt;
+  final bool fromPhoto;
+  final CharacterAvatarStatus avatarStatus;
+  final String? avatarUrl;
+  final int avatarVersion;
+  final bool avatarRetryAllowed;
+
+  bool get needsAvatarApproval =>
+      fromPhoto || avatarStatus != CharacterAvatarStatus.notRequired;
+  bool get canUseInBook =>
+      !needsAvatarApproval ||
+      (avatarStatus == CharacterAvatarStatus.approved &&
+          avatarVersion > 0 &&
+          avatarUrl?.isNotEmpty == true);
 
   Character({
     required this.id,
@@ -24,6 +45,11 @@ class Character {
     this.visualStyleNotes,
     this.distinctiveFeatures,
     required this.createdAt,
+    this.fromPhoto = false,
+    this.avatarStatus = CharacterAvatarStatus.notRequired,
+    this.avatarUrl,
+    this.avatarVersion = 0,
+    this.avatarRetryAllowed = false,
   });
 
   factory Character.fromJson(Map<String, dynamic> json) {
@@ -35,7 +61,33 @@ class Character {
             JsonParsing.asRequiredString(trait, field: 'personality_traits[]'))
         .toList();
 
+    final fromPhoto =
+        JsonParsing.asOptionalBool(json['from_photo'], field: 'from_photo') ??
+            false;
+    final status = switch (json['avatar_status']) {
+      null => fromPhoto
+          ? CharacterAvatarStatus.failed
+          : CharacterAvatarStatus.notRequired,
+      'not_required' => CharacterAvatarStatus.notRequired,
+      'generating' => CharacterAvatarStatus.generating,
+      'preview' => CharacterAvatarStatus.preview,
+      'approved' => CharacterAvatarStatus.approved,
+      'failed' => CharacterAvatarStatus.failed,
+      _ => throw const FormatException('Unknown character avatar status'),
+    };
+    final version = json['avatar_version'] ?? 0;
+    if (version is! int || version < 0) {
+      throw const FormatException('Invalid avatar version');
+    }
     return Character(
+      fromPhoto: fromPhoto,
+      avatarStatus: status,
+      avatarUrl: JsonParsing.asOptionalString(json['avatar_url']),
+      avatarVersion: version,
+      avatarRetryAllowed: JsonParsing.asOptionalBool(
+              json['avatar_retry_allowed'],
+              field: 'avatar_retry_allowed') ??
+          false,
       id: JsonParsing.asRequiredString(
         json['character_id'] ?? json['id'],
         field: 'character_id',
@@ -64,6 +116,15 @@ class Character {
 
   Map<String, dynamic> toJson() => {
         'id': id,
+        'from_photo': fromPhoto,
+        'avatar_status': switch (avatarStatus) {
+          CharacterAvatarStatus.notRequired => 'not_required',
+          _ => avatarStatus.name
+        },
+        'avatar_url': avatarUrl,
+        'avatar_version': avatarVersion,
+        'avatar_retry_allowed': avatarRetryAllowed,
+        'created_at': createdAt.toIso8601String(),
         'name': name,
         'master_description': masterDescription,
         'appearance': appearance.toJson(),

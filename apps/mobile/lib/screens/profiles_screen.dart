@@ -118,9 +118,7 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
   }) async {
     final l = AppLocalizations.of(context);
     final formKey = GlobalKey<FormState>();
-    final nameController = TextEditingController(
-      text: initial?['name']?.toString() ?? '',
-    );
+    var name = initial?['name']?.toString() ?? '';
     var selectedAgeBand = initial?['age_band']?.toString() ?? '5-7';
     int? selectedBirthYear = (initial?['birth_year'] as num?)?.toInt();
     int? selectedBirthMonth = (initial?['birth_month'] as num?)?.toInt();
@@ -132,134 +130,141 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
+              scrollable: true,
               title: Text(initial == null
                   ? l.profilesDialogAddTitle
                   : l.profilesDialogEditTitle),
-              content: SingleChildScrollView(
-                child: Form(
-                  key: formKey,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      TextFormField(
-                        controller: nameController,
-                        maxLength: 40,
-                        decoration: InputDecoration(
-                          labelText: l.profilesNameLabel,
-                          hintText: l.profilesNameHint,
-                        ),
-                        validator: (value) {
-                          final text = value?.trim() ?? '';
-                          if (text.isEmpty) {
-                            return l.profilesNameRequired;
-                          }
-                          return null;
-                        },
+              content: Form(
+                key: formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextFormField(
+                      initialValue: name,
+                      onChanged: (value) => name = value,
+                      maxLength: 40,
+                      decoration: InputDecoration(
+                        labelText: l.profilesNameLabel,
+                        hintText: l.profilesNameHint,
                       ),
-                      const SizedBox(height: AppSpacing.sm),
-                      // 출생연월(선택) — 입력하면 연령대를 실제 나이에서 자동 파생.
-                      Row(
-                        children: [
-                          Expanded(
-                            child: DropdownButtonFormField<int>(
-                              initialValue: selectedBirthYear,
-                              isExpanded: true,
-                              decoration: InputDecoration(
-                                labelText: l.profilesBirthYearLabel,
-                              ),
-                              items: _birthYearOptions()
-                                  .map((y) => DropdownMenuItem<int>(
-                                        value: y,
-                                        child: Text(l.profilesYearOption(y)),
-                                      ))
-                                  .toList(),
-                              onChanged: (value) {
-                                setDialogState(() {
-                                  selectedBirthYear = value;
-                                  if (selectedBirthYear != null &&
-                                      selectedBirthMonth != null) {
-                                    selectedAgeBand = _deriveAgeBand(
-                                        selectedBirthYear!,
-                                        selectedBirthMonth!);
-                                  }
-                                });
-                              },
-                            ),
+                      validator: (value) {
+                        final text = value?.trim() ?? '';
+                        if (text.isEmpty) {
+                          return l.profilesNameRequired;
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    // 출생연월(선택) — 입력하면 연령대를 실제 나이에서 자동 파생.
+                    Builder(builder: (context) {
+                      final fields = [
+                        DropdownButtonFormField<int>(
+                          initialValue: selectedBirthYear,
+                          isExpanded: true,
+                          decoration: InputDecoration(
+                            labelText: l.profilesBirthYearLabel,
                           ),
-                          const SizedBox(width: AppSpacing.sm),
-                          Expanded(
-                            child: DropdownButtonFormField<int>(
-                              initialValue: selectedBirthMonth,
-                              isExpanded: true,
-                              decoration: InputDecoration(
-                                  labelText: l.profilesBirthMonthLabel),
-                              items: [for (var m = 1; m <= 12; m++) m]
-                                  .map((m) => DropdownMenuItem<int>(
-                                        value: m,
-                                        child: Text(l.profilesMonthOption(m)),
-                                      ))
-                                  .toList(),
-                              onChanged: (value) {
-                                setDialogState(() {
-                                  selectedBirthMonth = value;
-                                  if (selectedBirthYear != null &&
-                                      selectedBirthMonth != null) {
-                                    selectedAgeBand = _deriveAgeBand(
-                                        selectedBirthYear!,
-                                        selectedBirthMonth!);
-                                  }
-                                });
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: AppSpacing.xs),
-                      Text(
-                        (selectedBirthYear != null &&
-                                selectedBirthMonth != null)
-                            ? l.profilesAgeBandAuto(selectedAgeBand)
-                            : l.profilesBirthHint,
-                        style:
-                            const TextStyle(fontSize: 12, color: Colors.grey),
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                      DropdownButtonFormField<String>(
-                        initialValue: selectedAgeBand,
-                        decoration: InputDecoration(
-                          labelText: l.profilesAgeBandLabel,
+                          items: _birthYearOptions()
+                              .map((y) => DropdownMenuItem<int>(
+                                    value: y,
+                                    child: Text(l.profilesYearOption(y)),
+                                  ))
+                              .toList(),
+                          onChanged: (value) {
+                            setDialogState(() {
+                              selectedBirthYear = value;
+                              if (selectedBirthYear != null &&
+                                  selectedBirthMonth != null) {
+                                selectedAgeBand = _deriveAgeBand(
+                                    selectedBirthYear!, selectedBirthMonth!);
+                              }
+                            });
+                          },
                         ),
-                        items: _ageBandValues
-                            .map(
-                              (option) => DropdownMenuItem<String>(
-                                value: option,
-                                child: Text(_ageBandLabel(l, option)),
-                              ),
-                            )
-                            .toList(),
-                        // 생년월이 둘 다 있으면 자동 파생값으로 잠금(부모 임의선택 방지).
-                        onChanged: (selectedBirthYear != null &&
-                                selectedBirthMonth != null)
-                            ? null
-                            : (value) {
-                                if (value == null) {
-                                  return;
-                                }
-                                setDialogState(() => selectedAgeBand = value);
-                              },
+                        DropdownButtonFormField<int>(
+                          initialValue: selectedBirthMonth,
+                          isExpanded: true,
+                          decoration: InputDecoration(
+                              labelText: l.profilesBirthMonthLabel),
+                          items: [for (var m = 1; m <= 12; m++) m]
+                              .map((m) => DropdownMenuItem<int>(
+                                    value: m,
+                                    child: Text(l.profilesMonthOption(m)),
+                                  ))
+                              .toList(),
+                          onChanged: (value) {
+                            setDialogState(() {
+                              selectedBirthMonth = value;
+                              if (selectedBirthYear != null &&
+                                  selectedBirthMonth != null) {
+                                selectedAgeBand = _deriveAgeBand(
+                                    selectedBirthYear!, selectedBirthMonth!);
+                              }
+                            });
+                          },
+                        )
+                      ];
+                      if (MediaQuery.sizeOf(context).width < 488 ||
+                          MediaQuery.textScalerOf(context).scale(14) > 18) {
+                        return Column(children: [
+                          fields[0],
+                          const SizedBox(height: AppSpacing.md),
+                          fields[1]
+                        ]);
+                      }
+                      return Row(children: [
+                        Expanded(child: fields[0]),
+                        const SizedBox(width: AppSpacing.sm),
+                        Expanded(child: fields[1])
+                      ]);
+                    }),
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(
+                      (selectedBirthYear != null && selectedBirthMonth != null)
+                          ? l.profilesAgeBandAuto(selectedAgeBand)
+                          : l.profilesBirthHint,
+                      style: AppTextStyles.caption.copyWith(
+                          color: AppPalette.of(context).textSecondary),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    DropdownButtonFormField<String>(
+                      key: ValueKey(selectedAgeBand),
+                      isExpanded: true,
+                      initialValue: selectedAgeBand,
+                      decoration: InputDecoration(
+                        labelText: l.profilesAgeBandLabel,
                       ),
-                      const SizedBox(height: AppSpacing.sm),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(l.profilesSetAsDefaultSwitch),
-                        value: isDefault,
-                        onChanged: (value) {
-                          setDialogState(() => isDefault = value);
-                        },
-                      ),
-                    ],
-                  ),
+                      items: _ageBandValues
+                          .map(
+                            (option) => DropdownMenuItem<String>(
+                              value: option,
+                              child: Text(_ageBandLabel(l, option)),
+                            ),
+                          )
+                          .toList(),
+                      // 생년월이 둘 다 있으면 자동 파생값으로 잠금(부모 임의선택 방지).
+                      onChanged: (selectedBirthYear != null &&
+                              selectedBirthMonth != null)
+                          ? null
+                          : (value) {
+                              if (value == null) {
+                                return;
+                              }
+                              setDialogState(() => selectedAgeBand = value);
+                            },
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(l.profilesSetAsDefaultSwitch),
+                      value: isDefault,
+                      onChanged: (value) {
+                        setDialogState(() => isDefault = value);
+                      },
+                    ),
+                  ],
                 ),
               ),
               actions: [
@@ -275,7 +280,7 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
                     Navigator.pop(
                       context,
                       {
-                        'name': nameController.text.trim(),
+                        'name': name.trim(),
                         'age_band': selectedAgeBand,
                         'birth_year': selectedBirthYear,
                         'birth_month': selectedBirthMonth,
@@ -293,15 +298,12 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
         );
       },
     );
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      nameController.dispose();
-    });
     return result;
   }
 
   Future<void> _createProfile() async {
     final draft = await _showProfileDialog();
-    if (draft == null) {
+    if (draft == null || !mounted) {
       return;
     }
     setState(() => _isSubmitting = true);
@@ -332,7 +334,7 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
 
   Future<void> _editProfile(Map<String, dynamic> profile) async {
     final draft = await _showProfileDialog(initial: profile);
-    if (draft == null) {
+    if (draft == null || !mounted) {
       return;
     }
 
@@ -406,7 +408,7 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
           ),
         ) ??
         false;
-    if (!confirmed) {
+    if (!confirmed || !mounted) {
       return;
     }
 
@@ -427,6 +429,24 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
       if (mounted) {
         setState(() => _isSubmitting = false);
       }
+    }
+  }
+
+  Future<void> _activateProfile(String profileId) async {
+    if (_isSubmitting) return;
+    setState(() => _isSubmitting = true);
+    try {
+      await _setActiveProfile(profileId);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content:
+                  Text(AppLocalizations.of(context).profilesSetDefaultFailed)),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
     }
   }
 
@@ -466,7 +486,9 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
         title: Text(l.profilesTitle),
         actions: [
           IconButton(
-            onPressed: _isSubmitting ? null : _createProfile,
+            onPressed: _isSubmitting || _isLoading || _errorMessage != null
+                ? null
+                : _createProfile,
             icon: const Icon(Icons.add),
             tooltip: l.profilesAddTooltip,
           ),
@@ -481,36 +503,37 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
                       physics: const AlwaysScrollableScrollPhysics(),
                       children: [
                         const SizedBox(height: 120),
-                        const Icon(
+                        Icon(
                           Icons.child_care_outlined,
                           size: 72,
-                          color: AppColors.textHint,
+                          color: AppPalette.of(context).textHint,
                         ),
                         const SizedBox(height: AppSpacing.md),
-                        Center(
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: AppSpacing.lg),
                           child: Text(
-                            l.profilesEmpty,
+                            _errorMessage ?? l.profilesEmpty,
+                            textAlign: TextAlign.center,
                             style: AppTextStyles.body,
                           ),
                         ),
-                        if (_errorMessage != null) ...[
-                          const SizedBox(height: AppSpacing.sm),
-                          Center(
-                            child: Text(
-                              _errorMessage!,
-                              style: AppTextStyles.caption
-                                  .copyWith(color: AppColors.error),
-                            ),
-                          ),
-                        ],
                         const SizedBox(height: AppSpacing.lg),
                         Padding(
                           padding: const EdgeInsets.symmetric(
                             horizontal: AppSpacing.lg,
                           ),
                           child: ElevatedButton(
-                            onPressed: _isSubmitting ? null : _createProfile,
-                            child: Text(l.profilesCreateFirst),
+                            style: ElevatedButton.styleFrom(
+                                minimumSize: const Size(64, 64)),
+                            onPressed: _isSubmitting
+                                ? null
+                                : _errorMessage != null
+                                    ? _load
+                                    : _createProfile,
+                            child: Text(_errorMessage != null
+                                ? l.retry
+                                : l.profilesCreateFirst),
                           ),
                         ),
                       ],
@@ -526,53 +549,66 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
                         final isActive = _activeProfileId == profileId;
 
                         return ListTile(
+                          minVerticalPadding: AppSpacing.md,
+                          selected: isActive,
+                          selectedTileColor:
+                              AppPalette.of(context).primaryLight,
                           onTap: _isSubmitting || profileId.isEmpty
                               ? null
-                              : () => _setActiveProfile(profileId),
+                              : () => _activateProfile(profileId),
                           leading: CircleAvatar(
                             child: Text(
                               (profile['name']?.toString().isNotEmpty ?? false)
-                                  ? profile['name'].toString()[0]
+                                  ? profile['name'].toString().characters.first
                                   : '?',
                             ),
                           ),
-                          title: Row(
+                          title: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Expanded(
-                                child: Text(profile['name']?.toString() ?? '-'),
+                              Text(profile['name']?.toString() ?? '-'),
+                              const SizedBox(height: AppSpacing.xs),
+                              Wrap(
+                                spacing: AppSpacing.xs,
+                                runSpacing: AppSpacing.xs,
+                                children: [
+                                  if (isDefault)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color:
+                                            AppPalette.of(context).primaryLight,
+                                        borderRadius:
+                                            BorderRadius.circular(999),
+                                      ),
+                                      child: Text(
+                                        l.profilesDefaultBadge,
+                                        style: AppTextStyles.caption,
+                                      ),
+                                    ),
+                                  if (isActive) ...[
+                                    const SizedBox(width: AppSpacing.xs),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.successLight,
+                                        borderRadius:
+                                            BorderRadius.circular(999),
+                                      ),
+                                      child: Text(
+                                        l.profilesActiveBadge,
+                                        style: AppTextStyles.caption,
+                                      ),
+                                    ),
+                                  ],
+                                ],
                               ),
-                              if (isDefault)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 2,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.primaryLight,
-                                    borderRadius: BorderRadius.circular(999),
-                                  ),
-                                  child: Text(
-                                    l.profilesDefaultBadge,
-                                    style: AppTextStyles.caption,
-                                  ),
-                                ),
-                              if (isActive) ...[
-                                const SizedBox(width: AppSpacing.xs),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 2,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.successLight,
-                                    borderRadius: BorderRadius.circular(999),
-                                  ),
-                                  child: Text(
-                                    l.profilesActiveBadge,
-                                    style: AppTextStyles.caption,
-                                  ),
-                                ),
-                              ],
                             ],
                           ),
                           subtitle: Text(
@@ -580,10 +616,15 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
                                 l, profile['age_band']?.toString())),
                           ),
                           trailing: PopupMenuButton<String>(
+                            enabled: !_isSubmitting,
+                            tooltip: l.profilesMenuEdit,
+                            style: IconButton.styleFrom(
+                              minimumSize: const Size(64, 64),
+                            ),
                             onSelected: (value) {
                               switch (value) {
                                 case 'activate':
-                                  _setActiveProfile(profileId);
+                                  _activateProfile(profileId);
                                   break;
                                 case 'default':
                                   _setDefaultProfile(profileId);

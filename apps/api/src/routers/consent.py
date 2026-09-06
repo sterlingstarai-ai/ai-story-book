@@ -17,12 +17,12 @@ from src.core.consent import _has_active_photo_consent, latest_active_consent
 from src.core.database import get_db
 from src.core.dependencies import get_user_key
 from src.core.utils import utcnow
-from src.models.db import Book, Character, UserConsent
+from src.models.db import Book, Character, Job, UserConsent
 from src.services.data_deletion import (
-    collect_book_job_ids,
-    collect_books_referencing_characters,
     collect_purgeable_image_keys,
     detach_series_from_characters,
+    enqueue_character_asset_purge,
+    preserve_photo_derived_jobs,
     purge_book_children,
     purge_job_artifacts,
 )
@@ -31,9 +31,9 @@ from src.services.purge_queue import (
     enqueue_purge_prefix,
     run_purge_tasks,
 )
+from src.services.photo_lifecycle import lock_photo_account
 from src.services.storage import (
     book_file_prefix,
-    character_file_prefix,
     mask_file_prefix,
 )
 
@@ -107,6 +107,7 @@ async def grant_consent(
     파기 의무를 진다. 항목만 끄고 기수집 아동 사진·파생물을 남기면 '동의 철회'와 '동의
     항목 해제'의 의미가 이원화되고, 사용자가 사진 사용을 껐는데 얼굴은 그대로 남는다.
     """
+    await lock_photo_account(db, user_key)
     # 사진 동의 해제 여부를 새 행 기록 '전'에 판정(기존 활성 행 기준).
     photos_revoked = (
         await _has_active_photo_consent(db, user_key)
@@ -130,10 +131,10 @@ async def grant_consent(
         granted=bool(request.privacy and request.data_processing),
     )
     db.add(consent)
-    await db.commit()
-    await db.refresh(consent)
 
     if photos_revoked:
+        # Commit the new consent together with its erasure outbox. A crash
+        # between two commits must not leave photos off with no deletion plan.
         failed_keys = await purge_photo_derived_data(
             db, user_key, reason="consent_photos_off"
         )
@@ -143,6 +144,9 @@ async def grant_consent(
                 user_key=user_key[:8] + "...",
                 failed_key_count=len(failed_keys),
             )
+    else:
+        await db.commit()
+    await db.refresh(consent)
 
     return _to_response(consent)
 
@@ -201,22 +205,40 @@ async def purge_photo_derived_data(
             Character.from_photo.is_(True),
         )
     )
-    characters = result.scalars().all()
+    characters = list(result.scalars().all())
     character_ids = [c.id for c in characters]
-    if not characters:
-        return []
 
-    # H2/R1-2: 스칼라 FK 뿐 아니라 character_ids(가족 다중) 참조 책도 파기 대상.
-    book_ids = await collect_books_referencing_characters(db, user_key, character_ids)
+    # Preserve older books' provenance while the character links still exist.
+    # New jobs retain the flag even after individual character deletion, and
+    # may have no Book yet (failed/queued/in-flight generation).
+    await preserve_photo_derived_jobs(db, user_key, character_ids)
+    job_rows = await db.execute(
+        select(Job.id, Job.status, Job.image_keys).where(
+            Job.user_key == user_key, Job.photo_derived.is_(True)
+        )
+    )
+    jobs = list(job_rows.all())
+    job_ids = [job_id for job_id, _, _ in jobs]
+    active_job_ids = {
+        job_id for job_id, status, _ in jobs if status in {"queued", "running"}
+    }
+    book_rows = await db.execute(
+        select(Book.id, Book.job_id).where(
+            Book.user_key == user_key, Book.job_id.in_(job_ids)
+        )
+    )
+    books = list(book_rows.all())
+    book_ids = [book_id for book_id, _ in books]
+    book_job_ids = {job_id for _, job_id in books}
 
     # N1: 파이프라인 이미지(images/{provider}/…)는 books/{id}/ prefix 밖이라 prefix 삭제로
     # 지워지지 않는다. 행을 지우면 image_url이 사라져 역산도 불가능해지므로 행 삭제 '전에'
     # 수집한다. M12(잡 중간 산출물)·H6(다른 책이 참조 중인 공유 키 제외)은 공통 진입점이 처리.
     image_keys = await collect_purgeable_image_keys(db, book_ids)
-
-    # M7/R1-4: 잡 id는 **책 삭제 전**에 확보해야 한다 — 책이 사라지면 job_id 로 가는
-    # 유일한 링크가 끊겨 아동 얼굴 묘사가 담긴 파생 텍스트가 영원히 남는다.
-    job_ids = await collect_book_job_ids(db, book_ids)
+    for job_id, _, raw_keys in jobs:
+        if job_id not in book_job_ids and isinstance(raw_keys, list):
+            image_keys.extend(str(key) for key in raw_keys if key)
+    image_keys = list(dict.fromkeys(image_keys))
 
     # H1/R1-1: 캐릭터 삭제 전 Series 단방향 FK 해제.
     await detach_series_from_characters(db, character_ids)
@@ -232,6 +254,21 @@ async def purge_photo_derived_data(
     # M8/R1-5: 파기 지시를 삭제와 같은 트랜잭션에 적재(durable). 커밋 후 즉시 실행하고,
     # 실패·중단분은 job_monitor 스윕이 멱등 재실행한다.
     tasks = []
+    for job_id in job_ids:
+        task = enqueue_purge_prefix(
+            db, user_key=user_key, reason=reason, prefix=f"jobs/{job_id}/"
+        )
+        if task is not None:
+            tasks.append(task)
+        if job_id in active_job_ids:
+            # Do not run this second guard inline: a provider may upload after
+            # the first pass. The worker cannot publish without its Job row.
+            enqueue_purge_prefix(
+                db,
+                user_key=user_key,
+                reason=f"{reason}_inflight_images",
+                prefix=f"jobs/{job_id}/",
+            )
     for book_id in book_ids:
         task = enqueue_purge_prefix(
             db, user_key=user_key, reason=reason, prefix=book_file_prefix(book_id)
@@ -244,19 +281,15 @@ async def purge_photo_derived_data(
         )
         if mask_task is not None:
             tasks.append(mask_task)
-    for character_id in character_ids:
-        task = enqueue_purge_prefix(
-            db,
-            user_key=user_key,
-            reason=reason,
-            prefix=character_file_prefix(character_id),
-        )
-        if task is not None:
-            tasks.append(task)
+    for character in characters:
+        tasks.extend(enqueue_character_asset_purge(db, character, reason=reason))
     tasks.extend(
         enqueue_purge_keys(db, user_key=user_key, reason=reason, keys=image_keys)
     )
 
+    # Always commit, including users with no photo characters or derived jobs.
+    # revoke_consent has already staged its UPDATE; closing that request's
+    # session without this commit would silently undo the withdrawal.
     await db.commit()
 
     # 커밋 성공 후에만 실제 파기 — 실패분은 outbox에 pending으로 남는다.
@@ -272,6 +305,7 @@ async def revoke_consent(
 
     이후 사진 기반 기능은 다시 차단되고, from_photo 캐릭터 레코드·원본 사진(스토리지)은 삭제된다.
     """
+    await lock_photo_account(db, user_key)
     # 비철회 동의 행 '전부' 폐기 — granted=False/photos=True 같은 잔여 행이 게이트를 열어두지 않도록.
     await db.execute(
         update(UserConsent)

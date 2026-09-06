@@ -41,9 +41,56 @@ async def _noop_sleep(*_a, **_k):
 
 
 @pytest.mark.asyncio
-async def test_openai_persists_b64_and_skips_response_format_for_gpt_image(monkeypatch):
+@pytest.mark.parametrize("aspect_ratio", ["1:1", "3:4", "4:3", "9:16"])
+async def test_gemini_preserves_requested_book_image_ratio(monkeypatch, aspect_ratio):
+    """A real smoke returned a landscape image because Gemini never received the ratio."""
+    import httpx
+    import json
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(settings, "image_provider", "gemini")
+    monkeypatch.setattr(settings, "image_model", "gemini-3-pro-image")
+    monkeypatch.setattr(settings, "openai_image_quality", "high")
     monkeypatch.setattr(settings, "image_api_key", "test-key")
-    monkeypatch.setattr(settings, "image_model", "gpt-image-1")
+    raw = image_mod._mock_png_bytes(42)
+    requests = []
+
+    def respond(request):
+        requests.append(request)
+        body = json.loads(request.content)
+        assert body["generationConfig"]["imageConfig"]["aspectRatio"] == aspect_ratio
+        assert body["generationConfig"]["responseModalities"] == ["TEXT", "IMAGE"]
+        assert "quality" not in body
+        assert "quality" not in body["generationConfig"]["imageConfig"]
+        assert request.headers["x-goog-api-key"] == "test-key"
+        return httpx.Response(200, json={"candidates": [{"content": {"parts": [
+            {"inlineData": {"mimeType": "image/png", "data": base64.b64encode(raw).decode()}}
+        ]}}]})
+
+    def client(**kwargs):
+        return httpx.AsyncClient(transport=httpx.MockTransport(respond), **kwargs)
+
+    monkeypatch.setattr(image_mod, "httpx", SimpleNamespace(AsyncClient=client))
+    persisted = []
+
+    async def persist(data, mime, provider):
+        persisted.append((data, mime, provider))
+        return "https://s3.example.com/ratio.png"
+
+    monkeypatch.setattr(image_mod, "_persist_image_bytes", persist)
+    prompt = _prompt().model_copy(update={"aspect_ratio": aspect_ratio})
+    assert await image_mod.generate_image(prompt) == "https://s3.example.com/ratio.png"
+    assert len(requests) == 1
+    assert persisted == [(raw, "image/png", "gemini")]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model", ["gpt-image-1", "gpt-image-1.5", "gpt-image-2"])
+@pytest.mark.parametrize("quality", ["low", "medium", "high", "auto"])
+async def test_openai_persists_b64_and_sends_explicit_gpt_image_quality(monkeypatch, model, quality):
+    monkeypatch.setattr(settings, "image_api_key", "test-key")
+    monkeypatch.setattr(settings, "image_model", model)
+    monkeypatch.setattr(settings, "openai_image_quality", quality)
     raw_bytes = b"\x89PNG-fake-bytes"
     sent = {}
 
@@ -76,9 +123,9 @@ async def test_openai_persists_b64_and_skips_response_format_for_gpt_image(monke
 
     url = await image_mod._generate_openai(_prompt())
 
-    # gpt-image-1엔 response_format/quality 미전송(거부 파라미터)
+    # GPT Image accepts explicit quality but always returns base64.
     assert "response_format" not in sent["json"]
-    assert "quality" not in sent["json"]
+    assert sent["json"]["quality"] == quality
     # 결과가 S3 영속 URL(provider 임시 URL 아님) + 디코드된 바이트가 업로드됨
     assert url.startswith("https://s3.example.com/images/openai/")
     assert uploaded["data"] == raw_bytes
@@ -88,6 +135,7 @@ async def test_openai_persists_b64_and_skips_response_format_for_gpt_image(monke
 async def test_openai_dalle_requests_b64_json(monkeypatch):
     monkeypatch.setattr(settings, "image_api_key", "test-key")
     monkeypatch.setattr(settings, "image_model", "dall-e-3")
+    monkeypatch.setattr(settings, "openai_image_quality", "high")
     sent = {}
 
     class _Client:
@@ -116,6 +164,7 @@ async def test_openai_dalle_requests_b64_json(monkeypatch):
     await image_mod._generate_openai(_prompt())
     # dall-e-3는 b64_json 명시 요청(URL 만료 회피)
     assert sent["json"]["response_format"] == "b64_json"
+    assert sent["json"]["quality"] == "standard"
 
 
 @pytest.mark.asyncio
@@ -238,3 +287,26 @@ async def test_mock_png_bytes_are_deterministic_and_seed_dependent():
     assert a1 == a2, "같은 시드가 다른 바이트를 내면 재현 불가"
     assert a1 != b, "시드가 이미지에 반영되지 않는다"
     assert a1.startswith(b"\x89PNG\r\n\x1a\n") and a1.endswith(b"IEND\xae\x42\x60\x82")
+
+
+def test_openai_image_quality_defaults_to_medium():
+    from src.core.config import Settings
+
+    assert Settings.model_fields["openai_image_quality"].default == "medium"
+
+
+@pytest.mark.parametrize("quality", ["low", "medium", "high", "auto"])
+def test_openai_image_quality_accepts_documented_values(quality):
+    from src.core.config import Settings
+
+    configured = Settings(_env_file=None, openai_image_quality=quality)
+    assert configured.openai_image_quality == quality
+
+
+@pytest.mark.parametrize("quality", ["", "standard", "hd", "highest"])
+def test_openai_image_quality_rejects_invalid_values(quality):
+    from pydantic import ValidationError
+    from src.core.config import Settings
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, openai_image_quality=quality)

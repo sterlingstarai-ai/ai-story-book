@@ -1,6 +1,15 @@
 # Deployment Guide
 
+> 현재 출시 상태와 비공개 미디어 전환 절차: [LAUNCH_STATUS.md](LAUNCH_STATUS.md). 로컬 API는 `apps/api/.env`, 운영 Compose는 `infra/.env`를 사용합니다.
+
+
 This document defines the production deployment contract after the P5 hardening sweep.
+
+출시 후보의 API와 worker는 `ILLUSTRATION_QUALITY_ENABLED=true` 및 검토를 지원하는 OpenAI 모델·키를 함께 설정해야 한다. 설정이 빠지거나 지원하지 않는 모델이면 사전 검사/readiness와 실제 생성 경로가 완성을 차단한다. 동작·횟수·검증 범위는 [삽화 검사와 부분 재생성](ILLUSTRATION_QUALITY_GATE.md)을 따른다.
+
+외부 PostgreSQL·비공개 S3와 상주 API/워커/Redis 구성은 [외부 호스팅 배포 준비](EXTERNAL_HOSTING_DEPLOYMENT.md)를 따릅니다. 기존 자체 호스팅 Compose를 대체하지 않으며, 실제 연결·배포를 실행했다는 뜻은 아닙니다.
+
+Render 대상은 [불변 이미지 기반 실행 패키지](RENDER_DEPLOYMENT_PACKAGE.md)에 별도로 정의합니다. Blueprint 준비는 실서비스 활성화를 뜻하지 않습니다.
 
 ## Source of truth
 
@@ -13,6 +22,12 @@ Canonical path:
 4. Readiness is verified via `/health/ready`
 
 Local `docker build` is not the production source of truth.
+
+Before deployment, the disposable runtime rehearsal in
+[OPERATIONS_TEST_RUNBOOK.md](OPERATIONS_TEST_RUNBOOK.md#5-local-docker-runtime)
+checks PostgreSQL photo-publication/withdrawal concurrency and the synthetic
+portrait approval-to-erasure journey through Celery and private S3. Its explicit
+mock photo-provider settings are test configuration, not production launch approval.
 
 ## Required tools
 
@@ -72,18 +87,22 @@ openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
 docker compose -f docker-compose.prod.yml up -d nginx
 
 # 3. Issue the real certificate (webroot challenge served by the :80 listener).
-docker compose -f docker-compose.prod.yml run --rm certbot certonly \
+docker compose -f docker-compose.prod.yml run --rm --entrypoint certbot certbot certonly \
   --webroot -w /var/www/certbot \
   -d "$DOMAIN" --email "$OPS_EMAIL" --agree-tos --no-eff-email
 
 # 4. Point nginx at the issued files and reload.
-ln -sf /etc/letsencrypt/live/$DOMAIN/fullchain.pem nginx/ssl/fullchain.pem
-ln -sf /etc/letsencrypt/live/$DOMAIN/privkey.pem   nginx/ssl/privkey.pem
+ln -sf live/$DOMAIN/fullchain.pem nginx/ssl/fullchain.pem
+ln -sf live/$DOMAIN/privkey.pem   nginx/ssl/privkey.pem
 docker compose -f docker-compose.prod.yml exec nginx nginx -s reload
 ```
 
-Renewal is automatic: the `certbot` service retries `certbot renew` every 12h. Reload
-nginx after renewal (cron on the host, or `docker compose exec nginx nginx -s reload`).
+The `certbot` service retries `certbot renew` every 12h. The one-off issuance command
+overrides that service entrypoint so `certonly` actually runs. The relative symlinks
+resolve inside the shared certificate tree mounted in both containers. nginx must be
+reloaded after renewal; schedule `docker compose -f docker-compose.prod.yml exec -T
+nginx nginx -s reload` on the host and monitor its result. Container renewal alone does
+not reload the certificate used by nginx.
 
 Verification (all three must hold):
 
@@ -95,17 +114,18 @@ curl -sS  https://$DOMAIN/health/ready | jq .status  # expect healthy
 
 ## Cost guardrail (H4 — required before any real traffic)
 
-`DAILY_GENERATION_BUDGET` is the **only** control that caps the LLM/image bill.
+`DAILY_GENERATION_BUDGET` limits total daily generation attempts across all users.
 `X-User-Key` is a client-generated UUID, so every per-user control (rate limit, daily
 20 books, free-plan monthly limit) is bypassed by rotating the key. The variable is now
-wired into `.env.example` and `docker-compose.prod.yml`, but **it defaults to 0 = OFF**.
+wired into `.env.example` and `docker-compose.prod.yml` with a conservative default of
+**20 attempts per Korea-local day** for the initial limited beta. This is a request
+count, not a currency spending cap: model prices, page counts and retries affect cost.
+Configure provider-side billing limits separately and raise this count only after
+measuring actual generation cost. Do not disable the limit in production.
 
-Pick the value from spend tolerance, not from traffic: one book costs roughly `$0.32`
-(`~$0.48` with regeneration headroom). `budget = tolerable_daily_spend / cost_per_book`.
-
-`/health/ready` reports `services.cost_budget: "disabled"` and the API logs an
-`error`-level line on every readiness probe while it is unset. That is a warning, not a
-block — deploying with it off is an explicit choice, and it is the wrong one for GA.
+Redis holds both generation counters and Celery messages. Production uses
+`maxmemory-policy noeviction` so memory pressure cannot silently delete either; rejected
+writes must be treated as unavailable capacity rather than permission to generate.
 
 ## Deploy script
 
@@ -126,8 +146,8 @@ Common commands:
 ```
 
 `deploy` performs (M26 order — **migrate before up**):
-1. env validation and compose detection
-2. image selection from the provided tag
+1. load the explicitly selected env file and detect Compose (run the validation commands above separately)
+2. image selection from the provided tag; `--image-tag` overrides stale API/worker image variables
 3. capture currently-running image tags (rollback target)
 4. `docker compose pull`
 5. Alembic migration — applied while the **old** stack is still serving, so the new
@@ -145,6 +165,10 @@ breaks the old code will 500 the old stack during the migrate→up window.
 
 `cleanup` prunes containers/images/networks only — it never prunes volumes, so the
 `postgres-data`/`redis-data`/`minio-data` named volumes are safe.
+
+For paired database/media backup and an executable disposable restore rehearsal,
+see [BACKUP_RESTORE.md](BACKUP_RESTORE.md). `deploy.sh backup` creates only a private,
+verified PostgreSQL custom-format archive; it does not back up media.
 
 ## CI/CD expectations
 
@@ -186,8 +210,13 @@ Minimum checks:
 
 ```bash
 ./scripts/deploy.sh --env-file infra/.env health
-./scripts/smoke.sh http://localhost
+./scripts/deploy.sh --env-file infra/.env smoke
 ```
+
+Health checks require `PROD_API_URL` to be the public HTTPS origin, with a valid
+certificate and no trailing slash. They accept exactly HTTP 200, do not follow
+redirects, and never bypass certificate validation. A 301 redirect to HTTPS is not
+readiness. The `smoke` command uses the same origin and creates synthetic test state.
 
 Health semantics:
 - `/health/live`: process alive
@@ -208,7 +237,7 @@ If the image tag is known-good, rollback does not require a new build.
 
 - Do not serve production traffic over plain HTTP (H9). TLS termination is configured
   in `infra/nginx/nginx.conf`; certificates are an owner step (see "TLS termination").
-- Do not deploy with `DAILY_GENERATION_BUDGET=0` (H4). It is the only global cost cap.
+- Do not deploy with `DAILY_GENERATION_BUDGET=0` (H4). Keep the global attempt limit and provider billing limits enabled.
 - Do not rely on test ad units in release builds
 - Do not allow silent share/IAP/POD fallback in production
 - Do not allow silent TTS/STT mock fallback in production (H1). Audio ships

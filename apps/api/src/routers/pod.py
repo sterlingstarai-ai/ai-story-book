@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
 from src.core.config import settings
+from src.core.pod_feature import require_pod_ordering
 from src.core.database import get_db
 from src.core.dependencies import get_user_key
 from src.core.exceptions import (
@@ -140,6 +141,7 @@ async def get_pod_quote(
 ):
     """지역 견적(단가·배송비·통화)을 서버가 산출해 반환(H20). create_pod_order와 동일한
     _pod_pricing_for를 재사용해 표시-청구 통화·금액 일치를 보장한다(클라 가격 미신뢰)."""
+    require_pod_ordering()
     if quantity < 1 or quantity > 10:
         raise ValidationError("수량은 1~10이어야 합니다.", details={"quantity": quantity})
     unit_price, shipping_fee, currency = _pod_pricing_for(country)
@@ -158,6 +160,7 @@ async def create_pod_order(
     user_key: str = Depends(get_user_key),
     idempotency_key: Optional[str] = Depends(get_idempotency_key),
 ):
+    require_pod_ordering()
     book_result = await db.execute(select(Book).where(Book.id == request.book_id))
     book = book_result.scalar_one_or_none()
     if not book:

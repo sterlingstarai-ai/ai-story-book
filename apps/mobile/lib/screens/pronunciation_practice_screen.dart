@@ -51,6 +51,7 @@ class _PronunciationPracticeScreenState
   }
 
   Future<void> _evaluate() async {
+    if (_isSubmitting) return;
     final l = AppLocalizations.of(context);
     final expected = _expectedController.text.trim();
     final transcript = _transcriptController.text.trim();
@@ -63,6 +64,8 @@ class _PronunciationPracticeScreenState
     setState(() {
       _isSubmitting = true;
       _errorMessage = null;
+      _score = null;
+      _feedback = null;
     });
 
     try {
@@ -99,21 +102,11 @@ class _PronunciationPracticeScreenState
   }
 
   Future<void> _evaluateFromAudio() async {
+    if (_isSubmitting) return;
     final l = AppLocalizations.of(context);
     final expected = _expectedController.text.trim();
     if (expected.isEmpty) {
       setState(() => _errorMessage = l.pronunciationErrorExpectedRequired);
-      return;
-    }
-
-    final picked = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowMultiple: false,
-      allowedExtensions: const ['m4a', 'mp3', 'wav', 'aac', 'ogg', 'webm'],
-    );
-    if (picked == null ||
-        picked.files.isEmpty ||
-        picked.files.first.path == null) {
       return;
     }
 
@@ -123,6 +116,21 @@ class _PronunciationPracticeScreenState
     });
 
     try {
+      final picked = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowMultiple: false,
+        allowedExtensions: const ['m4a', 'mp3', 'wav', 'aac', 'ogg', 'webm'],
+      );
+      if (!mounted ||
+          picked == null ||
+          picked.files.isEmpty ||
+          picked.files.first.path == null) {
+        return;
+      }
+      setState(() {
+        _score = null;
+        _feedback = null;
+      });
       final audioFile = File(picked.files.first.path!);
       final api = ref.read(apiClientProvider);
       final result = await api.evaluatePronunciationAudio(
@@ -169,105 +177,117 @@ class _PronunciationPracticeScreenState
       appBar: AppBar(
         title: Text(l.pronunciationTitle),
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(AppSpacing.md),
-        children: [
-          Container(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(AppRadius.md),
-              border: Border.all(color: AppColors.divider),
-            ),
-            child: Text(
-              l.pronunciationIntro(widget.pageNumber),
-              style: AppTextStyles.bodySmall,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          TextField(
-            controller: _expectedController,
-            minLines: 2,
-            maxLines: 4,
-            decoration: InputDecoration(
-              labelText: l.pronunciationExpectedLabel,
-              alignLabelWithHint: true,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          TextField(
-            controller: _transcriptController,
-            minLines: 3,
-            maxLines: 6,
-            decoration: InputDecoration(
-              labelText: l.pronunciationTranscriptLabel,
-              hintText: l.pronunciationTranscriptHint,
-              alignLabelWithHint: true,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          ElevatedButton.icon(
-            onPressed: _isSubmitting ? null : _evaluate,
-            icon: _isSubmitting
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.record_voice_over_outlined),
-            label: Text(_isSubmitting
-                ? l.pronunciationEvaluating
-                : l.pronunciationEvaluateButton),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          OutlinedButton.icon(
-            onPressed: _isSubmitting ? null : _evaluateFromAudio,
-            icon: const Icon(Icons.upload_file),
-            label: Text(l.pronunciationEvaluateAudioButton),
-          ),
-          if (_errorMessage != null) ...[
-            const SizedBox(height: AppSpacing.md),
-            Text(
-              _errorMessage!,
-              style: AppTextStyles.bodySmall.copyWith(color: AppColors.error),
-            ),
-          ],
-          if (score != null) ...[
-            const SizedBox(height: AppSpacing.lg),
+      body: SafeArea(
+        top: false,
+        child: ListView(
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          padding: const EdgeInsets.all(AppSpacing.md),
+          children: [
             Container(
               padding: const EdgeInsets.all(AppSpacing.md),
               decoration: BoxDecoration(
-                color: AppColors.surface,
+                color: AppPalette.of(context).surface,
                 borderRadius: BorderRadius.circular(AppRadius.md),
-                border: Border.all(color: AppColors.divider),
+                border: Border.all(color: AppPalette.of(context).divider),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    l.pronunciationScore(score.toStringAsFixed(1)),
-                    style: AppTextStyles.heading3,
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  LinearProgressIndicator(
-                    value: (score / 100).clamp(0.0, 1.0),
-                    minHeight: 10,
-                    borderRadius: BorderRadius.circular(99),
-                    backgroundColor: AppColors.blackOverlayLight,
-                    color: score >= 80
-                        ? AppColors.success
-                        : (score >= 60 ? AppColors.primary : AppColors.error),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  Text(
-                    _feedback ?? l.pronunciationNoFeedback,
-                    style: AppTextStyles.bodySmall,
-                  ),
-                ],
+              child: Text(
+                l.pronunciationIntro(widget.pageNumber),
+                style: AppTextStyles.bodySmall,
               ),
             ),
+            const SizedBox(height: AppSpacing.md),
+            TextField(
+              enabled: !_isSubmitting,
+              controller: _expectedController,
+              minLines: 2,
+              maxLines: 4,
+              decoration: InputDecoration(
+                labelText: l.pronunciationExpectedLabel,
+                alignLabelWithHint: true,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            TextField(
+              enabled: !_isSubmitting,
+              controller: _transcriptController,
+              minLines: 3,
+              maxLines: 6,
+              decoration: InputDecoration(
+                labelText: l.pronunciationTranscriptLabel,
+                hintText: l.pronunciationTranscriptHint,
+                alignLabelWithHint: true,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            ElevatedButton.icon(
+              onPressed: _isSubmitting ? null : _evaluate,
+              icon: _isSubmitting
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.record_voice_over_outlined),
+              label: Text(_isSubmitting
+                  ? l.pronunciationEvaluating
+                  : l.pronunciationEvaluateButton),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            OutlinedButton.icon(
+              onPressed: _isSubmitting ? null : _evaluateFromAudio,
+              icon: const Icon(Icons.upload_file),
+              label: Text(l.pronunciationEvaluateAudioButton),
+            ),
+            if (_errorMessage != null) ...[
+              const SizedBox(height: AppSpacing.md),
+              Semantics(
+                liveRegion: true,
+                child: Text(
+                  _errorMessage!,
+                  style:
+                      AppTextStyles.bodySmall.copyWith(color: AppColors.error),
+                ),
+              ),
+            ],
+            if (score != null) ...[
+              const SizedBox(height: AppSpacing.lg),
+              Container(
+                padding: const EdgeInsets.all(AppSpacing.md),
+                decoration: BoxDecoration(
+                  color: AppPalette.of(context).surface,
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  border: Border.all(color: AppPalette.of(context).divider),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      l.pronunciationScore(score.toStringAsFixed(1)),
+                      style: AppTextStyles.heading3,
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    LinearProgressIndicator(
+                      value: (score / 100).clamp(0.0, 1.0),
+                      minHeight: 10,
+                      borderRadius: BorderRadius.circular(99),
+                      backgroundColor: AppColors.blackOverlayLight,
+                      color: score >= 80
+                          ? AppColors.success
+                          : (score >= 60
+                              ? AppPalette.of(context).primary
+                              : AppColors.error),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    Text(
+                      _feedback ?? l.pronunciationNoFeedback,
+                      style: AppTextStyles.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }

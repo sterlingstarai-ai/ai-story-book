@@ -1,5 +1,6 @@
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
+from pydantic import Field
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -33,6 +34,11 @@ class Settings(BaseSettings):
     # Database
     # SECURITY: No default - must be set via environment variable
     database_url: str = ""
+    # Empty values preserve driver/URL defaults for local deployments. External
+    # deployments explicitly select verify-full and mount the provider CA file.
+    database_ssl_mode: Literal["", "disable", "allow", "prefer", "require", "verify-ca", "verify-full"] = ""
+    database_ssl_root_cert: str = ""
+    database_migration_url: str = ""  # Optional direct endpoint for Alembic only.
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"
@@ -44,6 +50,9 @@ class Settings(BaseSettings):
     # S3/Minio
     # SECURITY: No defaults for credentials - must be set via environment
     s3_endpoint: str = "http://localhost:9000"
+    s3_region: str = Field(default="us-east-1", min_length=1)
+    s3_addressing_style: Literal["path", "virtual", "auto"] = "path"
+    s3_auto_create_bucket: bool = True  # External deployments use an existing private bucket.
     s3_access_key: str = ""
     s3_secret_key: str = ""
     s3_bucket: str = "storybook"
@@ -51,21 +60,39 @@ class Settings(BaseSettings):
     # 과거 공개 URL base(콤마 구분). 도메인/CDN을 바꿔도 그 이전에 저장된 URL에서 S3 키를
     # 역산할 수 있어야 파기(계정삭제·동의철회)가 조용한 no-op이 되지 않는다.
     s3_legacy_public_urls: str = ""
+    # Client-reachable S3 API endpoint used when signing downloads (never a CDN rewrite).
+    s3_download_endpoint: Optional[str] = None
+    s3_download_ttl_seconds: int = Field(default=3600, ge=60, le=86400)
 
     # LLM
-    llm_provider: str = "openai"  # openai, anthropic
+    llm_provider: str = "openai"  # openai, anthropic, gemini
     llm_api_key: Optional[str] = None
     llm_model: str = "gpt-4o-mini"
-    llm_timeout: int = 30
+    llm_timeout: int = 90
+
+    # Explicit operator enablement after child-data processing conditions have
+    # been verified for analysis, illustration generation and illustration QA.
+    # This flag is an operational gate, not evidence of provider approval.
+    photo_processing_enabled: bool = False
+    photo_analysis_provider: str = "openai"  # openai or deterministic local mock
+    photo_analysis_model: str = "gpt-5.6-sol"
+    photo_analysis_api_key: Optional[str] = None
 
     # Image Generation
     image_provider: str = "openai"  # openai, gemini, replicate, fal, mock
     image_api_key: Optional[str] = None
-    # dall-e-3, gpt-image-1, gemini-3-pro-image-preview(Nano Banana Pro, 얼굴보존)
+    # dall-e-3, gpt-image-1, gemini-3-pro-image(Nano Banana Pro stable, 얼굴보존·레퍼런스 최대 14장)
+    # ⚠ 구 preview 별칭(gemini-3-pro-image-preview)은 stable 승격으로 대체됨 — stable ID를 쓸 것.
+    # 저비용 대안: gemini-3.1-flash-image(Nano Banana 2, 레퍼런스 지원·더 저렴).
     image_model: str = "dall-e-3"
+    # GPT Image generations and reference edits; other providers keep their own options.
+    openai_image_quality: Literal["low", "medium", "high", "auto"] = "medium"
     image_timeout: int = 90
     image_max_concurrent: int = 3
     image_max_retries: int = 3  # Maximum retries for image generation
+    # Completed generated illustrations only; verified OpenAI vision model required.
+    # Mock/local development may disable it. Production readiness requires it.
+    illustration_quality_enabled: bool = False
     # 인페인트(부분 재생성) — replicate(SDXL, image+mask 입력 지원) / fal에서만 동작.
     # FAL 인페인트 엔드포인트(배포 환경에서 확정 가능, 기본값 overridable).
     image_inpaint_fal_endpoint: str = "https://fal.run/fal-ai/flux-lora/inpainting"
@@ -87,6 +114,8 @@ class Settings(BaseSettings):
     google_stt_api_key: Optional[str] = None
 
     # IAP Verification
+    # New purchases stay off during the limited beta. Existing receipts/restores remain verifiable.
+    purchases_enabled: bool = False
     # - local: 로컬 검증(개발/테스트)
     # - hybrid: 키가 있으면 스토어 실검증, 없으면 로컬 검증
     # - strict: 스토어 실검증 필수(키 없거나 검증 실패 시 에러)
@@ -108,6 +137,8 @@ class Settings(BaseSettings):
     # - strict: 외부 POD API 동기화 필수
     pod_mode: str = "local"
     pod_provider: str = "printful"
+    # Order placement stays hidden until fulfillment operations have been verified.
+    pod_ordering_enabled: bool = False
     printful_api_key: Optional[str] = None
     printful_store_id: Optional[str] = None
     printful_sync_variant_id: Optional[int] = None

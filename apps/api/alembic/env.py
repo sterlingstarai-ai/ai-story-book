@@ -1,7 +1,5 @@
 from logging.config import fileConfig
-import os
-
-from sqlalchemy import engine_from_config
+from sqlalchemy import create_engine
 from sqlalchemy import pool
 
 from alembic import context
@@ -13,13 +11,17 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.core.database import Base
+from src.core.config import settings
+from src.core.database_options import database_options
 
 # Import all models to register them with SQLAlchemy metadata for Alembic
 from src.models.db import (  # noqa: F401
+    AccountIdentity,
     Job,
     StoryDraftDB,
     ImagePromptsDB,
     Book,
+    ContentReport,
     Page,
     Character,
     RateLimit,
@@ -44,12 +46,14 @@ from src.models.db import (  # noqa: F401
 
 config = context.config
 
-# Override sqlalchemy.url with environment variable if set
-database_url = os.getenv("DATABASE_URL")
-if database_url:
-    # Convert asyncpg to psycopg2 for alembic
-    database_url = database_url.replace("postgresql+asyncpg://", "postgresql://")
-    config.set_main_option("sqlalchemy.url", database_url)
+# Keep percent-encoded credentials out of ConfigParser interpolation. Runtime
+# and migrations use the same TLS policy, even with a separate direct endpoint.
+database_url, database_connect_args = database_options(
+    settings.database_migration_url or settings.database_url,
+    asynchronous=False,
+    ssl_mode=settings.database_ssl_mode,
+    ssl_root_cert=settings.database_ssl_root_cert,
+)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
@@ -59,9 +63,8 @@ target_metadata = Base.metadata
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
-    url = config.get_main_option("sqlalchemy.url")
     context.configure(
-        url=url,
+        url=database_url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -73,9 +76,9 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
+    connectable = create_engine(
+        database_url,
+        connect_args=database_connect_args,
         poolclass=pool.NullPool,
     )
 

@@ -17,7 +17,7 @@ class BookSpec {
     this.language = 'ko',
     required this.targetAge,
     required this.style,
-    this.pageCount = 8,
+    this.pageCount = 12,
     this.theme,
     this.protagonistName,
     this.characterId,

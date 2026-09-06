@@ -12,9 +12,11 @@ import structlog
 
 from src.core.config import settings
 from src.routers import (
+    account,
     books,
     branch,
     characters,
+    content_reports,
     library,
     credits,
     streak,
@@ -34,6 +36,7 @@ from src.core.audio_feature import audio_readiness_issues
 from src.core.database import get_db  # noqa: F401
 from src.core.rate_limit import check_rate_limit, rate_limiter
 from src.core.utils import redact_path
+from src.core.logging import configure_logging
 from src.core.exceptions import (
     APIError,
     api_exception_handler,
@@ -71,6 +74,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         # Prevent clickjacking
         response.headers["X-Frame-Options"] = "DENY"
+        if request.url.path.startswith("/v1/"):
+            response.headers["Cache-Control"] = "private, no-store"
         # Prevent MIME type sniffing
         response.headers["X-Content-Type-Options"] = "nosniff"
         # XSS protection (legacy but still useful)
@@ -142,20 +147,8 @@ class RateLimitHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
-# Configure structured logging
-structlog.configure(
-    processors=[
-        structlog.stdlib.filter_by_level,
-        structlog.stdlib.add_logger_name,
-        structlog.stdlib.add_log_level,
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.JSONRenderer(),
-    ],
-    wrapper_class=structlog.stdlib.BoundLogger,
-    context_class=dict,
-    logger_factory=structlog.stdlib.LoggerFactory(),
-    cache_logger_on_first_use=True,
-)
+# Configure structured logging with the same privacy boundary used by workers.
+configure_logging()
 
 logger = structlog.get_logger()
 
@@ -468,14 +461,39 @@ async def _build_readiness_payload(
         except Exception:
             storage_status = "unhealthy"
 
+        if settings.llm_provider not in {"openai", "anthropic", "gemini"}:
+            missing_keys.append("llm_provider_not_live")
+        if settings.image_provider not in {"openai", "gemini", "replicate", "fal"}:
+            missing_keys.append("image_provider_not_live")
         if settings.llm_provider != "mock" and not settings.llm_api_key:
             missing_keys.append("llm")
         if settings.image_provider != "mock" and not settings.image_api_key:
             missing_keys.append("image")
 
-        # IAP 결제 보안: 운영에서 local/hybrid 모드나 스토어 키 누락은 위조 영수증을
-        # 통과시키는 fail-open이므로 readiness를 막는다(미관측 출시 차단).
+        from src.services.image_quality import review_provider_configured
+
+        if not settings.illustration_quality_enabled:
+            missing_keys.append("illustration_quality_disabled")
+        elif not review_provider_configured():
+            missing_keys.append("illustration_quality_model_unsupported")
+
+        if settings.photo_processing_enabled:
+            from src.services.photo_processing import ensure_photo_processing_ready
+
+            try:
+                ensure_photo_processing_ready()
+            except APIError:
+                missing_keys.append("photo_processing_configuration")
+
+        # Strict verification is mandatory even when new purchases are disabled.
+        # Free beta does not require unused store credentials; existing configured
+        # stores still need receipt identity and webhook protections for restores.
         iap_issues = _iap_readiness_issues()
+        if not settings.purchases_enabled:
+            has_store = bool(settings.apple_iap_shared_secret or settings.google_play_package_name)
+            iap_issues = [issue for issue in iap_issues if issue == "iap_mode_not_strict" or (
+                has_store and issue in {"iap_webhook_secret_missing", "apple_bundle_id_missing"}
+            )]
         missing_keys.extend(iap_issues)
 
         # 오디오(TTS/STT): 기능이 켜져 있을 때만(G9 기본 비활성) 라이브 구성을 게이트.
@@ -483,16 +501,22 @@ async def _build_readiness_payload(
         if settings.audio_feature_enabled:
             missing_keys.extend(audio_readiness_issues())
 
+        if settings.pod_ordering_enabled:
+            if settings.pod_mode != "strict":
+                missing_keys.append("pod_mode_not_strict")
+            if not settings.printful_api_key or not settings.printful_sync_variant_id:
+                missing_keys.append("pod_configuration")
+
         if missing_keys:
             keys_status = "unhealthy"
 
     # H4/R3-1: 전역 일일 생성 예산이 프로덕션에서 꺼져 있으면(0/미설정) 비용 폭증에 무방비다.
-    # 직전 감사가 '출시 최소 조건'으로 승격한 완화책이 배포 산출물 미배선으로 실제로는
-    # 꺼져 있었다 — 조용히 넘기지 않고 관측 가능하게 남긴다. (차단이 아니라 **경고**:
-    # 값 산정은 오너 결정이고, 미설정만으로 배포를 죽이면 기존 배포가 즉시 멈춘다.)
+    # 초기 베타에서 사용량 상한 미설정은 출시 차단이다. 제한을 확인할 수 없는 상태로
+    # 신규 사용자 키를 발급하며 유료 AI를 호출하지 않는다.
     warnings: list[str] = []
     if not settings.testing and int(settings.daily_generation_budget or 0) <= 0:
         warnings.append("cost_budget_disabled")
+        keys_status = "unhealthy"
         logger.error(
             "cost budget guardrail NOT CONFIGURED — DAILY_GENERATION_BUDGET<=0 "
             "(전역 비용 상한 없음)",
@@ -604,6 +628,12 @@ app.include_router(
     tags=["Share"],
     dependencies=[Depends(check_rate_limit)],
 )
+app.include_router(
+    content_reports.router,
+    prefix="/v1/books",
+    tags=["Content reports"],
+    dependencies=[Depends(check_rate_limit)],
+)
 # 공개 공유 페이지(인증·rate-limit 없음, /share/{token})
 app.include_router(shares.public_router, tags=["Share"])
 app.include_router(
@@ -646,6 +676,12 @@ app.include_router(
     users.router,
     prefix="/v1/users",
     tags=["Users"],
+    dependencies=[Depends(check_rate_limit)],
+)
+app.include_router(
+    account.router,
+    prefix="/v1/account",
+    tags=["Account"],
     dependencies=[Depends(check_rate_limit)],
 )
 app.include_router(

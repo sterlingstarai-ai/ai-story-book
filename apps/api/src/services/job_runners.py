@@ -19,9 +19,10 @@ import asyncio
 from typing import Optional
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from src.core.errors import ErrorCode, StoryBookError, client_safe_message
+from src.core.config import settings
 from src.core.utils import utcnow
 from src.models.db import Job, Page
 from src.services.orchestrator import inpaint_page, regenerate_page
@@ -44,17 +45,11 @@ async def set_regen_job_status(
     from src.core.database import AsyncSessionLocal
 
     async with AsyncSessionLocal() as session:
-        result = await session.execute(select(Job).where(Job.id == regen_job_id))
-        regen_job = result.scalar_one_or_none()
-        if not regen_job:
-            return
-
-        regen_job.status = status
-        regen_job.progress = progress
-        regen_job.current_step = current_step
-        regen_job.error_code = error_code
-        regen_job.error_message = error_message
-        regen_job.updated_at = utcnow()
+        await session.execute(
+            update(Job).where(Job.id == regen_job_id, Job.status.in_(["queued", "running"]))
+            .values(status=status, progress=progress, current_step=current_step,
+                    error_code=error_code, error_message=error_message, updated_at=utcnow())
+        )
         await session.commit()
 
 
@@ -81,6 +76,7 @@ async def run_regeneration_job(
             page_number=page_number,
             mode=mode,
             feedback=feedback,
+            **({"operation_job_id": regen_job_id} if getattr(settings, "illustration_quality_enabled", False) else {}),
         )
     except Exception as e:
         # M12: SafetyError 등 도메인 에러 코드(SAFETY_INPUT/OUTPUT)를 UNKNOWN으로 뭉개지 않는다.
@@ -136,6 +132,7 @@ async def run_inpaint_job(
             page_number=page_number,
             mask_url=mask_url,
             region_prompt=region_prompt,
+            **({"operation_job_id": inpaint_job_id} if getattr(settings, "illustration_quality_enabled", False) else {}),
         )
     except Exception as e:
         # M12: 도메인 에러 코드(SAFETY_INPUT 등)를 보존.

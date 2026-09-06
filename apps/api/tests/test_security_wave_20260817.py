@@ -29,6 +29,12 @@ def test_every_paid_generation_endpoint_consumes_budget():
     from src.routers import books as books_module
     from src.routers import characters as characters_module
     from src.routers import streak as streak_module
+    from src.services import character_avatar as avatar_module
+
+    # Photo/drawing routes delegate accounting to the one shared lifecycle.
+    for endpoint in (characters_module.create_character_from_photo, characters_module.create_character_from_drawing):
+        assert "_create_from_image(" in inspect.getsource(endpoint)
+    assert "create_image_character(" in inspect.getsource(characters_module._create_from_image)
 
     paid_endpoints = [
         (books_module.create_book, "books.create"),
@@ -36,8 +42,8 @@ def test_every_paid_generation_endpoint_consumes_budget():
         (books_module.regenerate_book_page, "books.regenerate"),
         (books_module.inpaint_book_page, "books.inpaint"),
         (books_module.retell_book, "books.retell"),
-        (characters_module.create_character_from_photo, "characters.from_photo"),
-        (characters_module.create_character_from_drawing, "characters.from_drawing"),
+        (avatar_module.create_image_character, "characters.from_photo"),
+        (avatar_module.create_image_character, "characters.from_drawing"),
         (streak_module.generate_today_story, "streak.today_generate"),
     ]
 
@@ -374,7 +380,7 @@ async def test_voice_profile_patch_purges_old_sample_not_new(client, monkeypatch
 
     red-proof: `previous_sample_url` 캡처를 setattr 루프 뒤로 되돌리면 FAIL.
     """
-    from src.routers import voice_profiles as vp_module
+    from src.services import storage as storage_module
 
     deleted: list = []
 
@@ -382,8 +388,8 @@ async def test_voice_profile_patch_purges_old_sample_not_new(client, monkeypatch
         deleted.extend(keys)
         return []
 
-    # 라우터가 모듈 상단에서 `from ... import delete_keys` 로 바인딩하므로 그 이름을 패치한다.
-    monkeypatch.setattr(vp_module, "delete_keys", spy_delete_keys)
+    # Durable purge queue and router share the storage deletion boundary.
+    monkeypatch.setattr(storage_module, "delete_keys", spy_delete_keys)
 
     base = settings.s3_public_url.rstrip("/")
     uk = H["X-User-Key"]
@@ -528,36 +534,28 @@ async def test_orphan_guard_survives_failed_character_creation(
     예전에는 업로드(외부 부작용)가 커밋보다 먼저라, 실패 시 **행 없는 고아 아동 사진**이
     남아 계정삭제·동의철회 어떤 경로로도 파기할 수 없었다(URL 역산 불가).
 
-    red-proof: `enqueue_purge_keys(... "photo_upload_guard" ...)` 선기록을 지우면
+    red-proof: `enqueue_purge_keys(... "character_source_upload_guard" ...)` 선기록을 지우면
     storage_purge_tasks 가 비어 FAIL한다.
     """
     from sqlalchemy import select
 
     from src.models.db import StoragePurgeTask
-    from src.services import photo_character as photo_module
+    from src.services import character_avatar as avatar_module
+    from tests.test_character_avatar import source_image
 
-    async def returns_invalid_payload(**kwargs):
-        # 업로드는 성공시키고 **그 뒤** 커밋 전 DTO 검증에서 실패시킨다 — 고아가 실제로
-        # 생기는 창(업로드 완료 ~ 커밋 실패)을 재현해야 가드가 의미를 갖는다.
-        # (vision 호출 자체가 실패하면 업로드도 없어 고아가 없다.)
-        return {
-            "name": "",  # assert_character_dto_valid 에서 ValueError
-            "master_description": "",
-            "appearance": {},
-            "clothing": {},
-            "personality_traits": [],
-        }
+    original = avatar_module._account_and_consent
 
-    monkeypatch.setattr(
-        photo_module.photo_character_service,
-        "create_character_from_photo",
-        returns_invalid_payload,
-    )
+    async def fail_after_upload(db, user_key, *, lock=False):
+        if lock:
+            raise RuntimeError("synthetic publication failure after storage upload")
+        await original(db, user_key, lock=lock)
+
+    monkeypatch.setattr(avatar_module, "_account_and_consent", fail_after_upload)
 
     r = await client.post(
         "/v1/characters/from-photo",
         headers=H,
-        files={"photo": ("child.jpg", b"\xff\xd8\xff\xdb" + b"0" * 64, "image/jpeg")},
+        files={"photo": ("child.jpg", source_image(), "image/jpeg")},
         data={"name": "아이", "style": "cartoon"},
     )
     assert r.status_code == 500, r.text
@@ -565,7 +563,7 @@ async def test_orphan_guard_survives_failed_character_creation(
     guards = (
         await db_session.execute(
             select(StoragePurgeTask).where(
-                StoragePurgeTask.reason == "photo_upload_guard"
+                StoragePurgeTask.reason == "character_source_upload_guard"
             )
         )
     ).scalars().all()
@@ -582,25 +580,12 @@ async def test_orphan_guard_cancelled_on_successful_creation(
     from sqlalchemy import select
 
     from src.models.db import StoragePurgeTask
-    from src.services import photo_character as photo_module
-
-    async def ok(**kwargs):
-        return {
-            "name": "아이",
-            "master_description": "a cheerful child in storybook style",
-            "appearance": {"age_visual": "6세", "hair_color": "검정", "skin_tone": "밝은"},
-            "clothing": {"top": "티셔츠", "bottom": "바지", "shoes": "운동화"},
-            "personality_traits": ["밝은"],
-        }
-
-    monkeypatch.setattr(
-        photo_module.photo_character_service, "create_character_from_photo", ok
-    )
+    from tests.test_character_avatar import source_image
 
     r = await client.post(
         "/v1/characters/from-photo",
         headers=H,
-        files={"photo": ("child.jpg", b"\xff\xd8\xff\xdb" + b"0" * 64, "image/jpeg")},
+        files={"photo": ("child.jpg", source_image(), "image/jpeg")},
         data={"name": "아이", "style": "cartoon"},
     )
     assert r.status_code == 200, r.text
@@ -608,7 +593,7 @@ async def test_orphan_guard_cancelled_on_successful_creation(
     guards = (
         await db_session.execute(
             select(StoragePurgeTask).where(
-                StoragePurgeTask.reason == "photo_upload_guard"
+                StoragePurgeTask.reason == "character_source_upload_guard"
             )
         )
     ).scalars().all()
@@ -948,6 +933,8 @@ async def test_today_generate_requires_photo_consent(client, db_session, monkeyp
             personality_traits=[],
             user_key=uk,
             from_photo=True,
+            avatar_status="approved", avatar_version=1,
+            avatar_url=settings.s3_public_url + "/characters/char_own_photo_today/avatars/v1/portrait.png",
         )
     )
     await db_session.commit()

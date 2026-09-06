@@ -19,17 +19,24 @@ import pytest
 from sqlalchemy import select
 
 from src.models.db import Character
+from src.services.character_avatar import generate_character_avatar
+from tests import test_character_avatar as avatar_helpers
+
 from src.routers.characters import (
     _build_character_dict,
     _normalize_character_payload,
 )
 
 
+avatar_io = avatar_helpers.avatar_io
+source_image = avatar_helpers.source_image
+
+
 def _blank_provider_payload(name: str = "빈칸토토") -> dict:
     """실제 비전 분석이 돌려줄 수 있는 '부분적으로 빈' 응답."""
     return {
         "name": name,
-        "master_description": "둥근 얼굴의 아이",
+        "master_description": "둥근 얼굴과 짧은 머리의 아이",
         "appearance": {
             "hair_color": "",
             "hair_style": "",
@@ -133,32 +140,15 @@ def test_build_dict_repairs_legacy_blank_rows():
 
 
 @pytest.fixture()
-def blank_photo_boundary(monkeypatch):
-    """외부 경계만 대체 — 비전 분석/스토리지/이미지 생성."""
-    from src.routers import characters as characters_router
+def blank_photo_boundary(monkeypatch, avatar_io):
+    from src.services.character_avatar import photo_character_service
 
-    async def fake_from_photo(**_kwargs):
+    async def blank(**_kwargs):
         return _blank_provider_payload()
 
-    async def fake_from_drawing(**_kwargs):
-        return _blank_provider_payload("빈칸그림")
-
-    async def fake_upload(**_kwargs):
-        return "https://cdn.example.com/characters/src.png"
-
-    monkeypatch.setattr(
-        characters_router.photo_character_service,
-        "create_character_from_photo",
-        fake_from_photo,
-    )
-    monkeypatch.setattr(
-        characters_router.photo_character_service,
-        "create_character_from_drawing",
-        fake_from_drawing,
-    )
-    monkeypatch.setattr(
-        characters_router.storage_service, "upload_bytes", fake_upload
-    )
+    monkeypatch.setattr(photo_character_service, "create_character_from_photo", blank)
+    monkeypatch.setattr(photo_character_service, "create_character_from_drawing", blank)
+    return avatar_io
 
 
 @pytest.mark.asyncio
@@ -173,7 +163,7 @@ async def test_from_photo_with_blank_fields_succeeds_and_is_retrievable(
         json={"privacy": True, "photos": True, "data_processing": True},
     )
 
-    files = {"photo": ("kid.png", b"\x89PNG\r\n\x1a\n" + b"0" * 200, "image/png")}
+    files = {"photo": ("kid.png", source_image(), "image/png")}
     res = await client.post(
         "/v1/characters/from-photo", files=files, data={"name": "빈칸토토"},
         headers=headers,
@@ -182,6 +172,7 @@ async def test_from_photo_with_blank_fields_succeeds_and_is_retrievable(
         f"빈 값 필드로 from-photo 가 실패했다(H2 회귀): {res.status_code} {res.text[:400]}"
     )
     character_id = res.json()["character_id"]
+    assert await generate_character_avatar(character_id, 1, user_key)
 
     # 고아가 아니어야 한다 — 단건 조회가 되어야 캐릭터를 실제로 쓸 수 있다.
     single = await client.get(f"/v1/characters/{character_id}", headers=headers)
@@ -201,7 +192,7 @@ async def test_from_drawing_with_blank_fields_succeeds(
         headers=headers,
         json={"privacy": True, "photos": True, "data_processing": True},
     )
-    files = {"drawing": ("d.png", b"\x89PNG\r\n\x1a\n" + b"0" * 200, "image/png")}
+    files = {"drawing": ("d.png", source_image(), "image/png")}
     res = await client.post(
         "/v1/characters/from-drawing", files=files, data={"name": "빈칸그림"},
         headers=headers,
@@ -209,13 +200,14 @@ async def test_from_drawing_with_blank_fields_succeeds(
     assert res.status_code == 200, (
         f"빈 값 필드로 from-drawing 이 실패했다(H2 회귀): {res.status_code} {res.text[:400]}"
     )
+    assert await generate_character_avatar(res.json()["character_id"], 1, user_key)
 
 
 @pytest.mark.asyncio
 async def test_failed_creation_leaves_no_orphan_character(
-    client, db_session, monkeypatch
+    client, db_session, monkeypatch, avatar_io
 ):
-    """DTO 검증이 실패하는 상황에서도 캐릭터 행이 남지 않는다(orphan 차단).
+    """잘못된 분석은 재조회 가능한 failed 상태가 되며 잘못된 DTO를 저장하지 않는다.
 
     수정 전에는 커밋이 먼저였기 때문에 '실패 응답 + 남은 캐릭터'가 됐고, 멱등 재시도조차
     같은 지점에서 500 이라 영구히 되살릴 수 없었다.
@@ -229,16 +221,10 @@ async def test_failed_creation_leaves_no_orphan_character(
         payload["master_description"] = ""
         return payload
 
-    async def fake_upload(**_kwargs):
-        return "https://cdn.example.com/characters/src.png"
-
     monkeypatch.setattr(
         characters_router.photo_character_service,
         "create_character_from_photo",
         broken_payload,
-    )
-    monkeypatch.setattr(
-        characters_router.storage_service, "upload_bytes", fake_upload
     )
 
     user_key = str(uuid.uuid4())
@@ -248,15 +234,23 @@ async def test_failed_creation_leaves_no_orphan_character(
         headers=headers,
         json={"privacy": True, "photos": True, "data_processing": True},
     )
-    files = {"photo": ("kid.png", b"\x89PNG\r\n\x1a\n" + b"0" * 200, "image/png")}
+    files = {"photo": ("kid.png", source_image(), "image/png")}
     res = await client.post(
         "/v1/characters/from-photo", files=files, headers=headers
     )
-    assert res.status_code >= 400, "검증 불가 payload 인데 성공했다"
+    assert res.status_code == 200
+    cid = res.json()["character_id"]
+    assert not await generate_character_avatar(cid, 1, user_key)
+    fetched = await client.get(f"/v1/characters/{cid}", headers=headers)
+    assert fetched.status_code == 200
+    assert fetched.json()["avatar_status"] == "failed"
+    assert fetched.json()["master_description"].strip()
+    assert fetched.json()["avatar_retry_allowed"] is True
+    assert avatar_io["image"] == 0
 
     rows = (
         await db_session.execute(
             select(Character).where(Character.user_key == user_key)
         )
     ).scalars().all()
-    assert rows == [], f"실패했는데 캐릭터 행이 남았다(고아): {[r.id for r in rows]}"
+    assert len(rows) == 1 and rows[0].id == cid  # Recoverable state, never an unreadable orphan.

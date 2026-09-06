@@ -50,7 +50,7 @@ void main() {
       expect(spec.targetAge, equals('5-7'));
       expect(spec.style, equals('watercolor'));
       expect(spec.language, equals('ko')); // default
-      expect(spec.pageCount, equals(8)); // default
+      expect(spec.pageCount, equals(12)); // default
     });
 
     test('toJson includes all fields', () {

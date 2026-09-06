@@ -1,0 +1,527 @@
+# TEMPLATE ONLY: generate with scripts/prepare_render_blueprint.py after verified CI images exist.
+# Render compute $42/mo + separate Supabase $25/mo = initial estimate $67/mo; not a bill cap.
+# Only create NEW services: existing autoscaling/settings may be retained by Render.
+# Add supabase-ca.crt as a Secret File to BOTH API and worker; no secret content belongs here.
+previews:
+  generation: 'off'
+services:
+- type: web
+  name: __PREFIX__-api
+  runtime: image
+  plan: 0.5c-512mb
+  region: __REGION__
+  image:
+    url: __API_IMAGE__
+    creds:
+      fromRegistryCreds:
+        name: __REGISTRY_CREDENTIAL__
+  numInstances: 1
+  autoDeployTrigger: 'off'
+  healthCheckPath: /health/ready
+  maxShutdownDelaySeconds: 300
+  dockerCommand: python -m src.ops.render_entrypoint api
+  preDeployCommand: python -m src.ops.render_entrypoint migrate
+  envVars:
+  - key: DATABASE_URL
+    sync: false
+  - key: DATABASE_SSL_MODE
+    value: verify-full
+  - key: DATABASE_SSL_ROOT_CERT
+    value: /etc/secrets/supabase-ca.crt
+  - key: DATABASE_MIGRATION_URL
+    value: ''
+  - key: REDIS_URL
+    fromService:
+      name: __PREFIX__-redis
+      type: keyvalue
+      property: connectionString
+  - key: USE_CELERY
+    value: 'true'
+  - key: LLM_PROVIDER
+    value: openai
+  - key: LLM_API_KEY
+    sync: false
+  - key: LLM_MODEL
+    value: gpt-5.6-sol
+  - key: LLM_TIMEOUT
+    value: '90'
+  - key: IMAGE_PROVIDER
+    value: openai
+  - key: IMAGE_API_KEY
+    sync: false
+  - key: IMAGE_MODEL
+    value: gpt-image-2
+  - key: OPENAI_IMAGE_QUALITY
+    value: medium
+  - key: IMAGE_TIMEOUT
+    value: '90'
+  - key: IMAGE_MAX_CONCURRENT
+    value: '3'
+  - key: IMAGE_MAX_RETRIES
+    value: '3'
+  - key: ILLUSTRATION_QUALITY_ENABLED
+    value: 'true'
+  - key: PHOTO_PROCESSING_ENABLED
+    value: 'false'
+  - key: PHOTO_ANALYSIS_PROVIDER
+    value: openai
+  - key: PHOTO_ANALYSIS_MODEL
+    value: gpt-5.6-sol
+  - key: PHOTO_ANALYSIS_API_KEY
+    value: ''
+  - key: AUDIO_FEATURE_ENABLED
+    value: 'false'
+  - key: TTS_PROVIDER
+    value: google
+  - key: GOOGLE_TTS_API_KEY
+    value: ''
+  - key: ELEVENLABS_API_KEY
+    value: ''
+  - key: ELEVENLABS_VOICE_ID
+    value: 21m00Tcm4TlvDq8ikWAM
+  - key: STT_PROVIDER
+    value: openai
+  - key: STT_API_KEY
+    value: ''
+  - key: GOOGLE_STT_API_KEY
+    value: ''
+  - key: S3_ENDPOINT
+    sync: false
+  - key: S3_ADDRESSING_STYLE
+    value: path
+  - key: S3_AUTO_CREATE_BUCKET
+    value: 'false'
+  - key: S3_DOWNLOAD_ENDPOINT
+    value: ''
+  - key: S3_DOWNLOAD_TTL_SECONDS
+    value: '3600'
+  - key: S3_ACCESS_KEY
+    sync: false
+  - key: S3_SECRET_KEY
+    sync: false
+  - key: S3_BUCKET
+    sync: false
+  - key: S3_PUBLIC_URL
+    sync: false
+  - key: S3_LEGACY_PUBLIC_URLS
+    value: ''
+  - key: S3_REGION
+    sync: false
+  - key: POD_MODE
+    value: local
+  - key: POD_ORDERING_ENABLED
+    value: 'false'
+  - key: POD_PROVIDER
+    value: printful
+  - key: PRINTFUL_API_KEY
+    value: ''
+  - key: PRINTFUL_STORE_ID
+    value: ''
+  - key: PRINTFUL_SYNC_VARIANT_ID
+    value: ''
+  - key: PRINTFUL_BASE_URL
+    value: https://api.printful.com
+  - key: CORS_ORIGINS
+    sync: false
+  - key: ADMIN_API_KEY
+    sync: false
+  - key: SHARE_BASE_URL
+    sync: false
+  - key: RATE_LIMIT_REQUESTS
+    value: '10'
+  - key: RATE_LIMIT_WINDOW
+    value: '60'
+  - key: DAILY_GENERATION_BUDGET
+    value: '20'
+  - key: DAILY_JOB_LIMIT_PER_USER
+    value: '20'
+  - key: MAX_PENDING_JOBS
+    value: '500'
+  - key: MAX_PENDING_JOBS_PER_USER
+    value: '10'
+  - key: IAP_VERIFICATION_MODE
+    value: strict
+  - key: PURCHASES_ENABLED
+    value: 'false'
+  - key: APPLE_IAP_SHARED_SECRET
+    value: ''
+  - key: APPLE_BUNDLE_ID
+    value: ''
+  - key: GOOGLE_PLAY_PACKAGE_NAME
+    value: ''
+  - key: GOOGLE_PLAY_ACCESS_TOKEN
+    value: ''
+  - key: GOOGLE_PLAY_SERVICE_ACCOUNT_JSON
+    value: ''
+  - key: GOOGLE_PLAY_SERVICE_ACCOUNT_FILE
+    value: ''
+  - key: IAP_WEBHOOK_SECRET
+    value: ''
+  - key: DEBUG
+    value: 'false'
+  - key: TESTING
+    value: 'false'
+  - key: PORT
+    value: '8000'
+- type: worker
+  name: __PREFIX__-worker
+  runtime: image
+  plan: 1c-2g
+  region: __REGION__
+  image:
+    url: __WORKER_IMAGE__
+    creds:
+      fromRegistryCreds:
+        name: __REGISTRY_CREDENTIAL__
+  numInstances: 1
+  autoDeployTrigger: 'off'
+  maxShutdownDelaySeconds: 300
+  dockerCommand: python -m src.ops.render_entrypoint worker
+  envVars:
+  - key: DATABASE_URL
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: DATABASE_URL
+  - key: DATABASE_SSL_MODE
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: DATABASE_SSL_MODE
+  - key: DATABASE_SSL_ROOT_CERT
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: DATABASE_SSL_ROOT_CERT
+  - key: DATABASE_MIGRATION_URL
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: DATABASE_MIGRATION_URL
+  - key: REDIS_URL
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: REDIS_URL
+  - key: USE_CELERY
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: USE_CELERY
+  - key: LLM_PROVIDER
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: LLM_PROVIDER
+  - key: LLM_API_KEY
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: LLM_API_KEY
+  - key: LLM_MODEL
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: LLM_MODEL
+  - key: LLM_TIMEOUT
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: LLM_TIMEOUT
+  - key: IMAGE_PROVIDER
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: IMAGE_PROVIDER
+  - key: IMAGE_API_KEY
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: IMAGE_API_KEY
+  - key: IMAGE_MODEL
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: IMAGE_MODEL
+  - key: OPENAI_IMAGE_QUALITY
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: OPENAI_IMAGE_QUALITY
+  - key: IMAGE_TIMEOUT
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: IMAGE_TIMEOUT
+  - key: IMAGE_MAX_CONCURRENT
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: IMAGE_MAX_CONCURRENT
+  - key: IMAGE_MAX_RETRIES
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: IMAGE_MAX_RETRIES
+  - key: ILLUSTRATION_QUALITY_ENABLED
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: ILLUSTRATION_QUALITY_ENABLED
+  - key: PHOTO_PROCESSING_ENABLED
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: PHOTO_PROCESSING_ENABLED
+  - key: PHOTO_ANALYSIS_PROVIDER
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: PHOTO_ANALYSIS_PROVIDER
+  - key: PHOTO_ANALYSIS_MODEL
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: PHOTO_ANALYSIS_MODEL
+  - key: PHOTO_ANALYSIS_API_KEY
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: PHOTO_ANALYSIS_API_KEY
+  - key: AUDIO_FEATURE_ENABLED
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: AUDIO_FEATURE_ENABLED
+  - key: TTS_PROVIDER
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: TTS_PROVIDER
+  - key: GOOGLE_TTS_API_KEY
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: GOOGLE_TTS_API_KEY
+  - key: ELEVENLABS_API_KEY
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: ELEVENLABS_API_KEY
+  - key: ELEVENLABS_VOICE_ID
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: ELEVENLABS_VOICE_ID
+  - key: STT_PROVIDER
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: STT_PROVIDER
+  - key: STT_API_KEY
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: STT_API_KEY
+  - key: GOOGLE_STT_API_KEY
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: GOOGLE_STT_API_KEY
+  - key: S3_ENDPOINT
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: S3_ENDPOINT
+  - key: S3_ADDRESSING_STYLE
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: S3_ADDRESSING_STYLE
+  - key: S3_AUTO_CREATE_BUCKET
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: S3_AUTO_CREATE_BUCKET
+  - key: S3_DOWNLOAD_ENDPOINT
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: S3_DOWNLOAD_ENDPOINT
+  - key: S3_DOWNLOAD_TTL_SECONDS
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: S3_DOWNLOAD_TTL_SECONDS
+  - key: S3_ACCESS_KEY
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: S3_ACCESS_KEY
+  - key: S3_SECRET_KEY
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: S3_SECRET_KEY
+  - key: S3_BUCKET
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: S3_BUCKET
+  - key: S3_PUBLIC_URL
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: S3_PUBLIC_URL
+  - key: S3_LEGACY_PUBLIC_URLS
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: S3_LEGACY_PUBLIC_URLS
+  - key: S3_REGION
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: S3_REGION
+  - key: POD_MODE
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: POD_MODE
+  - key: POD_ORDERING_ENABLED
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: POD_ORDERING_ENABLED
+  - key: POD_PROVIDER
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: POD_PROVIDER
+  - key: PRINTFUL_API_KEY
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: PRINTFUL_API_KEY
+  - key: PRINTFUL_STORE_ID
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: PRINTFUL_STORE_ID
+  - key: PRINTFUL_SYNC_VARIANT_ID
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: PRINTFUL_SYNC_VARIANT_ID
+  - key: PRINTFUL_BASE_URL
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: PRINTFUL_BASE_URL
+  - key: CORS_ORIGINS
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: CORS_ORIGINS
+  - key: ADMIN_API_KEY
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: ADMIN_API_KEY
+  - key: SHARE_BASE_URL
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: SHARE_BASE_URL
+  - key: RATE_LIMIT_REQUESTS
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: RATE_LIMIT_REQUESTS
+  - key: RATE_LIMIT_WINDOW
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: RATE_LIMIT_WINDOW
+  - key: DAILY_GENERATION_BUDGET
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: DAILY_GENERATION_BUDGET
+  - key: DAILY_JOB_LIMIT_PER_USER
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: DAILY_JOB_LIMIT_PER_USER
+  - key: MAX_PENDING_JOBS
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: MAX_PENDING_JOBS
+  - key: MAX_PENDING_JOBS_PER_USER
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: MAX_PENDING_JOBS_PER_USER
+  - key: IAP_VERIFICATION_MODE
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: IAP_VERIFICATION_MODE
+  - key: PURCHASES_ENABLED
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: PURCHASES_ENABLED
+  - key: APPLE_IAP_SHARED_SECRET
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: APPLE_IAP_SHARED_SECRET
+  - key: APPLE_BUNDLE_ID
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: APPLE_BUNDLE_ID
+  - key: GOOGLE_PLAY_PACKAGE_NAME
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: GOOGLE_PLAY_PACKAGE_NAME
+  - key: GOOGLE_PLAY_ACCESS_TOKEN
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: GOOGLE_PLAY_ACCESS_TOKEN
+  - key: GOOGLE_PLAY_SERVICE_ACCOUNT_JSON
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: GOOGLE_PLAY_SERVICE_ACCOUNT_JSON
+  - key: GOOGLE_PLAY_SERVICE_ACCOUNT_FILE
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: GOOGLE_PLAY_SERVICE_ACCOUNT_FILE
+  - key: IAP_WEBHOOK_SECRET
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: IAP_WEBHOOK_SECRET
+  - key: DEBUG
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: DEBUG
+  - key: TESTING
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: TESTING
+- type: keyvalue
+  name: __PREFIX__-redis
+  plan: 256mb
+  region: __REGION__
+  ipAllowList: []
+  maxmemoryPolicy: noeviction
+  persistenceMode: journal-snapshot

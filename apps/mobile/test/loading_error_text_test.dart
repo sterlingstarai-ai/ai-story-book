@@ -37,6 +37,19 @@ void main() {
     expect(text, l.loadingUnknownError);
   });
 
+  test('image quality failure localizes without diagnostics or refund claims',
+      () async {
+    for (final code in ['ko', 'en', 'ja']) {
+      final l = await AppLocalizations.delegate.load(Locale(code));
+      for (final message in [null, 'provider diagnostics; refund completed']) {
+        expect(
+          composeJobErrorText(l, 'IMAGE_QUALITY_FAILED', message),
+          l.loadingImageQualityFailed,
+        );
+      }
+    }
+  });
+
   test('TIMEOUT shows localized message, not raw TimeoutException (H17)',
       () async {
     for (final code in ['ko', 'en', 'ja']) {

@@ -19,7 +19,8 @@ from src.services.purge_queue import (
     enqueue_purge_prefix,
     run_purge_tasks,
 )
-from src.services.storage import book_file_prefix, mask_file_prefix
+from src.services.photo_lifecycle import lock_photo_account
+from src.services.storage import book_file_prefix, mask_file_prefix, media_url
 
 router = APIRouter()
 logger = structlog.get_logger()
@@ -137,7 +138,7 @@ async def get_library(
             BookSummary(
                 book_id=b.id,
                 title=b.title,
-                cover_image_url=b.cover_image_url or "",
+                cover_image_url=media_url(b.cover_image_url) or "",
                 target_age=TargetAge(b.target_age),
                 style=b.style,
                 created_at=b.created_at,
@@ -185,7 +186,7 @@ async def update_book(
     return BookSummary(
         book_id=book.id,
         title=book.title,
-        cover_image_url=book.cover_image_url or "",
+        cover_image_url=media_url(book.cover_image_url) or "",
         target_age=TargetAge(book.target_age),
         style=book.style,
         created_at=book.created_at,
@@ -202,6 +203,10 @@ async def delete_book(
     """
     책 삭제
     """
+    # Serialize with verified edit publication before touching Book or Page rows.
+    # Otherwise deletion's child-first order can deadlock with Book-first edits,
+    # and its asset inventory can miss the image an edit has just published.
+    await lock_photo_account(db, user_key)
     result = await db.execute(select(Book).where(Book.id == book_id))
     book = result.scalar_one_or_none()
 

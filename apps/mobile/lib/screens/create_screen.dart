@@ -4,13 +4,50 @@ import 'package:dio/dio.dart';
 import '../core/api_error.dart';
 import '../l10n/app_localizations.dart';
 import '../models/models.dart';
+import '../models/generation_options.dart';
 import '../providers/providers.dart';
 import '../services/analytics.dart';
 import '../utils/constants.dart';
 import '../utils/spec_labels.dart';
 import '../widgets/character_source_sheet.dart';
+import '../widgets/character_avatar_preview.dart';
 import '../widgets/credit_shortage_modal.dart';
 import '../widgets/common_widgets.dart';
+
+String createFailureMessage(AppLocalizations l, ApiError? error) {
+  switch (error?.code) {
+    case 'PHOTO_PROCESSING_UNAVAILABLE':
+      return l.characterAvatarUnavailable;
+    case 'CHARACTER_APPROVAL_REQUIRED':
+      return l.characterAvatarNeedsApproval;
+    case 'CHARACTER_REFERENCE_UNAVAILABLE':
+      return l.characterAvatarReferenceUnavailable;
+    case 'AVATAR_MULTIPLE_REFERENCES_UNSUPPORTED':
+    case 'PHOTO_CHARACTER_SELECTION_INVALID':
+      return l.characterSelectionInvalid;
+    case 'SAFETY_INPUT':
+      return l.createSafetyInputHint;
+    case 'SAFETY_OUTPUT':
+      return l.createSafetyOutputHint;
+    case 'DAILY_LIMIT_EXCEEDED':
+      return l.createDailyLimitHint;
+    case 'TIMEOUT':
+    case 'CONNECTION_ERROR':
+    case 'NETWORK_ERROR':
+    case 'VALIDATION_ERROR':
+    case 'UNAUTHORIZED':
+    case 'FORBIDDEN':
+    case 'RATE_LIMIT_EXCEEDED':
+    case 'INTERNAL_ERROR':
+    case 'SERVICE_UNAVAILABLE':
+    case 'BAD_GATEWAY':
+    case 'GATEWAY_TIMEOUT':
+    case 'CANCELLED':
+      return error!.localizedMessage(l);
+    default:
+      return l.createFailedSnack;
+  }
+}
 
 /// 책 생성 화면
 class CreateScreen extends ConsumerStatefulWidget {
@@ -29,11 +66,13 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
   String _selectedLanguage =
       'ko'; // 이야기 생성 언어 (didChangeDependencies에서 로캘 기반 초기화)
   BookStyle _selectedStyle = BookStyle.watercolor;
+  int _selectedPageCount = 12;
   BookTheme? _selectedTheme;
   List<String> _selectedCharacterIds = []; // 다중 캐릭터 선택
   String? _selectedRelationship; // 다중 선택 시 캐릭터 관계 (남매/친구/가족)
   final Set<String> _forbiddenElements = {}; // 빼고 싶은 요소 (콘텐츠 안전)
   bool _isLoading = false;
+  bool _isSelectingCharacter = false;
   bool _didHandleRouteArgs = false;
 
   @override
@@ -94,32 +133,78 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
   }
 
   Future<void> _createBook() async {
-    if (!_formKey.currentState!.validate()) return;
-
-    try {
-      final credits = await ref.read(apiClientProvider).getCreditsBalance();
-      if (credits <= 0) {
-        ref.read(analyticsProvider).logEvent(
-          AnalyticsEvents.paywallShown,
-          params: const {'reason': 'no_credits'},
-        );
-        if (mounted) {
-          await showCreditShortageModal(context);
-        }
-        return;
-      }
-    } catch (_) {
-      // 잔액 조회 실패 시 생성은 계속 진행 (서버에서 최종 검증)
-    }
-
+    if (_isLoading || !_formKey.currentState!.validate()) return;
+    final optionsState = ref.read(generationOptionsProvider);
+    final options = optionsState.isLoading || optionsState.hasError
+        ? null
+        : optionsState.asData?.value;
+    final selectedStyle = _styleFor(options);
+    if (selectedStyle == null) return;
+    final api = ref.read(apiClientProvider);
+    // Reserve the attempt before the first async call so repeated taps cannot
+    // race the credit lookup and create more than one book.
     setState(() => _isLoading = true);
 
     try {
+      // Recheck route arguments and cached choices in the active profile before spending.
+      final verifiedCharacters = <Character>[];
+      for (final id in List<String>.of(_selectedCharacterIds)) {
+        final character = await api.getCharacter(id);
+        if (!mounted || !identical(api, ref.read(apiClientProvider))) return;
+        if (!character.canUseInBook) {
+          final preview = await showCharacterAvatarPreview(context,
+              characterId: id, initialCharacter: character);
+          if (!mounted || preview?.character?.canUseInBook != true) return;
+          ref.invalidate(charactersProvider);
+        }
+        verifiedCharacters.add(character);
+      }
+      final photoHeroes =
+          verifiedCharacters.where((c) => c.needsAvatarApproval).toList();
+      if (photoHeroes.length > 1) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(
+                  AppLocalizations.of(context).characterSelectionInvalid)));
+        }
+        return;
+      }
+      if (photoHeroes.isNotEmpty) {
+        final heroId = photoHeroes.single.id;
+        setState(() => _selectedCharacterIds = [
+              heroId,
+              ..._selectedCharacterIds.where((id) => id != heroId)
+            ]);
+      }
+      try {
+        final credits = await api.getCreditsBalance();
+        if (!mounted) return;
+        if (credits <= 0) {
+          ref.read(analyticsProvider).logEvent(
+            AnalyticsEvents.paywallShown,
+            params: const {'reason': 'no_credits'},
+          );
+          await showCreditShortageModal(context);
+          return;
+        }
+      } catch (_) {
+        // The server still validates credits if the preliminary lookup fails.
+      }
+      if (!mounted) return;
+      final latestOptions = ref.read(generationOptionsProvider);
+      if (!identical(api, ref.read(apiClientProvider)) ||
+          latestOptions.isLoading ||
+          latestOptions.hasError ||
+          !identical(options, latestOptions.asData?.value)) {
+        return;
+      }
+
       final spec = BookSpec(
         topic: _topicController.text.trim(),
         language: _selectedLanguage,
         targetAge: _selectedAge.value,
-        style: _selectedStyle.value,
+        style: selectedStyle.value,
+        pageCount: _selectedPageCount,
         theme: _selectedTheme?.value,
         protagonistName: _protagonistController.text.trim().isEmpty
             ? null
@@ -139,7 +224,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
         AnalyticsEvents.bookCreateRequested,
         params: {
           'target_age': _selectedAge.value,
-          'style': _selectedStyle.value,
+          'style': selectedStyle.value,
           'has_protagonist': _protagonistController.text.trim().isNotEmpty,
         },
       );
@@ -175,7 +260,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
         }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(l.createFailedSnack),
+            content: Text(createFailureMessage(l, apiError)),
             backgroundColor: AppColors.error,
           ),
         );
@@ -187,6 +272,13 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
     }
   }
 
+  /// Prefer the selected style only while the server still authorizes it.
+  BookStyle? _styleFor(GenerationOptions? options) {
+    final allowed = options?.allowedStyles ?? const <BookStyle>[];
+    if (allowed.contains(_selectedStyle)) return _selectedStyle;
+    return allowed.isEmpty ? null : allowed.first;
+  }
+
   /// '우리 아이를 주인공으로' — 사진/기본 캐릭터 시트를 열어 주인공 캐릭터를 만든다.
   Future<void> _selectChildProtagonist() async {
     final childName = _protagonistController.text.trim();
@@ -196,6 +288,49 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
     );
     if (characterId != null && characterId.isNotEmpty && mounted) {
       setState(() => _selectedCharacterIds = [characterId]);
+    }
+  }
+
+  void _selectReadyCharacter(Character character) {
+    final known = ref.read(charactersProvider).asData?.value ?? <Character>[];
+    final manualIds =
+        known.where((c) => !c.needsAvatarApproval).map((c) => c.id).toSet();
+    setState(() {
+      if (character.needsAvatarApproval) {
+        _selectedCharacterIds = [
+          character.id,
+          ..._selectedCharacterIds
+              .where((id) => manualIds.contains(id) && id != character.id)
+        ];
+      } else if (!_selectedCharacterIds.contains(character.id)) {
+        _selectedCharacterIds.add(character.id);
+      }
+    });
+  }
+
+  Future<void> _toggleCharacter(Character character) async {
+    if (_isSelectingCharacter || _isLoading) return;
+    if (_selectedCharacterIds.contains(character.id)) {
+      setState(() => _selectedCharacterIds.remove(character.id));
+      return;
+    }
+    if (character.canUseInBook) {
+      _selectReadyCharacter(character);
+      return;
+    }
+    setState(() => _isSelectingCharacter = true);
+    try {
+      final result = await showCharacterAvatarPreview(context,
+          characterId: character.id, initialCharacter: character);
+      if (!mounted) return;
+      ref.invalidate(charactersProvider);
+      if (result?.character?.canUseInBook == true) {
+        _selectReadyCharacter(result!.character!);
+      } else if (result?.chooseAnotherPhoto == true) {
+        await _selectChildProtagonist();
+      }
+    } finally {
+      if (mounted) setState(() => _isSelectingCharacter = false);
     }
   }
 
@@ -217,6 +352,12 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
     final charactersAsync = ref.watch(charactersProvider);
+    final optionsAsync = ref.watch(generationOptionsProvider);
+    final options = optionsAsync.isLoading || optionsAsync.hasError
+        ? null
+        : optionsAsync.asData?.value;
+    final allowedStyles = options?.allowedStyles ?? const <BookStyle>[];
+    final selectedStyle = _styleFor(options);
 
     // 추천 빠른 시작 템플릿 — 보편 테마(글로벌). 탭하면 주제·테마를 채워준다.
     final templates =
@@ -248,12 +389,12 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
     ];
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: AppPalette.of(context).background,
       appBar: AppBar(
-        backgroundColor: AppColors.background,
+        backgroundColor: AppPalette.of(context).background,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.close, color: AppColors.textPrimary),
+          icon: Icon(Icons.close, color: AppPalette.of(context).textPrimary),
           tooltip: l.createCloseTooltip,
           onPressed: () => Navigator.pop(context),
         ),
@@ -266,6 +407,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
       body: Form(
         key: _formKey,
         child: ListView(
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           padding: const EdgeInsets.all(AppSpacing.lg),
           children: [
             // 연령대 선택 (가장 먼저 노출 — 연령별 문체·어휘가 이야기 생성에 직접 반영됨)
@@ -286,11 +428,11 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                   onSelected: (selected) {
                     if (selected) setState(() => _selectedAge = age);
                   },
-                  selectedColor: AppColors.primaryMedium,
+                  selectedColor: AppPalette.of(context).primaryLight,
                   labelStyle: TextStyle(
                     color: isSelected
-                        ? AppColors.primary
-                        : AppColors.textSecondary,
+                        ? AppPalette.of(context).primary
+                        : AppPalette.of(context).textSecondary,
                     fontWeight:
                         isSelected ? FontWeight.w600 : FontWeight.normal,
                   ),
@@ -307,7 +449,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
             Text(l.createTemplateSectionLabel, style: AppTextStyles.heading3),
             const SizedBox(height: AppSpacing.sm),
             SizedBox(
-              height: 40,
+              height: AppSizing.minTouchTarget,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
                 itemCount: templates.length,
@@ -316,16 +458,20 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                 itemBuilder: (context, index) {
                   final t = templates[index];
                   return ActionChip(
-                    avatar: Icon(t.icon, size: 18, color: AppColors.primary),
+                    materialTapTargetSize: MaterialTapTargetSize.padded,
+                    padding:
+                        const EdgeInsets.symmetric(vertical: AppSpacing.md),
+                    avatar: Icon(t.icon,
+                        size: 18, color: AppPalette.of(context).primary),
                     label: Text(t.label),
                     onPressed: () => setState(() {
                       _topicController.text = t.topic;
                       _selectedTheme = t.theme;
                     }),
-                    backgroundColor: AppColors.surface,
+                    backgroundColor: AppPalette.of(context).surface,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(AppRadius.md),
-                      side: const BorderSide(color: AppColors.divider),
+                      side: BorderSide(color: AppPalette.of(context).divider),
                     ),
                   );
                 },
@@ -343,19 +489,19 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                 hintText: l.createTopicHint,
                 hintStyle: AppTextStyles.bodySmall,
                 filled: true,
-                fillColor: AppColors.surface,
+                fillColor: AppPalette.of(context).surface,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(AppRadius.md),
-                  borderSide: const BorderSide(color: AppColors.divider),
+                  borderSide: BorderSide(color: AppPalette.of(context).divider),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(AppRadius.md),
-                  borderSide: const BorderSide(color: AppColors.divider),
+                  borderSide: BorderSide(color: AppPalette.of(context).divider),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(AppRadius.md),
-                  borderSide:
-                      const BorderSide(color: AppColors.primary, width: 2),
+                  borderSide: BorderSide(
+                      color: AppPalette.of(context).primary, width: 2),
                 ),
               ),
               maxLines: 3,
@@ -411,11 +557,11 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                       setState(() => _selectedLanguage = e.key);
                     }
                   },
-                  selectedColor: AppColors.primaryMedium,
+                  selectedColor: AppPalette.of(context).primaryLight,
                   labelStyle: TextStyle(
                     color: isSelected
-                        ? AppColors.primary
-                        : AppColors.textSecondary,
+                        ? AppPalette.of(context).primary
+                        : AppPalette.of(context).textSecondary,
                     fontWeight:
                         isSelected ? FontWeight.w600 : FontWeight.normal,
                   ),
@@ -425,14 +571,57 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
 
             const SizedBox(height: AppSpacing.lg),
 
+            Text(l.createLengthLabel, style: AppTextStyles.heading3),
+            const SizedBox(height: AppSpacing.sm),
+            Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.sm,
+              children: [12, 8].map((count) {
+                final isSelected = _selectedPageCount == count;
+                return ConstrainedBox(
+                  constraints:
+                      const BoxConstraints(minHeight: AppSizing.minTouchTarget),
+                  child: ChoiceChip(
+                    key: ValueKey('story-length-$count'),
+                    label: Text(count == 12
+                        ? l.createLengthStandard
+                        : l.createLengthShort),
+                    selected: isSelected,
+                    materialTapTargetSize: MaterialTapTargetSize.padded,
+                    labelPadding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.sm,
+                      vertical: AppSpacing.md,
+                    ),
+                    onSelected: (selected) {
+                      if (selected) {
+                        setState(() => _selectedPageCount = count);
+                      }
+                    },
+                    selectedColor: AppPalette.of(context).primaryLight,
+                    labelStyle: TextStyle(
+                      color: isSelected
+                          ? AppPalette.of(context).primary
+                          : AppPalette.of(context).textSecondary,
+                      fontWeight:
+                          isSelected ? FontWeight.w600 : FontWeight.normal,
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Text(l.createLengthHint, style: AppTextStyles.bodySmall),
+
+            const SizedBox(height: AppSpacing.lg),
+
             // 그림 스타일 선택
             Text(l.createStyleLabel, style: AppTextStyles.heading3),
             const SizedBox(height: AppSpacing.sm),
             Wrap(
               spacing: AppSpacing.sm,
               runSpacing: AppSpacing.sm,
-              children: BookStyle.values.map((style) {
-                final isSelected = _selectedStyle == style;
+              children: allowedStyles.map((style) {
+                final isSelected = selectedStyle == style;
                 return ChoiceChip(
                   label: Text(style.localizedLabel(l)),
                   selected: isSelected,
@@ -441,20 +630,24 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                     horizontal: AppSpacing.sm,
                     vertical: AppSpacing.md,
                   ),
-                  onSelected: (selected) {
-                    if (selected) setState(() => _selectedStyle = style);
-                  },
-                  selectedColor: AppColors.primaryMedium,
+                  onSelected: _isLoading
+                      ? null
+                      : (selected) {
+                          if (selected) setState(() => _selectedStyle = style);
+                        },
+                  selectedColor: AppPalette.of(context).primaryLight,
                   labelStyle: TextStyle(
                     color: isSelected
-                        ? AppColors.primary
-                        : AppColors.textSecondary,
+                        ? AppPalette.of(context).primary
+                        : AppPalette.of(context).textSecondary,
                     fontWeight:
                         isSelected ? FontWeight.w600 : FontWeight.normal,
                   ),
                 );
               }).toList(),
             ),
+            const SizedBox(height: AppSpacing.sm),
+            Text(l.createAvailableStylesHint, style: AppTextStyles.bodySmall),
 
             const SizedBox(height: AppSpacing.lg),
 
@@ -476,11 +669,11 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                   onSelected: (selected) {
                     if (selected) setState(() => _selectedTheme = null);
                   },
-                  selectedColor: AppColors.primaryMedium,
+                  selectedColor: AppPalette.of(context).primaryLight,
                   labelStyle: TextStyle(
                     color: _selectedTheme == null
-                        ? AppColors.primary
-                        : AppColors.textSecondary,
+                        ? AppPalette.of(context).primary
+                        : AppPalette.of(context).textSecondary,
                   ),
                 ),
                 ...BookTheme.values.map((theme) {
@@ -496,11 +689,11 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                     onSelected: (selected) {
                       if (selected) setState(() => _selectedTheme = theme);
                     },
-                    selectedColor: AppColors.primaryMedium,
+                    selectedColor: AppPalette.of(context).primaryLight,
                     labelStyle: TextStyle(
                       color: isSelected
-                          ? AppColors.primary
-                          : AppColors.textSecondary,
+                          ? AppPalette.of(context).primary
+                          : AppPalette.of(context).textSecondary,
                       fontWeight:
                           isSelected ? FontWeight.w600 : FontWeight.normal,
                     ),
@@ -512,8 +705,10 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
             const SizedBox(height: AppSpacing.lg),
 
             // 캐릭터 선택 (선택사항 - 다중 선택 가능)
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.xs,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 Text(l.createCharacterLabel, style: AppTextStyles.heading3),
                 TextButton.icon(
@@ -521,7 +716,8 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                   icon: const Icon(Icons.add, size: 18),
                   label: Text(l.createAddCharacter),
                   style: TextButton.styleFrom(
-                    foregroundColor: AppColors.primary,
+                    foregroundColor: AppPalette.of(context).primary,
+                    minimumSize: const Size(64, 64),
                   ),
                 ),
               ],
@@ -529,7 +725,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
             const SizedBox(height: AppSpacing.xs),
             Text(
               l.createCharacterHint,
-              style: AppTextStyles.caption.copyWith(color: AppColors.textHint),
+              style: AppTextStyles.bodySmall,
             ),
             const SizedBox(height: AppSpacing.sm),
             charactersAsync.when(
@@ -549,7 +745,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                     const SizedBox(height: AppSpacing.sm),
                     _CharacterOption(
                       icon: Icons.face_retouching_natural,
-                      iconColor: AppColors.primary,
+                      iconColor: AppPalette.of(context).primary,
                       title: l.createChildProtagonistTitle,
                       description: l.createChildProtagonistDesc,
                       isSelected: false,
@@ -561,13 +757,17 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                       Row(
                         children: [
                           const Expanded(child: Divider()),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: AppSpacing.sm),
-                            child: Text(
-                              l.createOrSelectExisting,
-                              style: AppTextStyles.caption
-                                  .copyWith(color: AppColors.textHint),
+                          Flexible(
+                            flex: 4,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: AppSpacing.sm),
+                              child: Text(
+                                l.createOrSelectExisting,
+                                textAlign: TextAlign.center,
+                                style: AppTextStyles.caption.copyWith(
+                                    color: AppPalette.of(context).textHint),
+                              ),
                             ),
                           ),
                           const Expanded(child: Divider()),
@@ -582,14 +782,14 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                                 horizontal: AppSpacing.sm,
                                 vertical: AppSpacing.xs),
                             decoration: BoxDecoration(
-                              color: AppColors.primaryMedium,
+                              color: AppPalette.of(context).primaryLight,
                               borderRadius: BorderRadius.circular(AppRadius.sm),
                             ),
                             child: Text(
                               l.createSelectedCount(
                                   _selectedCharacterIds.length),
-                              style: AppTextStyles.caption
-                                  .copyWith(color: AppColors.primary),
+                              style: AppTextStyles.caption.copyWith(
+                                  color: AppPalette.of(context).primary),
                             ),
                           ),
                         ),
@@ -599,20 +799,26 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                                 const EdgeInsets.only(bottom: AppSpacing.sm),
                             child: CharacterCard(
                               name: character.name,
-                              description: character.masterDescription,
+                              avatar: character.needsAvatarApproval
+                                  ? CharacterAvatarThumbnail(
+                                      character: character, size: 48)
+                                  : null,
+                              statusLabel: character.needsAvatarApproval
+                                  ? (_selectedCharacterIds.isNotEmpty &&
+                                          _selectedCharacterIds.first ==
+                                              character.id
+                                      ? l.characterAvatarHeroLabel
+                                      : characterAvatarStatusLabel(
+                                          l, character))
+                                  : null,
+                              description:
+                                  characterDisplayDescription(l, character),
                               isSelected:
                                   _selectedCharacterIds.contains(character.id),
                               showCheckbox: true,
-                              onTap: () {
-                                setState(() {
-                                  if (_selectedCharacterIds
-                                      .contains(character.id)) {
-                                    _selectedCharacterIds.remove(character.id);
-                                  } else {
-                                    _selectedCharacterIds.add(character.id);
-                                  }
-                                });
-                              },
+                              onTap: _isSelectingCharacter
+                                  ? null
+                                  : () => _toggleCharacter(character),
                             ),
                           )),
                     ] else ...[
@@ -620,20 +826,23 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                       Container(
                         padding: const EdgeInsets.all(AppSpacing.md),
                         decoration: BoxDecoration(
-                          color: AppColors.surface,
+                          color: AppPalette.of(context).surface,
                           borderRadius: BorderRadius.circular(AppRadius.md),
-                          border: Border.all(color: AppColors.divider),
+                          border:
+                              Border.all(color: AppPalette.of(context).divider),
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.info_outline,
-                                color: AppColors.textHint, size: 20),
+                            Icon(Icons.info_outline,
+                                color: AppPalette.of(context).textHint,
+                                size: 20),
                             const SizedBox(width: AppSpacing.sm),
                             Expanded(
                               child: Text(
                                 l.createAddCharacterTip,
-                                style: AppTextStyles.caption
-                                    .copyWith(color: AppColors.textSecondary),
+                                style: AppTextStyles.caption.copyWith(
+                                    color:
+                                        AppPalette.of(context).textSecondary),
                               ),
                             ),
                           ],
@@ -644,7 +853,21 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                 );
               },
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (_, __) => Text(l.createCharacterLoadError),
+              error: (_, __) => Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(l.createCharacterLoadError,
+                      style: AppTextStyles.bodySmall),
+                  TextButton.icon(
+                    onPressed: () => ref.invalidate(charactersProvider),
+                    icon: const Icon(Icons.refresh),
+                    label: Text(l.retry),
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size(64, 64),
+                    ),
+                  ),
+                ],
+              ),
             ),
 
             // 캐릭터 2명 이상 선택 시 관계 선택 (남매/친구 스토리 역학에 반영)
@@ -672,11 +895,11 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                       setState(
                           () => _selectedRelationship = selected ? rel : null);
                     },
-                    selectedColor: AppColors.primaryMedium,
+                    selectedColor: AppPalette.of(context).primaryLight,
                     labelStyle: TextStyle(
                       color: isSelected
-                          ? AppColors.primary
-                          : AppColors.textSecondary,
+                          ? AppPalette.of(context).primary
+                          : AppPalette.of(context).textSecondary,
                       fontWeight:
                           isSelected ? FontWeight.w600 : FontWeight.normal,
                     ),
@@ -701,6 +924,10 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                 final isSelected = _forbiddenElements.contains(item);
                 return FilterChip(
                   label: Text(item),
+                  labelPadding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.sm,
+                    vertical: AppSpacing.md,
+                  ),
                   selected: isSelected,
                   materialTapTargetSize: MaterialTapTargetSize.padded,
                   onSelected: (selected) {
@@ -712,12 +939,12 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                       }
                     });
                   },
-                  selectedColor: AppColors.primaryMedium,
-                  checkmarkColor: AppColors.primary,
+                  selectedColor: AppPalette.of(context).primaryLight,
+                  checkmarkColor: AppPalette.of(context).primary,
                   labelStyle: TextStyle(
                     color: isSelected
-                        ? AppColors.primary
-                        : AppColors.textSecondary,
+                        ? AppPalette.of(context).primary
+                        : AppPalette.of(context).textSecondary,
                     fontWeight:
                         isSelected ? FontWeight.w600 : FontWeight.normal,
                   ),
@@ -731,9 +958,9 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
       ),
       bottomNavigationBar: Container(
         padding: const EdgeInsets.all(AppSpacing.lg),
-        decoration: const BoxDecoration(
-          color: AppColors.surface,
-          boxShadow: [
+        decoration: BoxDecoration(
+          color: AppPalette.of(context).surface,
+          boxShadow: const [
             BoxShadow(
               color: AppColors.blackOverlayLight,
               blurRadius: 10,
@@ -742,10 +969,30 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
           ],
         ),
         child: SafeArea(
-          child: PrimaryButton(
-            text: l.createMakeButton,
-            isLoading: _isLoading,
-            onPressed: _createBook,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (selectedStyle == null) ...[
+                Text(
+                    optionsAsync.isLoading
+                        ? l.createOptionsLoading
+                        : l.createOptionsFailed,
+                    style: AppTextStyles.bodySmall),
+                if (!optionsAsync.isLoading)
+                  TextButton(
+                    style:
+                        TextButton.styleFrom(minimumSize: const Size(64, 64)),
+                    onPressed: () => ref.invalidate(generationOptionsProvider),
+                    child: Text(l.retry),
+                  ),
+                const SizedBox(height: AppSpacing.sm),
+              ],
+              PrimaryButton(
+                text: l.createMakeButton,
+                isLoading: _isLoading,
+                onPressed: selectedStyle == null ? null : _createBook,
+              ),
+            ],
           ),
         ),
       ),
@@ -778,10 +1025,14 @@ class _CharacterOption extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(AppSpacing.md),
         decoration: BoxDecoration(
-          color: isSelected ? AppColors.secondaryLight : AppColors.surface,
+          color: isSelected
+              ? AppPalette.of(context).primaryLight
+              : AppPalette.of(context).surface,
           borderRadius: BorderRadius.circular(AppRadius.md),
           border: Border.all(
-            color: isSelected ? AppColors.secondary : AppColors.divider,
+            color: isSelected
+                ? AppColors.secondary
+                : AppPalette.of(context).divider,
             width: isSelected ? 2 : 1,
           ),
         ),
@@ -806,15 +1057,15 @@ class _CharacterOption extends StatelessWidget {
                     style: AppTextStyles.body.copyWith(
                       fontWeight: FontWeight.w600,
                       color: isSelected
-                          ? AppColors.secondary
-                          : AppColors.textPrimary,
+                          ? AppPalette.of(context).primary
+                          : AppPalette.of(context).textPrimary,
                     ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     description,
                     style: AppTextStyles.caption.copyWith(
-                      color: AppColors.textSecondary,
+                      color: AppPalette.of(context).textSecondary,
                     ),
                   ),
                 ],
@@ -846,7 +1097,7 @@ class _AgeHelpBanner extends StatelessWidget {
         vertical: AppSpacing.sm,
       ),
       decoration: BoxDecoration(
-        color: AppColors.secondaryLight,
+        color: AppPalette.of(context).primaryLight,
         borderRadius: BorderRadius.circular(AppRadius.md),
       ),
       child: Row(
@@ -857,7 +1108,7 @@ class _AgeHelpBanner extends StatelessWidget {
             child: Text(
               text,
               style: AppTextStyles.caption
-                  .copyWith(color: AppColors.textSecondary),
+                  .copyWith(color: AppPalette.of(context).textSecondary),
             ),
           ),
         ],

@@ -1,17 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:ai_story_book/l10n/app_localizations.dart';
 import 'package:ai_story_book/providers/providers.dart';
 import 'package:ai_story_book/widgets/character_source_sheet.dart';
 
 void main() {
+  late SharedPreferences prefs;
+
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    prefs = await SharedPreferences.getInstance();
+  });
+
   testWidgets('CharacterSourceSheet renders preset chips + photo options',
       (tester) async {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          sharedPreferencesProvider.overrideWithValue(prefs),
           characterPresetsProvider('ko').overrideWith((ref) async => [
                 {'preset_id': 'bright_girl', 'name': '햇살이'},
                 {'preset_id': 'brave_boy', 'name': '씩씩이'},
@@ -39,6 +48,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          sharedPreferencesProvider.overrideWithValue(prefs),
           characterPresetsProvider('ko').overrideWith((ref) async => const []),
         ],
         child: const MaterialApp(

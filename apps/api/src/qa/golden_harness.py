@@ -177,8 +177,9 @@ def build_book_spec(entry: Dict[str, Any]) -> BookSpec:
         "language": Language(entry["language"]),
         "target_age": TargetAge(entry["target_age"]),
         "style": Style(entry["style"]),
-        "page_count": int(entry.get("page_count", 8)),
     }
+    if "page_count" in entry:
+        kwargs["page_count"] = int(entry["page_count"])
     theme = entry.get("theme")
     if theme:
         kwargs["theme"] = Theme(theme)  # 유효하지 않으면 ValueError → 호출부에서 처리
@@ -265,6 +266,16 @@ def structural_checks(result: BookResult, spec: BookSpec) -> List[CheckOutcome]:
         )
     )
     contiguous = page_numbers == list(range(1, len(pages) + 1))
+    out.append(
+        CheckOutcome(
+            "page_count_matches_spec",
+            "이야기 구조",
+            "structural",
+            "high",
+            len(pages) == spec.page_count,
+            f"pages={len(pages)} requested={spec.page_count}",
+        )
+    )
     nonempty_text = all((p.text or "").strip() for p in pages)
     out.append(
         CheckOutcome(

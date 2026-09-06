@@ -22,7 +22,7 @@ class AppShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: backgroundColor ?? AppColors.background,
+      backgroundColor: backgroundColor ?? AppPalette.of(context).background,
       appBar: appBar,
       body: body,
       floatingActionButton: floatingActionButton,
@@ -40,9 +40,9 @@ class _BottomNavBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     return Container(
-      decoration: const BoxDecoration(
-        color: AppColors.surface,
-        boxShadow: [
+      decoration: BoxDecoration(
+        color: AppPalette.of(context).surface,
+        boxShadow: const [
           BoxShadow(
             color: AppColors.blackOverlayLight,
             blurRadius: 10,
@@ -53,7 +53,7 @@ class _BottomNavBar extends StatelessWidget {
       child: SafeArea(
         child: Padding(
           padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.lg,
+            horizontal: AppSpacing.sm,
             vertical: AppSpacing.sm,
           ),
           child: Row(
@@ -71,7 +71,9 @@ class _BottomNavBar extends StatelessWidget {
                 icon: Icons.add_circle_rounded,
                 label: l10n.navShellCreate,
                 isSelected: currentIndex == 1,
-                onTap: () => Navigator.pushNamed(context, '/create'),
+                onTap: currentIndex == 1
+                    ? () {}
+                    : () => Navigator.pushNamed(context, '/create'),
               ),
               _NavItem(
                 icon: Icons.auto_stories_rounded,
@@ -90,7 +92,7 @@ class _BottomNavBar extends StatelessWidget {
                     : () =>
                         Navigator.pushReplacementNamed(context, '/characters'),
               ),
-            ],
+            ].map((item) => Expanded(child: item)).toList(),
           ),
         ),
       ),
@@ -113,29 +115,45 @@ class _NavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = isSelected ? AppColors.primary : AppColors.textHint;
+    final color = isSelected
+        ? AppPalette.of(context).primary
+        : AppPalette.of(context).textSecondary;
 
     return Semantics(
       button: true,
       selected: isSelected,
       label: label,
-      child: GestureDetector(
+      excludeSemantics: true,
+      child: InkWell(
         onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: Padding(
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        child: Container(
+          constraints:
+              const BoxConstraints(minHeight: AppSizing.minTouchTarget),
           padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.md,
+            horizontal: AppSpacing.xs,
             vertical: AppSpacing.sm,
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, color: color, size: 24),
+              Container(
+                width: AppSizing.minTouchTarget,
+                padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+                decoration: BoxDecoration(
+                  color:
+                      isSelected ? AppPalette.of(context).primaryLight : null,
+                  borderRadius: BorderRadius.circular(AppRadius.lg),
+                ),
+                child: Icon(icon, color: color, size: 26),
+              ),
               const SizedBox(height: AppSpacing.xs),
               Text(
                 label,
+                textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontSize: 12,
+                  fontSize: 13,
                   color: color,
                   fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
                 ),

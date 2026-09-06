@@ -34,7 +34,6 @@ String _levelLabel(AppLocalizations l, GrowthReport report) {
   return label.isEmpty ? l.growthLevelFallbackLabel : label;
 }
 
-
 class ReadingGrowthScreen extends ConsumerStatefulWidget {
   const ReadingGrowthScreen({super.key});
 
@@ -78,40 +77,44 @@ class _ReadingGrowthScreenState extends ConsumerState<ReadingGrowthScreen> {
     final weekly = ref.watch(weeklyReadingTrendProvider).asData?.value;
     final hasTrend = weekly != null && weekly.any((c) => c > 0);
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: AppPalette.of(context).background,
       appBar: AppBar(
         title: Text(AppLocalizations.of(context).readingGrowthTitle),
-        backgroundColor: AppColors.surface,
-        foregroundColor: AppColors.textPrimary,
+        backgroundColor: AppPalette.of(context).surface,
+        foregroundColor: AppPalette.of(context).textPrimary,
         elevation: 0,
       ),
-      body: reportAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (err, _) => _ErrorView(
-          onRetry: () => ref.invalidate(growthReportProvider),
-        ),
-        data: (report) => RefreshIndicator(
-          onRefresh: () => ref.refresh(growthReportProvider.future),
-          child: ListView(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            children: [
-              _LevelHero(report: report),
-              // 1차: 자기 대비 성장(주간 추이) — 또래보다 먼저, 더 크게.
-              if (hasTrend) ...[
+      body: SafeArea(
+        top: false,
+        child: reportAsync.when(
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (err, _) => _ErrorView(
+            onRetry: () => ref.invalidate(growthReportProvider),
+          ),
+          data: (report) => RefreshIndicator(
+            onRefresh: () => ref.refresh(growthReportProvider.future),
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(AppSpacing.md),
+              children: [
+                _LevelHero(report: report),
+                // 1차: 자기 대비 성장(주간 추이) — 또래보다 먼저, 더 크게.
+                if (hasTrend) ...[
+                  const SizedBox(height: AppSpacing.md),
+                  _WeeklyTrend(counts: weekly),
+                ],
                 const SizedBox(height: AppSpacing.md),
-                _WeeklyTrend(counts: weekly),
+                _StatGrid(report: report),
+                // 2차: 또래 비교(안전·구간·연령 게이트). 데이터 없으면 숨김.
+                const SizedBox(height: AppSpacing.md),
+                const _PeerComparison(),
+                const SizedBox(height: AppSpacing.md),
+                const _DisclaimerNote(),
+                // 전환: 성장을 자랑(공유)하고 → 더 읽어 성장을 잇는다(새 책 만들기).
+                const SizedBox(height: AppSpacing.md),
+                _GrowthCtaCard(report: report),
               ],
-              const SizedBox(height: AppSpacing.md),
-              _StatGrid(report: report),
-              // 2차: 또래 비교(안전·구간·연령 게이트). 데이터 없으면 숨김.
-              const SizedBox(height: AppSpacing.md),
-              const _PeerComparison(),
-              const SizedBox(height: AppSpacing.md),
-              const _DisclaimerNote(),
-              // 전환: 성장을 자랑(공유)하고 → 더 읽어 성장을 잇는다(새 책 만들기).
-              const SizedBox(height: AppSpacing.md),
-              _GrowthCtaCard(report: report),
-            ],
+            ),
           ),
         ),
       ),
@@ -141,9 +144,9 @@ class _GrowthCtaCard extends StatelessWidget {
       key: const Key('growth_cta_card'),
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: AppPalette.of(context).surface,
         borderRadius: BorderRadius.circular(AppRadius.lg),
-        border: Border.all(color: AppColors.divider),
+        border: Border.all(color: AppPalette.of(context).divider),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -152,38 +155,74 @@ class _GrowthCtaCard extends StatelessWidget {
           const SizedBox(height: AppSpacing.xs),
           Text(
             l.growthCtaSubtitle,
-            style: AppTextStyles.caption.copyWith(color: AppColors.textHint),
+            style: AppTextStyles.caption
+                .copyWith(color: AppPalette.of(context).textHint),
           ),
           const SizedBox(height: AppSpacing.md),
-          Row(
-            children: [
-              Expanded(
-                child: Semantics(
-                  button: true,
-                  label: l.growthShareSemantic,
-                  child: OutlinedButton.icon(
+          LayoutBuilder(builder: (context, constraints) {
+            final stacked = constraints.maxWidth < 360 ||
+                MediaQuery.textScalerOf(context).scale(16) > 20;
+            final buttons = [
+              Semantics(
+                button: true,
+                label: l.growthShareSemantic,
+                child: Builder(builder: (buttonContext) {
+                  return OutlinedButton.icon(
                     key: const Key('growth_share_btn'),
-                    onPressed: () => Share.share(_shareText(l)),
+                    onPressed: () async {
+                      final box =
+                          buttonContext.findRenderObject() as RenderBox?;
+                      try {
+                        await Share.share(
+                          _shareText(l),
+                          sharePositionOrigin: box == null
+                              ? null
+                              : box.localToGlobal(Offset.zero) & box.size,
+                        );
+                      } catch (_) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text(l.libraryShareFailed)),
+                          );
+                        }
+                      }
+                    },
                     icon: const Icon(Icons.ios_share, size: 18),
-                    label: Text(l.growthShareButton),
-                  ),
+                    label:
+                        Text(l.growthShareButton, textAlign: TextAlign.center),
+                  );
+                }),
+              ),
+              Semantics(
+                button: true,
+                label: l.growthCreateSemantic,
+                child: ElevatedButton.icon(
+                  key: const Key('growth_create_btn'),
+                  onPressed: () => Navigator.pushNamed(context, '/create'),
+                  icon: const Icon(Icons.auto_stories, size: 18),
+                  label:
+                      Text(l.growthCreateButton, textAlign: TextAlign.center),
                 ),
               ),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: Semantics(
-                  button: true,
-                  label: l.growthCreateSemantic,
-                  child: ElevatedButton.icon(
-                    key: const Key('growth_create_btn'),
-                    onPressed: () => Navigator.pushNamed(context, '/create'),
-                    icon: const Icon(Icons.auto_stories, size: 18),
-                    label: Text(l.growthCreateButton),
-                  ),
-                ),
-              ),
-            ],
-          ),
+            ];
+            if (stacked) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  buttons[0],
+                  const SizedBox(height: AppSpacing.sm),
+                  buttons[1]
+                ],
+              );
+            }
+            return Row(
+              children: [
+                Expanded(child: buttons[0]),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(child: buttons[1]),
+              ],
+            );
+          }),
         ],
       ),
     );
@@ -211,6 +250,7 @@ class _LevelHero extends StatelessWidget {
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
     final progress = (report.scoreValue / 100).clamp(0.0, 1.0);
+    const solidPalette = AppPalette(false);
     // 보조기술(TalkBack/VoiceOver)에 핵심 지표를 하나의 명료한 문장으로 읽어준다
     // (시각적 막대·분리된 텍스트 대신 통합 라벨).
     return Semantics(
@@ -226,31 +266,31 @@ class _LevelHero extends StatelessWidget {
         key: const Key('growth_level_hero'),
         padding: const EdgeInsets.all(AppSpacing.lg),
         decoration: BoxDecoration(
-          color: AppColors.primary,
+          color: solidPalette.primary,
           borderRadius: BorderRadius.circular(AppRadius.lg),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
+            Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.xs,
               children: [
-                Expanded(
-                  child: Text(
-                    AppLocalizations.of(context).estimatedReadingLevel,
-                    style: const TextStyle(color: Colors.white70, fontSize: 13),
-                  ),
+                Text(
+                  AppLocalizations.of(context).estimatedReadingLevel,
+                  style: const TextStyle(color: Colors.white, fontSize: 13),
                 ),
                 Text(
                   '${_confidenceStars(report.booksRead)} '
                   '${_confidenceText(report.booksRead, l)}',
-                  style: const TextStyle(color: Colors.white70, fontSize: 11),
+                  style: const TextStyle(color: Colors.white, fontSize: 11),
                 ),
               ],
             ),
             const SizedBox(height: AppSpacing.sm),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.baseline,
-              textBaseline: TextBaseline.alphabetic,
+            Wrap(
+              spacing: AppSpacing.sm,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 Text(
                   'Lv.${report.levelNumber}',
@@ -260,7 +300,6 @@ class _LevelHero extends StatelessWidget {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                const SizedBox(width: AppSpacing.sm),
                 Text(
                   _levelLabel(l, report),
                   style: const TextStyle(color: Colors.white, fontSize: 18),
@@ -280,7 +319,7 @@ class _LevelHero extends StatelessWidget {
             const SizedBox(height: AppSpacing.xs),
             Text(
               l.growthScoreSummary(report.scoreValue),
-              style: const TextStyle(color: Colors.white70, fontSize: 12),
+              style: const TextStyle(color: Colors.white, fontSize: 12),
             ),
           ],
         ),
@@ -299,43 +338,51 @@ class _StatGrid extends StatelessWidget {
     final l10n = AppLocalizations.of(context);
     final accuracyLabel =
         report.quizTotal > 0 ? '${(report.quizAccuracy * 100).round()}%' : '—';
-    return GridView.count(
-      crossAxisCount: 2,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      mainAxisSpacing: AppSpacing.sm,
-      crossAxisSpacing: AppSpacing.sm,
-      childAspectRatio: 1.6,
-      children: [
-        _StatCard(
-          icon: Icons.menu_book_rounded,
-          label: l10n.booksReadLabel,
-          value: l10n.growthBooksValue(report.booksRead),
-          color: AppColors.primary,
-        ),
-        _StatCard(
-          icon: Icons.local_fire_department_rounded,
-          label: l10n.currentStreakLabel,
-          value: l10n.growthDaysValue(report.currentStreak),
-          sub: l10n.growthLongestStreak(report.longestStreak),
-          color: AppColors.warning,
-        ),
-        _StatCard(
-          icon: Icons.spellcheck_rounded,
-          label: l10n.vocabLearnedLabel,
-          value: l10n.growthWordsValue(report.vocabLearned),
-          color: AppColors.secondary,
-        ),
-        _StatCard(
-          icon: Icons.quiz_rounded,
-          label: l10n.quizAccuracyLabel,
-          value: accuracyLabel,
-          sub: report.quizTotal > 0
-              ? '${report.quizCorrect}/${report.quizTotal}'
-              : null,
-          color: AppColors.success,
-        ),
-      ],
+    final cards = [
+      _StatCard(
+        icon: Icons.menu_book_rounded,
+        label: l10n.booksReadLabel,
+        value: l10n.growthBooksValue(report.booksRead),
+        color: AppPalette.of(context).primary,
+      ),
+      _StatCard(
+        icon: Icons.local_fire_department_rounded,
+        label: l10n.currentStreakLabel,
+        value: l10n.growthDaysValue(report.currentStreak),
+        sub: l10n.growthLongestStreak(report.longestStreak),
+        color: AppColors.warning,
+      ),
+      _StatCard(
+        icon: Icons.spellcheck_rounded,
+        label: l10n.vocabLearnedLabel,
+        value: l10n.growthWordsValue(report.vocabLearned),
+        color: AppColors.secondary,
+      ),
+      _StatCard(
+        icon: Icons.quiz_rounded,
+        label: l10n.quizAccuracyLabel,
+        value: accuracyLabel,
+        sub: report.quizTotal > 0
+            ? '${report.quizCorrect}/${report.quizTotal}'
+            : null,
+        color: AppColors.success,
+      ),
+    ];
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final minCardWidth = MediaQuery.textScalerOf(context).scale(135);
+        final columns =
+            constraints.maxWidth >= minCardWidth * 2 + AppSpacing.sm ? 2 : 1;
+        final width =
+            (constraints.maxWidth - AppSpacing.sm * (columns - 1)) / columns;
+        return Wrap(
+          spacing: AppSpacing.sm,
+          runSpacing: AppSpacing.sm,
+          children: [
+            for (final card in cards) SizedBox(width: width, child: card)
+          ],
+        );
+      },
     );
   }
 }
@@ -365,31 +412,32 @@ class _StatCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(AppSpacing.md),
         decoration: BoxDecoration(
-          color: AppColors.surface,
+          color: AppPalette.of(context).surface,
           borderRadius: BorderRadius.circular(AppRadius.md),
-          border: Border.all(color: AppColors.divider),
+          border: Border.all(color: AppPalette.of(context).divider),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Icon(icon, color: color, size: 22),
+            const SizedBox(height: AppSpacing.sm),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   value,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.bold,
-                    color: AppColors.textPrimary,
+                    color: AppPalette.of(context).textPrimary,
                   ),
                 ),
                 Text(
                   sub == null ? label : '$label · $sub',
-                  style: const TextStyle(
-                      fontSize: 12, color: AppColors.textSecondary),
-                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontSize: 12,
+                      color: AppPalette.of(context).textSecondary),
                 ),
               ],
             ),
@@ -429,9 +477,9 @@ class _WeeklyTrend extends StatelessWidget {
       key: const Key('growth_weekly_trend'),
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: AppPalette.of(context).surface,
         borderRadius: BorderRadius.circular(AppRadius.lg),
-        border: Border.all(color: AppColors.divider),
+        border: Border.all(color: AppPalette.of(context).divider),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -441,7 +489,7 @@ class _WeeklyTrend extends StatelessWidget {
           Text(_deltaText(l), style: AppTextStyles.caption),
           const SizedBox(height: AppSpacing.md),
           SizedBox(
-            height: 120,
+            height: 92 + MediaQuery.textScalerOf(context).scale(48),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
@@ -456,22 +504,22 @@ class _WeeklyTrend extends StatelessWidget {
                             '${counts[i]}',
                             style: AppTextStyles.caption.copyWith(
                               fontWeight: FontWeight.w700,
-                              color: AppColors.textSecondary,
+                              color: AppPalette.of(context).textSecondary,
                             ),
                           ),
                           const SizedBox(height: 4),
                           Container(
                             height: 8 + (counts[i] / maxC) * 64,
-                            decoration: const BoxDecoration(
+                            decoration: BoxDecoration(
                               gradient: LinearGradient(
                                 colors: [
-                                  AppColors.primary,
+                                  AppPalette.of(context).primary,
                                   AppColors.primaryHalf
                                 ],
                                 begin: Alignment.topCenter,
                                 end: Alignment.bottomCenter,
                               ),
-                              borderRadius: BorderRadius.vertical(
+                              borderRadius: const BorderRadius.vertical(
                                 top: Radius.circular(6),
                               ),
                             ),
@@ -482,6 +530,7 @@ class _WeeklyTrend extends StatelessWidget {
                                 ? l.growthWeekThis
                                 : l.growthWeekN(i + 1),
                             style: AppTextStyles.caption,
+                            textAlign: TextAlign.center,
                           ),
                         ],
                       ),
@@ -544,27 +593,30 @@ class _PeerComparison extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l = AppLocalizations.of(context);
     return ref.watch(peerComparisonProvider).maybeWhen(
-          data: (peer) =>
-              peer.showRanking ? _ranking(peer, l) : _selfGrowth(peer, l),
+          data: (peer) => peer.showRanking
+              ? _ranking(context, peer, l)
+              : _selfGrowth(context, peer, l),
           orElse: () => const SizedBox.shrink(),
         );
   }
 
-  Widget _shell({required List<Widget> children}) => Container(
+  Widget _shell(BuildContext context, {required List<Widget> children}) =>
+      Container(
         key: const Key('growth_peer_comparison'),
         padding: const EdgeInsets.all(AppSpacing.md),
         decoration: BoxDecoration(
-          color: AppColors.surface,
+          color: AppPalette.of(context).surface,
           borderRadius: BorderRadius.circular(AppRadius.lg),
-          border: Border.all(color: AppColors.divider),
+          border: Border.all(color: AppPalette.of(context).divider),
         ),
         child: Column(
             crossAxisAlignment: CrossAxisAlignment.start, children: children),
       );
 
   // 3-5세: 등수·백분위는 발달상 무의미 → 자기 성장만(사회비교 배제).
-  Widget _selfGrowth(PeerComparison peer, AppLocalizations l) =>
-      _shell(children: [
+  Widget _selfGrowth(
+          BuildContext context, PeerComparison peer, AppLocalizations l) =>
+      _shell(context, children: [
         Text(l.growthSelfGrowthTitle, style: AppTextStyles.heading3),
         const SizedBox(height: AppSpacing.sm),
         Text(
@@ -574,12 +626,15 @@ class _PeerComparison extends ConsumerWidget {
         const SizedBox(height: 4),
         Text(
           l.growthSelfGrowthNote,
-          style: const TextStyle(
-              fontSize: 12, color: AppColors.textSecondary, height: 1.5),
+          style: TextStyle(
+              fontSize: 12,
+              color: AppPalette.of(context).textSecondary,
+              height: 1.5),
         ),
       ]);
 
-  Widget _ranking(PeerComparison peer, AppLocalizations l) {
+  Widget _ranking(
+      BuildContext context, PeerComparison peer, AppLocalizations l) {
     final subtitle = peer.isBaseline
         ? l.growthPeerSubtitleBaseline(peer.ageBand)
         : l.growthPeerSubtitle(peer.ageBand, peer.peerCount);
@@ -623,7 +678,7 @@ class _PeerComparison extends ConsumerWidget {
         '${(peer.myAccuracy * 100).round()}%',
         l.growthPeerAccuracyPercent((peer.peerAccuracy * 100).round()));
 
-    return _shell(children: [
+    return _shell(context, children: [
       Text(l.growthPeerTitle, style: AppTextStyles.heading3),
       const SizedBox(height: 2),
       Text(subtitle, style: AppTextStyles.caption),
@@ -636,24 +691,20 @@ class _PeerComparison extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.baseline,
-                  textBaseline: TextBaseline.alphabetic,
+                Wrap(
+                  spacing: AppSpacing.sm,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     Text(
                       l.growthTopPercent(peer.topPercent),
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.bold,
-                        color: AppColors.primary,
+                        color: AppPalette.of(context).primary,
                       ),
                     ),
-                    const SizedBox(width: AppSpacing.sm),
-                    Flexible(
-                      child: Text(_leagueName(peer.medal, l),
-                          style: AppTextStyles.bodySmall,
-                          overflow: TextOverflow.ellipsis),
-                    ),
+                    Text(_leagueName(peer.medal, l),
+                        style: AppTextStyles.bodySmall),
                   ],
                 ),
                 Text(_encourage(peer.topPercent, l),
@@ -692,36 +743,38 @@ class _CompareRow extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          Text(label, style: AppTextStyles.bodySmall),
+          const SizedBox(height: AppSpacing.xs),
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.xs,
             children: [
-              Expanded(child: Text(label, style: AppTextStyles.bodySmall)),
               Text(
                 mineText,
-                style: const TextStyle(
+                style: TextStyle(
                   fontWeight: FontWeight.w700,
-                  color: AppColors.primary,
+                  color: AppPalette.of(context).primary,
                 ),
               ),
-              const SizedBox(width: AppSpacing.sm),
               Text(peerText, style: AppTextStyles.caption),
             ],
           ),
           const SizedBox(height: 6),
-          _bar(mine / maxV, AppColors.primary),
+          _bar(context, mine / maxV, AppPalette.of(context).primary),
           const SizedBox(height: 4),
-          _bar(peerValue / maxV, AppColors.textHint),
+          _bar(context, peerValue / maxV, AppPalette.of(context).textHint),
         ],
       ),
     );
   }
 
-  Widget _bar(double ratio, Color color) {
+  Widget _bar(BuildContext context, double ratio, Color color) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(AppRadius.sm),
       child: LinearProgressIndicator(
         value: ratio.clamp(0.0, 1.0),
         minHeight: 8,
-        backgroundColor: AppColors.background,
+        backgroundColor: AppPalette.of(context).background,
         valueColor: AlwaysStoppedAnimation<Color>(color),
       ),
     );
@@ -736,13 +789,15 @@ class _DisclaimerNote extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
-        color: AppColors.primaryLight,
+        color: AppPalette.of(context).primaryLight,
         borderRadius: BorderRadius.circular(AppRadius.md),
       ),
       child: Text(
         AppLocalizations.of(context).growthDisclaimer,
-        style: const TextStyle(
-            fontSize: 12, color: AppColors.textSecondary, height: 1.5),
+        style: TextStyle(
+            fontSize: 12,
+            color: AppPalette.of(context).textSecondary,
+            height: 1.5),
       ),
     );
   }
@@ -756,16 +811,20 @@ class _ErrorView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(AppLocalizations.of(context).growthLoadError),
-          const SizedBox(height: AppSpacing.md),
-          ElevatedButton(
-            onPressed: onRetry,
-            child: Text(AppLocalizations.of(context).retry),
-          ),
-        ],
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(AppLocalizations.of(context).growthLoadError,
+                textAlign: TextAlign.center),
+            const SizedBox(height: AppSpacing.md),
+            ElevatedButton(
+              onPressed: onRetry,
+              child: Text(AppLocalizations.of(context).retry),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -64,7 +64,7 @@ import 'app_localizations_ko.dart';
 /// property.
 abstract class AppLocalizations {
   AppLocalizations(String locale)
-      : localeName = intl.Intl.canonicalizedLocale(locale.toString());
+    : localeName = intl.Intl.canonicalizedLocale(locale.toString());
 
   final String localeName;
 
@@ -87,17 +87,17 @@ abstract class AppLocalizations {
   /// of delegates is preferred or required.
   static const List<LocalizationsDelegate<dynamic>> localizationsDelegates =
       <LocalizationsDelegate<dynamic>>[
-    delegate,
-    GlobalMaterialLocalizations.delegate,
-    GlobalCupertinoLocalizations.delegate,
-    GlobalWidgetsLocalizations.delegate,
-  ];
+        delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+      ];
 
   /// A list of this localizations delegate's supported locales.
   static const List<Locale> supportedLocales = <Locale>[
     Locale('en'),
     Locale('ja'),
-    Locale('ko')
+    Locale('ko'),
   ];
 
   /// Application title
@@ -531,6 +531,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Story language'**
   String get createLanguageLabel;
+
+  /// No description provided for @createLengthLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Story length'**
+  String get createLengthLabel;
+
+  /// No description provided for @createLengthStandard.
+  ///
+  /// In en, this message translates to:
+  /// **'12 pages'**
+  String get createLengthStandard;
+
+  /// No description provided for @createLengthShort.
+  ///
+  /// In en, this message translates to:
+  /// **'8 pages'**
+  String get createLengthShort;
+
+  /// No description provided for @createLengthHint.
+  ///
+  /// In en, this message translates to:
+  /// **'12 pages by default. Choose 8 for a shorter read. Cover not included.'**
+  String get createLengthHint;
 
   /// No description provided for @createTemplateSectionLabel.
   ///
@@ -1071,6 +1095,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Delete'**
   String get libraryMenuDelete;
+
+  /// No description provided for @loadingImageQualityFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'We couldn\'t finish the book because some illustrations couldn\'t be verified. Please try again.'**
+  String get loadingImageQualityFailed;
+
+  /// No description provided for @loadingStepVerifyIllustrations.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking that the illustrations match the story'**
+  String get loadingStepVerifyIllustrations;
+
+  /// No description provided for @loadingStepRepairIllustrations.
+  ///
+  /// In en, this message translates to:
+  /// **'Redrawing illustrations that need changes'**
+  String get loadingStepRepairIllustrations;
+
+  /// No description provided for @loadingStepRecheckIllustrations.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking the updated illustrations'**
+  String get loadingStepRecheckIllustrations;
+
+  /// No description provided for @viewerImageQualityFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The updated illustration couldn\'t be verified, so the changes weren\'t saved. Your existing book is unchanged.'**
+  String get viewerImageQualityFailed;
 
   /// No description provided for @loadingTitle.
   ///
@@ -1825,7 +1879,7 @@ abstract class AppLocalizations {
   /// No description provided for @voiceProfilesUploadAudioButton.
   ///
   /// In en, this message translates to:
-  /// **'Upload audio file'**
+  /// **'Choose audio'**
   String get voiceProfilesUploadAudioButton;
 
   /// No description provided for @voiceProfilesConsentToggle.
@@ -2533,13 +2587,13 @@ abstract class AppLocalizations {
   /// No description provided for @parentDashboardLearningStreakLine.
   ///
   /// In en, this message translates to:
-  /// **'Current streak {current} days · Best {longest} days'**
+  /// **'Reading streak: {current} days · Best: {longest} days'**
   String parentDashboardLearningStreakLine(Object current, Object longest);
 
   /// No description provided for @parentDashboardLearningSessionLine.
   ///
   /// In en, this message translates to:
-  /// **'Completed sessions {completed} / total sessions {total}'**
+  /// **'Finished {completed} of {total} reading sessions'**
   String parentDashboardLearningSessionLine(Object completed, Object total);
 
   /// No description provided for @parentDashboardLearningCompletionLine.
@@ -3283,13 +3337,13 @@ abstract class AppLocalizations {
   /// No description provided for @charactersEmptySubtitle.
   ///
   /// In en, this message translates to:
-  /// **'Make a character from a photo!'**
+  /// **'Create a story companion with just a name and a few traits.'**
   String get charactersEmptySubtitle;
 
   /// No description provided for @charactersEmptyCreateButton.
   ///
   /// In en, this message translates to:
-  /// **'Make a character from a photo'**
+  /// **'Create a character'**
   String get charactersEmptyCreateButton;
 
   /// No description provided for @charactersLoadErrorTitle.
@@ -3313,7 +3367,7 @@ abstract class AppLocalizations {
   /// No description provided for @charactersFabCreate.
   ///
   /// In en, this message translates to:
-  /// **'Make from photo'**
+  /// **'Create a character'**
   String get charactersFabCreate;
 
   /// No description provided for @charactersOptionsTitle.
@@ -3475,7 +3529,7 @@ abstract class AppLocalizations {
   /// No description provided for @charactersAddCardSubtitle.
   ///
   /// In en, this message translates to:
-  /// **'Make your own character from a photo'**
+  /// **'Describe a character or start with a photo or drawing'**
   String get charactersAddCardSubtitle;
 
   /// No description provided for @charactersDetailDescription.
@@ -4287,7 +4341,10 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'📚 {title}\n\nShare the storybook via KakaoTalk!\n{deepLink}\n{fallbackUrl}'**
   String viewerKakaoShareText(
-      Object title, Object deepLink, Object fallbackUrl);
+    Object title,
+    Object deepLink,
+    Object fallbackUrl,
+  );
 
   /// No description provided for @viewerKakaoShareSubject.
   ///
@@ -4634,7 +4691,7 @@ abstract class AppLocalizations {
   /// No description provided for @ageGateDescription.
   ///
   /// In en, this message translates to:
-  /// **'Parent verification is required before accessing the purchase screen.'**
+  /// **'A parent or guardian needs to complete this check before continuing.'**
   String get ageGateDescription;
 
   /// No description provided for @ageGateAnswerHint.
@@ -4923,8 +4980,14 @@ abstract class AppLocalizations {
   ///
   /// In en, this message translates to:
   /// **'📚 Reading Growth Report\n\n📖 Books read: {booksRead}\n⭐ Reading level: Lv.{levelNumber} ({levelLabel})\n📊 Overall score: {scoreValue}/100\n🔤 Words learned: {vocabLearned}\n🔥 Reading streak: {currentStreak} days\n\nGrowing reading one AI storybook at a time 📖'**
-  String growthShareText(int booksRead, int levelNumber, String levelLabel,
-      int scoreValue, int vocabLearned, int currentStreak);
+  String growthShareText(
+    int booksRead,
+    int levelNumber,
+    String levelLabel,
+    int scoreValue,
+    int vocabLearned,
+    int currentStreak,
+  );
 
   /// Growth screen: growthCtaTitle
   ///
@@ -4985,7 +5048,11 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Estimated reading level {levelNumber}, {levelLabel}. Overall score from books read, vocabulary, accuracy, and completion: {scoreValue} out of 100. Confidence: {confidence}.'**
   String growthHeroSemantic(
-      int levelNumber, String levelLabel, int scoreValue, String confidence);
+    int levelNumber,
+    String levelLabel,
+    int scoreValue,
+    String confidence,
+  );
 
   /// Growth screen: growthScoreSummary
   ///
@@ -5322,6 +5389,618 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Fluent reader'**
   String get growthLevelFluentReader;
+
+  /// No description provided for @accountOpening.
+  ///
+  /// In en, this message translates to:
+  /// **'Opening your account'**
+  String get accountOpening;
+
+  /// No description provided for @accountUnavailableTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to open your account'**
+  String get accountUnavailableTitle;
+
+  /// No description provided for @accountUnavailableMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'We could not open your saved account. Unlock your device and retry, or restore it with your recovery code. Keep this app installed while resolving access.'**
+  String get accountUnavailableMessage;
+
+  /// No description provided for @accountRetry.
+  ///
+  /// In en, this message translates to:
+  /// **'Try again'**
+  String get accountRetry;
+
+  /// No description provided for @podOrderingUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Physical book ordering is not available in this release.'**
+  String get podOrderingUnavailable;
+
+  /// No description provided for @loadingStatusUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'We could not check the progress of your story. It may still be creating. Check your connection, then check this story\'s status again.'**
+  String get loadingStatusUnavailable;
+
+  /// No description provided for @voiceProfilesUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Family voice is unavailable in this release. You can still delete saved voice samples or withdraw consent.'**
+  String get voiceProfilesUnavailable;
+
+  /// No description provided for @loadingStatusUnavailableTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Let\'s check your story\'s progress'**
+  String get loadingStatusUnavailableTitle;
+
+  /// No description provided for @settingsSavedVoices.
+  ///
+  /// In en, this message translates to:
+  /// **'Manage saved voice samples'**
+  String get settingsSavedVoices;
+
+  /// No description provided for @settingsSavedVoicesSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete voice data or withdraw consent'**
+  String get settingsSavedVoicesSubtitle;
+
+  /// No description provided for @creditsBetaNotice.
+  ///
+  /// In en, this message translates to:
+  /// **'This is a limited free beta. New purchases are unavailable. You can use your existing balance and restore purchases for your current account. Restoring purchases does not recover your story library after changing devices or reinstalling the app.'**
+  String get creditsBetaNotice;
+
+  /// No description provided for @creditBetaLimitTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Check your available features and credits'**
+  String get creditBetaLimitTitle;
+
+  /// No description provided for @creditBetaLimitMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'This feature is unavailable in the free beta, or you have reached your current limit. You can keep reading stories in your library and check your existing balance.'**
+  String get creditBetaLimitMessage;
+
+  /// No description provided for @creditBetaLibrarySubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Read the stories you have already made'**
+  String get creditBetaLibrarySubtitle;
+
+  /// No description provided for @creditBetaStatusSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Check your balance and existing purchases'**
+  String get creditBetaStatusSubtitle;
+
+  /// No description provided for @accountDeletionPending.
+  ///
+  /// In en, this message translates to:
+  /// **'Account data and consent have been removed. Some stored files are still being deleted. The server will retry automatically.'**
+  String get accountDeletionPending;
+
+  /// No description provided for @voiceDeletionPending.
+  ///
+  /// In en, this message translates to:
+  /// **'This voice sample can no longer be used. Some stored files are still being deleted. The server will retry automatically.'**
+  String get voiceDeletionPending;
+
+  /// No description provided for @recoveryTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Account recovery'**
+  String get recoveryTitle;
+
+  /// No description provided for @recoveryDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Save a recovery code in a password manager or another safe place before changing or losing this device. Creating a replacement invalidates the previous code.'**
+  String get recoveryDescription;
+
+  /// No description provided for @recoveryEnabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Recovery code is enabled'**
+  String get recoveryEnabled;
+
+  /// No description provided for @recoveryNotEnabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Protect access to your library'**
+  String get recoveryNotEnabled;
+
+  /// No description provided for @recoveryCreateCode.
+  ///
+  /// In en, this message translates to:
+  /// **'Create recovery code'**
+  String get recoveryCreateCode;
+
+  /// No description provided for @recoveryReplaceCode.
+  ///
+  /// In en, this message translates to:
+  /// **'Replace recovery code'**
+  String get recoveryReplaceCode;
+
+  /// No description provided for @recoverySaveTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep this code safe'**
+  String get recoverySaveTitle;
+
+  /// No description provided for @recoverySaveMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'This code can restore your account and library. Anyone with it can take over the account. It is shown only now. Save it outside this app; keep it private.'**
+  String get recoverySaveMessage;
+
+  /// No description provided for @recoveryCopy.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy recovery code'**
+  String get recoveryCopy;
+
+  /// No description provided for @recoveryCopied.
+  ///
+  /// In en, this message translates to:
+  /// **'Recovery code copied. Store it safely.'**
+  String get recoveryCopied;
+
+  /// No description provided for @recoverySavedCheck.
+  ///
+  /// In en, this message translates to:
+  /// **'I saved the full code outside this app.'**
+  String get recoverySavedCheck;
+
+  /// No description provided for @recoveryConfirmSuffix.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the last 6 characters of the saved code'**
+  String get recoveryConfirmSuffix;
+
+  /// No description provided for @recoveryConfirmSaved.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm saved code'**
+  String get recoveryConfirmSaved;
+
+  /// No description provided for @recoveryRestoreTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore an existing account'**
+  String get recoveryRestoreTitle;
+
+  /// No description provided for @recoveryRestoreMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the recovery code you saved. This device will switch to that account, and its previous device will be signed out. The current and restored libraries are not combined. You will receive a new recovery code.'**
+  String get recoveryRestoreMessage;
+
+  /// No description provided for @recoveryCodeLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Recovery code'**
+  String get recoveryCodeLabel;
+
+  /// No description provided for @recoveryRestoreButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore this account'**
+  String get recoveryRestoreButton;
+
+  /// No description provided for @recoveryInvalidCode.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the complete recovery code beginning with ASB-R1-.'**
+  String get recoveryInvalidCode;
+
+  /// No description provided for @recoveryFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Recovery could not be confirmed. Check the code, connection, and secure storage, then retry here. If a request was interrupted, keep using this screen so the same device credential can be recovered.'**
+  String get recoveryFailed;
+
+  /// No description provided for @recoverySucceeded.
+  ///
+  /// In en, this message translates to:
+  /// **'Your account has been restored'**
+  String get recoverySucceeded;
+
+  /// No description provided for @recoveryLoadError.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not check recovery status. Try again.'**
+  String get recoveryLoadError;
+
+  /// No description provided for @recoveryIssueError.
+  ///
+  /// In en, this message translates to:
+  /// **'The code could not be displayed. A previous code may have expired. Retry to create and save a new code.'**
+  String get recoveryIssueError;
+
+  /// No description provided for @recoveryBackupPending.
+  ///
+  /// In en, this message translates to:
+  /// **'Save a new recovery code in Settings before losing access to this device.'**
+  String get recoveryBackupPending;
+
+  /// No description provided for @recoveryContinue.
+  ///
+  /// In en, this message translates to:
+  /// **'Continue'**
+  String get recoveryContinue;
+
+  /// No description provided for @recoverySwitchNeedsBackup.
+  ///
+  /// In en, this message translates to:
+  /// **'Before switching accounts, save a recovery code for the account currently on this device so you can return to its library.'**
+  String get recoverySwitchNeedsBackup;
+
+  /// No description provided for @reportContentTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Report a problem'**
+  String get reportContentTitle;
+
+  /// No description provided for @reportContentCover.
+  ///
+  /// In en, this message translates to:
+  /// **'Reporting this cover'**
+  String get reportContentCover;
+
+  /// No description provided for @reportContentPage.
+  ///
+  /// In en, this message translates to:
+  /// **'Reporting page {page}'**
+  String reportContentPage(int page);
+
+  /// No description provided for @reportContentHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose one reason. No name or contact details are needed.'**
+  String get reportContentHint;
+
+  /// No description provided for @reportContentHarmful.
+  ///
+  /// In en, this message translates to:
+  /// **'Violence or dangerous behavior'**
+  String get reportContentHarmful;
+
+  /// No description provided for @reportContentSexual.
+  ///
+  /// In en, this message translates to:
+  /// **'Sexual content'**
+  String get reportContentSexual;
+
+  /// No description provided for @reportContentHate.
+  ///
+  /// In en, this message translates to:
+  /// **'Hate or bullying'**
+  String get reportContentHate;
+
+  /// No description provided for @reportContentPersonal.
+  ///
+  /// In en, this message translates to:
+  /// **'Personal information exposed'**
+  String get reportContentPersonal;
+
+  /// No description provided for @reportContentImage.
+  ///
+  /// In en, this message translates to:
+  /// **'Problem with the illustration'**
+  String get reportContentImage;
+
+  /// No description provided for @reportContentOther.
+  ///
+  /// In en, this message translates to:
+  /// **'Another content problem'**
+  String get reportContentOther;
+
+  /// No description provided for @reportContentSubmit.
+  ///
+  /// In en, this message translates to:
+  /// **'Send report'**
+  String get reportContentSubmit;
+
+  /// No description provided for @reportContentSending.
+  ///
+  /// In en, this message translates to:
+  /// **'Sending…'**
+  String get reportContentSending;
+
+  /// No description provided for @reportContentCancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get reportContentCancel;
+
+  /// No description provided for @reportContentClose.
+  ///
+  /// In en, this message translates to:
+  /// **'Back to story'**
+  String get reportContentClose;
+
+  /// No description provided for @reportContentReceived.
+  ///
+  /// In en, this message translates to:
+  /// **'Your report has been received for review.'**
+  String get reportContentReceived;
+
+  /// No description provided for @reportContentAlreadyReviewed.
+  ///
+  /// In en, this message translates to:
+  /// **'This content problem was already reported and reviewed.'**
+  String get reportContentAlreadyReviewed;
+
+  /// No description provided for @reportContentFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The report could not be sent. Please try again.'**
+  String get reportContentFailed;
+
+  /// No description provided for @homeReadingSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Which story shall we read today?'**
+  String get homeReadingSubtitle;
+
+  /// No description provided for @homeReadBook.
+  ///
+  /// In en, this message translates to:
+  /// **'Read story'**
+  String get homeReadBook;
+
+  /// No description provided for @viewerFinishReading.
+  ///
+  /// In en, this message translates to:
+  /// **'Finish reading'**
+  String get viewerFinishReading;
+
+  /// No description provided for @createAvailableStylesHint.
+  ///
+  /// In en, this message translates to:
+  /// **'These illustration styles are available for your account.'**
+  String get createAvailableStylesHint;
+
+  /// No description provided for @createOptionsLoading.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking available illustration styles…'**
+  String get createOptionsLoading;
+
+  /// No description provided for @createOptionsFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'We could not check available styles. Check your connection and try again.'**
+  String get createOptionsFailed;
+
+  /// No description provided for @createSafetyInputHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Change the topic to something suitable for children, then try again.'**
+  String get createSafetyInputHint;
+
+  /// No description provided for @createSafetyOutputHint.
+  ///
+  /// In en, this message translates to:
+  /// **'We could not safely complete this story. Please choose a different topic.'**
+  String get createSafetyOutputHint;
+
+  /// No description provided for @createDailyLimitHint.
+  ///
+  /// In en, this message translates to:
+  /// **'You have reached today\'s creation limit. Read a saved story or create another tomorrow.'**
+  String get createDailyLimitHint;
+
+  /// No description provided for @inpaintImageLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The illustration could not load. Reload it to continue editing.'**
+  String get inpaintImageLoadFailed;
+
+  /// No description provided for @voiceProfilesSampleRequiredUpload.
+  ///
+  /// In en, this message translates to:
+  /// **'Upload an audio file first.'**
+  String get voiceProfilesSampleRequiredUpload;
+
+  /// No description provided for @voiceProfilesSampleSelected.
+  ///
+  /// In en, this message translates to:
+  /// **'Your audio sample is ready.'**
+  String get voiceProfilesSampleSelected;
+
+  /// No description provided for @voiceProfilesSampleLinkOption.
+  ///
+  /// In en, this message translates to:
+  /// **'Use an audio link instead'**
+  String get voiceProfilesSampleLinkOption;
+
+  /// No description provided for @parentDashboardEmptyReading.
+  ///
+  /// In en, this message translates to:
+  /// **'No reading activity in this period yet. Read a story to start building your record.'**
+  String get parentDashboardEmptyReading;
+
+  /// No description provided for @settingsPagePreparing.
+  ///
+  /// In en, this message translates to:
+  /// **'This information page is being prepared.'**
+  String get settingsPagePreparing;
+
+  /// No description provided for @settingsPageOpenError.
+  ///
+  /// In en, this message translates to:
+  /// **'We couldn’t open this page. Please try again shortly.'**
+  String get settingsPageOpenError;
+
+  /// No description provided for @characterAvatarTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Meet your story character'**
+  String get characterAvatarTitle;
+
+  /// No description provided for @characterAvatarGeneratingLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Creating their look'**
+  String get characterAvatarGeneratingLabel;
+
+  /// No description provided for @characterAvatarPreviewLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Ready for your review'**
+  String get characterAvatarPreviewLabel;
+
+  /// No description provided for @characterAvatarApprovedLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirmed character'**
+  String get characterAvatarApprovedLabel;
+
+  /// No description provided for @characterAvatarFailedLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Character needs attention'**
+  String get characterAvatarFailedLabel;
+
+  /// No description provided for @characterAvatarGeneratingBody.
+  ///
+  /// In en, this message translates to:
+  /// **'We’re creating your story character. You can leave this screen and return from Characters.'**
+  String get characterAvatarGeneratingBody;
+
+  /// No description provided for @characterAvatarPreviewBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Happy with this look? Once confirmed, this character can be used in future stories.'**
+  String get characterAvatarPreviewBody;
+
+  /// No description provided for @characterAvatarImageLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Story character preview'**
+  String get characterAvatarImageLabel;
+
+  /// No description provided for @characterAvatarApprove.
+  ///
+  /// In en, this message translates to:
+  /// **'Use this character'**
+  String get characterAvatarApprove;
+
+  /// No description provided for @characterAvatarRegenerate.
+  ///
+  /// In en, this message translates to:
+  /// **'Try another look'**
+  String get characterAvatarRegenerate;
+
+  /// No description provided for @characterAvatarOtherPhoto.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose another photo'**
+  String get characterAvatarOtherPhoto;
+
+  /// No description provided for @characterAvatarLater.
+  ///
+  /// In en, this message translates to:
+  /// **'Review later'**
+  String get characterAvatarLater;
+
+  /// No description provided for @characterAvatarTakingLong.
+  ///
+  /// In en, this message translates to:
+  /// **'This is taking longer to check. Try again shortly, or return from Characters later.'**
+  String get characterAvatarTakingLong;
+
+  /// No description provided for @characterAvatarLoadError.
+  ///
+  /// In en, this message translates to:
+  /// **'We couldn’t load this character. Please try again.'**
+  String get characterAvatarLoadError;
+
+  /// No description provided for @characterAvatarImageError.
+  ///
+  /// In en, this message translates to:
+  /// **'We couldn’t load the preview. Please try again.'**
+  String get characterAvatarImageError;
+
+  /// No description provided for @characterAvatarFailedBody.
+  ///
+  /// In en, this message translates to:
+  /// **'This character isn’t ready yet. Try another look if available, or choose another photo.'**
+  String get characterAvatarFailedBody;
+
+  /// No description provided for @characterAvatarRetryLimit.
+  ///
+  /// In en, this message translates to:
+  /// **'We can’t create another look from this photo. You can choose a different photo.'**
+  String get characterAvatarRetryLimit;
+
+  /// No description provided for @characterAvatarChanged.
+  ///
+  /// In en, this message translates to:
+  /// **'The preview changed. Please review the new look.'**
+  String get characterAvatarChanged;
+
+  /// No description provided for @characterAvatarUpdateError.
+  ///
+  /// In en, this message translates to:
+  /// **'We couldn’t confirm your request. Review the latest preview before trying again.'**
+  String get characterAvatarUpdateError;
+
+  /// No description provided for @characterAvatarUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Photo characters are unavailable right now. Choose a preset or try again later.'**
+  String get characterAvatarUnavailable;
+
+  /// No description provided for @characterAvatarNeedsApproval.
+  ///
+  /// In en, this message translates to:
+  /// **'Please confirm your character’s look before creating the story.'**
+  String get characterAvatarNeedsApproval;
+
+  /// No description provided for @characterAvatarReferenceUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'The character image is unavailable. Please check it in Characters.'**
+  String get characterAvatarReferenceUnavailable;
+
+  /// No description provided for @characterSelectionInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'Please check your character selection.'**
+  String get characterSelectionInvalid;
+
+  /// No description provided for @characterAvatarHeroLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Hero of this book'**
+  String get characterAvatarHeroLabel;
+
+  /// No description provided for @characterAvatarApprovedDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'This character can join your next story, too.'**
+  String get characterAvatarApprovedDescription;
+
+  /// No description provided for @characterAvatarPreparingDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Your story character is being created.'**
+  String get characterAvatarPreparingDescription;
+
+  /// No description provided for @characterAvatarFailedDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Try creating again or choose another photo.'**
+  String get characterAvatarFailedDescription;
 }
 
 class _AppLocalizationsDelegate
@@ -5353,8 +6032,9 @@ AppLocalizations lookupAppLocalizations(Locale locale) {
   }
 
   throw FlutterError(
-      'AppLocalizations.delegate failed to load unsupported locale "$locale". This is likely '
-      'an issue with the localizations generation tool. Please file an issue '
-      'on GitHub with a reproducible sample app and the gen-l10n configuration '
-      'that was used.');
+    'AppLocalizations.delegate failed to load unsupported locale "$locale". This is likely '
+    'an issue with the localizations generation tool. Please file an issue '
+    'on GitHub with a reproducible sample app and the gen-l10n configuration '
+    'that was used.',
+  );
 }

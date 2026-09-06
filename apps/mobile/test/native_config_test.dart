@@ -13,7 +13,8 @@ void main() {
 
   // ─────────────────── H27: 카카오 공유 iOS 스킴 선언 ───────────────────
   group('H27 kakao iOS schemes', () {
-    test('Info.plist가 LSApplicationQueriesSchemes(kakaolink·kakaotalk)를 선언한다', () {
+    test('Info.plist가 LSApplicationQueriesSchemes(kakaolink·kakaotalk)를 선언한다',
+        () {
       final text = infoPlist.readAsStringSync();
       expect(text.contains('LSApplicationQueriesSchemes'), isTrue);
       expect(text.contains('kakaolink'), isTrue,
@@ -87,7 +88,8 @@ void main() {
       ];
       for (final locale in ['ko', 'en', 'ja']) {
         final f = File('ios/Runner/$locale.lproj/InfoPlist.strings');
-        expect(f.existsSync(), isTrue, reason: '$locale.lproj/InfoPlist.strings 없음');
+        expect(f.existsSync(), isTrue,
+            reason: '$locale.lproj/InfoPlist.strings 없음');
         final text = f.readAsStringSync();
         for (final key in usageKeys) {
           expect(text.contains(key), isTrue, reason: '$locale에 $key 없음');
@@ -98,7 +100,8 @@ void main() {
     test('pbxproj가 InfoPlist.strings를 리소스로 참조한다 (#13)', () {
       // 파일과 knownRegions만 있고 프로젝트에 미참조면 어떤 빌드에도 번들되지 않아
       // en/ja 지역화가 코드 상태로는 절대 발효하지 않는다(가드가 false-green이었음).
-      final text = File('ios/Runner.xcodeproj/project.pbxproj').readAsStringSync();
+      final text =
+          File('ios/Runner.xcodeproj/project.pbxproj').readAsStringSync();
       expect(text.contains('InfoPlist.strings'), isTrue,
           reason: 'InfoPlist.strings가 pbxproj에 등록돼야 함');
       expect(text.contains('PBXVariantGroup'), isTrue);
@@ -117,7 +120,8 @@ void main() {
     });
 
     test('pbxproj knownRegions에 ko·ja가 등록된다', () {
-      final text = File('ios/Runner.xcodeproj/project.pbxproj').readAsStringSync();
+      final text =
+          File('ios/Runner.xcodeproj/project.pbxproj').readAsStringSync();
       final m = RegExp(r'knownRegions = \(([^)]*)\)').firstMatch(text);
       expect(m, isNotNull);
       final regions = m!.group(1)!;
@@ -142,25 +146,19 @@ void main() {
       expect(infoPlist.readAsStringSync().contains('example.com'), isFalse);
     });
 
-    test('방침·약관·공유 도메인이 정본(aistorybook.com)으로 통일된다', () {
+    test(
+        'policy links use explicit build settings without assuming a purchased domain',
+        () {
       final settings =
           File('lib/screens/settings_screen.dart').readAsStringSync();
-      final kakao =
-          File('lib/services/kakao_share_service.dart').readAsStringSync();
-
-      String hostOf(String src, String constName) {
-        final m = RegExp("$constName\\s*=\\s*'([^']*)'").firstMatch(src);
-        if (m != null) return Uri.parse(m.group(1)!).host;
-        // defaultValue 형태(String.fromEnvironment) 대응
-        final m2 = RegExp("defaultValue:\\s*'(https://[^']*)'").firstMatch(src);
-        return m2 != null ? Uri.parse(m2.group(1)!).host : '';
-      }
-
-      final privacyHost = hostOf(settings, '_privacyPolicyUrl');
-      final shareHost = hostOf(kakao, '_webBaseUrl');
-      expect(privacyHost, 'aistorybook.com');
-      expect(shareHost, 'aistorybook.com',
-          reason: '공유 딥링크 호스트가 정본과 달라 404 재발 방지');
+      final links = File('lib/services/public_links.dart').readAsStringSync();
+      expect(settings.contains('aistorybook.com'), isFalse,
+          reason:
+              'An unverified hostname must not be presented as an operating policy page.');
+      expect(links.contains("String.fromEnvironment('PRIVACY_POLICY_URL')"),
+          isTrue);
+      expect(links.contains("String.fromEnvironment('TERMS_OF_SERVICE_URL')"),
+          isTrue);
     });
   });
 }

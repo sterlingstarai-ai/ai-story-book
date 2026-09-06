@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, UploadFile, Form
+from fastapi import APIRouter, BackgroundTasks, Depends, File, UploadFile, Form
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -14,25 +14,31 @@ from src.core.character_presets import (
 from src.core.consent import require_photo_consent
 from src.core.i18n import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES
 from src.core.database import get_db
-from sqlalchemy.exc import IntegrityError
 
 from src.core.dependencies import get_user_key
+from src.core.errors import LLMError
 from src.routers.books import consume_generation_budget, get_idempotency_key
 from src.models.dto import (
     CreateCharacterRequest,
     CharacterResponse,
     CharacterListResponse,
+    CharacterAvatarVersionRequest,
     CharacterAppearance,
     CharacterClothing,
     ImagePrompt,
 )
 from src.models.db import Character
-from src.services.photo_character import photo_character_service
-from src.services.purge_queue import cancel_purge_task, enqueue_purge_keys
-from src.services.storage import character_file_prefix, storage_service
+from src.services.photo_character import photo_character_service, validate_text_character
+from src.services.purge_queue import run_purge_tasks
+from src.services.character_avatar import (
+    approve_character_avatar, avatar_response_fields, create_image_character,
+    dispatch_character_avatar, regenerate_character_avatar,
+)
+from src.services.storage import storage_service  # noqa: F401 - retained upload adapter seam for legacy tests
 from src.services.image import generate_image, image_storage_scope
 from src.core.utils import utcnow
 from src.core.exceptions import (
+    APIError,
     AuthorizationError,
     InternalServerError,
     NotFoundError,
@@ -70,7 +76,7 @@ async def _validate_and_read_image(upload: UploadFile) -> bytes:
     if not upload.content_type or not upload.content_type.startswith("image/"):
         raise ValidationError("이미지 파일만 업로드 가능합니다.")
 
-    contents = await upload.read()
+    contents = await upload.read(_MAX_CHARACTER_IMAGE_BYTES + 1)
     if len(contents) > _MAX_CHARACTER_IMAGE_BYTES:
         raise ValidationError("파일 크기는 10MB 이하여야 합니다.")
     return contents
@@ -193,6 +199,8 @@ def _build_character_dict(
         "personality_traits": character.personality_traits,
         "visual_style_notes": character.visual_style_notes,
         "created_at": character.created_at,
+        "distinctive_features": character.distinctive_features,
+        **avatar_response_fields(character),
     }
 
 
@@ -341,6 +349,7 @@ async def create_character(
         visual_style_notes=character.visual_style_notes,
         distinctive_features=character.distinctive_features,
         created_at=character.created_at,
+        **avatar_response_fields(character),
     )
 
 
@@ -428,6 +437,7 @@ async def create_character_from_preset(
         visual_style_notes=character.visual_style_notes,
         distinctive_features=character.distinctive_features,
         created_at=character.created_at,
+        **avatar_response_fields(character),
     )
 
 
@@ -463,23 +473,10 @@ async def list_characters(
 
     return CharacterListResponse(
         characters=[
-            CharacterResponse(
-                character_id=c.id,
-                name=c.name,
-                master_description=c.master_description,
-                appearance=CharacterAppearance(
-                    **{k: v or "알 수 없음" for k, v in c.appearance.items()}
-                ),
-                clothing=CharacterClothing(
-                    **{
-                        k: v or "알 수 없음" if k != "accessories" else v or "없음"
-                        for k, v in c.clothing.items()
-                    }
-                ),
-                personality_traits=c.personality_traits,
-                visual_style_notes=c.visual_style_notes,
-                created_at=c.created_at,
-            )
+            CharacterResponse(**_build_character_dict(
+                c, normalized_appearance=c.appearance or {},
+                normalized_clothing=c.clothing or {},
+            ))
             for c in characters
         ],
         total=total,
@@ -519,6 +516,7 @@ async def get_character(
         visual_style_notes=character.visual_style_notes,
         distinctive_features=character.distinctive_features,
         created_at=character.created_at,
+        **avatar_response_fields(character),
     )
 
 
@@ -531,70 +529,38 @@ async def delete_character(
     """
     캐릭터 삭제
     """
+    from src.services.data_deletion import prepare_character_deletion
+    from src.services.photo_lifecycle import lock_photo_account
+
+    await lock_photo_account(db, user_key)
     result = await db.execute(select(Character).where(Character.id == character_id))
     character = result.scalar_one_or_none()
-
-    if not character:
+    if character is None:
         raise NotFoundError("캐릭터", character_id)
-
     if character.user_key != user_key:
         raise AuthorizationError()
-
-    # 사진/그림 파생 여부를 행 삭제 전에 확보(삭제 후 원본 스토리지도 파기해야 함).
-    was_from_photo = bool(getattr(character, "from_photo", False))
-
-    # H7: series.character_id → characters.id는 단방향 FK(ondelete 없음)라 ORM이
-    # 자동 nullify하지 못해 commit에서 IntegrityError 500이 난다. 삭제 전에 명시 해제.
-    from sqlalchemy import update
-    from src.models.db import Series
-
-    await db.execute(
-        update(Series)
-        .where(Series.character_id == character_id)
-        .values(character_id=None)
-    )
-    await db.delete(character)
+    pending_generation = character.avatar_status == "generating"
+    tasks = await prepare_character_deletion(db, character)
     try:
         await db.commit()
-    except Exception as e:
-        await _rollback_safely(
-            db,
-            operation="delete_character",
-            error=e,
-            user_key=user_key[:8] + "...",
-            character_id=character_id,
-        )
-        logger.error(
-            "Character deletion failed",
-            user_key=user_key[:8] + "...",
-            character_id=character_id,
-            error=str(e),
-        )
-        raise InternalServerError(
-            "캐릭터 삭제에 실패했습니다. 잠시 후 다시 시도해주세요."
-        ) from e
-
-    # 사진/그림 파생 캐릭터의 원본(아동 얼굴/그림)도 스토리지에서 파기 — 동의철회·계정삭제
-    # 경로와 동일하게 '삭제=원본 즉시 파기' 약속을 집행(고아 사진 영구 잔류 방지, PIPA).
-    if was_from_photo:
-        try:
-            await storage_service.delete_prefix(character_file_prefix(character_id))
-        except Exception as storage_error:
-            logger.warning(
-                "Character storage cleanup failed on delete",
-                character_id=character_id,
-                error=str(storage_error),
-            )
-
-    return {"message": "Character deleted successfully"}
+    except Exception:
+        await db.rollback()
+        raise InternalServerError("캐릭터 삭제에 실패했습니다. 잠시 후 다시 시도해주세요.") from None
+    failed = await run_purge_tasks(db, tasks) if tasks else []
+    pending = bool(failed) or pending_generation
+    return {
+        "message": "Character deleted successfully",
+        "status": "partial" if pending else "deleted",
+        "purge_retry_pending": pending,
+    }
 
 
 @router.post("/from-text", response_model=CharacterResponse)
 async def create_character_from_text(
-    name: str = Form(..., description="캐릭터 이름"),
-    age: str = Form(..., description="나이 (예: 5살, 30대)"),
-    traits: str = Form(..., description="특징/성격 (쉼표로 구분)"),
-    style: str = Form("cartoon", description="스타일"),
+    name: str = Form(..., min_length=1, max_length=40, description="캐릭터 이름"),
+    age: str = Form(..., min_length=1, max_length=30, description="나이 (예: 5살, 30대)"),
+    traits: str = Form(..., min_length=1, max_length=500, description="특징/성격 (쉼표로 구분)"),
+    style: str = Form("cartoon", min_length=1, max_length=100, description="스타일"),
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
 ):
@@ -604,6 +570,9 @@ async def create_character_from_text(
     - 이름, 나이, 특징만 입력
     - AI가 나머지 세부사항을 자동 생성
     """
+    if not name.strip() or not age.strip() or not traits.strip():
+        raise ValidationError("이름, 나이, 특징을 입력해주세요.")
+    await consume_generation_budget(endpoint="characters.from_text")
     try:
         # 성격 특성 파싱
         personality_traits = [t.strip() for t in traits.split(",") if t.strip()]
@@ -615,333 +584,134 @@ async def create_character_from_text(
             traits=personality_traits,
             style=style,
         )
+        # Defend the persistence boundary even when a provider adapter or test
+        # seam bypasses service validation. The response is also constructed
+        # before add/commit, so invalid AI output cannot leave an orphan row.
+        validated = validate_text_character(character_data)
 
         # 캐릭터 ID 생성
         character_id = f"char_{utcnow().strftime('%Y%m%d')}_{uuid.uuid4().hex[:8]}"
-
+        created_at = utcnow()
+        payload = validated.model_dump()
+        response = CharacterResponse(
+            character_id=character_id,
+            created_at=created_at,
+            **payload,
+        )
         character = Character(
             id=character_id,
-            name=character_data["name"],
-            master_description=character_data["master_description"],
-            appearance=character_data["appearance"],
-            clothing=character_data["clothing"],
-            personality_traits=character_data.get(
-                "personality_traits", personality_traits
-            ),
-            visual_style_notes=character_data.get("visual_style_notes", ""),
-            distinctive_features=character_data.get("distinctive_features"),
+            created_at=created_at,
             user_key=user_key,
+            **payload,
         )
 
         db.add(character)
         await db.commit()
-        await db.refresh(character)
-
-        return CharacterResponse(
-            character_id=character.id,
-            name=character.name,
-            master_description=character.master_description,
-            appearance=CharacterAppearance(
-                **{k: v or "알 수 없음" for k, v in character.appearance.items()}
-            ),
-            clothing=CharacterClothing(
-                **{
-                    k: v or "알 수 없음" if k != "accessories" else v or "없음"
-                    for k, v in character.clothing.items()
-                }
-            ),
-            personality_traits=character.personality_traits,
-            visual_style_notes=character.visual_style_notes,
-            distinctive_features=character.distinctive_features,
-            created_at=character.created_at,
-        )
+        return response
 
     except Exception as e:
-        await _rollback_safely(
-            db,
-            operation="create_character_from_text",
-            error=e,
-            user_key=user_key[:8] + "...",
-        )
-        logger.error("Character creation from text failed", error=str(e))
+        try:
+            await db.rollback()
+        except Exception:
+            logger.error("Text character rollback failed")
+        if isinstance(e, LLMError):
+            logger.warning("Text character generation failed", error_code=e.code.value)
+            raise APIError(
+                status_code=502,
+                error_code=e.code.value,
+                message="캐릭터 생성 응답을 처리하지 못했습니다. 잠시 후 다시 시도해주세요.",
+            ) from None
+        # Database exceptions can embed SQL parameters with child information.
+        # Never log the exception body, including rollback failures.
+        logger.error("Character creation from text failed", failure_kind="persistence_or_boundary")
         raise InternalServerError(
             "캐릭터 생성에 실패했습니다. 잠시 후 다시 시도해주세요."
-        ) from e
+        ) from None
+
+
+async def _create_from_image(
+    image: UploadFile, name: Optional[str], style: str, source_kind: str,
+    db: AsyncSession, user_key: str, idempotency_key: Optional[str],
+    background_tasks: BackgroundTasks,
+) -> CharacterResponse:
+    await require_photo_consent(db, user_key)
+    existing = await _existing_by_idempotency_key(db, user_key, idempotency_key)
+    if existing is not None:
+        character = existing
+    else:
+        contents = await _validate_and_read_image(image)
+        try:
+            character = await create_image_character(
+                db, image_data=contents, name=name, style=style, source_kind=source_kind,
+                user_key=user_key, idempotency_key=idempotency_key,
+            )
+        except APIError:
+            raise
+        except Exception as exc:
+            logger.warning("Character source preparation failed", error_type=type(exc).__name__)
+            raise InternalServerError("캐릭터 사진을 준비하지 못했습니다. 다시 시도해주세요.") from None
+    if character.avatar_status == "generating":
+        background_tasks.add_task(dispatch_character_avatar, character.id, character.avatar_version, user_key)
+    return CharacterResponse(**_build_character_dict(
+        character, normalized_appearance=character.appearance or {},
+        normalized_clothing=character.clothing or {},
+    ))
 
 
 @router.post("/from-photo", response_model=CharacterResponse)
 async def create_character_from_photo(
+    background_tasks: BackgroundTasks,
     photo: UploadFile = File(..., description="캐릭터 생성용 사진"),
-    name: Optional[str] = Form(None, description="캐릭터 이름 (없으면 AI 제안)"),
-    style: str = Form("cartoon", description="스타일"),
+    name: Optional[str] = Form(None),
+    style: str = Form("cartoon"),
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
     idempotency_key: Optional[str] = Depends(get_idempotency_key),
 ):
-    """
-    사진에서 캐릭터 생성
-
-    - 사진을 분석하여 캐릭터 특성 추출
-    - AI가 동화 스타일로 변환
-    - 자동으로 캐릭터 시트 생성
-    - `X-Idempotency-Key`를 보내면 재시도가 기존 캐릭터를 그대로 반환한다(재분석 없음)
-    """
-    await require_photo_consent(db, user_key)
-
-    # H17/G19 #9: 같은 시도키의 재요청은 재분석·재업로드 없이 기존 결과를 반환.
-    existing = await _existing_by_idempotency_key(db, user_key, idempotency_key)
-    if existing is not None:
-        return CharacterResponse(**_build_character_dict(
-            existing,
-            normalized_appearance=existing.appearance or {},
-            normalized_clothing=existing.clothing or {},
-        ))
-
-    contents = await _validate_and_read_image(photo)
-
-    # H5/R3-2: 비전 LLM + 시트 이미지 생성은 책 생성에 필적하는 실비용인데 예산 계량이
-    # 전혀 없었다. M10/R3-3: 동의·멱등·이미지 검증을 모두 통과한 뒤(=실비용 직전) 소비.
-    await consume_generation_budget(endpoint="characters.from_photo")
-
-    try:
-        character_data = await photo_character_service.create_character_from_photo(
-            image_data=contents,
-            user_name=name,
-            style=style,
-        )
-
-        character_id = f"char_{utcnow().strftime('%Y%m%d')}_{uuid.uuid4().hex[:8]}"
-
-        ext = _content_type_to_extension(photo.content_type)
-        photo_key = f"characters/{character_id}/photo{ext}"
-        # H8/R1-3: 아동 사진 업로드는 **외부 부작용**이고 그 뒤 DTO 검증·DB 커밋이 실패하면
-        # 캐릭터 행 없는 고아 사진이 남는다 — 행이 없어 URL 역산이 불가능하므로 계정삭제·
-        # 동의철회 어떤 경로로도 파기되지 않는다. 업로드 **전에** fail-closed 파기 지시를
-        # 커밋해 두고(로컬 레코드 선기록), 캐릭터가 실제로 살아남는 커밋에서 같은
-        # 트랜잭션으로 취소한다. 중간에 죽어도 스윕이 유예 후 고아를 파기한다.
-        orphan_guard = enqueue_purge_keys(
-            db,
-            user_key=user_key,
-            reason="photo_upload_guard",
-            keys=[photo_key],
-        )
-        await db.commit()
-
-        source_image_url = await storage_service.upload_bytes(
-            data=contents,
-            key=photo_key,
-            content_type=photo.content_type or "image/jpeg",
-        )
-
-        normalized_appearance, normalized_clothing = _normalize_character_payload(
-            character_data
-        )
-        # H2: 커밋 전에 응답 DTO 제약을 강제 — 실패해도 고아 캐릭터가 남지 않는다.
-        assert_character_dto_valid(
-            name=character_data.get("name"),
-            master_description=character_data.get("master_description"),
-            appearance=normalized_appearance,
-            clothing=normalized_clothing,
-        )
-
-        character = Character(
-            id=character_id,
-            name=character_data["name"],
-            master_description=character_data["master_description"],
-            appearance=normalized_appearance,
-            clothing=normalized_clothing,
-            personality_traits=character_data.get("personality_traits", []),
-            visual_style_notes=character_data.get("visual_style_notes", ""),
-            user_key=user_key,
-            from_photo=True,
-            source_image_url=source_image_url,
-            idempotency_key=idempotency_key,
-        )
-
-        db.add(character)
-        # H8: 캐릭터가 살아남는 바로 그 커밋에서 가드를 해제한다(별도 커밋 금지 — 그 사이
-        # 창에서 스윕이 살아있는 사진을 지운다).
-        for guard in orphan_guard:
-            cancel_purge_task(guard)
-        try:
-            await db.commit()
-        except IntegrityError:
-            # 동시 더블탭: 둘 다 pre-check를 통과해 부분 유니크에서 패배한 쪽.
-            # 500 대신 승자의 캐릭터를 멱등 반환한다(중복 생성은 DB가 이미 차단).
-            # 패자의 사진은 가드가 pending으로 남아 스윕이 파기한다(고아 방지).
-            await db.rollback()
-            winner = await _existing_by_idempotency_key(db, user_key, idempotency_key)
-            if winner is None:
-                raise
-            return CharacterResponse(**_build_character_dict(
-                winner,
-                normalized_appearance=winner.appearance or {},
-                normalized_clothing=winner.clothing or {},
-            ))
-        await db.refresh(character)
-
-        return CharacterResponse(**_build_character_dict(
-            character,
-            normalized_appearance=normalized_appearance,
-            normalized_clothing=normalized_clothing,
-        ))
-
-    except Exception as e:
-        await _rollback_safely(
-            db,
-            operation="create_character_from_photo",
-            error=e,
-            user_key=user_key[:8] + "...",
-        )
-        logger.error("Character creation from photo failed", error=str(e))
-        raise InternalServerError(
-            "캐릭터 생성에 실패했습니다. 잠시 후 다시 시도해주세요."
-        ) from e
+    """사진을 정규화하고 대표 캐릭터를 비동기로 생성한다. 승인 전 책 생성은 차단된다."""
+    return await _create_from_image(photo, name, style, "photo", db, user_key, idempotency_key, background_tasks)
 
 
-@router.post("/from-drawing")
+@router.post("/from-drawing", response_model=CharacterResponse)
 async def create_character_from_drawing(
+    background_tasks: BackgroundTasks,
     drawing: UploadFile = File(..., description="아이 그림 이미지"),
-    name: Optional[str] = Form(None, description="캐릭터 이름 (없으면 AI 제안)"),
-    style: str = Form("storybook_crayon", description="스타일"),
-    generate_sheet: bool = Form(True, description="캐릭터 시트 생성 여부"),
+    name: Optional[str] = Form(None),
+    style: str = Form("storybook_crayon"),
+    generate_sheet: bool = Form(True, description="이전 클라이언트 호환 필드; 대표 그림 한 장을 생성한다"),
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
     idempotency_key: Optional[str] = Depends(get_idempotency_key),
 ):
-    """
-    아이 그림을 캐릭터로 변환한다.
+    """아이 그림도 같은 단일 대표 캐릭터의 미리보기·승인 흐름으로 처리한다."""
+    return await _create_from_image(drawing, name, style, "drawing", db, user_key, idempotency_key, background_tasks)
 
-    - 그림 분석으로 캐릭터 외형/성격 추론
-    - 캐릭터 레코드 저장
-    - 선택적으로 캐릭터 시트 이미지(포즈 3종) 생성
-    - `X-Idempotency-Key`를 보내면 재시도가 기존 캐릭터를 반환한다(재분석·시트 재생성 없음).
-      시트 URL은 생성 시점 provider 반환값이라 재현 불가 — 재시도 응답에서는 빈 배열이다.
-    """
-    await require_photo_consent(db, user_key)
 
-    # H17/G19 #9: 같은 시도키의 재요청은 그림 재분석·시트 재생성 없이 기존 결과를 반환.
-    existing = await _existing_by_idempotency_key(db, user_key, idempotency_key)
-    if existing is not None:
-        return {
-            **_build_character_dict(
-                existing,
-                normalized_appearance=existing.appearance or {},
-                normalized_clothing=existing.clothing or {},
-            ),
-            "source_image_url": existing.source_image_url,
-            "character_sheet_urls": [],
-        }
+@router.post("/{character_id}/avatar/approve", response_model=CharacterResponse)
+async def approve_avatar(
+    character_id: str,
+    request: CharacterAvatarVersionRequest,
+    db: AsyncSession = Depends(get_db),
+    user_key: str = Depends(get_user_key),
+):
+    character = await approve_character_avatar(db, character_id, request.version, user_key)
+    return CharacterResponse(**_build_character_dict(
+        character, normalized_appearance=character.appearance or {},
+        normalized_clothing=character.clothing or {},
+    ))
 
-    contents = await _validate_and_read_image(drawing)
-    source_image_url: Optional[str] = None
 
-    # H5/R3-2: from-photo와 동일 — 비전 LLM + 시트 이미지 실비용 경로.
-    await consume_generation_budget(endpoint="characters.from_drawing")
-
-    try:
-        character_data = await photo_character_service.create_character_from_drawing(
-            image_data=contents,
-            user_name=name,
-            style=style,
-        )
-
-        character_id = f"char_{utcnow().strftime('%Y%m%d')}_{uuid.uuid4().hex[:8]}"
-
-        ext = _content_type_to_extension(drawing.content_type)
-        drawing_key = f"characters/{character_id}/drawing{ext}"
-        # H8/R1-3: 사진 경로와 동일 — 업로드 전 fail-closed 파기 지시 선기록.
-        orphan_guard = enqueue_purge_keys(
-            db,
-            user_key=user_key,
-            reason="photo_upload_guard",
-            keys=[drawing_key],
-        )
-        await db.commit()
-        try:
-            source_image_url = await storage_service.upload_bytes(
-                data=contents,
-                key=drawing_key,
-                content_type=drawing.content_type or "image/jpeg",
-            )
-        except Exception as storage_error:
-            logger.warning(
-                "Source drawing upload failed; continuing without stored source URL",
-                error=str(storage_error),
-            )
-
-        normalized_appearance, normalized_clothing = _normalize_character_payload(
-            character_data
-        )
-        # H2: 커밋 전에 응답 DTO 제약을 강제 — 실패해도 고아 캐릭터가 남지 않는다.
-        assert_character_dto_valid(
-            name=character_data.get("name"),
-            master_description=character_data.get("master_description"),
-            appearance=normalized_appearance,
-            clothing=normalized_clothing,
-        )
-
-        character = Character(
-            id=character_id,
-            name=character_data["name"],
-            master_description=character_data["master_description"],
-            appearance=normalized_appearance,
-            clothing=normalized_clothing,
-            personality_traits=character_data.get("personality_traits", []),
-            visual_style_notes=character_data.get("visual_style_notes", ""),
-            user_key=user_key,
-            from_photo=True,
-            source_image_url=source_image_url,
-            idempotency_key=idempotency_key,
-        )
-        db.add(character)
-        # H8: 캐릭터가 살아남는 커밋과 같은 트랜잭션에서 가드 해제.
-        for guard in orphan_guard:
-            cancel_purge_task(guard)
-        try:
-            await db.commit()
-        except IntegrityError:
-            await db.rollback()
-            winner = await _existing_by_idempotency_key(db, user_key, idempotency_key)
-            if winner is None:
-                raise
-            return {
-                **_build_character_dict(
-                    winner,
-                    normalized_appearance=winner.appearance or {},
-                    normalized_clothing=winner.clothing or {},
-                ),
-                "source_image_url": winner.source_image_url,
-                "character_sheet_urls": [],
-            }
-        await db.refresh(character)
-
-        sheet_urls: list[str] = []
-        if generate_sheet:
-            sheet_urls = await _generate_character_sheet_urls(
-                character_data=character_data,
-                style=style,
-                character_id=character_id,
-            )
-
-        base = _build_character_dict(
-            character,
-            normalized_appearance=normalized_appearance,
-            normalized_clothing=normalized_clothing,
-        )
-        return {
-            **base,
-            "source_image_url": source_image_url,
-            "character_sheet_urls": sheet_urls,
-        }
-    except Exception as e:
-        await _rollback_safely(
-            db,
-            operation="create_character_from_drawing",
-            error=e,
-            user_key=user_key[:8] + "...",
-        )
-        logger.error("Character creation from drawing failed", error=str(e))
-        raise InternalServerError(
-            "그림 기반 캐릭터 생성에 실패했습니다. 잠시 후 다시 시도해주세요."
-        ) from e
+@router.post("/{character_id}/avatar/regenerate", response_model=CharacterResponse)
+async def regenerate_avatar(
+    character_id: str,
+    request: CharacterAvatarVersionRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    user_key: str = Depends(get_user_key),
+):
+    character = await regenerate_character_avatar(db, character_id, request.version, user_key)
+    background_tasks.add_task(dispatch_character_avatar, character.id, character.avatar_version, user_key)
+    return CharacterResponse(**_build_character_dict(
+        character, normalized_appearance=character.appearance or {},
+        normalized_clothing=character.clothing or {},
+    ))

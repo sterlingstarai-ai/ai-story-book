@@ -325,6 +325,22 @@ async def validation_exception_handler(
             Exception: str,
         },
     )
+    if request.url.path.startswith("/v1/account/"):
+        # Pydantic validation errors otherwise echo credential-bearing input,
+        # including an entire rejected request body or unknown extra field.
+        details = [
+            {key: item[key] for key in ("type", "loc", "msg") if key in item}
+            for item in details
+        ]
+        safe_locations = {
+            "body", "header", "query", "path", "recovery_code", "new_user_key",
+            "x-user-key", "x_user_key",
+        }
+        for item in details:
+            item["loc"] = [
+                part if isinstance(part, int) or part in safe_locations else "field"
+                for part in item.get("loc", [])
+            ]
     message = "입력 정보를 확인해주세요."
     logger.warning(
         "Validation error",

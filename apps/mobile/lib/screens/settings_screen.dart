@@ -1,11 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'account_recovery_screen.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../l10n/app_localizations.dart';
 import '../providers/providers.dart';
+import '../services/api_client.dart';
+import '../services/public_links.dart';
 import '../utils/constants.dart';
 import '../widgets/age_gate_dialog.dart';
 
@@ -19,8 +21,6 @@ class SettingsScreen extends ConsumerStatefulWidget {
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   static const _appVersion =
       String.fromEnvironment('APP_VERSION', defaultValue: '1.0.0+1');
-  static const _privacyPolicyUrl = 'https://aistorybook.com/privacy-policy';
-  static const _termsOfServiceUrl = 'https://aistorybook.com/terms';
 
   bool _isLoading = true;
   bool _isSaving = false;
@@ -60,7 +60,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final themeNotifier = ref.read(appThemeModeProvider.notifier);
       final screenTimeNotifier = ref.read(screenTimeStateProvider.notifier);
       setState(() {
-        if (language != null && (language == 'ko' || language == 'en')) {
+        if (language != null &&
+            (language == 'ko' || language == 'en' || language == 'ja')) {
           _language = language;
         }
         _darkMode = data['dark_mode'] == true;
@@ -107,7 +108,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _saveSettings() async {
+    if (_isSaving || _isLoading || _errorMessage != null) return;
     setState(() => _isSaving = true);
+    final themeNotifier = ref.read(appThemeModeProvider.notifier);
+    final screenTimeNotifier = ref.read(screenTimeStateProvider.notifier);
     try {
       final api = ref.read(apiClientProvider);
       await api.patchSettings(
@@ -123,11 +127,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           'daily_limit_minutes': _dailyLimitMinutes.round(),
         },
       );
-      await ref.read(appThemeModeProvider.notifier).setDarkMode(_darkMode);
-      await ref.read(screenTimeStateProvider.notifier).syncSettings(
-            enabled: _screenTimeEnabled,
-            dailyLimitMinutes: _dailyLimitMinutes.round(),
-          );
+      await themeNotifier.setDarkMode(_darkMode);
+      await screenTimeNotifier.syncSettings(
+        enabled: _screenTimeEnabled,
+        dailyLimitMinutes: _dailyLimitMinutes.round(),
+      );
+      if (!mounted) return;
       // 알림 예약은 저장의 부수효과 — 저장 완료 표시를 막지 않도록 백그라운드로 처리.
       unawaited(_applyBedtimeSchedule());
 
@@ -214,6 +219,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final confirmed = await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
+            scrollable: true,
             title: Text(l.settingsRevokeConsentTitle),
             content: Text(l.settingsRevokeConsentContent),
             actions: [
@@ -280,6 +286,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final firstConfirm = await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
+            scrollable: true,
             title: Text(l.settingsDeleteAllTitle),
             content: Text(l.settingsDeleteAllContent),
             actions: [
@@ -300,24 +307,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       return;
     }
 
-    final textController = TextEditingController();
+    var deleteKeyword = '';
     final secondConfirm = await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
+            scrollable: true,
             title: Text(l.settingsFinalConfirmTitle),
-            content: Column(
+            content: SingleChildScrollView(
+                child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(l.settingsFinalConfirmPrompt(l.settingsDeleteKeyword)),
                 const SizedBox(height: AppSpacing.sm),
                 TextField(
-                  controller: textController,
+                  onChanged: (value) => deleteKeyword = value,
                   decoration:
                       InputDecoration(hintText: l.settingsDeleteKeyword),
                 ),
               ],
-            ),
+            )),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, false),
@@ -326,14 +335,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               TextButton(
                 // H21: 하드코딩 '삭제' 대신 로캘 키워드와 비교 → en/ja 사용자도 삭제 가능.
                 onPressed: () => Navigator.pop(
-                    context, textController.text.trim() == l.settingsDeleteKeyword),
+                    context, deleteKeyword.trim() == l.settingsDeleteKeyword),
                 child: Text(l.settingsDeleteKeyword),
               ),
             ],
           ),
         ) ??
         false;
-    textController.dispose();
 
     if (!secondConfirm) {
       if (!mounted) {
@@ -347,15 +355,32 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       return;
     }
 
+    if (!mounted) return;
     setState(() => _isDeleting = true);
     try {
       final api = ref.read(apiClientProvider);
-      await api.deleteMyData();
       final prefs = ref.read(sharedPreferencesProvider);
-      await prefs.clear();
-
-      if (!mounted) {
-        return;
+      final userService = ref.read(userServiceProvider);
+      final screenTime = ref.read(screenTimeStateProvider.notifier);
+      final parental = ref.read(parentalControlServiceProvider);
+      final container = ProviderScope.containerOf(context, listen: false);
+      var purgePending = false;
+      try {
+        await api.deleteMyData();
+      } on StoragePurgePending {
+        purgePending = true;
+      }
+      // Complete committed account deletion even if the parent left Settings
+      // while the HTTP request was in flight. UI lifetime is not transaction lifetime.
+      await screenTime.syncSettings(enabled: false, dailyLimitMinutes: 60);
+      await userService.completeAccountDeletion();
+      await parental.setConsent(prefs, false);
+      invalidateAccountScope(container);
+      if (!mounted) return;
+      if (purgePending) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(l.accountDeletionPending)),
+        );
       }
       Navigator.pushNamedAndRemoveUntil(context, '/consent', (_) => false);
     } catch (_) {
@@ -379,257 +404,335 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     return '$hour:$minute';
   }
 
-  Future<void> _copyUrl(String url) async {
-    await Clipboard.setData(ClipboardData(text: url));
-    if (!mounted) {
+  Future<void> _openPublicLink(String url) async {
+    final l = AppLocalizations.of(context);
+    final links = ref.read(publicLinksProvider);
+    if (PublicLinks.publicUri(url) == null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(l.settingsPagePreparing)));
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(AppLocalizations.of(context).settingsLinkCopied)),
-    );
+    final opened = await links.open(url);
+    if (!mounted || opened) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(l.settingsPageOpenError)));
   }
 
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
+    final publicLinks = ref.watch(publicLinksProvider);
+    final audioSupported = ref.watch(capabilitiesProvider).maybeWhen(
+          data: (value) => value['audio_supported'] == true,
+          orElse: () => false,
+        );
     if (_isLoading) {
       return Scaffold(
         appBar: AppBar(title: Text(l.settingsTitle)),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
+    if (_errorMessage != null) {
+      return Scaffold(
+        appBar: AppBar(title: Text(l.settingsTitle)),
+        body: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(_errorMessage!, textAlign: TextAlign.center),
+                const SizedBox(height: AppSpacing.md),
+                FilledButton(
+                  onPressed: _loadSettings,
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(120, 64),
+                  ),
+                  child: Text(l.retry),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                TextButton(
+                    onPressed: () async {
+                      final recovered = await openAccountRecovery(context, ref,
+                          restoreOnly: true);
+                      if (!context.mounted || !recovered) return;
+                      Navigator.pushNamedAndRemoveUntil(
+                          context, '/startup', (_) => false);
+                    },
+                    child: Text(l.recoveryRestoreTitle)),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(
         title: Text(l.settingsTitle),
-        actions: [
-          TextButton(
-            onPressed: _isSaving ? null : _saveSettings,
-            child: _isSaving
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : Text(l.settingsSave),
-          ),
-        ],
       ),
-      body: ListView(
-        children: [
-          if (_errorMessage != null)
-            Container(
-              margin: const EdgeInsets.all(AppSpacing.md),
-              padding: const EdgeInsets.all(AppSpacing.md),
-              decoration: BoxDecoration(
-                color: AppColors.error.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(AppRadius.md),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        minimum: const EdgeInsets.all(AppSpacing.md),
+        child: FilledButton(
+          key: const ValueKey('settings-save'),
+          style: FilledButton.styleFrom(minimumSize: const Size(64, 64)),
+          onPressed: _isSaving ? null : _saveSettings,
+          child: _isSaving
+              ? const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+              : Text(l.settingsSave),
+        ),
+      ),
+      body: AbsorbPointer(
+        absorbing: _isSaving,
+        child: ListView(
+          children: [
+            if (_errorMessage != null)
+              Container(
+                margin: const EdgeInsets.all(AppSpacing.md),
+                padding: const EdgeInsets.all(AppSpacing.md),
+                decoration: BoxDecoration(
+                  color: AppColors.error.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                ),
+                child: Text(
+                  _errorMessage!,
+                  style: AppTextStyles.caption.copyWith(color: AppColors.error),
+                ),
               ),
-              child: Text(
-                _errorMessage!,
-                style: AppTextStyles.caption.copyWith(color: AppColors.error),
-              ),
+            _SectionHeader(l.settingsSectionAccount),
+            ListTile(
+              leading: const Icon(Icons.person_outline),
+              title: Text(l.settingsChildProfile),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.pushNamed(context, '/profiles'),
             ),
-          _SectionHeader(l.settingsSectionAccount),
-          ListTile(
-            leading: const Icon(Icons.person_outline),
-            title: Text(l.settingsChildProfile),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.pushNamed(context, '/profiles'),
-          ),
-          ListTile(
-            leading: const Icon(Icons.analytics_outlined),
-            title: Text(l.settingsParentDashboard),
-            subtitle: Text(l.settingsParentDashboardSubtitle),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.pushNamed(context, '/parent-dashboard'),
-          ),
-          ListTile(
-            leading: const Icon(Icons.mic_outlined),
-            title: Text(l.settingsFamilyVoice),
-            subtitle: Text(l.settingsFamilyVoiceSubtitle),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.pushNamed(context, '/voice-profiles'),
-          ),
-          ListTile(
-            leading: const Icon(Icons.credit_card),
-            title: Text(l.settingsCreditsSubscription),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.pushNamed(context, '/credits'),
-          ),
-          ListTile(
-            leading: const Icon(Icons.verified_user_outlined),
-            title: Text(l.settingsPoliciesTitle),
-            subtitle: Text(l.settingsPoliciesSubtitle),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => showDialog<void>(
-              context: context,
-              builder: (context) {
-                final dl = AppLocalizations.of(context);
-                Widget item(String title, String body) => Padding(
-                      padding: const EdgeInsets.only(bottom: 14),
+            ListTile(
+              leading: const Icon(Icons.analytics_outlined),
+              title: Text(l.settingsParentDashboard),
+              subtitle: Text(l.settingsParentDashboardSubtitle),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.pushNamed(context, '/parent-dashboard'),
+            ),
+            if (audioSupported)
+              ListTile(
+                leading: const Icon(Icons.mic_outlined),
+                title: Text(l.settingsFamilyVoice),
+                subtitle: Text(l.settingsFamilyVoiceSubtitle),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.pushNamed(context, '/voice-profiles'),
+              ),
+            ListTile(
+              leading: const Icon(Icons.credit_card),
+              title: Text(l.settingsCreditsSubscription),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.pushNamed(context, '/credits'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.verified_user_outlined),
+              title: Text(l.settingsPoliciesTitle),
+              subtitle: Text(l.settingsPoliciesSubtitle),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => showDialog<void>(
+                context: context,
+                builder: (context) {
+                  final dl = AppLocalizations.of(context);
+                  Widget item(String title, String body) => Padding(
+                        padding: const EdgeInsets.only(bottom: 14),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(title,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w600)),
+                            const SizedBox(height: 2),
+                            Text(body),
+                          ],
+                        ),
+                      );
+                  return AlertDialog(
+                    title: Text(dl.settingsPoliciesTitle),
+                    content: SingleChildScrollView(
                       child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(title,
-                              style:
-                                  const TextStyle(fontWeight: FontWeight.w600)),
-                          const SizedBox(height: 2),
-                          Text(body),
+                          item(dl.policyCreditRolloverTitle,
+                              dl.policyCreditRolloverBody),
+                          item(dl.policyBookAccessTitle,
+                              dl.policyBookAccessBody),
+                          item(dl.policyRefundTitle, dl.policyRefundBody),
                         ],
                       ),
-                    );
-                return AlertDialog(
-                  title: Text(dl.settingsPoliciesTitle),
-                  content: SingleChildScrollView(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        item(dl.policyCreditRolloverTitle,
-                            dl.policyCreditRolloverBody),
-                        item(dl.policyBookAccessTitle, dl.policyBookAccessBody),
-                        item(dl.policyRefundTitle, dl.policyRefundBody),
-                      ],
                     ),
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: Text(dl.libraryClose),
-                    ),
-                  ],
-                );
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: Text(dl.libraryClose),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+            const Divider(height: 1),
+            _SectionHeader(l.settingsSectionApp),
+            // L13: 언어 드롭다운 제거 — UI 로캘은 기기 추종이 정본(MaterialApp.locale 미배선).
+            // 서버 language 필드는 _language(로드값 라운드트립)로 유지(스펙 M1-07).
+            SwitchListTile(
+              title: Text(l.settingsDarkMode),
+              subtitle: Text(l.settingsDarkModeSubtitle),
+              value: _darkMode,
+              onChanged: (value) => setState(() => _darkMode = value),
+            ),
+            SwitchListTile(
+              title: Text(l.settingsKakaoShare),
+              subtitle: Text(l.settingsKakaoShareSubtitle),
+              value: _allowKakaoShare,
+              onChanged: (value) => setState(() => _allowKakaoShare = value),
+            ),
+            const Divider(height: 1),
+            _SectionHeader(l.settingsSectionSleep),
+            SwitchListTile(
+              title: Text(l.settingsBedtimeNotification),
+              value: _bedtimeNotificationEnabled,
+              onChanged: (value) =>
+                  setState(() => _bedtimeNotificationEnabled = value),
+            ),
+            if (_bedtimeNotificationEnabled)
+              ListTile(
+                title: Text(l.settingsBedtime),
+                subtitle: Text(_formatTimeOfDay(_bedtime)),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: _pickBedtime,
+              ),
+            if (audioSupported)
+              ListTile(
+                title: Text(l.settingsSleepTimer(_sleepModeMinutes.round())),
+                subtitle: Slider(
+                  min: 10,
+                  max: 60,
+                  divisions: 10,
+                  label: l.settingsMinutes(_sleepModeMinutes.round()),
+                  value: _sleepModeMinutes,
+                  onChanged: (value) =>
+                      setState(() => _sleepModeMinutes = value),
+                ),
+              ),
+            const Divider(height: 1),
+            _SectionHeader(l.settingsSectionScreenTime),
+            SwitchListTile(
+              title: Text(l.settingsScreenTimeEnabled),
+              value: _screenTimeEnabled,
+              onChanged: (value) async {
+                final ok = await _ensureParentalAuth();
+                if (!ok || !mounted) {
+                  return;
+                }
+                setState(() => _screenTimeEnabled = value);
               },
             ),
-          ),
-          const Divider(height: 1),
-          _SectionHeader(l.settingsSectionApp),
-          // L13: 언어 드롭다운 제거 — UI 로캘은 기기 추종이 정본(MaterialApp.locale 미배선).
-          // 서버 language 필드는 _language(로드값 라운드트립)로 유지(스펙 M1-07).
-          SwitchListTile(
-            title: Text(l.settingsDarkMode),
-            subtitle: Text(l.settingsDarkModeSubtitle),
-            value: _darkMode,
-            onChanged: (value) async {
-              setState(() => _darkMode = value);
-              await ref.read(appThemeModeProvider.notifier).setDarkMode(value);
-            },
-          ),
-          SwitchListTile(
-            title: Text(l.settingsKakaoShare),
-            subtitle: Text(l.settingsKakaoShareSubtitle),
-            value: _allowKakaoShare,
-            onChanged: (value) => setState(() => _allowKakaoShare = value),
-          ),
-          const Divider(height: 1),
-          _SectionHeader(l.settingsSectionSleep),
-          SwitchListTile(
-            title: Text(l.settingsBedtimeNotification),
-            value: _bedtimeNotificationEnabled,
-            onChanged: (value) =>
-                setState(() => _bedtimeNotificationEnabled = value),
-          ),
-          if (_bedtimeNotificationEnabled)
-            ListTile(
-              title: Text(l.settingsBedtime),
-              subtitle: Text(_formatTimeOfDay(_bedtime)),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: _pickBedtime,
-            ),
-          ListTile(
-            title: Text(l.settingsSleepTimer(_sleepModeMinutes.round())),
-            subtitle: Slider(
-              min: 10,
-              max: 60,
-              divisions: 10,
-              label: l.settingsMinutes(_sleepModeMinutes.round()),
-              value: _sleepModeMinutes,
-              onChanged: (value) => setState(() => _sleepModeMinutes = value),
-            ),
-          ),
-          const Divider(height: 1),
-          _SectionHeader(l.settingsSectionScreenTime),
-          SwitchListTile(
-            title: Text(l.settingsScreenTimeEnabled),
-            value: _screenTimeEnabled,
-            onChanged: (value) async {
-              final ok = await _ensureParentalAuth();
-              if (!ok || !mounted) {
-                return;
-              }
-              setState(() => _screenTimeEnabled = value);
-            },
-          ),
-          if (_screenTimeEnabled)
-            ListTile(
-              title: Text(l.settingsDailyLimit(_dailyLimitMinutes.round())),
-              subtitle: Slider(
-                min: 30,
-                max: 120,
-                divisions: 9,
-                label: l.settingsMinutes(_dailyLimitMinutes.round()),
-                value: _dailyLimitMinutes,
-                // R4(2026-08-17 감사): 토글만 부모 게이트 뒤에 있었고 **한도 값 변경은
-                // 게이트 밖**이었다 — 아이가 토글은 못 꺼도 한도를 30분에서 120분으로
-                // 올려버리면 스크린타임 통제가 사실상 무력해진다. 값 변경도 같은 게이트 뒤로.
-                onChanged: _screenTimeLimitUnlocked
-                    ? (value) => setState(() => _dailyLimitMinutes = value)
-                    : null,
+            if (_screenTimeEnabled)
+              ListTile(
+                title: Text(l.settingsDailyLimit(_dailyLimitMinutes.round())),
+                subtitle: Slider(
+                  min: 30,
+                  max: 120,
+                  divisions: 9,
+                  label: l.settingsMinutes(_dailyLimitMinutes.round()),
+                  value: _dailyLimitMinutes,
+                  // R4(2026-08-17 감사): 토글만 부모 게이트 뒤에 있었고 **한도 값 변경은
+                  // 게이트 밖**이었다 — 아이가 토글은 못 꺼도 한도를 30분에서 120분으로
+                  // 올려버리면 스크린타임 통제가 사실상 무력해진다. 값 변경도 같은 게이트 뒤로.
+                  onChanged: _screenTimeLimitUnlocked
+                      ? (value) => setState(() => _dailyLimitMinutes = value)
+                      : null,
+                ),
+                trailing: _screenTimeLimitUnlocked
+                    ? null
+                    : IconButton(
+                        icon: const Icon(Icons.lock_outline),
+                        tooltip: l.ageGateTitle,
+                        onPressed: () async {
+                          final ok = await _ensureParentalAuth();
+                          if (!ok || !mounted) {
+                            return;
+                          }
+                          setState(() => _screenTimeLimitUnlocked = true);
+                        },
+                      ),
               ),
-              trailing: _screenTimeLimitUnlocked
-                  ? null
-                  : IconButton(
-                      icon: const Icon(Icons.lock_outline),
-                      tooltip: l.ageGateTitle,
-                      onPressed: () async {
-                        final ok = await _ensureParentalAuth();
-                        if (!ok || !mounted) {
-                          return;
-                        }
-                        setState(() => _screenTimeLimitUnlocked = true);
-                      },
-                    ),
+            const Divider(height: 1),
+            _SectionHeader(l.settingsSectionAppInfo),
+            ListTile(
+              leading: const Icon(Icons.info_outline),
+              title: Text(l.settingsAppVersion),
+              subtitle: const Text('v$_appVersion'),
             ),
-          const Divider(height: 1),
-          _SectionHeader(l.settingsSectionAppInfo),
-          ListTile(
-            leading: const Icon(Icons.info_outline),
-            title: Text(l.settingsAppVersion),
-            subtitle: const Text('v$_appVersion'),
-          ),
-          ListTile(
-            leading: const Icon(Icons.privacy_tip_outlined),
-            title: Text(l.settingsPrivacyPolicy),
-            subtitle: const Text(_privacyPolicyUrl),
-            onTap: () => _copyUrl(_privacyPolicyUrl),
-          ),
-          ListTile(
-            leading: const Icon(Icons.description_outlined),
-            title: Text(l.settingsTermsOfService),
-            subtitle: const Text(_termsOfServiceUrl),
-            onTap: () => _copyUrl(_termsOfServiceUrl),
-          ),
-          const Divider(height: 1),
-          _SectionHeader(l.settingsSectionPrivacy),
-          ListTile(
-            leading: const Icon(Icons.privacy_tip_outlined),
-            title: Text(l.settingsRevokeParentalConsent),
-            onTap: _revokeConsent,
-          ),
-          ListTile(
-            leading: const Icon(Icons.delete_forever, color: AppColors.error),
-            title: Text(l.settingsDeleteAllData),
-            subtitle: Text(l.settingsDeleteAllDataSubtitle),
-            onTap: _isDeleting ? null : _deleteAllData,
-          ),
-          if (_isDeleting)
-            const Padding(
-              padding: EdgeInsets.all(AppSpacing.md),
-              child: Center(child: CircularProgressIndicator()),
+            ListTile(
+              leading: const Icon(Icons.privacy_tip_outlined),
+              title: Text(l.settingsPrivacyPolicy),
+              subtitle:
+                  PublicLinks.publicUri(publicLinks.privacyPolicyUrl) == null
+                      ? Text(l.settingsPagePreparing)
+                      : null,
+              trailing: const Icon(Icons.open_in_new),
+              onTap: () => _openPublicLink(publicLinks.privacyPolicyUrl),
             ),
-          const SizedBox(height: AppSpacing.xl),
-        ],
+            ListTile(
+              leading: const Icon(Icons.description_outlined),
+              title: Text(l.settingsTermsOfService),
+              subtitle:
+                  PublicLinks.publicUri(publicLinks.termsOfServiceUrl) == null
+                      ? Text(l.settingsPagePreparing)
+                      : null,
+              trailing: const Icon(Icons.open_in_new),
+              onTap: () => _openPublicLink(publicLinks.termsOfServiceUrl),
+            ),
+            const Divider(height: 1),
+            _SectionHeader(l.settingsSectionPrivacy),
+            ListTile(
+              leading: const Icon(Icons.key_outlined),
+              title: Text(l.recoveryTitle),
+              subtitle: Text(l.recoveryDescription),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () async {
+                final recovered = await openAccountRecovery(context, ref);
+                if (!context.mounted || !recovered) return;
+                Navigator.pushNamedAndRemoveUntil(
+                    context, '/startup', (_) => false);
+              },
+            ),
+            if (!audioSupported)
+              ListTile(
+                leading: const Icon(Icons.manage_accounts_outlined),
+                title: Text(l.settingsSavedVoices),
+                subtitle: Text(l.settingsSavedVoicesSubtitle),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.pushNamed(context, '/voice-profiles'),
+              ),
+            ListTile(
+              leading: const Icon(Icons.privacy_tip_outlined),
+              title: Text(l.settingsRevokeParentalConsent),
+              onTap: _revokeConsent,
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_forever, color: AppColors.error),
+              title: Text(l.settingsDeleteAllData),
+              subtitle: Text(l.settingsDeleteAllDataSubtitle),
+              onTap: _isDeleting ? null : _deleteAllData,
+            ),
+            if (_isDeleting)
+              const Padding(
+                padding: EdgeInsets.all(AppSpacing.md),
+                child: Center(child: CircularProgressIndicator()),
+              ),
+            const SizedBox(height: AppSpacing.xl),
+          ],
+        ),
       ),
     );
   }
@@ -652,7 +755,7 @@ class _SectionHeader extends StatelessWidget {
       child: Text(
         title,
         style: AppTextStyles.caption.copyWith(
-          color: AppColors.textSecondary,
+          color: AppPalette.of(context).textSecondary,
           fontWeight: FontWeight.w700,
         ),
       ),

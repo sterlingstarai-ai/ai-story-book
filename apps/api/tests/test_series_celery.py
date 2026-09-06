@@ -31,6 +31,7 @@ def _relax(monkeypatch):
     from src.core.config import settings
 
     monkeypatch.setattr(settings, "testing", False)
+    monkeypatch.setattr(settings, "illustration_quality_enabled", True)
     monkeypatch.setattr(settings, "use_celery", True)
     monkeypatch.setattr(settings, "free_plan_enforcement_enabled", False)
     monkeypatch.setattr(settings, "require_parental_consent_enabled", False)

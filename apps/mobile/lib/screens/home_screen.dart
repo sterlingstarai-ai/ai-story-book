@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 import '../l10n/app_localizations.dart';
@@ -123,8 +124,7 @@ class HomeScreen extends ConsumerWidget {
     final sigNotifier = ref.read(todayAttemptSigProvider.notifier);
     // #20: 날짜가 바뀌면 새 키 — 어제 실패한 키로 오늘 요청하면 서버가 어제 잡을 반환한다.
     final now = DateTime.now();
-    final todaySig =
-        '${now.year}-${now.month}-${now.day}|$language';
+    final todaySig = '${now.year}-${now.month}-${now.day}|$language';
     if (keyNotifier.state == null || sigNotifier.state != todaySig) {
       keyNotifier.state = const Uuid().v4();
       sigNotifier.state = todaySig;
@@ -167,25 +167,31 @@ class HomeScreen extends ConsumerWidget {
       orElse: () => l.readingGrowthEntrySubtitle,
     );
 
+    final hasBooks = libraryAsync.valueOrNull?.isNotEmpty ?? false;
+
     return AppShell(
       currentIndex: 0,
       body: SafeArea(
         child: CustomScrollView(
+          key: const Key('home_scroll'),
           slivers: [
-            // 헤더
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.all(AppSpacing.lg),
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.lg, AppSpacing.md, AppSpacing.lg, AppSpacing.md),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
                       children: [
                         Expanded(
-                          child:
-                              Text(l.homeTitle, style: AppTextStyles.heading1),
-                        ),
+                            child: Text(l.homeTitle,
+                                style: AppTextStyles.heading1)),
                         IconButton(
+                          constraints: const BoxConstraints(
+                            minWidth: AppSizing.minTouchTarget,
+                            minHeight: AppSizing.minTouchTarget,
+                          ),
                           onPressed: () =>
                               Navigator.pushNamed(context, '/settings'),
                           icon: const Icon(Icons.settings_outlined),
@@ -193,42 +199,63 @@ class HomeScreen extends ConsumerWidget {
                         ),
                       ],
                     ),
-                    const SizedBox(height: AppSpacing.sm),
                     Text(
-                      l.homeHeaderSubtitle,
-                      style: AppTextStyles.bodySmall,
-                    ),
+                        hasBooks ? l.homeReadingSubtitle : l.homeHeaderSubtitle,
+                        style: AppTextStyles.bodySmall),
                   ],
                 ),
               ),
             ),
 
-            // 새 책 만들기 카드
+            // Saved stories are the first useful action for a returning reader.
             SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-                child: _CreateBookCard(
-                  onTap: () => Navigator.pushNamed(context, '/create'),
+              child: libraryAsync.when(
+                data: (books) => books.isEmpty
+                    ? Padding(
+                        padding: const EdgeInsets.fromLTRB(AppSpacing.lg,
+                            AppSpacing.sm, AppSpacing.lg, AppSpacing.md),
+                        child: Text(l.homeEmptyTitle,
+                            style: AppTextStyles.heading3),
+                      )
+                    : _HomeReadingSection(books: books.take(4).toList()),
+                loading: () => Semantics(
+                  label: l.homeRecentBooksTitle,
+                  child: const Padding(
+                    padding: EdgeInsets.all(AppSpacing.lg),
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
                 ),
-              ),
-            ),
-
-            // 사진→캐릭터 진입 (프라이버시 신뢰 메시지 포함)
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.lg, AppSpacing.md, AppSpacing.lg, 0),
-                child: _PhotoCharacterCard(
-                  onTap: () => Navigator.pushNamed(
-                    context,
-                    '/create',
-                    arguments: {'startPhotoCharacter': true},
+                error: (_, __) => Padding(
+                  padding: const EdgeInsets.fromLTRB(AppSpacing.lg,
+                      AppSpacing.sm, AppSpacing.lg, AppSpacing.lg),
+                  child: _StreakErrorCard(
+                    title: l.homeLibraryErrorTitle,
+                    message: l.libraryErrorNetwork,
+                    onRetry: () => ref.invalidate(libraryProvider),
                   ),
                 ),
               ),
             ),
 
-            // 캐릭터-퍼스트 진입: 저장된 캐릭터로 바로 새 책 만들기
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+                child: _CreateBookCard(
+                  compact: hasBooks,
+                  onTap: () => Navigator.pushNamed(context, '/create'),
+                ),
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.lg, AppSpacing.md, AppSpacing.lg, 0),
+                child: _PhotoCharacterCard(
+                  onTap: () => Navigator.pushNamed(context, '/create',
+                      arguments: {'startPhotoCharacter': true}),
+                ),
+              ),
+            ),
             charactersAsync.maybeWhen(
               data: (characters) => characters.isEmpty
                   ? const SliverToBoxAdapter(child: SizedBox.shrink())
@@ -238,21 +265,17 @@ class HomeScreen extends ConsumerWidget {
                         child: _CharacterQuickStartRow(
                           characters: characters.take(8).toList(),
                           onSelect: (id) => Navigator.pushNamed(
-                            context,
-                            '/create',
-                            arguments: {
-                              'characterIds': [id],
-                            },
-                          ),
+                              context, '/create',
+                              arguments: {
+                                'characterIds': [id]
+                              }),
                         ),
                       ),
                     ),
               orElse: () => const SliverToBoxAdapter(child: SizedBox.shrink()),
             ),
-
             const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.xl)),
             _SectionLabel(l.homeSectionTodayReading),
-
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
@@ -262,118 +285,22 @@ class HomeScreen extends ConsumerWidget {
                     onTapPrimary: () => _onTodayPrimary(context, ref, streak),
                   ),
                   loading: () => const _StreakLoadingCard(),
-                  error: (error, _) => _StreakErrorCard(
+                  error: (_, __) => _StreakErrorCard(
                     message: l.homeStreakLoadError,
                     onRetry: () => ref.invalidate(homeStreakProvider),
                   ),
                 ),
               ),
             ),
-
             const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.lg)),
             _SectionLabel(l.homeSectionForParents),
-
-            // 읽기 성장 진입
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.xl),
                 child: _GrowthEntryCard(
                   subtitle: growthSubtitle,
                   onTap: () => Navigator.pushNamed(context, '/reading-growth'),
-                ),
-              ),
-            ),
-
-            const SliverToBoxAdapter(
-              child: SizedBox(height: AppSpacing.xl),
-            ),
-
-            // 최근 책 섹션
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(l.homeRecentBooksTitle, style: AppTextStyles.heading3),
-                    TextButton(
-                      onPressed: () => Navigator.pushNamed(context, '/library'),
-                      child: Text(
-                        l.homeViewAll,
-                        style: AppTextStyles.bodySmall.copyWith(
-                          color: AppColors.primary,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-            // 최근 책 목록
-            libraryAsync.when(
-              data: (books) {
-                if (books.isEmpty) {
-                  return SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.all(AppSpacing.xl),
-                      child: EmptyState(
-                        icon: Icons.auto_stories_outlined,
-                        title: l.homeEmptyTitle,
-                        subtitle: l.homeEmptySubtitle,
-                      ),
-                    ),
-                  );
-                }
-
-                final recentBooks = books.take(4).toList();
-                return SliverPadding(
-                  padding: const EdgeInsets.all(AppSpacing.lg),
-                  sliver: SliverGrid(
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
-                      mainAxisSpacing: AppSpacing.md,
-                      crossAxisSpacing: AppSpacing.md,
-                      childAspectRatio: 0.65,
-                    ),
-                    delegate: SliverChildBuilderDelegate(
-                      (context, index) {
-                        final book = recentBooks[index];
-                        return BookCard(
-                          title: book.title,
-                          imageUrl: book.coverImageUrl,
-                          subtitle: book.theme,
-                          onTap: () => Navigator.pushNamed(
-                            context,
-                            '/viewer',
-                            arguments: book.id,
-                          ),
-                        );
-                      },
-                      childCount: recentBooks.length,
-                    ),
-                  ),
-                );
-              },
-              loading: () => const SliverToBoxAdapter(
-                child: Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(AppSpacing.xl),
-                    child: CircularProgressIndicator(),
-                  ),
-                ),
-              ),
-              error: (error, _) => SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.all(AppSpacing.lg),
-                  child: EmptyState(
-                    icon: Icons.error_outline,
-                    title: l.homeLibraryErrorTitle,
-                    subtitle: error.toString(),
-                    buttonText: l.retry,
-                    onButtonPressed: () => ref.invalidate(libraryProvider),
-                  ),
                 ),
               ),
             ),
@@ -384,73 +311,224 @@ class HomeScreen extends ConsumerWidget {
   }
 }
 
-/// 새 책 만들기 카드
-class _CreateBookCard extends StatelessWidget {
-  final VoidCallback onTap;
+class _HomeReadingSection extends StatelessWidget {
+  const _HomeReadingSection({required this.books});
 
-  const _CreateBookCard({required this.onTap});
+  final List<LibraryBook> books;
 
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [AppColors.primary, AppColors.secondary],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
+    final latest = books.first;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+            child: Row(
+              children: [
+                Expanded(
+                    child: Text(l.homeRecentBooksTitle,
+                        style: AppTextStyles.heading3)),
+                TextButton(
+                  key: const Key('home_view_library'),
+                  style: TextButton.styleFrom(
+                      minimumSize: const Size(
+                          AppSizing.minTouchTarget, AppSizing.minTouchTarget)),
+                  onPressed: () => Navigator.pushNamed(context, '/library'),
+                  child: Text(l.homeViewAll),
+                ),
+              ],
+            ),
           ),
-          borderRadius: BorderRadius.circular(AppRadius.xl),
-          boxShadow: const [
-            BoxShadow(
-              color: AppColors.primaryStrong,
-              blurRadius: 20,
-              offset: Offset(0, 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+            child: Material(
+              color: AppPalette.of(context).surface,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppRadius.lg),
+                side: const BorderSide(color: AppColors.primaryMedium),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                key: const Key('home_featured_book'),
+                onTap: () => Navigator.pushNamed(context, '/viewer',
+                    arguments: latest.id),
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  child: Row(
+                    children: [
+                      _HomeBookCover(
+                          imageUrl: latest.coverImageUrl,
+                          width: 80,
+                          height: 108),
+                      const SizedBox(width: AppSpacing.md),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(latest.title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppTextStyles.heading3),
+                            const SizedBox(height: AppSpacing.md),
+                            Row(
+                              children: [
+                                Icon(Icons.auto_stories_rounded,
+                                    color: AppPalette.of(context).primary,
+                                    size: 20),
+                                const SizedBox(width: AppSpacing.sm),
+                                Expanded(
+                                    child: Text(l.homeReadBook,
+                                        style: AppTextStyles.body.copyWith(
+                                            color:
+                                                AppPalette.of(context).primary,
+                                            fontWeight: FontWeight.w700))),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          if (books.length > 1) ...[
+            const SizedBox(height: AppSpacing.md),
+            SizedBox(
+              height: 148 + MediaQuery.textScalerOf(context).scale(38),
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+                itemCount: books.length - 1,
+                separatorBuilder: (_, __) =>
+                    const SizedBox(width: AppSpacing.md),
+                itemBuilder: (context, index) {
+                  final book = books[index + 1];
+                  return SizedBox(
+                    width: 132,
+                    child: Material(
+                      color: AppPalette.of(context).surface,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(AppRadius.md),
+                          side: BorderSide(
+                              color: AppPalette.of(context).divider)),
+                      clipBehavior: Clip.antiAlias,
+                      child: InkWell(
+                        onTap: () => Navigator.pushNamed(context, '/viewer',
+                            arguments: book.id),
+                        child: Padding(
+                          padding: const EdgeInsets.all(AppSpacing.sm),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _HomeBookCover(
+                                  imageUrl: book.coverImageUrl,
+                                  width: 116,
+                                  height: 116),
+                              const SizedBox(height: AppSpacing.sm),
+                              Text(book.title,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppTextStyles.bodySmall.copyWith(
+                                      color: AppPalette.of(context).textPrimary,
+                                      fontWeight: FontWeight.w600)),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+class _HomeBookCover extends StatelessWidget {
+  const _HomeBookCover(
+      {required this.imageUrl, required this.width, required this.height});
+  final String imageUrl;
+  final double width;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    final placeholder = Container(
+      color: AppPalette.of(context).primaryLight,
+      alignment: Alignment.center,
+      child: Icon(Icons.auto_stories_outlined,
+          color: AppPalette.of(context).primary, size: 32),
+    );
+    return ExcludeSemantics(
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        child: SizedBox(
+          width: width,
+          height: height,
+          child: imageUrl.isEmpty
+              ? placeholder
+              : CachedNetworkImage(
+                  imageUrl: imageUrl,
+                  fit: BoxFit.cover,
+                  placeholder: (_, __) => placeholder,
+                  errorWidget: (_, __, ___) => placeholder,
+                ),
         ),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+      ),
+    );
+  }
+}
+
+/// 새 책 만들기 카드
+class _CreateBookCard extends StatelessWidget {
+  final VoidCallback onTap;
+  final bool compact;
+
+  const _CreateBookCard({required this.onTap, this.compact = false});
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
+    return Material(
+      color: AppPalette.of(context).primaryLight,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        side: const BorderSide(color: AppColors.primaryMedium),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        key: const Key('home_create_book'),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
-                  Text(
-                    l.homeCreateCardTitle,
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  Text(
-                    l.homeCreateCardSubtitle,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: AppColors.whiteOverlayStrong,
-                    ),
-                  ),
+                  Icon(Icons.add_rounded,
+                      color: AppPalette.of(context).primary, size: 32),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                      child: Text(l.homeCreateCardTitle,
+                          style: AppTextStyles.heading3)),
                 ],
               ),
-            ),
-            Container(
-              width: 64,
-              height: 64,
-              decoration: BoxDecoration(
-                color: AppColors.whiteOverlay,
-                borderRadius: BorderRadius.circular(AppRadius.lg),
-              ),
-              child: const Icon(
-                Icons.add_rounded,
-                size: 36,
-                color: Colors.white,
-              ),
-            ),
-          ],
+              if (!compact) ...[
+                const SizedBox(height: AppSpacing.sm),
+                Text(l.homeCreateCardSubtitle, style: AppTextStyles.bodySmall),
+              ],
+            ],
+          ),
         ),
       ),
     );
@@ -475,17 +553,21 @@ class _StreakSummaryCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.lg),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [
-            Color(0xFFFFEDD5),
-            Color(0xFFFFFBEB),
-          ],
+        gradient: LinearGradient(
+          colors: AppPalette.of(context).isDark
+              ? [
+                  AppPalette.of(context).primaryLight,
+                  AppPalette.of(context).surface
+                ]
+              : const [Color(0xFFFFEDD5), Color(0xFFFFFBEB)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(AppRadius.lg),
         border: Border.all(
-          color: const Color(0xFFFED7AA),
+          color: AppPalette.of(context).isDark
+              ? AppPalette.of(context).divider
+              : const Color(0xFFFED7AA),
         ),
       ),
       child: Column(
@@ -501,27 +583,26 @@ class _StreakSummaryCard extends StatelessWidget {
                   style: AppTextStyles.heading3,
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: data.readToday
-                      ? AppColors.successLight
-                      : AppColors.blackOverlayLight,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  data.readToday
-                      ? l.homeReadTodayBadge
-                      : l.homeNotReadTodayBadge,
-                  style: AppTextStyles.caption.copyWith(
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-              ),
             ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 10,
+              vertical: 6,
+            ),
+            decoration: BoxDecoration(
+              color: data.readToday
+                  ? AppColors.successLight
+                  : AppColors.blackOverlayLight,
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              data.readToday ? l.homeReadTodayBadge : l.homeNotReadTodayBadge,
+              style: AppTextStyles.caption.copyWith(
+                color: AppPalette.of(context).textPrimary,
+              ),
+            ),
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
@@ -530,7 +611,8 @@ class _StreakSummaryCard extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.md),
           _TodayStoryPanel(
-            themeName: dailyThemeLabel(l, data.todayThemeId, data.todayThemeName),
+            themeName:
+                dailyThemeLabel(l, data.todayThemeId, data.todayThemeName),
             topic: dailyTopicLabel(l, data.todayTopicId, data.todayTopic),
             hasTodayBook: data.todayBookId != null,
             onTap: onTapPrimary,
@@ -539,17 +621,18 @@ class _StreakSummaryCard extends StatelessWidget {
           Text(
             l.homeRecent7Days,
             style: AppTextStyles.caption.copyWith(
-              color: AppColors.textSecondary,
+              color: AppPalette.of(context).textSecondary,
             ),
           ),
           const SizedBox(height: AppSpacing.sm),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: recentDays
-                .map((entry) => _RecentDayDot(
+                .map((entry) => Expanded(
+                        child: _RecentDayDot(
                       weekday: entry.label,
                       read: entry.read,
-                    ))
+                    )))
                 .toList(),
           ),
         ],
@@ -618,7 +701,7 @@ class _TodayStoryPanel extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: AppPalette.of(context).surface,
         borderRadius: BorderRadius.circular(AppRadius.md),
       ),
       child: Column(
@@ -627,7 +710,7 @@ class _TodayStoryPanel extends StatelessWidget {
           Text(
             l.homeTodayStoryLabel(themeName),
             style: AppTextStyles.caption.copyWith(
-              color: AppColors.textSecondary,
+              color: AppPalette.of(context).textSecondary,
             ),
           ),
           const SizedBox(height: AppSpacing.xs),
@@ -665,13 +748,14 @@ class _RecentDayDot extends StatelessWidget {
           height: 18,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: read ? AppColors.success : AppColors.divider,
+            color: read ? AppColors.success : AppPalette.of(context).divider,
           ),
         ),
         const SizedBox(height: 4),
         Text(
           weekday,
           style: AppTextStyles.caption,
+          textAlign: TextAlign.center,
         ),
       ],
     );
@@ -688,9 +772,9 @@ class _StreakLoadingCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.lg),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: AppPalette.of(context).surface,
         borderRadius: BorderRadius.circular(AppRadius.lg),
-        border: Border.all(color: AppColors.divider),
+        border: Border.all(color: AppPalette.of(context).divider),
       ),
       child: Row(
         children: [
@@ -700,7 +784,7 @@ class _StreakLoadingCard extends StatelessWidget {
             child: CircularProgressIndicator(strokeWidth: 2),
           ),
           const SizedBox(width: AppSpacing.sm),
-          Text(l.homeStreakLoading),
+          Expanded(child: Text(l.homeStreakLoading)),
         ],
       ),
     );
@@ -710,10 +794,12 @@ class _StreakLoadingCard extends StatelessWidget {
 class _StreakErrorCard extends StatelessWidget {
   final String message;
   final VoidCallback onRetry;
+  final String? title;
 
   const _StreakErrorCard({
     required this.message,
     required this.onRetry,
+    this.title,
   });
 
   @override
@@ -723,9 +809,9 @@ class _StreakErrorCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.lg),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: AppPalette.of(context).surface,
         borderRadius: BorderRadius.circular(AppRadius.lg),
-        border: Border.all(color: AppColors.divider),
+        border: Border.all(color: AppPalette.of(context).divider),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -734,13 +820,16 @@ class _StreakErrorCard extends StatelessWidget {
             children: [
               const Icon(Icons.error_outline, color: AppColors.error),
               const SizedBox(width: AppSpacing.sm),
-              Text(l.homeStreakErrorTitle, style: AppTextStyles.heading3),
+              Expanded(
+                  child: Text(title ?? l.homeStreakErrorTitle,
+                      style: AppTextStyles.heading3)),
             ],
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(message, style: AppTextStyles.bodySmall),
           const SizedBox(height: AppSpacing.sm),
           TextButton(
+            style: TextButton.styleFrom(minimumSize: const Size(64, 64)),
             onPressed: onRetry,
             child: Text(l.retry),
           ),
@@ -777,9 +866,9 @@ class _GrowthEntryCard extends StatelessWidget {
         key: const Key('home_growth_entry'),
         padding: const EdgeInsets.all(AppSpacing.md),
         decoration: BoxDecoration(
-          color: AppColors.surface,
+          color: AppPalette.of(context).surface,
           borderRadius: BorderRadius.circular(AppRadius.lg),
-          border: Border.all(color: AppColors.divider),
+          border: Border.all(color: AppPalette.of(context).divider),
           boxShadow: const [
             BoxShadow(
               color: AppColors.blackOverlayShadow,
@@ -793,11 +882,11 @@ class _GrowthEntryCard extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(AppSpacing.sm),
               decoration: BoxDecoration(
-                color: AppColors.primaryLight,
+                color: AppPalette.of(context).primaryLight,
                 borderRadius: BorderRadius.circular(AppRadius.sm),
               ),
-              child: const Icon(Icons.trending_up_rounded,
-                  color: AppColors.primary, size: 22),
+              child: Icon(Icons.trending_up_rounded,
+                  color: AppPalette.of(context).primary, size: 22),
             ),
             const SizedBox(width: AppSpacing.md),
             Expanded(
@@ -813,7 +902,8 @@ class _GrowthEntryCard extends StatelessWidget {
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right_rounded, color: AppColors.textHint),
+            Icon(Icons.chevron_right_rounded,
+                color: AppPalette.of(context).textHint),
           ],
         ),
       ),
@@ -837,7 +927,7 @@ class _SectionLabel extends StatelessWidget {
           text,
           style: AppTextStyles.bodySmall.copyWith(
             fontWeight: FontWeight.w700,
-            color: AppColors.textHint,
+            color: AppPalette.of(context).textHint,
           ),
         ),
       ),
@@ -860,9 +950,9 @@ class _PhotoCharacterCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(AppSpacing.md),
         decoration: BoxDecoration(
-          color: AppColors.surface,
+          color: AppPalette.of(context).surface,
           borderRadius: BorderRadius.circular(AppRadius.lg),
-          border: Border.all(color: AppColors.divider),
+          border: Border.all(color: AppPalette.of(context).divider),
         ),
         child: Row(
           children: [
@@ -888,7 +978,8 @@ class _PhotoCharacterCard extends StatelessWidget {
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right_rounded, color: AppColors.textHint),
+            Icon(Icons.chevron_right_rounded,
+                color: AppPalette.of(context).textHint),
           ],
         ),
       ),
@@ -920,7 +1011,7 @@ class _CharacterQuickStartRow extends StatelessWidget {
             l.homeQuickStartTitle,
             style: AppTextStyles.bodySmall.copyWith(
               fontWeight: FontWeight.w700,
-              color: AppColors.textHint,
+              color: AppPalette.of(context).textHint,
             ),
           ),
         ),
@@ -969,14 +1060,14 @@ class _CharacterQuickStartChip extends StatelessWidget {
               height: 56,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: AppColors.primaryLight,
+                color: AppPalette.of(context).primaryLight,
                 shape: BoxShape.circle,
                 border: Border.all(color: AppColors.primaryMedium),
               ),
               child: Text(
                 initial,
-                style:
-                    AppTextStyles.heading3.copyWith(color: AppColors.primary),
+                style: AppTextStyles.heading3
+                    .copyWith(color: AppPalette.of(context).primary),
               ),
             ),
             const SizedBox(height: 4),

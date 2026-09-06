@@ -22,6 +22,9 @@ build/
 .flutter-plugins
 .flutter-plugins-dependencies
 apps/mobile/android/key.properties
+apps/mobile/android/.signing/
+*.jks
+*.keystore
 
 # IDE
 .idea/
@@ -45,6 +48,8 @@ apps/mobile/coverage/
 .env.local
 infra/.env
 logs/
+backups/
+backup_*.sql
 
 # Generated acceptance artifacts
 docs/acceptance/*
@@ -61,3 +66,14 @@ apps/mobile/macos/Podfile.lock
 
 # Claude Code local scratch (worktrees, session state)
 .claude/
+# Locally rendered acceptance PDFs, not application source.
+/output/pdf/
+# Private local reading collections.
+/output/* 동화 모음/
+# Local browser review screenshots, not application source.
+/output/playwright/
+
+# Private external-host configuration and downloaded database CA files.
+/infra/.env.external
+/infra/certs/*
+!/infra/certs/.gitkeep

@@ -14,6 +14,7 @@ H. 패키징 (BookResult 생성, 업로드, 저장)
 
 import asyncio
 import re
+import time
 from typing import Optional, Callable, Awaitable, TypeVar
 import uuid
 import structlog
@@ -215,6 +216,14 @@ async def mark_job_failed(job_id: str, error_code: ErrorCode, message: str):
             )
         )
         transitioned = result.rowcount == 1
+        if transitioned:
+            from src.services.purge_queue import enqueue_purge_prefix
+
+            owner = await session.scalar(select(Job.user_key).where(Job.id == job_id))
+            enqueue_purge_prefix(
+                session, user_key=owner, reason="failed_job_images",
+                prefix=f"jobs/{job_id}/",
+            )
         await session.commit()
 
         if not transitioned:
@@ -317,7 +326,7 @@ async def mark_job_done(job_id: str):
                     commit=True,
                 )
 
-    if transitioned:
+    if transitioned or (job is not None and job.status == "done"):
         logger.info("Job completed", job_id=job_id)
     else:
         logger.warning(
@@ -335,6 +344,36 @@ async def start_book_generation(
     series_id: Optional[str] = None,
     series_index: Optional[int] = None,
 ):
+    """Run one generation with a shared, non-resettable image request budget."""
+    from src.services.illustration_quality_pipeline import quality_enabled_for_operation
+
+    try:
+        quality_enabled = quality_enabled_for_operation()
+    except StoryBookError as exc:
+        await mark_job_failed(job_id, exc.code, exc.message)
+        return None
+    if quality_enabled:
+        from src.services.image_request_budget import image_request_budget
+        from src.services.illustration_policy import book_image_request_limit
+
+        deadline = time.monotonic() + min(600, settings.job_sla_seconds) - 10
+        with image_request_budget(book_image_request_limit(spec.page_count), deadline):
+            return await _start_book_generation(
+                job_id, spec, user_key, series_id, series_index,
+                quality_deadline=deadline,
+            )
+    return await _start_book_generation(job_id, spec, user_key, series_id, series_index)
+
+
+async def _start_book_generation(
+    job_id: str,
+    spec: BookSpec,
+    user_key: str,
+    series_id: Optional[str] = None,
+    series_index: Optional[int] = None,
+    *,
+    quality_deadline: Optional[float] = None,
+):
     """
     동화책 생성 메인 파이프라인
 
@@ -351,7 +390,6 @@ async def start_book_generation(
         logger.info(
             "Starting book generation",
             job_id=job_id,
-            topic=spec.topic,
             series_id=series_id,
             series_index=series_index,
         )
@@ -365,6 +403,14 @@ async def start_book_generation(
             retries=0,
             timeout_sec=5,
         )
+
+        # Resolve and snapshot a parent's approved drawing before any paid AI
+        # call. The original photo is never a page-generation fallback.
+        from src.services.photo_book_references import prepare_job_character_reference, selected_character_ids
+
+        face_reference_url = None
+        if selected_character_ids(normalized_spec) or normalized_spec.reference_image_base64:
+            face_reference_url = await prepare_job_character_reference(job_id, normalized_spec, user_key)
 
         # B. 입력 안전성 검사
         moderation = await run_step(
@@ -425,7 +471,7 @@ async def start_book_generation(
             job_id=job_id,
             step_name="generate_character_sheet",
             progress=PROGRESS_CHARACTER,
-            fn=lambda: generate_character_sheet(normalized_spec, story_draft),
+            fn=lambda: generate_character_sheet(normalized_spec, story_draft, user_key=user_key),
             retries=1,
             timeout_sec=settings.llm_timeout,
             backoff=[2],
@@ -449,7 +495,6 @@ async def start_book_generation(
 
         # F. 이미지 생성 (cover + pages)
         total_images = len(image_prompts.pages) + 1  # +1 for cover
-        face_reference_url = await _resolve_face_reference(normalized_spec, user_key)
         image_urls = await generate_all_images(
             job_id=job_id,
             image_prompts=image_prompts,
@@ -457,10 +502,41 @@ async def start_book_generation(
             reference_image_url=face_reference_url,
         )
 
-        # G. 출력 안전성 검사(텍스트)는 스토리 생성 직후(C)에서 재시도와 함께 이미 수행했다
-        # (G16/M20: 이미지 비용 전에 검사·재생성). 이미지 콘텐츠 안전검사(vision 모더레이션)는
-        # provider safety 신호 부재로 별도 스코프(H24/M20 잔여) — 여기서 안전연극 훅을 두지 않는다.
-        await update_job_status(job_id, "moderate_output", 86)
+        if quality_deadline is not None:
+            from src.services.illustration_quality_pipeline import (
+                seconds_remaining, verify_and_repair_illustrations, queue_discarded_images,
+            )
+
+            async def repair(page_number, prompt, current_urls):
+                reference = face_reference_url
+                from src.services.image import supports_image_reference
+                if reference is None and page_number != 0 and supports_image_reference():
+                    reference = current_urls.get(0)
+                return await generate_image_with_retry(
+                    prompt, job_id, page_number,
+                    reference_image_url=reference, max_attempts=1,
+                )
+
+            verified = await run_step(
+                job_id=job_id, step_name="verify_illustrations", progress=86,
+                fn=lambda: verify_and_repair_illustrations(
+                    title=story_draft.title,
+                    page_texts={0: story_draft.title, **{p.page: p.text for p in story_draft.pages}},
+                    image_prompts={0: image_prompts.cover, **{p.page: p for p in image_prompts.pages}},
+                    image_urls=image_urls, deadline=quality_deadline, regenerate=repair,
+                    on_progress=lambda step, progress: update_job_status(job_id, step, progress),
+                ),
+                retries=0, timeout_sec=max(1, int(seconds_remaining(quality_deadline))),
+            )
+            image_urls = verified.image_urls
+            image_prompts = image_prompts.model_copy(update={
+                "cover": verified.image_prompts[0],
+                "pages": [verified.image_prompts[p.page] for p in image_prompts.pages],
+            })
+            await save_image_prompts(job_id, image_prompts)
+            await queue_discarded_images(user_key, verified.discarded_urls, set(image_urls.values()))
+        else:
+            await update_job_status(job_id, "moderate_output", 86)
 
         # G-2. 학습 자산 생성 (번역 + 어휘 + 질문)
         learning_assets = await run_step(
@@ -499,13 +575,20 @@ async def start_book_generation(
         logger.info(
             "Book generation completed", job_id=job_id, book_id=book_result.book_id
         )
+        return book_result
 
     except StoryBookError as e:
         await mark_job_failed(job_id, e.code, e.message)
 
     except Exception as e:
-        logger.exception("Unexpected error in book generation", job_id=job_id)
-        await mark_job_failed(job_id, ErrorCode.UNKNOWN, str(e))
+        from src.core.exceptions import APIError
+
+        if isinstance(e, APIError):
+            code = ErrorCode(e.error_code) if e.error_code in ErrorCode._value2member_map_ else ErrorCode.IMAGE_FAILED
+            await mark_job_failed(job_id, code, e.message)
+        else:
+            logger.error("Unexpected error in book generation", job_id=job_id, error_type=type(e).__name__)
+            await mark_job_failed(job_id, ErrorCode.UNKNOWN, "동화 생성 중 오류가 발생했습니다.")
 
 
 # ==================== Pipeline Steps (Stubs) ====================
@@ -531,9 +614,40 @@ async def generate_story(spec: BookSpec) -> StoryDraft:
     return await call_story_generation(spec)
 
 
-async def generate_character_sheet(spec: BookSpec, story: StoryDraft) -> CharacterSheet:
-    """D. 캐릭터 시트 생성"""
-    from src.services.llm import call_character_sheet_generation
+async def generate_character_sheet(
+    spec: BookSpec, story: StoryDraft, *, user_key: str | None = None,
+) -> CharacterSheet:
+    """D. Reuse an approved identity; generate a sheet only for other characters."""
+    from src.services.llm import call_character_sheet_generation, parse_json_response
+    from src.services.photo_book_references import selected_character_ids, validate_photo_book_selection
+
+    character_ids = selected_character_ids(spec)
+    if character_ids:
+        from sqlalchemy import select
+        from src.core.database import AsyncSessionLocal
+        from src.core.exceptions import AuthorizationError
+        from src.models.db import Character
+
+        async with AsyncSessionLocal() as db:
+            if user_key is None:
+                # Internal callers must supply the owner before reusing child data.
+                if await db.scalar(select(Character.id).where(
+                    Character.id.in_(character_ids), Character.from_photo.is_(True),
+                ).limit(1)):
+                    raise AuthorizationError("캐릭터 소유자를 확인할 수 없습니다.")
+            else:
+                character = await validate_photo_book_selection(db, user_key, character_ids)
+                if character is not None:
+                    # This is the very description used to create the approved
+                    # portrait, not a new LLM interpretation of the latest story.
+                    import json
+
+                    data = {field: getattr(character, field) for field in (
+                        "name", "master_description", "appearance", "clothing",
+                        "personality_traits", "visual_style_notes", "distinctive_features",
+                    )}
+                    data["character_id"] = character.id
+                    return parse_json_response(json.dumps(data, ensure_ascii=False), CharacterSheet)
 
     return await call_character_sheet_generation(spec, story)
 
@@ -680,47 +794,11 @@ async def generate_learning_assets(story: StoryDraft) -> Optional[LearningAssets
 
 
 async def _resolve_face_reference(spec, user_key: str) -> Optional[str]:
-    """주인공이 사진 파생(from_photo) 캐릭터면 그 원본 사진 URL을 얼굴 레퍼런스로 반환.
+    """Compatibility seam: only a parent's approved illustration, never a photo."""
+    from src.services.character_avatar import approved_avatar_reference
+    from src.services.photo_book_references import selected_character_ids
 
-    - 얼굴 보존 provider(gemini)에서만 사용.
-    - **반드시 user_key로 스코프**(타 유저 아동 사진 도용 IDOR 차단).
-    - 스토리 생성과 동일한 '택일' 의미(character_ids 우선) + 주인공(char_ids[0]) 우선의 결정적 선택.
-    """
-    if settings.image_provider != "gemini":
-        return None
-    cids = getattr(spec, "character_ids", None)
-    char_ids = (
-        list(cids)
-        if cids
-        else ([spec.character_id] if getattr(spec, "character_id", None) else [])
-    )
-    char_ids = [c for c in char_ids if c]
-    if not char_ids:
-        return None
-    try:
-        from sqlalchemy import select
-
-        from src.core.database import AsyncSessionLocal
-        from src.models.db import Character
-
-        async with AsyncSessionLocal() as session:
-            result = await session.execute(
-                select(Character.id, Character.source_image_url).where(
-                    Character.id.in_(char_ids),
-                    Character.user_key == user_key,
-                    Character.from_photo.is_(True),
-                    Character.source_image_url.isnot(None),
-                )
-            )
-            by_id = {row[0]: row[1] for row in result.all()}
-        # 주인공(char_ids[0])부터 순서대로 첫 매칭 — DB plan 무관 결정적 선택
-        for cid in char_ids:
-            if cid in by_id:
-                return by_id[cid]
-        return None
-    except Exception as e:  # pragma: no cover - 방어적
-        logger.warning("face reference resolve failed", error=str(e))
-        return None
+    return await approved_avatar_reference(selected_character_ids(spec), user_key)
 
 
 async def generate_all_images(
@@ -732,8 +810,8 @@ async def generate_all_images(
     """
     F. 이미지 생성 (cover + pages)
 
-    reference_image_url: 주인공 아이 얼굴 사진 — 얼굴 보존 provider(gemini)에서
-    표지·모든 페이지에 같은 아이 얼굴을 동화체로 일관 반영하는 데 쓰인다.
+    reference_image_url: 책에 고정한 승인 캐릭터 그림.
+    표지·모든 페이지·부분 수정에 같은 버전을 사용한다.
 
     Returns:
         dict mapping page number to image URL (0 = cover)
@@ -741,17 +819,33 @@ async def generate_all_images(
 
     image_urls = {}
 
+    from src.services.image import image_book_reference_scope, supports_image_reference
+
     # Cover (page 0)
     progress_per_image = (PROGRESS_IMAGES_END - PROGRESS_IMAGES_START) / total_images
     current_progress = PROGRESS_IMAGES_START
 
     # Generate cover
     await update_job_status(job_id, "generate_images", int(current_progress))
-    cover_url = await generate_image_with_retry(
-        image_prompts.cover, job_id, 0, reference_image_url=reference_image_url
-    )
+    # A new cover must never inherit a prior book's visual anchor. Its explicit
+    # approved-character reference remains authoritative when present.
+    with image_book_reference_scope(None):
+        cover_url = await generate_image_with_retry(
+            image_prompts.cover, job_id, 0, reference_image_url=reference_image_url
+        )
     image_urls[0] = cover_url
     current_progress += progress_per_image
+
+    # The completed cover is an owned, durable visual anchor for text characters
+    # too. Keep an explicit photo/drawing reference authoritative when supplied.
+    page_reference = reference_image_url
+    book_reference = (
+        cover_url if supports_image_reference() and cover_url and not _is_placeholder_image_url(cover_url)
+        else None
+    )
+    if (page_reference is None and supports_image_reference()
+            and cover_url and not _is_placeholder_image_url(cover_url)):
+        page_reference = cover_url
 
     # Generate pages (with concurrency limit)
     semaphore = asyncio.Semaphore(settings.image_max_concurrent)
@@ -764,9 +858,13 @@ async def generate_all_images(
                 "generate_images",
                 int(current_progress + (page_num * progress_per_image)),
             )
-            return await generate_image_with_retry(
-                prompt, job_id, page_num, reference_image_url=reference_image_url
-            )
+            # This URL comes from this job's cover generation, never user input.
+            # The adapter validates owned storage and deduplicates cover-only
+            # references; an approved avatar stays first when supplied.
+            with image_book_reference_scope(book_reference):
+                return await generate_image_with_retry(
+                    prompt, job_id, page_num, reference_image_url=page_reference
+                )
 
     tasks = [
         generate_with_semaphore(prompt, prompt.page) for prompt in image_prompts.pages
@@ -830,7 +928,7 @@ async def record_job_image_keys(job_id: str, image_urls: list) -> None:
 
         async with AsyncSessionLocal() as session:
             job = (
-                await session.execute(select(Job).where(Job.id == job_id))
+                await session.execute(select(Job).where(Job.id == job_id).with_for_update())
             ).scalar_one_or_none()
             if job is None:
                 return
@@ -857,18 +955,25 @@ def _is_placeholder_image_url(url: str) -> bool:
 
 
 async def generate_image_with_retry(
-    prompt, job_id: str, page: int, reference_image_url: Optional[str] = None
+    prompt, job_id: str, page: int, reference_image_url: Optional[str] = None,
+    *, max_attempts: Optional[int] = None,
 ) -> str:
     """이미지 생성 (재시도 포함)"""
-    max_retries = max(1, int(settings.image_max_retries))
+    max_retries = max(1, int(settings.image_max_retries if max_attempts is None else max_attempts))
     last_error: Exception | None = None
 
     for attempt in range(max_retries):
         try:
-            url = await asyncio.wait_for(
-                generate_image(prompt, reference_image_url=reference_image_url),
-                timeout=settings.image_timeout,
-            )
+            from src.services.image import image_storage_scope
+
+            # A known namespace lets failed-job cleanup find assets even when
+            # the worker dies between an S3 upload and recording its exact key.
+            with image_storage_scope(f"jobs/{job_id}"):
+                url = await asyncio.wait_for(
+                    generate_image(prompt, reference_image_url=reference_image_url),
+                    timeout=settings.image_timeout,
+                )
+            await record_job_image_keys(job_id, [url])
             return url
 
         except asyncio.TimeoutError as e:
@@ -882,6 +987,8 @@ async def generate_image_with_retry(
                 await asyncio.sleep(get_backoff(ErrorCode.IMAGE_TIMEOUT, attempt))
 
         except Exception as e:
+            if isinstance(e, StoryBookError) and e.code == ErrorCode.IMAGE_QUALITY_FAILED:
+                raise
             last_error = e
             logger.warning(
                 "Image generation failed",
@@ -1048,9 +1155,16 @@ async def package_book(
     """H. 패키징 및 저장"""
     from src.core.database import AsyncSessionLocal
     from src.models.db import Book, Job, Page
-    from sqlalchemy import select
+    from sqlalchemy import select, update
 
     book_id = f"book_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    # Partial image failure is an explicit degraded state. Empty strings violate
+    # BookResult's URL contract after the book is committed, so persist the
+    # established unavailable marker that both API asset_status and the app know.
+    image_urls = {
+        page: image_urls.get(page) or f"{PLACEHOLDER_IMAGE_URL}?page={page}"
+        for page in [0, *(item.page for item in story.pages)]
+    }
 
     # 다국어 제목 처리
     title_ko = None
@@ -1066,6 +1180,26 @@ async def package_book(
 
     async with AsyncSessionLocal() as session:
         try:
+            from src.services.photo_lifecycle import lock_photo_account
+            from src.core.consent import require_photo_consent
+
+            await lock_photo_account(session, user_key)
+            publication_job = await session.get(Job, job_id)
+            if publication_job is not None and publication_job.photo_derived:
+                await require_photo_consent(session, user_key)
+            # Publish the book and its successful job state in one transaction.
+            # This conditional write also locks out an SLA failure racing with
+            # packaging; a job already failed/refunded must not deliver a book.
+            completed = await session.execute(
+                update(Job)
+                .where(Job.id == job_id, Job.status.in_(["queued", "running"]))
+                .values(status="done", progress=100, current_step="done", updated_at=utcnow())
+            )
+            if completed.rowcount != 1:
+                raise StoryBookError(
+                    code=ErrorCode.DB_WRITE_FAILED,
+                    message="종료된 생성 작업에는 책을 저장할 수 없습니다.",
+                )
             job_result = await session.execute(select(Job).where(Job.id == job_id))
             job = job_result.scalar_one_or_none()
             profile_id = job.profile_id if job else None
@@ -1312,8 +1446,18 @@ async def regenerate_page(
     page_number: int,
     mode: str,
     feedback: Optional[str] = None,
+    *, operation_job_id: Optional[str] = None,
 ):
     """페이지 재생성"""
+    from src.services.illustration_quality_pipeline import quality_enabled_for_operation
+
+    if quality_enabled_for_operation():
+        from src.services.illustration_quality_edits import edit_verified_page
+
+        return await edit_verified_page(
+            job_id=job_id, book_id=book_id, page_number=page_number,
+            mode=mode, feedback=feedback, operation_job_id=operation_job_id,
+        )
     from src.core.database import AsyncSessionLocal
     from src.models.db import Book, Page, StoryDraftDB
     from src.services.llm import call_text_rewrite
@@ -1338,6 +1482,9 @@ async def regenerate_page(
         if not page:
             raise ValueError(f"Page {page_number} not found")
 
+        from src.services.photo_book_references import reference_for_existing_book
+
+        character_reference = await reference_for_existing_book(job_id, book.user_key)
         # Regenerate based on mode
         if mode in ["text", "both"]:
             from src.core.errors import SafetyError
@@ -1435,7 +1582,7 @@ async def regenerate_page(
                     seed=random.randint(1, 2147483647),
                     aspect_ratio="3:4",
                 )
-                image_url = await generate_image(regen_prompt)
+                image_url = await generate_image(regen_prompt, reference_image_url=character_reference)
                 if image_url:
                     replaced_image_url = page.image_url
                     new_image_url = image_url
@@ -1522,9 +1669,20 @@ async def inpaint_page(
     page_number: int,
     mask_url: str,
     region_prompt: str,
+    *, operation_job_id: Optional[str] = None,
 ):
     """페이지 부분 재생성(인페인트) — 마스크 영역만 region_prompt로 다시 그리고
     나머지는 기존 이미지를 유지한다. (image_provider가 replicate/fal일 때만 동작.)"""
+    from src.services.illustration_quality_pipeline import quality_enabled_for_operation
+
+    if quality_enabled_for_operation():
+        from src.services.illustration_quality_edits import edit_verified_page
+
+        return await edit_verified_page(
+            job_id=job_id, book_id=book_id, page_number=page_number,
+            mode="inpaint", feedback=region_prompt, mask_url=mask_url,
+            operation_job_id=operation_job_id,
+        )
     import random
 
     from src.core.database import AsyncSessionLocal
@@ -1730,7 +1888,7 @@ async def start_series_generation(
     )
 
     # Use existing book generation pipeline with series info
-    await start_book_generation(
+    return await start_book_generation(
         job_id,
         series_spec,
         user_key,

@@ -269,13 +269,14 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     return AppShell(
       currentIndex: 2,
       appBar: AppBar(
-        backgroundColor: AppColors.background,
+        backgroundColor: AppPalette.of(context).background,
         elevation: 0,
         title: Text(l.libraryTitle, style: AppTextStyles.heading2),
         centerTitle: false,
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh, color: AppColors.textPrimary),
+            icon:
+                Icon(Icons.refresh, color: AppPalette.of(context).textPrimary),
             tooltip: l.libraryRefresh,
             onPressed: () => notifier.refresh(),
           ),
@@ -384,6 +385,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     return RefreshIndicator(
       onRefresh: onRefresh,
       child: CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
         controller: _scrollController,
         slivers: [
           for (final volumes in groups.values)
@@ -402,11 +404,16 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
             SliverPadding(
               padding: const EdgeInsets.all(AppSpacing.lg),
               sliver: SliverGrid(
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: 2,
                   mainAxisSpacing: AppSpacing.md,
                   crossAxisSpacing: AppSpacing.md,
-                  childAspectRatio: 0.62,
+                  mainAxisExtent: (MediaQuery.sizeOf(context).width -
+                              AppSpacing.lg * 2 -
+                              AppSpacing.md) /
+                          2 /
+                          0.9 +
+                      MediaQuery.textScalerOf(context).scale(112),
                 ),
                 delegate: SliverChildBuilderDelegate(
                   (context, index) {
@@ -484,7 +491,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
       if (!mounted || topic == null || topic.isEmpty) {
         return;
       }
-      final attemptSig = '${latest.seriesId ?? ''}|${latest.id}|$characterId|$topic';
+      final attemptSig =
+          '${latest.seriesId ?? ''}|${latest.id}|$characterId|$topic';
       if (_seriesAttemptKey == null || _seriesAttemptSig != attemptSig) {
         _seriesAttemptKey = _uuid.v4();
         _seriesAttemptSig = attemptSig;
@@ -555,9 +563,9 @@ class _LibraryFilterPanel extends StatelessWidget {
         AppSpacing.lg,
         AppSpacing.sm,
       ),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         border: Border(
-          bottom: BorderSide(color: AppColors.divider),
+          bottom: BorderSide(color: AppPalette.of(context).divider),
         ),
       ),
       child: Column(
@@ -602,14 +610,22 @@ class _LibraryFilterPanel extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: AppSpacing.sm),
-              SizedBox(
-                height: AppSizing.minTouchTarget,
-                child: TextButton.icon(
+              if (MediaQuery.sizeOf(context).width < 360 ||
+                  MediaQuery.textScalerOf(context).scale(16) > 20)
+                IconButton(
+                  tooltip: l.libraryResetFilters,
                   onPressed: hasFilter ? onResetFilters : null,
                   icon: const Icon(Icons.filter_alt_off_outlined),
-                  label: Text(l.libraryResetFilters),
+                )
+              else
+                SizedBox(
+                  height: AppSizing.minTouchTarget,
+                  child: TextButton.icon(
+                    onPressed: hasFilter ? onResetFilters : null,
+                    icon: const Icon(Icons.filter_alt_off_outlined),
+                    label: Text(l.libraryResetFilters),
+                  ),
                 ),
-              ),
             ],
           ),
         ],
@@ -641,6 +657,18 @@ class _LabeledDropdown extends StatelessWidget {
       key: ValueKey<String?>(resolvedValue),
       initialValue: resolvedValue,
       isExpanded: true,
+      itemHeight: AppSizing.minTouchTarget,
+      selectedItemBuilder: (context) => [
+        if (nullLabel != null)
+          Align(
+              alignment: Alignment.centerLeft,
+              child: Text(nullLabel!,
+                  maxLines: 1, overflow: TextOverflow.ellipsis)),
+        ...entries.map((entry) => Align(
+            alignment: Alignment.centerLeft,
+            child: Text(entry.value,
+                maxLines: 1, overflow: TextOverflow.ellipsis))),
+      ],
       decoration: InputDecoration(
         labelText: label,
         contentPadding: const EdgeInsets.symmetric(
@@ -686,7 +714,9 @@ class _OfflineBanner extends StatelessWidget {
         horizontal: AppSpacing.md,
         vertical: AppSpacing.sm,
       ),
-      color: Colors.amber.shade100,
+      color: AppPalette.of(context).isDark
+          ? AppColors.warning.withValues(alpha: 0.15)
+          : Colors.amber.shade100,
       child: Row(
         children: [
           const Icon(Icons.wifi_off_rounded, size: 18),
@@ -767,11 +797,24 @@ class _LibraryBookCard extends StatelessWidget {
           right: 2,
           top: 2,
           child: Material(
-            color: AppColors.blackOverlay,
+            color: Colors.transparent,
             shape: const CircleBorder(),
             child: PopupMenuButton<_BookCardMenuAction>(
               tooltip: l.libraryBookOptions,
-              icon: const Icon(Icons.more_horiz, color: Colors.white, size: 20),
+              style: IconButton.styleFrom(
+                  minimumSize: const Size(
+                      AppSizing.minTouchTarget, AppSizing.minTouchTarget)),
+              icon: Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: AppColors.whiteOverlayStrong,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: AppColors.divider),
+                ),
+                child: const Icon(Icons.more_horiz,
+                    color: AppColors.textPrimary, size: 20),
+              ),
               onSelected: (value) {
                 if (value == _BookCardMenuAction.rename) {
                   onRename();
@@ -783,6 +826,7 @@ class _LibraryBookCard extends StatelessWidget {
               },
               itemBuilder: (context) => [
                 PopupMenuItem(
+                  height: AppSizing.minTouchTarget,
                   value: _BookCardMenuAction.rename,
                   child: Row(
                     children: [
@@ -793,6 +837,7 @@ class _LibraryBookCard extends StatelessWidget {
                   ),
                 ),
                 PopupMenuItem(
+                  height: AppSizing.minTouchTarget,
                   value: _BookCardMenuAction.share,
                   child: Row(
                     children: [
@@ -803,6 +848,7 @@ class _LibraryBookCard extends StatelessWidget {
                   ),
                 ),
                 PopupMenuItem(
+                  height: AppSizing.minTouchTarget,
                   value: _BookCardMenuAction.delete,
                   child: Row(
                     children: [
@@ -839,16 +885,22 @@ class _MiniChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: highlighted ? AppColors.primaryMedium : AppColors.surface,
+        color: highlighted
+            ? AppColors.primaryMedium
+            : AppPalette.of(context).surface,
         border: Border.all(
-          color: highlighted ? AppColors.primary : AppColors.divider,
+          color: highlighted
+              ? AppPalette.of(context).primary
+              : AppPalette.of(context).divider,
         ),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
         label,
         style: AppTextStyles.caption.copyWith(
-          color: highlighted ? AppColors.primary : null,
+          color: highlighted
+              ? AppPalette.of(context).primary
+              : AppPalette.of(context).textSecondary,
         ),
       ),
     );
@@ -878,18 +930,19 @@ class _SeriesShelf extends StatelessWidget {
               AppSpacing.lg, AppSpacing.md, AppSpacing.lg, AppSpacing.sm),
           child: Row(
             children: [
-              const Icon(Icons.collections_bookmark_outlined,
-                  size: 18, color: AppColors.primary),
+              Icon(Icons.collections_bookmark_outlined,
+                  size: 18, color: AppPalette.of(context).primary),
               const SizedBox(width: AppSpacing.sm),
-              Text(
+              Expanded(
+                  child: Text(
                 '${l.librarySeriesBadge} · ${volumes.length}',
                 style: AppTextStyles.heading3,
-              ),
+              )),
             ],
           ),
         ),
         SizedBox(
-          height: 210,
+          height: 144 + MediaQuery.textScalerOf(context).scale(80),
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
@@ -933,23 +986,23 @@ class _AddVolumeTile extends StatelessWidget {
         onTap: onTap,
         child: Container(
           decoration: BoxDecoration(
-            color: AppColors.primaryLight,
+            color: AppPalette.of(context).primaryLight,
             borderRadius: BorderRadius.circular(AppRadius.md),
             border: Border.all(color: AppColors.primaryMedium),
           ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.add_circle_outline,
-                  color: AppColors.primary, size: 32),
+              Icon(Icons.add_circle_outline,
+                  color: AppPalette.of(context).primary, size: 32),
               const SizedBox(height: AppSpacing.sm),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 8),
                 child: Text(
                   l.librarySeriesAddVolume,
                   textAlign: TextAlign.center,
-                  style:
-                      AppTextStyles.caption.copyWith(color: AppColors.primary),
+                  style: AppTextStyles.caption
+                      .copyWith(color: AppPalette.of(context).primary),
                 ),
               ),
             ],

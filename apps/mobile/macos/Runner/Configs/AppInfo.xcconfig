@@ -12,3 +12,7 @@ PRODUCT_BUNDLE_IDENTIFIER = com.storybook.aiStoryBook
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2026 com.storybook. All rights reserved.
+
+// Match the existing iOS team so Keychain-backed accounts work on macOS.
+DEVELOPMENT_TEAM = D3NF387JDZ
+CODE_SIGN_IDENTITY = Apple Development

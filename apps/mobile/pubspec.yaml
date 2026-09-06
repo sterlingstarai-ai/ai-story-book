@@ -4,7 +4,8 @@ publish_to: 'none'
 version: 1.0.0+1
 
 environment:
-  sdk: '>=3.0.0 <4.0.0'
+  sdk: '>=3.10.0 <4.0.0'
+  flutter: '>=3.38.0'
 
 dependencies:
   flutter:
@@ -40,6 +41,7 @@ dependencies:
   # File System & Sharing
   path_provider: ^2.1.2
   share_plus: ^7.2.2
+  url_launcher: ^6.3.2
   printing: ^5.13.4
   confetti: ^0.8.0
 
@@ -53,10 +55,11 @@ dependencies:
   # H28(G27=a): AVAudioSession playback 카테고리 구성 — 취침 오디오 백그라운드 재생.
   audio_session: ^0.1.21
   in_app_review: ^2.0.10
-  in_app_purchase: ^3.2.0
+  in_app_purchase: ^3.3.0
   # Android 소모성 소비(consumePurchase) 명시 호출용 — in_app_purchase의 transitive
   # 의존을 직접 참조(depend_on_referenced_packages 회피). 버전은 lockfile과 일치.
-  in_app_purchase_android: ^0.4.0
+  # 0.5.0부터 Play Billing 8 사용(2026-08-31 이후 신규 등록 요구).
+  in_app_purchase_android: ^0.5.0
   # R0(2026-08-17 감사, 🔴C1): iOS에서 StoreKit1을 강제하기 위해 플랫폼 애드온을 직접 참조.
   # 0.4.8부터 StoreKit2가 기본이라 serverVerificationData가 legacy 앱 영수증이 아니라 JWS로
   # 바뀌었고, 백엔드의 legacy /verifyReceipt가 21002(malformed)로 전량 실패한다.

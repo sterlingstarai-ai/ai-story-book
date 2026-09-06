@@ -14,6 +14,8 @@ SHARED_OPENAPI_PATH = ROOT_DIR / "packages" / "shared" / "schema" / "openapi.jso
 HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
 MOBILE_REQUIRED_FIELDS = {
     "CreateBookResponse": {"job_id", "status"},
+    "ContentReportResponse": {"report_id", "status", "created_at"},
+    "GenerationOptionsResponse": {"allowed_styles"},
     "JobStatus": {"job_id", "status"},
     "BookResult": {"book_id", "title", "cover_image_url", "pages"},
     "PageResult": {"page_number", "text", "image_url"},

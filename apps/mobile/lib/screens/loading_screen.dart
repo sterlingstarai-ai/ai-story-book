@@ -12,6 +12,7 @@ import '../widgets/common_widgets.dart';
 ///
 /// 안전 차단(SAFETY_INPUT)은 서버가 사용자 언어로 생성된 reasons만 담아 오므로,
 /// 클라이언트가 로컬라이즈된 접두어를 붙여 표시한다(한국어 접두어 하드코딩 제거).
+/// 그림 품질 실패는 검증되지 않은 서버 상세나 환불 상태를 표시하지 않는다.
 /// 그 외 에러 코드는 서버 메시지를 원문 그대로 사용한다.
 String composeJobErrorText(
   AppLocalizations l,
@@ -21,6 +22,12 @@ String composeJobErrorText(
   // H17: 폴링 타임아웃은 로컬라이즈된 안내로(TimeoutException 원문 미노출).
   if (errorCode == 'TIMEOUT') {
     return l.loadingTimeoutMessage;
+  }
+  if (errorCode == 'STATUS_UNAVAILABLE') {
+    return l.loadingStatusUnavailable;
+  }
+  if (errorCode == 'IMAGE_QUALITY_FAILED') {
+    return l.loadingImageQualityFailed;
   }
   final message = errorMessage ?? l.loadingUnknownError;
   if (errorCode == 'SAFETY_INPUT') {
@@ -55,63 +62,83 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
     final jobStatusAsync = ref.watch(jobPollingProvider(widget.jobId));
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: AppPalette.of(context).background,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.lg),
-          child: jobStatusAsync.when(
-            data: (status) {
-              // 완료 시 뷰어로 이동 (guard against double navigation)
-              if (status.isComplete &&
-                  status.result != null &&
-                  !_hasNavigated) {
-                _hasNavigated = true;
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (mounted) {
-                    ref.invalidate(libraryProvider);
-                    Navigator.pushReplacementNamed(
+        child: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: (constraints.maxHeight - AppSpacing.lg * 2)
+                    .clamp(0, double.infinity),
+              ),
+              child: jobStatusAsync.when(
+                data: (status) {
+                  // 완료 시 뷰어로 이동 (guard against double navigation)
+                  if (status.isComplete &&
+                      status.result != null &&
+                      !_hasNavigated) {
+                    _hasNavigated = true;
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted) {
+                        ref.invalidate(libraryProvider);
+                        ref.invalidate(libraryBrowseProvider);
+                        Navigator.pushReplacementNamed(
+                          context,
+                          '/viewer',
+                          arguments: status.result!.bookId,
+                        );
+                      }
+                    });
+                    return _buildCompletedContent(l);
+                  }
+
+                  if (status.isComplete && status.result == null) {
+                    return _buildErrorContent(
                       context,
-                      '/viewer',
-                      arguments: status.result!.bookId,
+                      JobStatus(
+                        jobId: widget.jobId,
+                        status: JobState.failed,
+                        progress: status.progress,
+                        errorCode: 'STATUS_UNAVAILABLE',
+                      ),
                     );
                   }
-                });
-                return _buildCompletedContent(l);
-              }
 
-              // 실패 시 에러 표시
-              if (status.isFailed) {
-                return _buildErrorContent(context, status);
-              }
+                  // 실패 시 에러 표시
+                  if (status.isFailed) {
+                    return _buildErrorContent(context, status);
+                  }
 
-              // 진행 중
-              return _buildProgressContent(l, status);
-            },
-            loading: () => _buildProgressContent(
-              l,
-              JobStatus(
-                jobId: widget.jobId,
-                status: JobState.queued,
-                progress: 0,
-                currentStep: l.loadingStepWaiting,
+                  // 진행 중
+                  return _buildProgressContent(l, status);
+                },
+                loading: () => _buildProgressContent(
+                  l,
+                  JobStatus(
+                    jobId: widget.jobId,
+                    status: JobState.queued,
+                    progress: 0,
+                    currentStep: l.loadingStepWaiting,
+                  ),
+                ),
+                error: (error, _) {
+                  // H17: 폴링 타임아웃은 서버 실패와 구분한다. 원문(TimeoutException…
+                  // 한국어) 노출 대신 로컬라이즈 문구로, 주 액션은 신규 생성이 아니라
+                  // 현재 잡 재조회로(크레딧 재차감·서재 중복 방지).
+                  final isTimeout = error is TimeoutException;
+                  return _buildErrorContent(
+                    context,
+                    JobStatus(
+                      jobId: widget.jobId,
+                      status: JobState.failed,
+                      progress: 0,
+                      errorCode: isTimeout ? 'TIMEOUT' : 'STATUS_UNAVAILABLE',
+                    ),
+                  );
+                },
               ),
             ),
-            error: (error, _) {
-              // H17: 폴링 타임아웃은 서버 실패와 구분한다. 원문(TimeoutException…
-              // 한국어) 노출 대신 로컬라이즈 문구로, 주 액션은 신규 생성이 아니라
-              // 현재 잡 재조회로(크레딧 재차감·서재 중복 방지).
-              final isTimeout = error is TimeoutException;
-              return _buildErrorContent(
-                context,
-                JobStatus(
-                  jobId: widget.jobId,
-                  status: JobState.failed,
-                  progress: 0,
-                  errorCode: isTimeout ? 'TIMEOUT' : null,
-                  errorMessage: isTimeout ? null : error.toString(),
-                ),
-              );
-            },
           ),
         ),
       ),
@@ -137,7 +164,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
         const SizedBox(height: AppSpacing.sm),
 
         Text(
-          _getStepDescription(l, status.currentStep),
+          _getStepDescription(l, status.currentStep, status.progress),
           style: AppTextStyles.bodySmall,
           textAlign: TextAlign.center,
         ),
@@ -149,7 +176,6 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
           padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
           child: ProgressIndicatorBar(
             progress: status.progress,
-            currentStep: status.currentStep,
           ),
         ),
 
@@ -159,18 +185,19 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
         Container(
           padding: const EdgeInsets.all(AppSpacing.md),
           decoration: BoxDecoration(
-            color: AppColors.primaryLight,
+            color: AppPalette.of(context).primaryLight,
             borderRadius: BorderRadius.circular(AppRadius.md),
           ),
           child: Row(
             children: [
-              const Icon(Icons.lightbulb_outline, color: AppColors.primary),
+              Icon(Icons.lightbulb_outline,
+                  color: AppPalette.of(context).primary),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Text(
                   _selectedTip(l),
                   style: AppTextStyles.bodySmall.copyWith(
-                    color: AppColors.primary,
+                    color: AppPalette.of(context).primary,
                   ),
                 ),
               ),
@@ -214,8 +241,12 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
           ),
           const SizedBox(height: AppSpacing.lg),
           Text(
-            l.loadingErrorTitle,
+            status.errorCode == 'TIMEOUT' ||
+                    status.errorCode == 'STATUS_UNAVAILABLE'
+                ? l.loadingStatusUnavailableTitle
+                : l.loadingErrorTitle,
             style: AppTextStyles.heading2,
+            textAlign: TextAlign.center,
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
@@ -226,17 +257,12 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
           const SizedBox(height: AppSpacing.xl),
           // H17: 타임아웃이면 주 액션은 '상태 다시 확인'(현재 잡 재조회) — 신규 생성으로
           // 직행하면 크레딧 재차감·서재 중복이 발생한다. 진짜 서버 실패에서만 신규 생성.
-          if (status.errorCode == 'TIMEOUT') ...[
+          if (status.errorCode == 'TIMEOUT' ||
+              status.errorCode == 'STATUS_UNAVAILABLE') ...[
             PrimaryButton(
               text: l.loadingCheckStatusButton,
               isFullWidth: false,
               onPressed: () => ref.invalidate(jobPollingProvider(widget.jobId)),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            TextButton(
-              onPressed: () =>
-                  Navigator.pushReplacementNamed(context, '/create'),
-              child: Text(l.loadingRetryButton),
             ),
           ] else ...[
             PrimaryButton(
@@ -248,12 +274,18 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
             ),
             const SizedBox(height: AppSpacing.sm),
             TextButton(
+              style: TextButton.styleFrom(
+                minimumSize: const Size(64, 64),
+              ),
               onPressed: () => ref.invalidate(jobPollingProvider(widget.jobId)),
               child: Text(l.loadingCheckStatusButton),
             ),
           ],
           const SizedBox(height: AppSpacing.md),
           TextButton(
+            style: TextButton.styleFrom(
+              minimumSize: const Size(64, 64),
+            ),
             onPressed: () => Navigator.pushReplacementNamed(context, '/'),
             child: Text(l.loadingBackToHomeButton),
           ),
@@ -262,7 +294,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
     );
   }
 
-  String _getStepDescription(AppLocalizations l, String? step) {
+  String _getStepDescription(AppLocalizations l, String? step, int progress) {
     if (step == null) return l.loadingStepPreparing;
 
     final descriptions = {
@@ -276,13 +308,18 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
       'generate_character_sheet': l.loadingStepGenerateCharacterSheet,
       'generate_image_prompts': l.loadingStepGenerateImagePrompts,
       'generate_images': l.loadingStepGenerateImages,
+      'verify_illustrations': progress >= 88
+          ? l.loadingStepRecheckIllustrations
+          : l.loadingStepVerifyIllustrations,
+      'repair_illustrations': l.loadingStepRepairIllustrations,
       'moderate_output': l.loadingStepModerateOutput,
       'learning_assets': l.loadingStepLearningAssets,
       'package': l.loadingStepPackage,
       'done': l.loadingCompleted,
     };
 
-    return descriptions[step] ?? step;
+    // Unknown backend stages are implementation details, not reading guidance.
+    return descriptions[step] ?? l.loadingStepPreparing;
   }
 
   List<String> _tips(AppLocalizations l) {
@@ -334,6 +371,17 @@ class _AnimatedBookIconState extends State<_AnimatedBookIcon>
   void dispose() {
     _controller.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _controller.stop();
+      _controller.value = 0.5;
+    } else if (!_controller.isAnimating) {
+      _controller.repeat(reverse: true);
+    }
   }
 
   @override

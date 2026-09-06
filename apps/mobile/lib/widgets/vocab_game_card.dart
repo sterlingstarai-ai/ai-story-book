@@ -95,7 +95,7 @@ class _VocabGameCardState extends State<VocabGameCard> {
                   : Text(
                       l10n.vocabGameIncorrectFeedback(widget.item.meaning),
                       style: AppTextStyles.bodySmall.copyWith(
-                        color: AppColors.textSecondary,
+                        color: AppPalette.of(context).textSecondary,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -111,7 +111,7 @@ class _VocabGameCardState extends State<VocabGameCard> {
     final answered = _selected != null;
     final isCorrect = choice == widget.item.meaning;
     final isPicked = choice == _selected;
-    Color border = AppColors.divider;
+    Color border = AppPalette.of(context).divider;
     Color? bg;
     if (answered && isCorrect) {
       border = AppColors.success;
@@ -130,7 +130,8 @@ class _VocabGameCardState extends State<VocabGameCard> {
           borderRadius: BorderRadius.circular(AppRadius.md),
           child: Container(
             width: double.infinity,
-            constraints: const BoxConstraints(minHeight: 48),
+            constraints:
+                const BoxConstraints(minHeight: AppSizing.minTouchTarget),
             padding: const EdgeInsets.symmetric(
                 horizontal: AppSpacing.md, vertical: AppSpacing.sm),
             decoration: BoxDecoration(

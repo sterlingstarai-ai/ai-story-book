@@ -8,9 +8,8 @@ X-User-Key는 클라이언트가 임의로 발급하는 UUID라 사실상 미인
 식별자와 무관한 **서버측 전역 상한**만 둬서 최악의 청구서를 막는다 — 공격자가 키를 아무리
 돌려도 하루 총 생성량이 예산을 넘지 못한다.
 
-**Redis 장애 시 정책(창업자 결정): fail-open + 알림 강화.** 가용성을 우선하되, 감사 #8이
-지적한 '무음 비활성'은 금지 — 가드레일이 꺼졌다는 사실을 error 레벨로 남겨 운영이 즉시
-인지하게 한다.
+Redis 장애 시 신규 생성을 일시 중단한다. 비용 한도를 확인하지 못한 요청을 통과시키면
+키 회전으로 비용 제한을 우회할 수 있으므로, 복구 후 사용자가 다시 요청하도록 한다.
 """
 
 from typing import Tuple
@@ -19,8 +18,9 @@ import redis.asyncio as redis
 import structlog
 
 from src.core.config import settings
+from src.core.exceptions import APIError
 from src.core.rate_limit import rate_limiter
-from src.core.utils import utcnow
+from src.core.utils import to_local_date, utcnow
 
 logger = structlog.get_logger()
 
@@ -29,15 +29,15 @@ _BUDGET_TTL_SECONDS = 60 * 60 * 26
 
 
 def daily_budget_key() -> str:
-    """UTC 날짜 기준 전역 카운터 키. 사용자·IP와 무관한 전역 단일 카운터다."""
-    return f"cost_budget:generation:{utcnow().strftime('%Y%m%d')}"
+    """한국 날짜 기준 전역 카운터 키. 사용자·IP와 무관한 단일 카운터다."""
+    return f"cost_budget:generation:{to_local_date(utcnow()).strftime('%Y%m%d')}"
 
 
 async def consume_daily_generation_budget() -> Tuple[bool, int]:
     """전역 일일 생성 예산을 1 소비하고 (허용여부, 사용량)을 반환한다.
 
     - 예산이 0 이하면 기능 비활성(기본 배포에서 의도치 않은 차단 방지).
-    - Redis 장애면 (True, 0)으로 통과시키되 **error 로그**를 남긴다(무음 비활성 금지).
+    - Redis 장애면 503으로 중단해 확인할 수 없는 비용을 발생시키지 않는다.
     """
     limit = int(getattr(settings, "daily_generation_budget", 0) or 0)
     if limit <= 0:
@@ -51,14 +51,18 @@ async def consume_daily_generation_budget() -> Tuple[bool, int]:
             # 첫 증가에서만 TTL 부여(이후 EXPIRE로 창을 밀지 않도록).
             await r.expire(key, _BUDGET_TTL_SECONDS)
     except redis.RedisError as exc:
-        # fail-open: 장애 창에서 서비스 핵심 기능을 막지 않는다. 다만 비용 상한이 사라진
-        # 상태이므로 조용히 넘기지 않고 운영이 즉시 볼 수 있게 error로 남긴다.
         logger.error(
-            "cost budget guardrail DISABLED (redis unavailable) — 전역 비용 상한 없음",
-            error=str(exc),
+            "cost budget verification unavailable; generation blocked",
+            error_type=type(exc).__name__,
             budget_key=key,
         )
-        return True, 0
+        raise APIError(
+            status_code=503,
+            error_code="SERVICE_UNAVAILABLE",
+            message="생성 한도를 확인할 수 없습니다. 잠시 후 다시 시도해주세요.",
+            details={"retry_after": 30},
+            headers={"Retry-After": "30"},
+        ) from exc
 
     if used > limit:
         logger.error(

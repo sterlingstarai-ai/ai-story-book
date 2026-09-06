@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../l10n/app_localizations.dart';
 import '../providers/providers.dart';
 import '../utils/constants.dart';
+import '../widgets/common_widgets.dart';
 
 class BranchStoryScreen extends ConsumerStatefulWidget {
   const BranchStoryScreen({
@@ -335,14 +336,15 @@ class _BranchStoryScreenState extends ConsumerState<BranchStoryScreen> {
     final imageUrl = node?['image_url']?.toString() ?? '';
     final pageNumber = node?['page_number']?.toString() ?? '-';
     final nodeText = node?['text']?.toString() ?? '';
-    final nodeKey = node?['node_key']?.toString() ?? '-';
 
     return Scaffold(
       appBar: AppBar(
         title: Text(l.branchStoryTitle),
         actions: [
           IconButton(
-            onPressed: _isLoading ? null : () => _loadGraph(showLoading: false),
+            onPressed: _isLoading || _isSubmitting || _isCreatingSample
+                ? null
+                : () => _loadGraph(showLoading: false),
             icon: const Icon(Icons.refresh),
             tooltip: l.branchStoryRefreshTooltip,
           ),
@@ -369,7 +371,7 @@ class _BranchStoryScreenState extends ConsumerState<BranchStoryScreen> {
                                 const EdgeInsets.only(bottom: AppSpacing.md),
                             padding: const EdgeInsets.all(AppSpacing.sm),
                             decoration: BoxDecoration(
-                              color: AppColors.primaryLight,
+                              color: AppPalette.of(context).primaryLight,
                               borderRadius: BorderRadius.circular(AppRadius.md),
                             ),
                             child: Text(_statusLabel!,
@@ -378,23 +380,14 @@ class _BranchStoryScreenState extends ConsumerState<BranchStoryScreen> {
                         Container(
                           padding: const EdgeInsets.all(AppSpacing.md),
                           decoration: BoxDecoration(
-                            color: AppColors.surface,
+                            color: AppPalette.of(context).surface,
                             borderRadius: BorderRadius.circular(AppRadius.md),
-                            border: Border.all(color: AppColors.divider),
+                            border: Border.all(
+                                color: AppPalette.of(context).divider),
                           ),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  l.branchStoryNodeLabel(nodeKey),
-                                  style: AppTextStyles.heading3,
-                                ),
-                              ),
-                              Text(
-                                l.branchStoryPageLabel(pageNumber),
-                                style: AppTextStyles.caption,
-                              ),
-                            ],
+                          child: Text(
+                            l.branchStoryPageLabel(pageNumber),
+                            style: AppTextStyles.heading3,
                           ),
                         ),
                         const SizedBox(height: AppSpacing.md),
@@ -424,9 +417,10 @@ class _BranchStoryScreenState extends ConsumerState<BranchStoryScreen> {
                           width: double.infinity,
                           padding: const EdgeInsets.all(AppSpacing.md),
                           decoration: BoxDecoration(
-                            color: AppColors.surface,
+                            color: AppPalette.of(context).surface,
                             borderRadius: BorderRadius.circular(AppRadius.md),
-                            border: Border.all(color: AppColors.divider),
+                            border: Border.all(
+                                color: AppPalette.of(context).divider),
                           ),
                           child: Text(
                             nodeText,
@@ -450,33 +444,36 @@ class _BranchStoryScreenState extends ConsumerState<BranchStoryScreen> {
                               padding:
                                   const EdgeInsets.only(bottom: AppSpacing.sm),
                               child: ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  minimumSize: const Size(double.infinity, 64),
+                                  padding: const EdgeInsets.all(AppSpacing.md),
+                                ),
                                 onPressed: _isSubmitting
                                     ? null
                                     : () => _chooseOption(option),
-                                child: Text(text),
+                                child: Text(text, textAlign: TextAlign.center),
                               ),
                             );
                           }),
                         const SizedBox(height: AppSpacing.md),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed:
-                                    _history.isEmpty ? null : _goBackStep,
-                                icon: const Icon(Icons.undo),
-                                label: Text(l.branchStoryPreviousChoice),
-                              ),
-                            ),
-                            const SizedBox(width: AppSpacing.sm),
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: _restartFromStart,
-                                icon: const Icon(Icons.restart_alt),
-                                label: Text(l.branchStoryRestart),
-                              ),
-                            ),
-                          ],
+                        OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                              minimumSize: const Size(64, 64)),
+                          onPressed: _isSubmitting || _history.isEmpty
+                              ? null
+                              : _goBackStep,
+                          icon: const Icon(Icons.undo),
+                          label: Text(l.branchStoryPreviousChoice,
+                              textAlign: TextAlign.center),
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
+                        OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                              minimumSize: const Size(64, 64)),
+                          onPressed: _isSubmitting ? null : _restartFromStart,
+                          icon: const Icon(Icons.restart_alt),
+                          label: Text(l.branchStoryRestart,
+                              textAlign: TextAlign.center),
                         ),
                       ],
                     ),
@@ -508,24 +505,11 @@ class _ErrorPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.error_outline, size: 40, color: AppColors.error),
-            const SizedBox(height: AppSpacing.sm),
-            Text(message,
-                style: AppTextStyles.bodySmall, textAlign: TextAlign.center),
-            const SizedBox(height: AppSpacing.md),
-            FilledButton(
-              onPressed: () => onRetry(showLoading: true),
-              child: Text(l.branchStoryRetry),
-            ),
-          ],
-        ),
-      ),
+    return EmptyState(
+      icon: Icons.error_outline,
+      title: message,
+      buttonText: l.branchStoryRetry,
+      onButtonPressed: () => onRetry(showLoading: true),
     );
   }
 }
@@ -542,42 +526,14 @@ class _EmptyPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.alt_route, size: 40, color: AppColors.primary),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              l.branchStoryEmptyTitle,
-              style: AppTextStyles.heading3,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: AppSpacing.xs),
-            Text(
-              l.branchStoryEmptySubtitle,
-              style: AppTextStyles.bodySmall,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: AppSpacing.md),
-            FilledButton.icon(
-              onPressed: isCreatingSample ? null : onCreateSample,
-              icon: isCreatingSample
-                  ? const SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.auto_awesome),
-              label: Text(isCreatingSample
-                  ? l.branchStorySampleCreating
-                  : l.branchStoryCreateSample),
-            ),
-          ],
-        ),
-      ),
+    return EmptyState(
+      icon: Icons.alt_route,
+      title: l.branchStoryEmptyTitle,
+      subtitle: l.branchStoryEmptySubtitle,
+      buttonText: isCreatingSample
+          ? l.branchStorySampleCreating
+          : l.branchStoryCreateSample,
+      onButtonPressed: isCreatingSample ? null : onCreateSample,
     );
   }
 }

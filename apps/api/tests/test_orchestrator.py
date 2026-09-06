@@ -761,8 +761,24 @@ class _RegenSession:
         return False
 
 
+@pytest.fixture
+def non_photo_book_reference(monkeypatch):
+    """Keep these page-algorithm units at the non-photo reference boundary.
+
+    Ownership/consent/snapshots are exercised by test_photo_book_references;
+    this explicit fixture preserves the original moderation, rewrite and purge
+    assertions without teaching the minimal fake session unrelated SQL shapes.
+    """
+    reference = AsyncMock(return_value=None)
+    monkeypatch.setattr(
+        "src.services.photo_book_references.reference_for_existing_book", reference
+    )
+    yield reference
+    reference.assert_awaited_once_with("job1", "regen-user")
+
+
 @pytest.mark.asyncio
-async def test_regenerate_rejects_forbidden_feedback(monkeypatch):
+async def test_regenerate_rejects_forbidden_feedback(monkeypatch, non_photo_book_reference):
     """M12: 금칙 feedback은 SAFETY_INPUT으로 차단되고 page.text는 불변."""
     from types import SimpleNamespace
 
@@ -770,7 +786,7 @@ async def test_regenerate_rejects_forbidden_feedback(monkeypatch):
     from src.services import orchestrator as orch
 
     book = SimpleNamespace(
-        id="b1", title="t", language="ko", target_age="5-7", style="watercolor"
+        id="b1", user_key="regen-user", title="t", language="ko", target_age="5-7", style="watercolor"
     )
     page = SimpleNamespace(id="p1", text="원래 본문", page_number=1)
     monkeypatch.setattr(
@@ -787,14 +803,14 @@ async def test_regenerate_rejects_forbidden_feedback(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_regenerate_missing_draft_no_silent_noop(monkeypatch):
+async def test_regenerate_missing_draft_no_silent_noop(monkeypatch, non_photo_book_reference):
     """M12: draft 없는 책(retell 등)의 텍스트 재생성은 done 위장 대신 명시 실패."""
     from types import SimpleNamespace
 
     from src.services import orchestrator as orch
 
     book = SimpleNamespace(
-        id="b1", title="t", language="ko", target_age="5-7", style="watercolor"
+        id="b1", user_key="regen-user", title="t", language="ko", target_age="5-7", style="watercolor"
     )
     page = SimpleNamespace(id="p1", text="원래 본문", page_number=1)
     # 3번째 execute(draft 조회)가 None → draft 부재
@@ -838,7 +854,7 @@ async def test_rewrite_prompt_includes_target_language(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_regenerate_page_syncs_and_invalidates_bilingual(monkeypatch):
+async def test_regenerate_page_syncs_and_invalidates_bilingual(monkeypatch, non_photo_book_reference):
     """H23/G18: en 책 재작성 시 text_en 갱신·text_ko 무효화·오디오 무효화(최소안)."""
     from types import SimpleNamespace
 
@@ -847,7 +863,7 @@ async def test_regenerate_page_syncs_and_invalidates_bilingual(monkeypatch):
     from src.models.dto import Language, RewriteResult
 
     book = SimpleNamespace(
-        id="b1", title="t", language="en", target_age="5-7", style="watercolor"
+        id="b1", user_key="regen-user", title="t", language="en", target_age="5-7", style="watercolor"
     )
     page = SimpleNamespace(
         id="p1", text="en old", text_ko="ko stale", text_en="en old",
@@ -973,7 +989,7 @@ async def test_output_safety_recovers_on_retry(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_regenerate_ja_feedback_uses_llm_fallback(monkeypatch):
+async def test_regenerate_ja_feedback_uses_llm_fallback(monkeypatch, non_photo_book_reference):
     """#4: ja 책의 재생성 feedback은 키워드망을 통과해도 LLM 폴백이 차단해야 한다.
 
     호출부 실배선 검증 — 헬퍼 단위 테스트만으로는 '게이트가 실제로 그 경로에 꽂혔는지'를
@@ -985,7 +1001,7 @@ async def test_regenerate_ja_feedback_uses_llm_fallback(monkeypatch):
     from src.services import orchestrator as orch
 
     book = SimpleNamespace(
-        id="b1", title="t", language="ja", target_age="5-7", style="watercolor"
+        id="b1", user_key="regen-user", title="t", language="ja", target_age="5-7", style="watercolor"
     )
     page = SimpleNamespace(id="p1", text="元の本文", page_number=1)
     monkeypatch.setattr(
@@ -1015,7 +1031,7 @@ async def test_regenerate_ja_feedback_uses_llm_fallback(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_regenerate_purges_replaced_image_key(monkeypatch):
+async def test_regenerate_purges_replaced_image_key(monkeypatch, non_photo_book_reference):
     """#10(N1): 이미지 교체 후 구버전 키를 파기해야 영구 고아가 남지 않는다.
 
     삭제 경로의 역산은 '현재 image_url'만 커버하므로, 교체 전 버전(아동 사진 파생 가능)은
@@ -1026,7 +1042,7 @@ async def test_regenerate_purges_replaced_image_key(monkeypatch):
     from src.services import orchestrator as orch
 
     book = SimpleNamespace(
-        id="b1", title="t", language="ko", target_age="5-7", style="watercolor"
+        id="b1", user_key="regen-user", title="t", language="ko", target_age="5-7", style="watercolor"
     )
     page = SimpleNamespace(
         id="p1",
@@ -1040,7 +1056,8 @@ async def test_regenerate_purges_replaced_image_key(monkeypatch):
         lambda: _RegenSession([book, page]),
     )
 
-    async def fake_generate_image(prompt):
+    async def fake_generate_image(prompt, reference_image_url=None):
+        assert reference_image_url is None
         return "https://cdn.example.com/images/replicate/new-key.png"
 
     # regenerate_page가 함수 내부에서 재임포트하므로 원본 모듈 경계를 패치한다.

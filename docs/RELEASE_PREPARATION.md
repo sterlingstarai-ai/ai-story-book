@@ -1,0 +1,129 @@
+# 제한 베타 배포 준비
+
+2026-09-07 최종 소스는 Python3.11 API **1,924개 통과·21개 건너뜀·실패0, 커버리지77.26%**, Ruff·과금 경로 커버리지 통과다. 두 참조 어댑터·오케스트레이션·저장본 교정 검증 도구를 포함한다. 별도 실제 PG/Celery21개 통과, 모바일 **522개 통과·커버리지64.2345%·정적 분석0**와 Android 서명 APK/AAB(Billing8)·iOS 무서명 release 빌드 결과는 유지한다. [최종 검사](acceptance/2026-09-07-dual-reference-api-final/result.json), [산출물·네이티브 확인](PRE_REGISTRATION_PACKAGE_2026-09-06.md). 앞선1,862개 및 아래1,400개 등의 기록은 이전 시점이다.
+
+실제 가상 캐릭터의 개인12쪽 교정판은 전체 삽화13장과 PDF14쪽 검토를 통과했다. 이후 새8쪽판은 두 참조 교정 뒤에도5쪽 오류·6쪽 육안 보류가 남아 내보내지 않았다. 새로운 자동 책 전체의 품질 통과는 완료되지 않았다. 자동 원본 작업의 실패를 성공으로 변경하지 않았고 실제 아동 닮음 검증도 아니다. 운영은 [외부 연결 준비](EXTERNAL_HOSTING_DEPLOYMENT.md)와 [월$67 구성](RENDER_DEPLOYMENT_PACKAGE.md)까지 준비했으며, 과금 승인·실제 연결·공개 정책/지원 경로·처리 조건·공동 최종 검토가 끝나기 전 공개 배포나 스토어 제출을 하지 않는다.
+
+2026-09-06 후속 제공자 계정 확인, 실제 사진의 로컬 전처리와 가상 입력 실호출 결과는 [사진 실검증 기록](PHOTO_LIVE_VERIFICATION_2026-09-06.md)을 따른다. 실제 아동 사진의 외부 처리·닮음 검증과 공개 출시 승인은 별개이며 아직 완료로 표시하지 않는다.
+
+> 2026-09-06 최신 확정: 사진 → 대표 캐릭터 한 장 → 부모 최초 확인 → 이후 책에 고정 재사용. 책마다 캐릭터를 새로 생성하지 않는다. 구현·처리 조건의 정본은 [사진 캐릭터 흐름](PHOTO_CHARACTER_FLOW.md)이다. 실제 사진 품질과 제공자 승인 확인은 자동 테스트 통과와 별개다.
+
+## 삽화 품질 게이트 최종 검증 — 2026-09-06
+
+검사·부분 재생성·전체 재검사와 실패 시 완성 차단을 반영한 최종 소스에서 Python3.11.15 전체 **1,400통과·14건너뜀·실패0**, 커버리지 **75.62%**, 금전 경로 커버리지 통과를 확인했다. 실행217.83초, 네트워크 차단·소스 사본만 사용했으며 실제 환경/개인 자료는 복사하지 않았다. 정본 [실행 기록](acceptance/2026-09-06-illustration-gate/api-python311-20260906T040116Z-3d65bfa9-summary.json), 소스 snapshot SHA `3d65bfa99e8bbbcdee57753323cea0b7ef8d6ebe141d8c757fafae3e76ca4a72`이다. 중간 검증 컨테이너의 PATH·실행 권한 문제는 수정했고 실패 이력도 별도로 보존했다.
+
+루트 `phase-gate.sh`도 통과했다(API1,400·Flutter367·분석·UI사전검사). 건너뛴14개 PG/Celery 검사는 별도 실제 일회용 환경에서 모두 통과했고 미디어19개·HTTP여정33개·자원 정리도 확인했다. [전체 런타임 기록](acceptance/2026-09-06-illustration-gate/runtime-all/verification.json). 이 런타임의 생성/그림 검토는 명시 모의 대역이다.
+
+실제 AI에서는 기존 오류 책의2쪽만 다시 생성한 뒤 전체5장 재검사와 육안 확인을 통과했다. 나머지 그림과 원본 설명을 보존했다. 이는 저장소를 로컬로 대체한 부분 교정 검증이며 운영 출고·새15권 품질 GO와 구분한다. [실제 부분 교정 결과](acceptance/2026-09-06-saved-illustration-repair-v2/result.json), [동작·한도·한계](ILLUSTRATION_QUALITY_GATE.md).
+
+
+운영 코드는 GHCR의 커밋 SHA 이미지로 배포합니다. 현재 이 문서는 **배포 절차와 로컬 복구 검증이 준비된 상태**를 기록하며, 운영 서버 가동이나 스토어 배포 완료를 뜻하지 않습니다. 실제 AI 품질·앱 검증의 최신 결과는 [LAUNCH_STATUS.md](LAUNCH_STATUS.md)를 참조합니다.
+
+## 그림 검사 흐름과 최신 모바일 검증
+
+2026-09-06에 출고 전 그림 검사와 부분 재생성의 모바일 안내를 연결했습니다. 생성 화면은 서버 진행률 **86% 그림 확인 → 87% 필요한 그림 다시 그리기 → 88% 수정 그림 재확인**을 한국어·영어·일본어로 표시합니다. `verify_illustrations`와 `repair_illustrations` 같은 내부 단계 이름이 화면에 노출되지 않습니다.
+
+새 책의 `IMAGE_QUALITY_FAILED` 오류는 일부 그림을 확인하지 못해 완성하지 못했다는 안내와 재시도 동선을 제공합니다. 실패 응답에 책 결과나 100% 진행률이 있어도 완성 화면으로 이동하지 않습니다. 기존 책의 그림 수정이 같은 오류로 실패하면 변경사항을 저장하지 않았으며 기존 책이 유지된다고 안내하고, 기존 본문과 상세 캐시를 보존합니다. 확인되지 않은 환불 완료 문구나 공급자 진단 원문은 표시하지 않습니다. 세 언어의 검사·보완·재검사와 실패 동선은 320×480 화면·글자 배율 1.4에서 확인했고, 실패 화면의 조작 영역은 최소 64×64 논리 픽셀입니다. 새 구매·오디오·실물 주문 설정은 유지했습니다.
+
+| 검사·빌드 | 이번 결과 |
+|---|---|
+| 영향 경로 Flutter 검사 | **22개 통과** |
+| `flutter analyze` | **문제 없음**, 도구 보고 6.7초 |
+| `flutter test --coverage` | **367개 통과**, line coverage **50.5135%**(6,197/12,268줄) |
+| `flutter test integration_test/app_flow_test.dart -d flutter-tester --no-pub` | 모의 사용자 흐름 **2개 통과** |
+| `flutter build apk --debug` | Android 디버그 APK 생성 완료, Gradle 단계 12.0초 |
+| `flutter build ios --debug --no-codesign` | iOS 서명 없는 디버그 앱 생성 완료, Xcode 단계 12.8초 |
+
+통합 검사 폴더 전체 실행에서는 위 사용자 흐름 2개가 통과했지만, 별도 실서버·기기 조건이 필요한 `live_backend_flow_test.dart`와 `native_storage_test.dart`는 앱 로그 리더 시작 오류로 테스트 본문을 실행하지 못했습니다. 따라서 이번 결과는 전체 통합 검사나 실기기·네이티브 플러그인 검증 완료를 뜻하지 않습니다. 적용 가능한 모의 사용자 흐름 파일은 따로 실행해 종료 코드 0을 확인했습니다.
+
+새 산출물의 SHA-256은 Android APK `32f0591f14d6a0ce01b5cd524e0eac27ce16bb0268f0e891b1470e24afac10d9`, iOS 앱 파일 목록 기준 묶음 `305cb007511037c546b14c8ef2fe763fa87771af3c956ed2b477f87f7d4974b6`입니다. iOS 호스트 실행 파일 외에 실제 Dart 코드 파일도 따로 해시를 기록했습니다. 명령·로그·파일별 해시·묶음 해시 방식은 [모바일 검사·빌드 증거](acceptance/2026-09-06-release-ops/mobile-image-quality-builds.json)에 보존했습니다. iOS는 빌드 완료 로그와 생성 파일로 성공을 확인했으며, 닫힌 실행 세션의 최종 종료 코드는 별도로 확보하지 못했다고 기록했습니다.
+
+두 산출물은 로컬 검사용이며 스토어 제출용 앱이 아닙니다. 이번에 실기기 설치나 운영 배포는 실행하지 않았습니다. 화면 회귀 검사와 빌드 성공은 실제 비전 검사의 탐지 정확도나 재생성한 그림의 품질 합격을 증명하지 않습니다.
+
+## 최신 전체 API 검증
+
+2026-09-06 11:30 KST에 Python **3.11.15** 전체 API 검사 **1,227개 통과·0개 실패·14개 건너뜀**, line coverage **74.21%**를 확인했습니다. 전체 커버리지 40% 기준과 money-path coverage gate도 통과했습니다. StoryDraft·ImagePrompts 네이티브 JSON Schema, 프롬프트 길이 지시, 실검증 요청·비용 가드, 비공개 독자 프로필과 matrix 전달 회귀 검사 3개까지 포함한 **392개 소스**를 별도 복사했고, 실행 종료까지 해당 소스가 변경되지 않았습니다.
+
+이후 Gemini 참조 이미지·현재 장면의 인물 수·인물별 외모 연결 규칙을 보강했고, **11:46 KST Python 3.11 영향 경로 58개가 모두 통과**했습니다(새 회귀 4개 포함). 전체 검사는 반복하지 않았고 위 커버리지를 새 보강 코드의 측정값으로 표시하지 않습니다. [후속 검사 JSON](acceptance/2026-09-06-release-ops/api-python311-cast-identity.json), [후속 JUnit XML](acceptance/2026-09-06-release-ops/api-tests-python311-cast-identity.xml)에 별도 보존했습니다. 자동 검사는 실제 생성된 그림의 인물 일관성·장면 품질 합격을 증명하지 않습니다.
+
+참조 이미지 다운로드의 차단·예외 로그에서 원문 URL·서명 쿼리·예외 문자열을 제거한 후속 변경은 **11:54 KST Python 3.11 집중 검사 33개 통과**로 확인했습니다(새 민감정보 회귀 3개 포함). 고정 메시지와 예외 유형만 기록하며 SSRF 방어·스토리지 경로·30초 제한시간·생성 요청 내용은 유지했습니다. [로그 보호 검사 JSON](acceptance/2026-09-06-release-ops/api-python311-reference-logging.json), [JUnit XML](acceptance/2026-09-06-release-ops/api-tests-python311-reference-logging.xml)에 별도로 기록했습니다.
+
+실제 Git 제외·추적 여부 검사를 위해 기존 Python 검사 이미지에 Git을 추가한 전용 이미지를 사용했습니다. 검사 컨테이너는 `--network none`이며, 계정 환경 파일·서명 자료·개인 독자 설정 폴더를 복사하지 않았습니다. 이 결과는 SQLite와 모의 공급자를 사용하는 전체 API 자동 검사입니다. 실생성 품질·실기기·스토어·운영 배포 상태는 별도 검증하며, 건너뛴 14개 PostgreSQL·Redis·Celery 전용 검사의 앞선 실제 의존성 검증 기록도 아래에 구분했습니다.
+
+증거: [검사 결과 JSON](acceptance/2026-09-06-release-ops/api-python311-final.json), [JUnit XML](acceptance/2026-09-06-release-ops/api-tests-python311-final.xml), [coverage XML](acceptance/2026-09-06-release-ops/api-coverage-final.xml), [소스 파일별 SHA-256](acceptance/2026-09-06-release-ops/api-python311-final-source-manifest.json). 스냅샷 SHA-256은 `29f95c74f217acdcf33b72a749fd1ff79181081d477f69a81b62bc2c6aa041a3`입니다.
+
+## 이번에 확인한 배포 경로
+
+- `--image-tag`가 `infra/.env`의 오래된 `API_IMAGE`·`WORKER_IMAGE`를 확실히 덮어씁니다.
+- 상태 검사는 `PROD_API_URL`의 TLS 인증서를 검증하고 `/health/live`와 `/health/ready`에서 정확히 200만 통과시킵니다. 리다이렉트·503·인증서 오류는 실패이며 준비 상태 회복을 제한 시간 동안 기다립니다.
+- CI의 최종 smoke도 같은 HTTPS origin을 사용합니다. 새 릴리스 상태 검사 실패 시 이전 API·워커 이미지로 되돌리고 CI는 실패로 남습니다.
+- DB 덤프는 비공개 권한으로 작성하고 읽을 수 있는 완성본만 보관합니다. 합성 DB·미디어를 별도 환경에 복원한 뒤 내용·제약·인증 폐기 상태·미디어 접근 권한을 검증하는 리허설을 CI에 추가했습니다.
+- 무료 제한 베타의 새 구매·오디오·실물 주문은 계속 꺼져 있습니다. 실제 긴 생성 응답을 고려한 LLM 요청 제한시간은 90초입니다.
+
+## 앞선 검증 기록
+
+같은 날 앞서 수행한 전체 검사에서 Python 3.11 API **1,109개 통과**, line coverage **74.09%**, money-path coverage gate가 통과했습니다. 일반 API 실행에서 건너뛴 PostgreSQL 의존 검사 14개는 별도 실제 PostgreSQL/Redis/Celery 환경에서 모두 통과했습니다. 같은 환경에서 비공개 미디어 검사 19개와 HTTP 사용자 여정 33개도 통과했습니다. 이는 실행 계층과 권한·데이터 복구에 관한 증거이며 실기기·스토어·운영 배포 완료를 의미하지 않습니다.
+
+이후 StoryDraft 전용 네이티브 JSON Schema 연결은 별도 Python 3.11 영향 경로 **301개 통과**로 검증했습니다(새 회귀 검사 22개 포함). 앞의 1,109개 전체 검사·커버리지 결과와 구분하며, 실공급자의 내용 품질은 새로운 비교 표본에서 확인합니다. 증거: `docs/acceptance/2026-09-06-release-ops/api-python311-structured.json`.
+
+ImagePrompts 보완 전 전체 검사 **1,169개 통과**는 [별도 스냅샷](acceptance/2026-09-06-release-ops/api-python311-pre-imageprompts.json)으로 보존했습니다. 보완 후 첫 실행에서 독자 프로필 검사 31개가 Git 없는 검사 이미지의 준비 단계에서 실패한 [환경 오류 기록](acceptance/2026-09-06-release-ops/api-python311-missing-git.json)도 보존했습니다. 테스트의 Git 검사를 유지하고 환경을 보완한 뒤, matrix 옵션과 추가 회귀까지 포함해 위의 최신 전체 검사에서 통과했습니다.
+
+## 운영 대상에 필요한 값과 상태
+
+2026-09-06에 값을 출력하지 않고 확인한 상태입니다. `apps/api/.env`의 정상 동작하는 로컬 AI 연결과 `infra/.env`의 운영 설정은 별개입니다.
+
+| 항목 | 확인된 상태 | 다음 적용 위치 |
+|---|---|---|
+| 서버·SSH 배포 대상 | GitHub 저장소와 `production` environment 모두 배포 secret/variable 미등록 | `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_KEY`, 검증 후 `DEPLOY_ENABLED=true` |
+| 공개 API와 TLS | 운영 `PROD_API_URL` 미설정 | 공개 HTTPS 주소(호스팅 기본 주소 가능), `infra/.env`, 모바일 `PROD_API_URL` |
+| 공개 정책 페이지 | 실제 개인정보처리방침·이용약관 주소 미설정 | 공개 HTTPS `PRIVACY_POLICY_URL`·`TERMS_OF_SERVICE_URL`, 모바일 `--dart-define`에 별도 전달 |
+| 비공개 미디어 | 운영 S3 자격증명·장치에서 접근할 HTTPS endpoint 미구성 | `S3_ENDPOINT`, `S3_DOWNLOAD_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, 안정적인 canonical URL base |
+| 운영 프로세스 설정 | 개발용 `infra/.env`에 필수 운영 필드 누락 | 실제 AI provider/model secret 주입, `ADMIN_API_KEY`, strict IAP, 비용 한도 등 `infra/.env.example` 계약 적용 |
+| Android 릴리스 서명 | 로컬 업로드 키와 `android/key.properties` 준비·0600/Git 제외 검증 완료 | [ANDROID_SIGNING.md](ANDROID_SIGNING.md)의 외부 암호화 백업, Play Console 등록/기존 인증서 확인 |
+| iOS 서명 | 프로젝트 팀 설정·로컬 유효 code-signing identity 2개 존재 | 해당 앱/팀의 배포 profile, App Store Connect 접근 및 실제 archive/export 검증 |
+| 운영 백업 보관소 | 지정된 외부 보관소 없음 | 비공개 암호화 백업 대상, 최신 삭제·인증 폐기 기록의 복구 수단 |
+
+등록된 GitHub 배포 값이 없다고 해서 사용자가 다른 곳에 서버를 소유하지 않는다는 뜻은 아닙니다. 현재 프로젝트에서 실행 대상으로 확인된 서버가 없다는 뜻입니다. 운영 대상이 정해지면 같은 AI 키를 비밀 저장 경로로 주입할 수 있으며 새 AI 계정을 만들 필요는 없습니다.
+
+## 배포 순서
+
+1. [DEPLOYMENT.md](DEPLOYMENT.md)에 따라 운영 서버·DNS·TLS와 비공개 미디어를 구성합니다. 앱과 API의 URL은 HTTPS로 고정합니다.
+2. `infra/.env.example` 계약을 기준으로 운영 설정을 채웁니다. 초기값은 `PURCHASES_ENABLED=false`, `AUDIO_FEATURE_ENABLED=false`, `POD_ORDERING_ENABLED=false`, `IAP_VERIFICATION_MODE=strict`, `DAILY_GENERATION_BUDGET=20`, `LLM_TIMEOUT=90`입니다. 생성 횟수 제한은 금액 한도가 아니므로 공급자 측 예산 설정도 유지합니다.
+3. 실제 공개 개인정보처리방침·이용약관·지원 페이지가 로그인 없이 열리는지 확인합니다. 호스팅 서비스의 기본 HTTPS 주소도 사용할 수 있으며 별도 도메인은 필수가 아닙니다. `PRIVACY_POLICY_URL`·`TERMS_OF_SERVICE_URL`은 운영자·모바일 빌드 설정이므로 백엔드 Settings나 API/worker Compose 환경에 전달하지 않습니다. 아래 세 환경 변수에는 실제 검증한 주소를 먼저 설정해야 합니다. 미설정이면 명령이 중단되며, 예시 주소를 실제 운영 주소로 간주하지 않습니다. 이후 검증을 통과시키고 SHA 이미지가 GHCR에 존재하는지 확인합니다.
+
+```bash
+: "${PROD_API_URL:?검증한 공개 HTTPS API 주소를 설정하세요}"
+: "${PRIVACY_POLICY_URL:?실제 공개 HTTPS 개인정보처리방침 주소를 설정하세요}"
+: "${TERMS_OF_SERVICE_URL:?실제 공개 HTTPS 이용약관 주소를 설정하세요}"
+export PROD_API_URL PRIVACY_POLICY_URL TERMS_OF_SERVICE_URL
+./scripts/check-env.sh --mode production --env-file infra/.env
+./scripts/final-external-preflight.sh --env-file infra/.env --json
+./scripts/run_backup_restore_rehearsal.sh
+```
+
+4. 확정한 서버에서만 SHA 배포와 상태 검사를 실행합니다. smoke는 새 합성 사용자·생성 요청을 만들 수 있습니다.
+
+```bash
+./scripts/deploy.sh --env-file infra/.env --image-tag <검증한-커밋-SHA> deploy
+./scripts/deploy.sh --env-file infra/.env health
+./scripts/deploy.sh --env-file infra/.env smoke
+```
+
+5. 서명이 준비되면 같은 HTTPS API와 공개 정책 페이지를 명시한 배포용 앱을 빌드합니다. 앞 단계와 동일한 실제 환경 값을 사용하며, 백엔드 환경 파일의 값이 Flutter 앱으로 자동 전달된다고 가정하지 않습니다. 서명되지 않은 iOS 앱이나 Android debug APK는 스토어 배포 산출물로 표시하지 않습니다.
+
+```bash
+: "${PROD_API_URL:?검증한 공개 HTTPS API 주소를 설정하세요}"
+: "${PRIVACY_POLICY_URL:?실제 공개 HTTPS 개인정보처리방침 주소를 설정하세요}"
+: "${TERMS_OF_SERVICE_URL:?실제 공개 HTTPS 이용약관 주소를 설정하세요}"
+cd apps/mobile
+flutter build appbundle --release \
+  --dart-define="PROD_API_URL=$PROD_API_URL" \
+  --dart-define="PRIVACY_POLICY_URL=$PRIVACY_POLICY_URL" \
+  --dart-define="TERMS_OF_SERVICE_URL=$TERMS_OF_SERVICE_URL"
+flutter build ipa --release \
+  --dart-define="PROD_API_URL=$PROD_API_URL" \
+  --dart-define="PRIVACY_POLICY_URL=$PRIVACY_POLICY_URL" \
+  --dart-define="TERMS_OF_SERVICE_URL=$TERMS_OF_SERVICE_URL"
+```
+
+법무·사업자·개인정보 및 스토어의 본인 확인/약관/최종 제출 항목은 [appstore/submission-checklist.md](appstore/submission-checklist.md)와 현재 출시 기록에서 확인합니다. 이 문서는 약관 동의나 스토어 등록을 대신하지 않습니다.

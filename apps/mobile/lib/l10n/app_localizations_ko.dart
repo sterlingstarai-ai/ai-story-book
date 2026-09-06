@@ -235,6 +235,18 @@ class AppLocalizationsKo extends AppLocalizations {
   String get createLanguageLabel => '이야기 언어';
 
   @override
+  String get createLengthLabel => '이야기 길이';
+
+  @override
+  String get createLengthStandard => '12쪽 · 기본';
+
+  @override
+  String get createLengthShort => '8쪽 · 짧게';
+
+  @override
+  String get createLengthHint => '표지를 뺀 본문 쪽수예요. 어린 아이나 짧게 읽을 때는 8쪽을 골라주세요.';
+
+  @override
   String get createTemplateSectionLabel => '추천으로 시작하기';
 
   @override
@@ -513,6 +525,23 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get libraryMenuDelete => '삭제';
+
+  @override
+  String get loadingImageQualityFailed =>
+      '일부 그림을 확인하지 못해 책을 완성하지 못했어요. 다시 시도해 주세요.';
+
+  @override
+  String get loadingStepVerifyIllustrations => '그림이 이야기와 잘 맞는지 확인하고 있어요';
+
+  @override
+  String get loadingStepRepairIllustrations => '확인이 필요한 그림을 다시 그리고 있어요';
+
+  @override
+  String get loadingStepRecheckIllustrations => '다시 그린 그림을 확인하고 있어요';
+
+  @override
+  String get viewerImageQualityFailed =>
+      '그림을 확인하지 못해 변경사항을 저장하지 않았어요. 기존 책은 그대로예요.';
 
   @override
   String get loadingTitle => '동화책을 만들고 있어요';
@@ -898,7 +927,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get voiceProfilesUploading => '업로드 중...';
 
   @override
-  String get voiceProfilesUploadAudioButton => '오디오 파일 업로드';
+  String get voiceProfilesUploadAudioButton => '음성 올리기';
 
   @override
   String get voiceProfilesConsentToggle => '보호자 동의 완료';
@@ -1291,12 +1320,12 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String parentDashboardLearningStreakLine(Object current, Object longest) {
-    return '현재 스트릭 $current일 · 최고 $longest일';
+    return '연속 읽기 $current일 · 최장 $longest일';
   }
 
   @override
   String parentDashboardLearningSessionLine(Object completed, Object total) {
-    return '완독 세션 $completed / 전체 세션 $total';
+    return '끝까지 읽은 횟수 $completed회 · 전체 $total회';
   }
 
   @override
@@ -1694,10 +1723,10 @@ class AppLocalizationsKo extends AppLocalizations {
   String get charactersEmptyTitle => '아직 캐릭터가 없어요';
 
   @override
-  String get charactersEmptySubtitle => '사진으로 캐릭터를 만들어보세요!';
+  String get charactersEmptySubtitle => '이름과 특징만으로도 이야기 속 친구를 만들 수 있어요.';
 
   @override
-  String get charactersEmptyCreateButton => '사진으로 캐릭터 만들기';
+  String get charactersEmptyCreateButton => '캐릭터 만들기';
 
   @override
   String get charactersLoadErrorTitle => '캐릭터를 불러올 수 없어요';
@@ -1709,7 +1738,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get charactersFabCreating => '생성 중...';
 
   @override
-  String get charactersFabCreate => '사진으로 만들기';
+  String get charactersFabCreate => '캐릭터 만들기';
 
   @override
   String get charactersOptionsTitle => '새 캐릭터 만들기';
@@ -1796,7 +1825,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get charactersAddCardTitle => '새 캐릭터 추가';
 
   @override
-  String get charactersAddCardSubtitle => '사진으로 나만의 캐릭터를 만들어보세요';
+  String get charactersAddCardSubtitle => '직접 소개하거나 사진과 그림으로 시작해요';
 
   @override
   String get charactersDetailDescription => '설명';
@@ -2228,7 +2257,10 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String viewerKakaoShareText(
-      Object title, Object deepLink, Object fallbackUrl) {
+    Object title,
+    Object deepLink,
+    Object fallbackUrl,
+  ) {
     return '📚 $title\n\n카카오톡으로 동화책을 공유해요!\n$deepLink\n$fallbackUrl';
   }
 
@@ -2428,7 +2460,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get ageGateTitle => '부모 확인';
 
   @override
-  String get ageGateDescription => '구매 화면 접근 전 부모 확인이 필요해요.';
+  String get ageGateDescription => '계속하려면 부모님이나 보호자의 확인이 필요해요.';
 
   @override
   String get ageGateAnswerHint => '정답 입력';
@@ -2575,8 +2607,14 @@ class AppLocalizationsKo extends AppLocalizations {
   }
 
   @override
-  String growthShareText(int booksRead, int levelNumber, String levelLabel,
-      int scoreValue, int vocabLearned, int currentStreak) {
+  String growthShareText(
+    int booksRead,
+    int levelNumber,
+    String levelLabel,
+    int scoreValue,
+    int vocabLearned,
+    int currentStreak,
+  ) {
     return '📚 우리 아이 읽기 성장 보고서\n\n📖 읽은 책: $booksRead권\n⭐ 읽기 레벨: Lv.$levelNumber ($levelLabel)\n📊 종합 점수: $scoreValue/100\n🔤 학습 어휘: $vocabLearned개\n🔥 연속 읽기: $currentStreak일\n\nAI 동화책으로 매일 한 권씩 우리 아이 읽기 성장 📖';
   }
 
@@ -2609,7 +2647,11 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String growthHeroSemantic(
-      int levelNumber, String levelLabel, int scoreValue, String confidence) {
+    int levelNumber,
+    String levelLabel,
+    int scoreValue,
+    String confidence,
+  ) {
     return '추정 읽기 레벨 $levelNumber, $levelLabel. 읽은 책·어휘·정확도·완독 종합 점수 $scoreValue점 만점 100점. 신뢰도 $confidence.';
   }
 
@@ -2820,4 +2862,336 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get growthLevelFluentReader => '능숙한 독서가';
+
+  @override
+  String get accountOpening => '계정을 여는 중입니다';
+
+  @override
+  String get accountUnavailableTitle => '계정을 열 수 없습니다';
+
+  @override
+  String get accountUnavailableMessage =>
+      '저장된 계정에 접근하지 못했어요. 기기 잠금을 해제하고 다시 시도하거나, 보관한 코드로 계정을 복구해 주세요. 계정 접근을 해결할 때까지 앱은 삭제하지 말아 주세요.';
+
+  @override
+  String get accountRetry => '다시 시도';
+
+  @override
+  String get podOrderingUnavailable => '이번 출시에서는 실물책 주문을 제공하지 않습니다.';
+
+  @override
+  String get loadingStatusUnavailable =>
+      '동화의 진행 상황을 확인하지 못했어요. 동화는 계속 만들어지고 있을 수 있어요. 인터넷 연결을 확인한 뒤 이 동화의 상태를 다시 확인해 주세요.';
+
+  @override
+  String get voiceProfilesUnavailable =>
+      '이번 출시에서는 가족 목소리를 제공하지 않습니다. 저장된 음성 샘플 삭제와 동의 철회는 계속 이용할 수 있습니다.';
+
+  @override
+  String get loadingStatusUnavailableTitle => '동화의 진행 상황을 다시 확인해요';
+
+  @override
+  String get settingsSavedVoices => '저장된 음성 관리';
+
+  @override
+  String get settingsSavedVoicesSubtitle => '음성 데이터 삭제 및 동의 철회';
+
+  @override
+  String get creditsBetaNotice =>
+      '현재 무료 제한 베타로 운영하며 신규 구매는 제공하지 않습니다. 기존 잔액 사용과 현재 계정의 구매 복원은 이용할 수 있습니다. 구매 복원만으로는 기기 변경이나 앱 재설치 후 동화 서재를 복구할 수 없습니다.';
+
+  @override
+  String get creditBetaLimitTitle => '이용 가능한 기능과 잔액을 확인해요';
+
+  @override
+  String get creditBetaLimitMessage =>
+      '무료 베타에서 제공하지 않는 기능이거나 이용 한도에 도달했어요. 서재에 있는 동화는 계속 읽을 수 있고, 현재 잔액도 확인할 수 있어요.';
+
+  @override
+  String get creditBetaLibrarySubtitle => '이미 만든 동화를 계속 읽어요';
+
+  @override
+  String get creditBetaStatusSubtitle => '잔액과 기존 구매 내역을 확인해요';
+
+  @override
+  String get accountDeletionPending =>
+      '계정 데이터와 동의 정보는 삭제되었습니다. 일부 저장 파일의 삭제가 남아 있어 서버에서 자동으로 다시 처리합니다.';
+
+  @override
+  String get voiceDeletionPending =>
+      '이 음성 샘플은 더 이상 사용할 수 없습니다. 일부 저장 파일의 삭제가 남아 있어 서버에서 자동으로 다시 처리합니다.';
+
+  @override
+  String get recoveryTitle => '계정 복구';
+
+  @override
+  String get recoveryDescription =>
+      '기기를 바꾸거나 잃어버리기 전에 복구 코드를 비밀번호 관리자 등 안전한 곳에 보관해 주세요. 새 코드를 만들면 이전 코드는 사용할 수 없습니다.';
+
+  @override
+  String get recoveryEnabled => '복구 코드가 설정되어 있어요';
+
+  @override
+  String get recoveryNotEnabled => '서재를 다시 찾을 수 있게 준비해요';
+
+  @override
+  String get recoveryCreateCode => '복구 코드 만들기';
+
+  @override
+  String get recoveryReplaceCode => '새 복구 코드 만들기';
+
+  @override
+  String get recoverySaveTitle => '이 코드를 안전하게 보관해 주세요';
+
+  @override
+  String get recoverySaveMessage =>
+      '이 코드로 계정과 서재를 복구할 수 있어요. 코드를 가진 사람은 계정에 접근할 수 있으니 다른 사람에게 알려주지 마세요. 지금만 표시되므로 앱 밖의 안전한 곳에 보관해 주세요.';
+
+  @override
+  String get recoveryCopy => '복구 코드 복사';
+
+  @override
+  String get recoveryCopied => '복구 코드를 복사했어요. 안전한 곳에 보관해 주세요.';
+
+  @override
+  String get recoverySavedCheck => '전체 코드를 앱 밖의 안전한 곳에 저장했어요.';
+
+  @override
+  String get recoveryConfirmSuffix => '저장한 코드의 마지막 6자 입력';
+
+  @override
+  String get recoveryConfirmSaved => '코드 보관 확인';
+
+  @override
+  String get recoveryRestoreTitle => '기존 계정 복구하기';
+
+  @override
+  String get recoveryRestoreMessage =>
+      '보관한 복구 코드를 입력해 주세요. 이 기기는 복구한 계정으로 전환되고 해당 계정의 이전 기기는 로그아웃됩니다. 현재 서재와 복구한 서재는 합쳐지지 않아요. 복구 후 새 코드를 다시 보관해 주세요.';
+
+  @override
+  String get recoveryCodeLabel => '복구 코드';
+
+  @override
+  String get recoveryRestoreButton => '계정 복구';
+
+  @override
+  String get recoveryInvalidCode => 'ASB-R1-로 시작하는 전체 복구 코드를 입력해 주세요.';
+
+  @override
+  String get recoveryFailed =>
+      '복구를 확인하지 못했어요. 코드, 연결 상태와 기기의 보안 저장소를 확인한 뒤 여기서 다시 시도해 주세요. 요청이 중단되었다면 이 화면에서 다시 시도해야 같은 계정으로 안전하게 이어갈 수 있어요.';
+
+  @override
+  String get recoverySucceeded => '계정과 서재를 다시 연결했어요';
+
+  @override
+  String get recoveryLoadError => '복구 설정을 확인하지 못했어요. 다시 시도해 주세요.';
+
+  @override
+  String get recoveryIssueError =>
+      '코드를 표시하지 못했어요. 이전 코드가 만료되었을 수 있으니 다시 시도해 새 코드를 만들어 보관해 주세요.';
+
+  @override
+  String get recoveryBackupPending =>
+      '이 기기에 접근할 수 있을 때 설정에서 새 복구 코드를 만들어 보관해 주세요.';
+
+  @override
+  String get recoveryContinue => '계속하기';
+
+  @override
+  String get recoverySwitchNeedsBackup =>
+      '다른 계정으로 전환하기 전에 현재 계정의 복구 코드를 보관해 주세요. 그래야 현재 서재로 다시 돌아올 수 있어요.';
+
+  @override
+  String get reportContentTitle => '문제 신고';
+
+  @override
+  String get reportContentCover => '이 표지를 신고해요';
+
+  @override
+  String reportContentPage(int page) {
+    return '$page쪽을 신고해요';
+  }
+
+  @override
+  String get reportContentHint => '사유 하나만 선택해 주세요. 이름이나 연락처는 필요하지 않아요.';
+
+  @override
+  String get reportContentHarmful => '폭력적이거나 위험한 내용';
+
+  @override
+  String get reportContentSexual => '성적인 내용';
+
+  @override
+  String get reportContentHate => '혐오 또는 괴롭힘';
+
+  @override
+  String get reportContentPersonal => '개인정보 노출';
+
+  @override
+  String get reportContentImage => '그림의 오류';
+
+  @override
+  String get reportContentOther => '그 밖의 콘텐츠 문제';
+
+  @override
+  String get reportContentSubmit => '신고 보내기';
+
+  @override
+  String get reportContentSending => '보내는 중…';
+
+  @override
+  String get reportContentCancel => '취소';
+
+  @override
+  String get reportContentClose => '동화로 돌아가기';
+
+  @override
+  String get reportContentReceived => '신고가 접수되었어요. 내용을 검토하겠습니다.';
+
+  @override
+  String get reportContentAlreadyReviewed => '이미 접수되어 검토가 끝난 신고예요.';
+
+  @override
+  String get reportContentFailed => '신고를 보내지 못했어요. 다시 시도해 주세요.';
+
+  @override
+  String get homeReadingSubtitle => '오늘은 어떤 이야기를 읽어볼까요?';
+
+  @override
+  String get homeReadBook => '동화 읽기';
+
+  @override
+  String get viewerFinishReading => '다 읽었어요';
+
+  @override
+  String get createAvailableStylesHint => '현재 계정에서 사용할 수 있는 그림체예요.';
+
+  @override
+  String get createOptionsLoading => '사용 가능한 그림체를 확인하고 있어요.';
+
+  @override
+  String get createOptionsFailed => '그림체를 확인하지 못했어요. 연결을 확인하고 다시 시도해 주세요.';
+
+  @override
+  String get createSafetyInputHint => '아이에게 알맞은 내용으로 주제를 바꾼 뒤 다시 만들어 주세요.';
+
+  @override
+  String get createSafetyOutputHint => '내용을 안전하게 완성하지 못했어요. 다른 주제로 만들어 주세요.';
+
+  @override
+  String get createDailyLimitHint =>
+      '오늘의 생성 한도를 모두 사용했어요. 서재의 동화를 읽거나 내일 다시 만들어 주세요.';
+
+  @override
+  String get inpaintImageLoadFailed => '그림을 불러오지 못했어요. 다시 불러온 뒤 수정해 주세요.';
+
+  @override
+  String get voiceProfilesSampleRequiredUpload => '음성 파일을 먼저 올려 주세요.';
+
+  @override
+  String get voiceProfilesSampleSelected => '음성 샘플이 준비되었어요.';
+
+  @override
+  String get voiceProfilesSampleLinkOption => '오디오 링크로 직접 연결';
+
+  @override
+  String get parentDashboardEmptyReading =>
+      '아직 이 기간의 읽기 기록이 없어요. 동화를 읽으면 여기에 차곡차곡 쌓여요.';
+
+  @override
+  String get settingsPagePreparing => '안내 페이지를 준비 중이에요.';
+
+  @override
+  String get settingsPageOpenError => '페이지를 열지 못했어요. 잠시 후 다시 시도해 주세요.';
+
+  @override
+  String get characterAvatarTitle => '동화 속 모습 확인';
+
+  @override
+  String get characterAvatarGeneratingLabel => '모습을 만들고 있어요';
+
+  @override
+  String get characterAvatarPreviewLabel => '모습을 확인해 주세요';
+
+  @override
+  String get characterAvatarApprovedLabel => '확인한 모습';
+
+  @override
+  String get characterAvatarFailedLabel => '모습 만들기를 다시 확인해 주세요';
+
+  @override
+  String get characterAvatarGeneratingBody =>
+      '동화 속 주인공을 만들고 있어요. 이 화면을 나가도 캐릭터 목록에서 다시 확인할 수 있어요.';
+
+  @override
+  String get characterAvatarPreviewBody =>
+      '이 모습이 마음에 드나요? 한 번 확인한 캐릭터는 다음 동화에서도 다시 사용할 수 있어요.';
+
+  @override
+  String get characterAvatarImageLabel => '확인할 동화 캐릭터 그림';
+
+  @override
+  String get characterAvatarApprove => '이 모습으로 만들기';
+
+  @override
+  String get characterAvatarRegenerate => '다시 만들기';
+
+  @override
+  String get characterAvatarOtherPhoto => '다른 사진 선택';
+
+  @override
+  String get characterAvatarLater => '나중에 확인하기';
+
+  @override
+  String get characterAvatarTakingLong =>
+      '확인이 오래 걸리고 있어요. 잠시 후 다시 확인하거나 캐릭터 목록에서 이어서 확인해 주세요.';
+
+  @override
+  String get characterAvatarLoadError => '캐릭터 상태를 불러오지 못했어요. 다시 확인해 주세요.';
+
+  @override
+  String get characterAvatarImageError => '미리보기를 불러오지 못했어요. 다시 확인해 주세요.';
+
+  @override
+  String get characterAvatarFailedBody =>
+      '아직 사용할 모습이 준비되지 않았어요. 가능한 경우 다시 만들거나 다른 사진을 선택해 주세요.';
+
+  @override
+  String get characterAvatarRetryLimit =>
+      '이 사진으로는 다시 만들 수 없어요. 다른 사진을 선택할 수 있어요.';
+
+  @override
+  String get characterAvatarChanged => '미리보기가 바뀌었어요. 새 모습을 확인해 주세요.';
+
+  @override
+  String get characterAvatarUpdateError =>
+      '요청을 확인하지 못했어요. 최신 모습을 확인한 뒤 다시 선택해 주세요.';
+
+  @override
+  String get characterAvatarUnavailable =>
+      '지금은 사진으로 캐릭터를 만들 수 없어요. 기본 캐릭터를 선택하거나 잠시 후 다시 시도해 주세요.';
+
+  @override
+  String get characterAvatarNeedsApproval => '동화에 사용할 캐릭터 모습을 먼저 확인해 주세요.';
+
+  @override
+  String get characterAvatarReferenceUnavailable =>
+      '캐릭터 그림을 불러올 수 없어요. 캐릭터 목록에서 다시 확인해 주세요.';
+
+  @override
+  String get characterSelectionInvalid => '선택한 캐릭터를 다시 확인해 주세요.';
+
+  @override
+  String get characterAvatarHeroLabel => '이 책의 주인공';
+
+  @override
+  String get characterAvatarApprovedDescription => '이 모습으로 다음 동화도 함께해요.';
+
+  @override
+  String get characterAvatarPreparingDescription => '동화 속 주인공을 만들고 있어요.';
+
+  @override
+  String get characterAvatarFailedDescription => '다시 만들거나 다른 사진을 선택해 주세요.';
 }

@@ -9,9 +9,8 @@ to re-run from scratch. The re-run must be idempotent:
   re-executed — otherwise re-inserts collide on the unique job_id constraints
   (story_drafts/image_prompts/books) and a recoverable redelivery is turned
   into a permanent failure.
-- A duplicate-insert IntegrityError raised by a concurrent redelivery race must
-  be absorbed (treated as already-claimed no-op), not marked as a hard UNKNOWN
-  failure and re-raised (which Celery would redeliver again → failure loop).
+- A queued job is claimed atomically before any provider call. Once claimed,
+  an IntegrityError is a real database failure and must not become fake success.
 """
 
 import pytest
@@ -53,6 +52,10 @@ class TestRedeliveryNoopHelper:
 
 
 class TestGenerateBookTaskIdempotency:
+    @pytest.fixture(autouse=True)
+    def claim_queued_job(self, monkeypatch):
+        monkeypatch.setattr("src.services.tasks._claim_job_async", AsyncMock(return_value=True))
+
     def test_skips_done_job(self, valid_book_spec):
         """A redelivered task for an already-done job is a clean no-op."""
         with patch(
@@ -84,11 +87,11 @@ class TestGenerateBookTaskIdempotency:
         mock_start.assert_not_called()
         assert result["status"] == "skipped"
 
-    def test_runs_non_terminal_job(self, valid_book_spec):
-        """A running/queued job still executes normally (no false skip)."""
+    def test_runs_claimed_queued_job(self, valid_book_spec):
+        """The delivery that wins the queued claim executes normally."""
         with patch(
             "src.services.tasks._get_job_status_async",
-            new=AsyncMock(return_value="running"),
+            new=AsyncMock(return_value="queued"),
         ):
             with patch(
                 "src.services.orchestrator.start_book_generation",
@@ -100,11 +103,11 @@ class TestGenerateBookTaskIdempotency:
         mock_start.assert_called_once()
         assert result["status"] == "success"
 
-    def test_absorbs_integrity_error_from_redelivery(self, valid_book_spec):
-        """A duplicate-insert IntegrityError is absorbed as a no-op, not a failure."""
+    def test_integrity_error_after_claim_is_reported(self, valid_book_spec):
+        """A failed DB write after the unique claim cannot be reported as success."""
         with patch(
             "src.services.tasks._get_job_status_async",
-            new=AsyncMock(return_value="running"),
+            new=AsyncMock(return_value="queued"),
         ):
             with patch(
                 "src.services.orchestrator.start_book_generation",
@@ -114,19 +117,16 @@ class TestGenerateBookTaskIdempotency:
                     "src.services.tasks._mark_job_failed_async",
                     new_callable=AsyncMock,
                 ) as mock_fail:
-                    # Must NOT re-raise (Celery would redeliver again otherwise).
-                    result = _run_task("job-dup", valid_book_spec)
+                    with pytest.raises(IntegrityError):
+                        _run_task("job-dup", valid_book_spec)
 
-        # Not marked failed — the collision means another execution already
-        # claimed/created the rows.
-        mock_fail.assert_not_called()
-        assert result["status"] == "skipped"
+        mock_fail.assert_called_once()
 
     def test_non_integrity_error_still_fails_loudly(self, valid_book_spec):
         """Genuine errors are still marked failed and re-raised (no silent swallow)."""
         with patch(
             "src.services.tasks._get_job_status_async",
-            new=AsyncMock(return_value="running"),
+            new=AsyncMock(return_value="queued"),
         ):
             with patch(
                 "src.services.orchestrator.start_book_generation",

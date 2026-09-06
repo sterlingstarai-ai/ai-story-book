@@ -6,6 +6,8 @@
 # 파이프라인(create→done)을 검증하려면 TESTING=false로 실서버를 띄워야 한다.
 # 이 스크립트는 스키마 생성 → uvicorn 기동(mock providers·SQLite) → e2e_journey.py 실행
 # → 서버 종료까지 수행한다(키·Postgres·Redis 불필요).
+# 그림 검사는 모든 페이지를 명시적으로 반환하는 결정적 테스트 대역이다.
+# 실제 비전 판정이나 그림 품질 합격을 검증하지 않는다.
 #
 # ⚠ R2(2026-08-11) 이후 **S3 호환 스토리지는 필요하다**. mock 이미지 제공자가 외부
 # picsum URL을 반환하던 시절엔 업로드 경로가 아예 실행되지 않아 S3가 없어도 통과했는데,
@@ -25,9 +27,26 @@ cd "$ROOT_DIR/apps/api"
 PYTHON="${PYTHON:-python}"
 PORT="${PORT:-8077}"
 DB_FILE="live_e2e.db"
+MOCK_QA_STARTUP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/storybook-mock-qa.XXXXXX")"
+SERVER_LOG="$MOCK_QA_STARTUP_DIR/server.log"
+SVPID=""
+cleanup() {
+  if [[ -n "$SVPID" ]]; then
+    kill "$SVPID" 2>/dev/null || true
+    wait "$SVPID" 2>/dev/null || true
+  fi
+  rm -f "$DB_FILE"
+  rm -rf "$MOCK_QA_STARTUP_DIR"
+}
+trap cleanup EXIT
+
+"$PYTHON" "$ROOT_DIR/scripts/mock_illustration_review.py" "$MOCK_QA_STARTUP_DIR"
 
 export TESTING=false USE_CELERY=false \
   LLM_PROVIDER=mock IMAGE_PROVIDER=mock TTS_PROVIDER=mock \
+  PHOTO_ANALYSIS_PROVIDER=mock PHOTO_PROCESSING_ENABLED=false \
+  ILLUSTRATION_QUALITY_ENABLED=true STORYBOOK_MOCK_QA=illustration-review-v1 \
+  PYTHONPATH="$MOCK_QA_STARTUP_DIR:$ROOT_DIR/apps/api" \
   DATABASE_URL="sqlite+aiosqlite:///./${DB_FILE}" \
   S3_ENDPOINT="${S3_ENDPOINT:-http://localhost:9000}" \
   S3_ACCESS_KEY="${S3_ACCESS_KEY:-minioadmin}" \
@@ -66,15 +85,10 @@ asyncio.run(main())
 print("schema ready")
 PY
 
-echo "==> 서버 기동(TESTING=false, mock providers, port=$PORT)"
+echo "==> 서버 기동(TESTING=false, mock providers + mock illustration review, port=$PORT)"
 nohup "$PYTHON" -m uvicorn src.main:app --host 127.0.0.1 --port "$PORT" \
-  > "${TMPDIR:-/tmp}/live_e2e_server.log" 2>&1 &
+  > "$SERVER_LOG" 2>&1 &
 SVPID=$!
-cleanup() {
-  kill "$SVPID" 2>/dev/null || true
-  rm -f "$DB_FILE"
-}
-trap cleanup EXIT
 
 for _ in $(seq 1 40); do
   if curl -fsS "http://127.0.0.1:${PORT}/health/live" >/dev/null 2>&1; then
@@ -86,6 +100,6 @@ done
 echo "==> e2e_journey 실행"
 "$PYTHON" scripts/e2e_journey.py "http://127.0.0.1:${PORT}" || {
   echo "--- server log ---"
-  cat "${TMPDIR:-/tmp}/live_e2e_server.log" || true
+  cat "$SERVER_LOG" || true
   exit 1
 }

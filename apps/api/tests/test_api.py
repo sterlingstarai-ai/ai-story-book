@@ -196,57 +196,51 @@ async def test_library(client, user_key):
 
 
 @pytest.mark.asyncio
-async def test_book_spec_validation_topic_too_long(user_key):
+async def test_book_spec_validation_topic_too_long(client, user_key):
     """Topic exceeding max length should fail"""
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.post(
-            "/v1/books",
-            json={
-                "topic": "x" * 300,  # Max is 200
-                "language": "ko",
-                "target_age": "5-7",
-                "style": "watercolor",
-                "page_count": 8,
-            },
-            headers={"X-User-Key": user_key},
-        )
-        assert response.status_code == 422
+    response = await client.post(
+        "/v1/books",
+        json={
+            "topic": "x" * 300,  # Max is 200
+            "language": "ko",
+            "target_age": "5-7",
+            "style": "watercolor",
+            "page_count": 8,
+        },
+        headers={"X-User-Key": user_key},
+    )
+    assert response.status_code == 422
 
 
 @pytest.mark.asyncio
-async def test_book_spec_validation_invalid_age(user_key):
+async def test_book_spec_validation_invalid_age(client, user_key):
     """Invalid target age should fail"""
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.post(
-            "/v1/books",
-            json={
-                "topic": "토끼 이야기",
-                "language": "ko",
-                "target_age": "invalid",
-                "style": "watercolor",
-                "page_count": 8,
-            },
-            headers={"X-User-Key": user_key},
-        )
-        assert response.status_code == 422
+    response = await client.post(
+        "/v1/books",
+        json={
+            "topic": "토끼 이야기",
+            "language": "ko",
+            "target_age": "invalid",
+            "style": "watercolor",
+            "page_count": 8,
+        },
+        headers={"X-User-Key": user_key},
+    )
+    assert response.status_code == 422
 
 
 @pytest.mark.asyncio
-async def test_book_spec_validation_page_count_out_of_range(user_key):
+async def test_book_spec_validation_page_count_out_of_range(client, user_key):
     """Page count out of range should fail"""
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.post(
-            "/v1/books",
-            json={
-                "topic": "토끼 이야기",
-                "language": "ko",
-                "target_age": "5-7",
-                "style": "watercolor",
-                "page_count": 20,  # Max is 12
-            },
-            headers={"X-User-Key": user_key},
-        )
-        assert response.status_code == 422
+    response = await client.post(
+        "/v1/books",
+        json={
+            "topic": "토끼 이야기",
+            "language": "ko",
+            "target_age": "5-7",
+            "style": "watercolor",
+            "page_count": 20,  # Max is 12
+        },
+        headers={"X-User-Key": user_key},
+    )
+    assert response.status_code == 422

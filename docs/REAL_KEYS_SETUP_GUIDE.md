@@ -1,173 +1,43 @@
-# 실키 발급·주입 가이드 (창업자용, 2026-08-11)
+# 외부 키 연결 현황과 설정 위치
 
-> 최종 E2E와 출시에 필요한 외부 자격증명을 **처음 하는 사람 기준**으로 정리.
-> ⚠️ **절대 규칙**: 발급받은 키는 `apps/api/.env` 파일에만 넣는다.
-> 채팅·보고서·커밋·스크린샷에 키 원문을 붙여넣지 않는다. (구현자/CTO에게는 "넣어놨다"고만 알리면 됨)
+2026-09-06 현재 상태입니다. 이미 발급한 키를 다시 만들기 위한 안내가 아닙니다. 실제 남은 외부 조건은 [FINAL_USER_INPUT_REQUIRED.md](FINAL_USER_INPUT_REQUIRED.md), 전체 출시 판정은 [LAUNCH_STATUS.md](LAUNCH_STATUS.md)를 참조합니다.
 
----
+## 최신 연결과 검증 상태 — 2026-09-06
 
-## 0. 키를 넣는 방법 (공통 — 5분)
+로컬 활성 텍스트 설정은 **OpenAI / `gpt-5.6-sol` 적용 완료**다. 동일 과제 4모델 × 6편, 총24편 비교에서 Sol을 선택했고 보호자 제공 이름의 8쪽 책에서 실제 6회 LLM 경로와 본문 C2·C3·C5 합격을 확인했다. Gemini 이미지 설정은 유지했고 로컬 환경 검사는 통과했다. 운영 환경은 변경하지 않았다. [모델 선택 기록](AI_MODEL_DECISION_2026-09-06.md).
 
-1. 터미널을 열고:
-   ```bash
-   cd ~/Desktop/ai-story-book/apps/api
-   ls -la .env
-   ```
-   - `.env`가 **없다고 나오면**: `cp .env.example .env` 로 생성.
-   - 있으면 그대로 다음 단계로.
-2. 편집기로 연다: `open -e .env` (텍스트 편집기가 열림)
-3. 아래 각 섹션에서 발급받은 값을 해당 줄에 붙여넣고 저장. 예:
-   ```
-   LLM_API_KEY=          ←  이 줄을
-   LLM_API_KEY=sk-proj-abc123...   ←  이렇게 (따옴표·공백 없이)
-   ```
-4. 절대 커밋되지 않는지 확인(한 번만):
-   ```bash
-   cd ~/Desktop/ai-story-book && git check-ignore apps/api/.env && echo "안전: git이 무시함"
-   ```
-5. 키를 바꾼 뒤에는 **API 서버·워커를 재시작**해야 반영된다.
-   (구현자가 스택을 띄우니, 최종 E2E 때는 "키 넣어놨다"고만 전달하면 됨)
+실제 책은 9권 완성했지만 최근 개인 표본은 인물 복제·머리·의상 변화로 C1/C4가 미달해 **출시 품질 판정은 보류**다. 실제 사진은 사용하지 않았으며 이름 원문은 이 문서에 기록하지 않는다. API 1,227 통과·14 건너뜀·커버리지 74.21%, Flutter 359 통과·49.66%의 자동 검사도 그림 품질 합격을 의미하지 않는다. 공통 이미지 규칙을 보강 중이며 기존 실패 기록은 보존한다.
 
----
+## 계정별 상태
 
-## 1. 지금 필수 — 최종 E2E용
+| 서비스 | 완료한 작업 | 현재 남은 부분 |
+|---|---|---|
+| Anthropic | 로그인·API 키·결제 연결, 실제 생성 호출 | 연결 보존. 현재 로컬 텍스트 모델은 비교에서 선정한 Sol |
+| Google Gemini | 프로젝트·로그인·API 키·결제 연결, 실제 이미지 생성, 승인된 ₩10,000 추가 충전·자동 충전 off 확인 | 현재 추가 결제 승인 대기 없음. 운영 환경에는 별도로 비밀 설정 주입 필요 |
+| OpenAI | 전용 프로젝트·Restricted 키, 모델 metadata HTTP 200, 사용자 US$10 충전·자동 충전 off, 실제 생성 및 Sol 로컬 적용 | 현재 결제 추가 입력 요청 없음. 충전 이력은 이후 사용량을 반영한 현재 잔액을 뜻하지 않음 |
 
-### 1-1. OpenAI 키 (스토리 생성 + 발음 평가 STT — 키 1개로 2역)
+GPT를 포함한 4모델 비교와 텍스트 모델 선정·로컬 적용을 완료했습니다. 기존 Anthropic 전용 키는 `apps/api/.env.anthropic.local`에 0600 권한으로 보존하고, 별도 `apps/api/.env.openai.local`도 유지합니다. 해당 비밀 파일은 Git에서 제외합니다. 과거 잔액 0·결제 입력 요청·모델 미선정 기록은 당시 상태이며 현재 추가 사용자 입력 요청이 아닙니다.
 
-**어디서**: https://platform.openai.com
-1. 회원가입/로그인 (구글 계정 연동 가능)
-2. 좌측 상단 톱니바퀴(Settings) → **Billing** → *Add payment method* 로 카드 등록
-   → *Add to credit balance* 로 **$10 충전** (최종 E2E 10권 기준 충분)
-3. 좌측 메뉴 **API keys** → **+ Create new secret key** → 이름 `ai-story-book` → Create
-4. `sk-proj-...` 로 시작하는 키가 **한 번만** 표시됨 → 즉시 복사
-5. `.env`에 기입:
-   ```
-   LLM_PROVIDER=openai
-   LLM_API_KEY=sk-proj-여기에붙여넣기
-   LLM_MODEL=gpt-4o-mini
-   STT_PROVIDER=openai
-   STT_API_KEY=sk-proj-여기에붙여넣기      ← LLM과 같은 키
-   ```
+## 과거 모델 선택 기록 — 2026-08-22
 
-### 1-2. Google Gemini 키 (이미지 생성 — 아이 얼굴 보존, 권장 프로바이더)
+당시 Claude를 선택한 이유는 창작 문체·다국어, 특히 한국어와 아동 안전 품질에 대한 기대였습니다. GPT보다 저렴하다는 실측 비교에 따른 결정은 아니었습니다. 이 과거 판단은 이력으로 유지하며, 현재 선택은 2026-09-06의 동일 과제 24편 비교와 실제 전체 책 경로를 근거로 한 Sol 적용을 따릅니다.
 
-**어디서**: https://aistudio.google.com
-1. 구글 계정으로 로그인 → 좌측 **Get API key** → **Create API key**
-2. 프로젝트 선택(없으면 자동 생성) → 키 복사 (`AIza...` 형태)
-3. 이미지 생성은 유료라 **결제 연결 필요**: 키 생성 화면에서 *Set up billing* 안내를
-   따라 Google Cloud 결제 계정에 카드 등록 (단가 ~$0.039/장, 1권 9장 ≈ $0.35)
-4. `.env`에 기입:
-   ```
-   IMAGE_PROVIDER=gemini
-   IMAGE_API_KEY=AIza여기에붙여넣기
-   IMAGE_MODEL=gemini-3-pro-image-preview
-   ```
-> 참고: Gemini에서는 **인페인트(부분 재생성)가 지원되지 않아 앱이 해당 버튼을 자동으로
-> 숨긴다** — 이건 설계된 동작(409 INPAINT_UNSUPPORTED). 인페인트까지 라이브로 보려면
-> 아래 2-1 fal 키로 프로바이더를 잠시 바꿔 별도 테스트한다.
+## 설정 위치
 
-### 1-3. Apple IAP 샌드박스 (iOS 결제 테스트 — 위조 영수증 커버리지의 유일한 해소 경로)
+| 용도 | 위치 |
+|---|---|
+| 로컬 API·워커 | `apps/api/.env` |
+| 운영 Compose | `infra/.env` 또는 배포 환경의 비밀 설정 |
+| Android 업로드 서명 | 기존 `apps/mobile/android/.signing/upload-key.jks`와 `apps/mobile/android/key.properties` |
 
-**선행**: Apple Developer Program 가입 — https://developer.apple.com/programs/
-- Apple ID로 로그인 → Enroll → 개인(Individual) 선택 → **연 $99** 결제 → 승인까지 1~2일
+텍스트 공급자는 `LLM_PROVIDER`·`LLM_MODEL`·`LLM_API_KEY`, 이미지 공급자는 `IMAGE_PROVIDER`·`IMAGE_MODEL`·`IMAGE_API_KEY` 설정을 사용합니다. 키 원문을 명령행·채팅·Git·공유 증빙에 넣지 않습니다. 모델 비교에는 확보한 프로젝트 키를 사용하고, 실제 모델 선택은 비교 기록과 일치시킵니다. 계정 키 발급 완료와 운영 서버의 비밀 설정 주입 완료는 구분합니다.
 
-가입 승인 후 **App Store Connect** (https://appstoreconnect.apple.com):
-1. **앱 등록**: 나의 앱 → `+` → 신규 앱 → 번들 ID 선택(Xcode 프로젝트의 번들 ID와 동일해야 함)
-2. **구독 상품 생성**: 앱 → 수익화 → 구독 → 구독 그룹 만들기 → 상품 추가
-   (상품 ID는 모바일 코드가 참조하는 ID와 일치 필요 — 구현자에게 상품 ID 목록 요청)
-3. **공유 암호(Shared Secret) 발급**: 앱 → 일반 → **앱 정보** → *App 전용 공유 암호(App-Specific
-   Shared Secret)* → 관리 → 생성 → 32자리 문자열 복사
-4. `.env`에 기입:
-   ```
-   APPLE_IAP_SHARED_SECRET=여기에붙여넣기
-   ```
-5. **샌드박스 테스터 만들기**: App Store Connect → **사용자 및 액세스** → **Sandbox** 탭 →
-   테스터 `+` → **실계정과 다른 새 이메일**로 생성 (예: `mytest+sandbox@gmail.com`)
-6. **실기기(iPhone)에서**: 설정 → App Store → 맨 아래 **샌드박스 계정** → 위 테스터로 로그인
-   → 이후 앱에서 결제 시 실제 청구 없이 샌드박스 결제가 일어남
+Android 서명 자료는 이미 생성·검증했습니다. 새 키로 대체하지 않고 [ANDROID_SIGNING.md](ANDROID_SIGNING.md)의 위치와 백업 절차를 따릅니다. 외부 암호화 백업과 Play Console 등록은 아직 완료하지 않았습니다.
 
-### 1-4. Google Play (Android 결제 테스트)
+## 이번 무료 베타에서 요청하지 않는 키
 
-**선행**: Play Console 가입 — https://play.google.com/console
-- 구글 계정 → 개발자 계정 만들기(개인) → **$25 1회** 결제 → 신원 확인(1~3일)
+새 구매·오디오·실물 주문이 비활성인 동안 IAP 상품/영수증 자격증명, 음성 API 키, Printful 키를 필수로 발급할 필요는 없습니다. [스토어 상품 절차](STORE_SETUP_WALKTHROUGH.md)는 향후 유료 기능을 실제로 활성화할 때 쓰는 참고 자료입니다. 현재 계정 연결을 완료하기 위해 추가 서비스 가입·충전을 진행하는 목록이 아닙니다.
 
-가입 후:
-1. **앱 만들기** → 앱 이름 `AI Story Book`, 패키지명은 모바일 프로젝트의
-   `applicationId`와 동일(구현자에게 확인)
-2. **서비스 계정 만들기** (서버가 영수증을 검증할 때 쓰는 로봇 계정):
-   a. https://console.cloud.google.com → 프로젝트 선택 → **IAM 및 관리자** → **서비스 계정**
-      → 만들기 → 이름 `iap-verifier` → 완료
-   b. 만든 계정 클릭 → **키** 탭 → 키 추가 → **JSON** → 파일이 다운로드됨
-   c. 그 JSON 파일을 안전한 곳에 두고(예: `~/secrets/play-sa.json` — **리포 폴더 밖!**):
-      ```
-      GOOGLE_PLAY_PACKAGE_NAME=앱패키지명
-      GOOGLE_PLAY_SERVICE_ACCOUNT_FILE=/Users/jmac/secrets/play-sa.json
-      ```
-   d. Play Console → **사용자 및 권한** → 사용자 초대 → 서비스 계정 이메일
-      (`iap-verifier@...iam.gserviceaccount.com`) 입력 → 권한에서 **금융 데이터 보기** 포함 → 초대
-3. **구독 상품 생성**: Play Console → 앱 → 수익 창출 → 구독 → 만들기 (상품 ID는 iOS와 동일 체계)
-4. **라이선스 테스터**: Play Console 첫 화면(계정 수준) → 설정 → **라이선스 테스트** →
-   본인 구글 계정 이메일 추가 → 이 계정으로 기기에서 테스트하면 실청구 없음
+## 운영 환경에 적용할 때
 
----
-
-## 2. 선택 — 있으면 최종 E2E 커버리지가 늘어나는 것
-
-### 2-1. fal.ai 키 (인페인트 부분 재생성 라이브 테스트용)
-
-https://fal.ai → GitHub/구글로 로그인 → 우상단 프로필 → **Keys** → *Add key* → 복사
-→ 잔액 충전($5면 충분). 인페인트 테스트할 때만:
-```
-IMAGE_PROVIDER=fal
-IMAGE_API_KEY=fal키
-```
-(테스트 후 다시 `gemini`로 되돌리기)
-
-### 2-2. ElevenLabs 키 (오디오 낭독 TTS)
-
-> 현재 제품 결정(G9)은 **GA에서 오디오 비활성 출시**. 이 키는 "오디오 워커 디스패치
-> 라이브 증거"(이번 웨이브에서 유일하게 못 만든 증거)를 만들고 싶을 때만 필요.
-
-https://elevenlabs.io → 가입 → 우하단 프로필 → **API Keys** → 생성 → 복사:
-```
-AUDIO_FEATURE_ENABLED=true      ← 테스트 동안만
-TTS_PROVIDER=elevenlabs
-ELEVENLABS_API_KEY=여기에
-```
-
-### 2-3. Printful 키 (실물 인쇄 POD — 출시 후여도 무방)
-
-https://www.printful.com → 가입 → **Stores** → *Choose platform* → **API** 스토어 생성
-→ Settings → API → **Private token 생성** → 복사:
-```
-PRINTFUL_API_KEY=여기에
-```
-Store ID는 대시보드 URL의 숫자. 상품(sync variant) 연결은 구현자와 함께 진행 권장.
-
----
-
-## 3. 나중에 — 운영 서버 배포 시 (지금 아님)
-
-서버를 마련한 뒤 배포 단계에서 함께 설정(그때 CTO가 다시 안내):
-- `DATABASE_URL` 운영 비밀번호 / `S3_*` 운영 스토리지(R2 등) 키
-- `ADMIN_API_KEY`·`IAP_WEBHOOK_SECRET` — 터미널에서 `openssl rand -hex 32` 로 생성한 랜덤 문자열
-- `CORS_ORIGINS`·`SHARE_BASE_URL` — 실 도메인(aistorybook.com)
-- GitHub 저장소의 `DEPLOY_*` 시크릿 + `DEPLOY_ENABLED=true`
-- 배포 직후 `scripts/check-bucket-exposure.sh` 1회 실행(아동 사진/음성 버킷 공개 여부 — GA 전 필수)
-
----
-
-## 4. 다 넣었는지 셀프 체크
-
-```bash
-cd ~/Desktop/ai-story-book/apps/api
-grep -c "CHANGE_ME\|=$" .env    # 숫자가 줄어들수록 채워진 것 (0일 필요는 없음 — 선택 항목 존재)
-```
-필수 4종 체크리스트:
-- [ ] `LLM_API_KEY` (OpenAI)
-- [ ] `IMAGE_API_KEY` + `IMAGE_PROVIDER=gemini`
-- [ ] `APPLE_IAP_SHARED_SECRET` + 샌드박스 테스터 계정 1개
-- [ ] `GOOGLE_PLAY_SERVICE_ACCOUNT_FILE` + 패키지명 (Android까지 할 경우)
-
-완료되면 구현자에게: **"실키 4종(.env) + IAP 샌드박스 테스터 준비됨, 최종 E2E 시작"** 만 전달.
-(키 원문은 절대 전달하지 않는다 — 구현자는 .env를 읽어서 쓰면 된다)
+프로젝트에 연결할 운영 호스트·도메인의 DNS/HTTPS·비공개 S3와 외부 백업 보관소가 아직 준비되지 않았습니다. 대상이 준비되면 [RELEASE_PREPARATION.md](RELEASE_PREPARATION.md)와 [DEPLOYMENT.md](DEPLOYMENT.md)에 따라 기존 키와 필요한 운영 설정을 적용합니다. 로컬 계정 복구·PDF·백업 복원 검증은 완료됐으며 운영 연결과 실기기·스토어 검증은 별도로 남아 있습니다.

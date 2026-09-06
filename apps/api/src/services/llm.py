@@ -11,6 +11,19 @@ import structlog
 from src.core.config import settings
 from src.core.errors import LLMError, ErrorCode
 from src.core.i18n import SUPPORTED_LANGUAGES, language_display_name
+from src.services.anthropic_contract import (
+    anthropic_generation_options,
+    anthropic_response_text,
+)
+from src.services.story_integrity import (
+    validate_generated_text_unicode,
+    validate_story_integrity,
+)
+from src.services.structured_output import (
+    ANTHROPIC_SCHEMA_MODELS,
+    provider_output_schema,
+)
+from src.services.openai_contract import request_openai_json
 from src.models.dto import (
     BookSpec,
     StoryDraft,
@@ -28,6 +41,9 @@ logger = structlog.get_logger()
 # Jinja2 environment for prompt templates
 PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 jinja_env = Environment(loader=FileSystemLoader(PROMPTS_DIR))
+# JSON is provider input, not ASCII-only transport. Unicode escapes substantially
+# inflate Korean/Japanese story prompts without adding information.
+jinja_env.policies["json.dumps_kwargs"] = {"sort_keys": True, "ensure_ascii": False}
 
 
 def render_prompt(template_name: str, **kwargs) -> str:
@@ -41,18 +57,26 @@ async def call_llm(
     user_prompt: str,
     max_tokens: int = 4000,
     temperature: float = 0.7,
+    *,
+    response_schema: dict | None = None,
 ) -> str:
     """
     Call LLM API and return response text
 
-    Supports: OpenAI, Anthropic, Mock
+    Supports: OpenAI, Anthropic, Gemini, Mock
     """
     if settings.llm_provider == "openai":
-        return await _call_openai(system_prompt, user_prompt, max_tokens, temperature)
+        return await _call_openai(
+            system_prompt, user_prompt, max_tokens, temperature,
+            response_schema=response_schema,
+        )
     elif settings.llm_provider == "anthropic":
         return await _call_anthropic(
-            system_prompt, user_prompt, max_tokens, temperature
+            system_prompt, user_prompt, max_tokens, temperature,
+            response_schema=response_schema,
         )
+    elif settings.llm_provider == "gemini":
+        return await _call_gemini(system_prompt, user_prompt, max_tokens, temperature)
     elif settings.llm_provider == "mock":
         return await _call_mock(system_prompt, user_prompt, max_tokens, temperature)
     else:
@@ -64,61 +88,16 @@ async def _call_openai(
     user_prompt: str,
     max_tokens: int,
     temperature: float,
+    *,
+    response_schema: dict | None = None,
 ) -> str:
-    """Call OpenAI API"""
-    if not settings.llm_api_key:
-        raise LLMError(
-            ErrorCode.UNKNOWN,
-            "OpenAI API 키가 설정되지 않았습니다. LLM_API_KEY 환경 변수를 설정해주세요.",
-        )
-
-    async with httpx.AsyncClient(timeout=settings.llm_timeout) as client:
-        response = await client.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {settings.llm_api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": settings.llm_model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-                "response_format": {"type": "json_object"},
-            },
-        )
-
-        if response.status_code != 200:
-            status = response.status_code
-            error_code = (
-                ErrorCode.LLM_TIMEOUT
-                if status in {408, 429, 500, 502, 503, 504}
-                else ErrorCode.UNKNOWN
-            )
-            logger.error(
-                "OpenAI API error",
-                status=status,
-                body_length=len(response.text or ""),
-            )
-            raise LLMError(
-                error_code, f"OpenAI API error: {status}"
-            )
-
-        try:
-            data = response.json()
-        except Exception as e:
-            logger.error(
-                "OpenAI response JSON parse error",
-                body_length=len(response.text or ""),
-            )
-            raise LLMError(
-                ErrorCode.LLM_JSON_INVALID,
-                f"OpenAI 응답 JSON 파싱 실패: {e}",
-            ) from e
-        return data["choices"][0]["message"]["content"]
+    """Call the shared stateless OpenAI JSON adapter."""
+    return await request_openai_json(
+        model=settings.llm_model, api_key=settings.llm_api_key,
+        timeout=settings.llm_timeout, system_prompt=system_prompt,
+        user_prompt=user_prompt, max_tokens=max_tokens, temperature=temperature,
+        response_schema=response_schema,
+    )
 
 
 async def _call_mock(
@@ -130,12 +109,26 @@ async def _call_mock(
     """Mock LLM for testing"""
     import asyncio
     import random
+    import re
 
     await asyncio.sleep(0.1)  # Simulate API latency
 
+    # Exercise the requested length through story, illustration, and learning
+    # stages. A fixed eight-page mock hid truncated twelve-page books in QA.
+    mock_page_count = 8
+    count_match = re.search(r"^- page_count: (\d+)\s*$", user_prompt, re.MULTILINE)
+    pages_match = re.search(r"^- story_pages: (\[.*\])$", user_prompt, re.MULTILINE)
+    learning_pages = re.findall(r"^### 페이지 (\d+)\s*$", user_prompt, re.MULTILINE)
+    if count_match:
+        mock_page_count = int(count_match.group(1))
+    elif pages_match:
+        mock_page_count = len(json.loads(pages_match.group(1)))
+    elif learning_pages:
+        mock_page_count = len(learning_pages)
+
     # Detect prompt type and return appropriate mock response
     # Order matters: more specific checks first
-    if "학습 자료" in system_prompt or "언어 학습" in system_prompt:
+    if '"title_translation"' in system_prompt and '"translated_text"' in system_prompt:
         # Learning assets generation
         return json.dumps(
             {
@@ -182,10 +175,10 @@ async def _call_mock(
                                 "explanation": "'토끼' means 'rabbit' in English.",
                             }
                         ]
-                        if i == 8
+                        if i == mock_page_count
                         else [],
                     }
-                    for i in range(1, 9)
+                    for i in range(1, mock_page_count + 1)
                 ],
                 "parent_guide": {
                     "summary": "This story teaches children about courage and friendship through the adventures of a brave rabbit.",
@@ -224,7 +217,7 @@ async def _call_mock(
                         "seed": random.randint(1, 2147483647),
                         "aspect_ratio": "3:4",
                     }
-                    for i in range(1, 9)
+                    for i in range(1, mock_page_count + 1)
                 ],
             }
         )
@@ -377,13 +370,13 @@ async def _call_mock(
                         "camera": "medium shot",
                         "characters_present": ["rabbit_hero"],
                         "learning_point": "용기를 내면 새로운 것을 발견할 수 있어요"
-                        if i == 8
+                        if i == mock_page_count
                         else None,
                         "series_hook": "다음에는 어떤 모험이 기다리고 있을까요?"
-                        if i == 8
+                        if i == mock_page_count
                         else None,
                     }
-                    for i in range(1, 9)
+                    for i in range(1, mock_page_count + 1)
                 ],
                 "continuity": {
                     "character_consistency_notes": "토끼는 항상 파란 조끼를 입고 있으며 분홍색 코와 긴 하얀 귀가 특징입니다.",
@@ -400,6 +393,8 @@ async def _call_anthropic(
     user_prompt: str,
     max_tokens: int,
     temperature: float,
+    *,
+    response_schema: dict | None = None,
 ) -> str:
     """Call Anthropic API"""
     if not settings.llm_api_key:
@@ -407,6 +402,13 @@ async def _call_anthropic(
             ErrorCode.UNKNOWN,
             "Anthropic API 키가 설정되지 않았습니다. LLM_API_KEY 환경 변수를 설정해주세요.",
         )
+
+    output_options = {}
+    if response_schema is not None and settings.llm_model in ANTHROPIC_SCHEMA_MODELS:
+        output_options = {"output_config": {"format": {
+            "type": "json_schema",
+            "schema": provider_output_schema(response_schema, provider="anthropic"),
+        }}}
 
     async with httpx.AsyncClient(timeout=settings.llm_timeout) as client:
         response = await client.post(
@@ -423,7 +425,8 @@ async def _call_anthropic(
                     {"role": "user", "content": user_prompt},
                 ],
                 "max_tokens": max_tokens,
-                "temperature": temperature,
+                **anthropic_generation_options(settings.llm_model, temperature=temperature),
+                **output_options,
             },
         )
 
@@ -452,13 +455,156 @@ async def _call_anthropic(
             )
             raise LLMError(
                 ErrorCode.LLM_JSON_INVALID,
-                f"Anthropic 응답 JSON 파싱 실패: {e}",
+                "Anthropic 응답 JSON 파싱 실패",
             ) from e
-        return data["content"][0]["text"]
+        return anthropic_response_text(data)
+
+
+# Gemini 텍스트(LLM) 엔드포인트. 이미지(image.py)와 같은 Generative Language API지만
+# 모델은 LLM_MODEL(예: gemini-3.1-flash / gemini-3-pro)로, IMAGE_MODEL과 별개다.
+_GEMINI_LLM_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+
+
+async def _call_gemini(
+    system_prompt: str,
+    user_prompt: str,
+    max_tokens: int,
+    temperature: float,
+    *,
+    image_base64: str | None = None,
+    image_mime_type: str = "image/jpeg",
+) -> str:
+    """Call Google Gemini API (텍스트 LLM).
+
+    responseMimeType='application/json' 으로 JSON 출력을 강제해 OpenAI json_object
+    모드와 동등한 안정성을 얻는다. 안전 차단(finishReason=SAFETY) 시 candidate에 parts가
+    없을 수 있어 추출을 방어적으로 감싸 재시도 가능한 LLM_JSON_INVALID로 표면화한다.
+    """
+    if not settings.llm_api_key:
+        raise LLMError(
+            ErrorCode.UNKNOWN,
+            "Gemini API 키가 설정되지 않았습니다. LLM_API_KEY 환경 변수를 설정해주세요.",
+        )
+
+    parts = [{"text": user_prompt}]
+    if image_base64:
+        parts.append({"inlineData": {"mimeType": image_mime_type, "data": image_base64}})
+
+    async with httpx.AsyncClient(timeout=settings.llm_timeout) as client:
+        response = await client.post(
+            f"{_GEMINI_LLM_BASE_URL}/{settings.llm_model}:generateContent",
+            headers={"Content-Type": "application/json", "x-goog-api-key": settings.llm_api_key},
+            json={
+                "systemInstruction": {"parts": [{"text": system_prompt}]},
+                "contents": [{"role": "user", "parts": parts}],
+                "generationConfig": {
+                    "maxOutputTokens": max_tokens,
+                    "temperature": temperature,
+                    "responseMimeType": "application/json",
+                },
+            },
+        )
+
+        if response.status_code != 200:
+            status = response.status_code
+            error_code = (
+                ErrorCode.LLM_TIMEOUT
+                if status in {408, 429, 500, 502, 503, 504}
+                else ErrorCode.UNKNOWN
+            )
+            logger.error(
+                "Gemini API error",
+                status=status,
+                body_length=len(response.text or ""),
+            )
+            raise LLMError(error_code, f"Gemini API error: {status}")
+
+        try:
+            data = response.json()
+        except Exception as e:
+            logger.error(
+                "Gemini response JSON parse error",
+                body_length=len(response.text or ""),
+            )
+            raise LLMError(
+                ErrorCode.LLM_JSON_INVALID,
+                f"Gemini 응답 JSON 파싱 실패: {e}",
+            ) from e
+
+        try:
+            return data["candidates"][0]["content"]["parts"][0]["text"]
+        except (KeyError, IndexError, TypeError) as e:
+            # 안전 차단·빈 candidate 등 예상 외 형식 — 재시도 가능한 에러로.
+            finish = None
+            try:
+                finish = data["candidates"][0].get("finishReason")
+            except (KeyError, IndexError, TypeError):
+                pass
+            logger.error("Gemini response shape unexpected", finish_reason=finish)
+            raise LLMError(
+                ErrorCode.LLM_JSON_INVALID,
+                f"Gemini 응답 형식이 예상과 다릅니다(finishReason={finish})",
+            ) from e
 
 
 def parse_json_response(text: str, expected_type: type):
-    """Parse JSON response and validate against expected type"""
+    """Validate provider JSON with schema-only diagnostics, never child content."""
+    from types import UnionType
+    from typing import Union, get_args, get_origin
+
+    from pydantic import BaseModel, ValidationError
+    from pydantic_core import ErrorType
+
+    from src.models import dto as owned_models
+
+    known_types = frozenset(get_args(ErrorType))
+    owned = (
+        isinstance(expected_type, type)
+        and issubclass(expected_type, BaseModel)
+        and getattr(owned_models, expected_type.__name__, None) is expected_type
+    )
+    model_name = expected_type.__name__ if owned else "unknown_model"
+
+    def alternatives(annotations):
+        for annotation in annotations:
+            if get_origin(annotation) in (Union, UnionType):
+                yield from alternatives(get_args(annotation))
+            else:
+                yield annotation
+
+    def owned_field_path(location):
+        # Loc may include provider-chosen extra fields, dictionary keys or union
+        # labels. Only copy names found in this exact owned model's field tree.
+        annotations = [expected_type] if owned else []
+        parts = []
+        for part in location:
+            candidates = list(alternatives(annotations))
+            if isinstance(part, int) and not isinstance(part, bool):
+                annotations = [
+                    get_args(annotation)[0]
+                    for annotation in candidates
+                    if get_origin(annotation) in (list, tuple) and get_args(annotation)
+                ]
+                if not annotations or not parts:
+                    break
+                parts[-1] += "[]"
+            elif isinstance(part, str):
+                fields = [
+                    annotation.model_fields[part]
+                    for annotation in candidates
+                    if isinstance(annotation, type)
+                    and issubclass(annotation, BaseModel)
+                    and getattr(owned_models, annotation.__name__, None) is annotation
+                    and part in annotation.model_fields
+                ]
+                if not fields:
+                    break
+                parts.append(part)
+                annotations = [field.annotation for field in fields]
+            else:
+                break
+        return ".".join(parts) or "$"
+
     try:
         # Clean up response (remove markdown code blocks if present)
         text = text.strip()
@@ -472,20 +618,47 @@ def parse_json_response(text: str, expected_type: type):
 
         data = json.loads(text)
         return expected_type.model_validate(data)
-    except json.JSONDecodeError as e:
-        logger.error("JSON parse error", error=str(e), text=text[:500])
+    except json.JSONDecodeError:
+        logger.error(
+            "LLM response JSON invalid",
+            schema_model=model_name,
+            schema_diagnostics=[{"field_path": "$", "validation_type": "json_invalid"}],
+        )
         raise LLMError(
             ErrorCode.LLM_JSON_INVALID,
-            f"JSON 파싱 실패: {str(e)}",
-            raw_output=text[:500],
+            "AI 응답 JSON 형식이 올바르지 않습니다.",
+        ) from None
+    except ValidationError as exc:
+        diagnostics = []
+        seen = set()
+        for item in exc.errors(include_url=False, include_context=False, include_input=False):
+            error_type = item.get("type")
+            # Custom validator error types are not necessarily static strings.
+            # Unknown types get a fixed marker, never the supplied type/message.
+            if error_type not in known_types:
+                error_type = "unknown_validation_error"
+            entry = (owned_field_path(item.get("loc", ())), error_type)
+            if entry not in seen:
+                seen.add(entry)
+                diagnostics.append({"field_path": entry[0], "validation_type": entry[1]})
+            if len(diagnostics) >= 20:
+                break
+        logger.error(
+            "LLM response schema invalid",
+            schema_model=model_name,
+            schema_error_count=exc.error_count(),
+            schema_diagnostics=diagnostics,
         )
-    except Exception as e:
-        logger.error("Validation error", error=str(e))
         raise LLMError(
             ErrorCode.LLM_JSON_INVALID,
-            f"응답 검증 실패: {str(e)}",
-            raw_output=text[:500],
-        )
+            "AI 응답이 이야기 형식에 맞지 않습니다.",
+        ) from None
+    except Exception:
+        logger.error("LLM response validation unavailable", schema_model=model_name)
+        raise LLMError(
+            ErrorCode.LLM_JSON_INVALID,
+            "AI 응답 형식을 확인할 수 없습니다.",
+        ) from None
 
 
 # ==================== Public API ====================
@@ -549,12 +722,19 @@ async def load_characters_from_db(character_ids: list[str]) -> list[dict]:
         result = await session.execute(
             select(Character).where(Character.id.in_(character_ids))
         )
-        characters = result.scalars().all()
+        by_id = {character.id: character for character in result.scalars().all()}
+        # SQL IN does not preserve selection order. The first selected character
+        # is the protagonist, including when text companions accompany a portrait.
+        characters = [by_id[cid] for cid in dict.fromkeys(character_ids) if cid in by_id]
 
         return [
             {
                 "name": c.name,
                 "appearance": c.master_description,
+                "appearance_details": c.appearance,
+                "clothing": c.clothing,
+                "visual_style_notes": c.visual_style_notes,
+                "identity_locked": bool(c.from_photo and c.avatar_status == "approved"),
                 "personality": c.personality_traits,
                 # 영속된 고유 특징 — 같은 캐릭터를 날짜·책을 넘어 동일하게 유지
                 "distinctive_features": c.distinctive_features,
@@ -576,6 +756,9 @@ async def call_story_generation(spec: BookSpec) -> StoryDraft:
     if spec.character:
         all_character_specs.append(spec.character.model_dump())
     all_character_specs.extend(loaded_characters)
+    if loaded_characters and loaded_characters[0].get("identity_locked"):
+        # An optional free-text companion cannot displace the approved protagonist.
+        all_character_specs = [*loaded_characters, *([spec.character.model_dump()] if spec.character else [])]
 
     system_prompt = render_prompt(
         "generate_story.system.jinja2",
@@ -583,6 +766,15 @@ async def call_story_generation(spec: BookSpec) -> StoryDraft:
         language=spec.language.value,
         language_name=language_display_name(spec.language.value),
     )
+    if any(character.get("identity_locked") for character in loaded_characters):
+        system_prompt += (
+            "\nFor a supplied character with identity_locked=true, the parent has already "
+            "approved that character. Preserve the supplied name, appearance_details, "
+            "clothing (including each garment's color), distinctive_features and visual_style_notes. "
+            "Do not redesign, re-age or change the character's everyday outfit for a new book, "
+            "theme or style. Only the scene, actions, poses and expressions may change. "
+            "The first supplied character is the protagonist."
+        )
     user_prompt = render_prompt(
         "generate_story.user.jinja2",
         topic=spec.topic,
@@ -606,9 +798,16 @@ async def call_story_generation(spec: BookSpec) -> StoryDraft:
     )
 
     response = await call_llm(
-        system_prompt, user_prompt, max_tokens=4000, temperature=0.8
+        system_prompt, user_prompt, max_tokens=max(4000, spec.page_count * 600), temperature=0.8,
+        response_schema=StoryDraft.model_json_schema(),
     )
-    return parse_json_response(response, StoryDraft)
+    story = parse_json_response(response, StoryDraft)
+    if [page.page for page in story.pages] != list(range(1, spec.page_count + 1)):
+        raise LLMError(ErrorCode.LLM_JSON_INVALID, "요청한 분량의 이야기를 완성하지 못했습니다.")
+    validate_story_integrity(
+        story, spec, supplied_character_names=[character["name"] for character in loaded_characters]
+    )
+    return story
 
 
 async def call_character_sheet_generation(
@@ -642,14 +841,19 @@ async def call_image_prompts_generation(
         target_age=spec.target_age.value,
         style=spec.style.value,
         character_sheet=character.model_dump(),
+        story_characters=[c.model_dump() for c in story.characters],
         cover=story.cover.model_dump(),
         pages=[p.model_dump() for p in story.pages],
     )
 
     response = await call_llm(
-        system_prompt, user_prompt, max_tokens=4000, temperature=0.7
+        system_prompt, user_prompt, max_tokens=max(4000, (len(story.pages) + 1) * 600), temperature=0.7,
+        response_schema=ImagePrompts.model_json_schema(),
     )
-    return parse_json_response(response, ImagePrompts)
+    prompts = parse_json_response(response, ImagePrompts)
+    if sorted(page.page for page in prompts.pages) != list(range(1, len(story.pages) + 1)):
+        raise LLMError(ErrorCode.LLM_JSON_INVALID, "모든 본문 쪽의 그림 준비를 완성하지 못했습니다.")
+    return prompts
 
 
 async def call_text_rewrite(
@@ -685,7 +889,9 @@ async def call_text_rewrite(
     )
     # M31: raw json.loads(펜스·검증 없음) 대신 parse_json_response로 마크다운 펜스 제거 +
     # RewriteResult 스키마 검증. revised_text 누락은 LLM_JSON_INVALID로 명시 실패(조용한 no-op 제거).
-    return parse_json_response(response, RewriteResult)
+    result = parse_json_response(response, RewriteResult)
+    validate_generated_text_unicode(result)
+    return result
 
 
 async def call_story_retext(
@@ -707,9 +913,11 @@ async def call_story_retext(
         pages=pages_text,
     )
     response = await call_llm(
-        system_prompt, user_prompt, max_tokens=3000, temperature=0.7
+        system_prompt, user_prompt, max_tokens=max(3000, len(pages_text) * 600), temperature=0.7
     )
-    return parse_json_response(response, RetoldStory)
+    result = parse_json_response(response, RetoldStory)
+    validate_generated_text_unicode(result)
+    return result
 
 
 async def call_learning_assets(
@@ -749,6 +957,8 @@ async def call_learning_assets(
     )
 
     response = await call_llm(
-        system_prompt, user_prompt, max_tokens=6000, temperature=0.7
+        system_prompt, user_prompt, max_tokens=max(6000, len(story.pages) * 750), temperature=0.7
     )
-    return parse_json_response(response, LearningAssets)
+    result = parse_json_response(response, LearningAssets)
+    validate_generated_text_unicode(result)
+    return result

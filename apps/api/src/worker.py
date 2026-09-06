@@ -6,6 +6,9 @@ from celery import Celery
 from celery.signals import worker_init, worker_process_init
 
 from src.core.config import settings
+from src.core.logging import configure_logging
+
+configure_logging()
 
 # Ensure Celery soft/hard limits are always valid even with small SLA values.
 task_time_limit = max(60, int(settings.job_sla_seconds))

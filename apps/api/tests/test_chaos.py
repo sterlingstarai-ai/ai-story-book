@@ -180,16 +180,16 @@ class TestRedisFailures:
     """Redis failure scenarios."""
 
     @pytest.mark.asyncio
-    async def test_redis_unavailable_rate_limit_bypass(
+    async def test_health_remains_available_when_redis_is_unavailable(
         self, client: AsyncClient, headers: dict
     ):
-        """Rate limiting should fail-open when Redis is unavailable."""
+        """Liveness remains readable during an outage; protected requests block."""
         import redis.asyncio as redis
 
         with patch("src.core.rate_limit.rate_limiter.get_redis") as mock_redis:
             mock_redis.side_effect = redis.RedisError("Connection refused")
 
-            # Request should still succeed (fail-open)
+            # Liveness is intentionally independent of Redis readiness.
             response = await client.get("/health")
             assert response.status_code == 200
 

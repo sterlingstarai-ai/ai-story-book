@@ -17,6 +17,7 @@ typedef _Slide = ({IconData icon, String title, String subtitle});
 class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   final PageController _controller = PageController();
   int _page = 0;
+  bool _finishing = false;
 
   static const _icons = [
     Icons.auto_stories,
@@ -55,6 +56,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   }
 
   Future<void> _finish() async {
+    if (_finishing) return;
+    setState(() => _finishing = true);
     final prefs = ref.read(sharedPreferencesProvider);
     final parental = ref.read(parentalControlServiceProvider);
     await parental.setOnboardingDone(prefs, true);
@@ -72,14 +75,15 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     final isLast = _page == slides.length - 1;
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: AppPalette.of(context).background,
       body: SafeArea(
         child: Column(
           children: [
             Align(
               alignment: Alignment.centerRight,
               child: TextButton(
-                onPressed: _finish,
+                style: TextButton.styleFrom(minimumSize: const Size(64, 64)),
+                onPressed: _finishing ? null : _finish,
                 child: Text(l.onboardingSkip),
               ),
             ),
@@ -96,24 +100,30 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                   // 남을 때의 세로 중앙 정렬은 minHeight로 유지한다.
                   return LayoutBuilder(
                     builder: (context, constraints) {
+                      final compact = constraints.maxHeight < 400;
+                      final inset = compact ? AppSpacing.md : AppSpacing.xl;
                       return SingleChildScrollView(
-                        padding: const EdgeInsets.all(AppSpacing.xl),
+                        padding: EdgeInsets.all(inset),
                         child: ConstrainedBox(
                           constraints: BoxConstraints(
-                            minHeight: constraints.maxHeight - AppSpacing.xl * 2,
+                            minHeight: constraints.maxHeight - inset * 2,
                           ),
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Icon(
                                 slide.icon,
-                                size: 120,
+                                size: compact ? 72 : 120,
                                 color: AppColors.primary,
                               ),
-                              const SizedBox(height: AppSpacing.xl),
+                              SizedBox(
+                                  height:
+                                      compact ? AppSpacing.md : AppSpacing.xl),
                               Text(
                                 slide.title,
-                                style: AppTextStyles.heading1,
+                                style: compact
+                                    ? AppTextStyles.heading2
+                                    : AppTextStyles.heading1,
                                 textAlign: TextAlign.center,
                               ),
                               const SizedBox(height: AppSpacing.md),
@@ -147,7 +157,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                     decoration: BoxDecoration(
                       color: _page == index
                           ? AppColors.primary
-                          : AppColors.divider,
+                          : AppPalette.of(context).divider,
                       borderRadius: BorderRadius.circular(4),
                     ),
                   ),
@@ -161,16 +171,18 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                 width: double.infinity,
                 height: 64,
                 child: ElevatedButton(
-                  onPressed: () {
-                    if (isLast) {
-                      _finish();
-                      return;
-                    }
-                    _controller.nextPage(
-                      duration: const Duration(milliseconds: 250),
-                      curve: Curves.easeInOut,
-                    );
-                  },
+                  onPressed: _finishing
+                      ? null
+                      : () {
+                          if (isLast) {
+                            _finish();
+                            return;
+                          }
+                          _controller.nextPage(
+                            duration: const Duration(milliseconds: 250),
+                            curve: Curves.easeInOut,
+                          );
+                        },
                   child: Text(isLast ? l.onboardingStart : l.onboardingNext),
                 ),
               ),

@@ -1,43 +1,55 @@
 import 'dart:io';
 
-/// Environment configuration
+/// Environment configuration. Both release URL defines share the same gate.
 class EnvConfig {
-  /// Get the API base URL based on the current environment
-  static String get apiBaseUrl {
-    // Check for environment override
-    const envUrl = String.fromEnvironment('API_BASE_URL');
-    if (envUrl.isNotEmpty) {
-      return envUrl;
-    }
+  static String get apiBaseUrl => resolveApiBaseUrl(
+        isDebug: _isDebugMode,
+        isAndroid: Platform.isAndroid,
+        overrideUrl: const String.fromEnvironment('API_BASE_URL'),
+        productionUrl: const String.fromEnvironment('PROD_API_URL'),
+      );
 
-    // Check if running in debug mode
-    if (_isDebugMode) {
-      // For iOS simulator, use localhost
-      // For Android emulator, use 10.0.2.2 (special alias for host machine)
-      if (Platform.isAndroid) {
-        return 'http://10.0.2.2:8000';
-      }
-      return 'http://localhost:8000';
+  static String resolveApiBaseUrl({
+    required bool isDebug,
+    bool isAndroid = false,
+    String overrideUrl = '',
+    String productionUrl = '',
+  }) {
+    if (overrideUrl.isNotEmpty) {
+      return isDebug ? overrideUrl : validateProdUrl(overrideUrl);
     }
-
-    // Production URL — placeholder로 릴리스되는 것을 차단(잘못된 API로 출시 방지).
-    const prodUrl = String.fromEnvironment(
-      'PROD_API_URL',
-      defaultValue: 'https://api.storybook.example.com',
-    );
-    return validateProdUrl(prodUrl);
+    if (isDebug) {
+      return isAndroid ? 'http://10.0.2.2:8000' : 'http://localhost:8000';
+    }
+    return validateProdUrl(productionUrl);
   }
 
-  /// 릴리스 prod URL 검증 — 미설정/placeholder면 즉시 실패(빌드 사고 조기 발견).
-  /// 테스트 가능하도록 분리(릴리스 모드 의존 없이 단위 검증).
+  /// Release credentials and child content may only be sent to an explicit,
+  /// public HTTPS origin. Error text never echoes a possibly sensitive URL.
   static String validateProdUrl(String url) {
-    if (url.isEmpty || url.contains('example.com')) {
+    final uri = Uri.tryParse(url);
+    final host = uri?.host.toLowerCase() ?? '';
+    final reserved = host == 'localhost' ||
+        !host.contains('.') ||
+        InternetAddress.tryParse(host) != null ||
+        ['.localhost', '.local', '.internal', '.test', '.invalid', '.example']
+            .any(host.endsWith) ||
+        ['example.com', 'example.net', 'example.org']
+            .any((domain) => host == domain || host.endsWith('.$domain'));
+    if (url.trim() != url ||
+        uri == null ||
+        uri.scheme != 'https' ||
+        uri.userInfo.isNotEmpty ||
+        uri.hasQuery ||
+        uri.hasFragment ||
+        (uri.path.isNotEmpty && uri.path != '/') ||
+        reserved) {
       throw StateError(
-        'PROD_API_URL이 설정되지 않았습니다(placeholder: "$url"). '
-        '릴리스 빌드는 --dart-define=PROD_API_URL=https://<실제 API 도메인> 으로 빌드하세요.',
+        'A public HTTPS API origin is required for release builds. '
+        'Set --dart-define=PROD_API_URL=https://your-api-domain.',
       );
     }
-    return url;
+    return uri.origin;
   }
 
   static bool get _isDebugMode {

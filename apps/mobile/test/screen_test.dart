@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ai_story_book/core/api_error.dart';
 import 'package:ai_story_book/l10n/app_localizations.dart';
 import 'package:ai_story_book/models/models.dart';
+import 'package:ai_story_book/models/generation_options.dart';
 import 'package:ai_story_book/providers/providers.dart';
 import 'package:ai_story_book/services/api_client.dart';
 import 'package:ai_story_book/screens/create_screen.dart';
@@ -27,7 +28,11 @@ Widget buildTestableWidget(
   List<Override> overrides = const [],
 }) {
   return ProviderScope(
-    overrides: overrides,
+    overrides: [
+      generationOptionsProvider.overrideWith(
+          (ref) async => const GenerationOptions(BookStyle.values)),
+      ...overrides,
+    ],
     child: MaterialApp(
       locale: const Locale('ko'),
       localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -41,6 +46,16 @@ Widget buildTestableWidget(
       },
     ),
   );
+}
+
+Future<void> scrollCreateSection(WidgetTester tester, Finder target) async {
+  await tester.scrollUntilVisible(target, 180,
+      scrollable: find
+          .descendant(
+              of: find.byType(ListView).first,
+              matching: find.byType(Scrollable))
+          .first);
+  await tester.pump();
 }
 
 // Sample test data
@@ -294,7 +309,7 @@ void main() {
       ));
       await tester.pumpAndSettle();
 
-      await tester.drag(find.byType(ListView).first, const Offset(0, -220));
+      await scrollCreateSection(tester, find.text('수채화'));
       await tester.pumpAndSettle();
 
       final l = AppLocalizations.of(tester.element(find.byType(CreateScreen)));
@@ -331,7 +346,7 @@ void main() {
       ));
       await tester.pumpAndSettle();
 
-      await tester.drag(find.byType(ListView).first, const Offset(0, -560));
+      await scrollCreateSection(tester, find.text('AI가 새 캐릭터 생성'));
       await tester.pumpAndSettle();
 
       expect(find.text('주인공 캐릭터', skipOffstage: false), findsOneWidget);
@@ -347,7 +362,7 @@ void main() {
       ));
       await tester.pumpAndSettle();
 
-      await tester.drag(find.byType(ListView).first, const Offset(0, -560));
+      await scrollCreateSection(tester, find.text('AI가 새 캐릭터 생성'));
       await tester.pumpAndSettle();
 
       expect(find.text('주인공 캐릭터', skipOffstage: false), findsOneWidget);
@@ -409,7 +424,7 @@ void main() {
       ));
       // Only pump once - loading state won't settle
       await tester.pump();
-      await tester.drag(find.byType(ListView).first, const Offset(0, -560));
+      await scrollCreateSection(tester, find.byType(CircularProgressIndicator));
       await tester.pump();
 
       // CircularProgressIndicator may be below the fold
@@ -894,8 +909,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('아직 캐릭터가 없어요'), findsOneWidget);
-      expect(find.text('사진으로 캐릭터를 만들어보세요!'), findsOneWidget);
-      expect(find.text('사진으로 캐릭터 만들기'), findsOneWidget);
+      expect(find.text('이름과 특징만으로도 이야기 속 친구를 만들 수 있어요.'), findsOneWidget);
+      expect(find.text('캐릭터 만들기'), findsWidgets);
     });
 
     testWidgets('shows loading indicator', (tester) async {
@@ -934,7 +949,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('새 캐릭터 추가'), findsOneWidget);
-      expect(find.text('사진으로 나만의 캐릭터를 만들어보세요'), findsOneWidget);
+      expect(find.text('직접 소개하거나 사진과 그림으로 시작해요'), findsOneWidget);
     });
 
     testWidgets('renders FAB button', (tester) async {
@@ -945,7 +960,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(FloatingActionButton), findsOneWidget);
-      expect(find.text('사진으로 만들기'), findsOneWidget);
+      expect(find.text('캐릭터 만들기'), findsOneWidget);
     });
 
     testWidgets('shows drawing conversion option in creation sheet',
@@ -962,6 +977,65 @@ void main() {
       expect(find.text('아이 그림에서 변환'), findsOneWidget);
       expect(find.text('그림 사진을 캐릭터+시트로 변환'), findsOneWidget);
     });
+
+    for (final scale in [1.0, 1.4]) {
+      testWidgets('limits pasted character names to 40 on short screen x$scale',
+          (tester) async {
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = const Size(320, 480);
+        tester.platformDispatcher.textScaleFactorTestValue = scale;
+        addTearDown(() {
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+          tester.platformDispatcher.clearTextScaleFactorTestValue();
+        });
+
+        await tester.pumpWidget(buildTestableWidget(
+          const CharactersScreen(),
+          overrides: charOverrides(),
+        ));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull, reason: 'Character list layout');
+        final homeTarget = find
+            .ancestor(
+                of: find.text('홈'), matching: find.byType(GestureDetector))
+            .first;
+        expect(tester.getSize(homeTarget).width, greaterThanOrEqualTo(64));
+        expect(tester.getSize(homeTarget).height, greaterThanOrEqualTo(64));
+        await tester.tap(find.byTooltip('캐릭터 추가'));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull,
+            reason: 'Creation options layout');
+        await tester.tap(find.text('직접 입력하기'));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull,
+            reason: 'Text character form layout');
+
+        final l =
+            AppLocalizations.of(tester.element(find.byType(CharactersScreen)));
+        final nameField = find.byWidgetPredicate((widget) =>
+            widget is TextField &&
+            widget.decoration?.hintText == l.charactersFormNameHint);
+        await tester.ensureVisible(nameField);
+        final acceptedName = List.filled(40, '별').join();
+        await tester.enterText(nameField, acceptedName);
+        await tester.pumpAndSettle();
+        expect(
+            tester.widget<TextField>(nameField).controller!.text, acceptedName);
+        await tester.enterText(nameField, acceptedName.padRight(42, '별'));
+        await tester.pumpAndSettle();
+        expect(
+            tester.widget<TextField>(nameField).controller!.text, acceptedName);
+        expect(find.text('40/40'), findsOneWidget);
+
+        final submit =
+            find.widgetWithText(ElevatedButton, l.charactersFormSubmit);
+        await tester.ensureVisible(submit);
+        await tester.pumpAndSettle();
+        expect(tester.getCenter(submit).dy, lessThan(480));
+        expect(tester.takeException(), isNull);
+      });
+    }
 
     testWidgets('renders bottom navigation bar', (tester) async {
       await tester.pumpWidget(buildTestableWidget(
@@ -1268,6 +1342,12 @@ class _MockErrorLibraryBrowseNotifier extends LibraryBrowseNotifier {
 
 /// Minimal mock API client that avoids actual HTTP calls
 class _MockApiClient extends ApiClient {
+  @override
+  Future<Map<String, dynamic>> getCapabilities() async => {
+        'purchases_supported': true,
+        'apple_purchases_supported': true,
+        'google_purchases_supported': true,
+      };
   final Map<String, dynamic> creditsStatus;
   final List<dynamic> transactions;
   final int creditsBalance;

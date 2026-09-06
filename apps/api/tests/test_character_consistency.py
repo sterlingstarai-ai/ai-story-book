@@ -49,6 +49,7 @@ def test_image_prompt_carries_distinctive_features():
         target_age="5-7",
         style="watercolor",
         character_sheet=sheet.model_dump(),
+        story_characters=[{"id": "c1", "name": "토리", "role": "main", "brief": "round glasses and freckles"}],
         cover={"page": 0, "scene": "표지"},
         pages=[{"page": 1, "scene": "숲"}],
     )

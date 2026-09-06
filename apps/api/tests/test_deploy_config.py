@@ -41,6 +41,7 @@ def test_prod_compose_passes_image_model_and_stt_and_pod_and_admin(compose):
 
     required_api = {
         "IMAGE_MODEL",
+        "ILLUSTRATION_QUALITY_ENABLED",
         "STT_PROVIDER",
         "STT_API_KEY",
         "GOOGLE_STT_API_KEY",
@@ -54,6 +55,7 @@ def test_prod_compose_passes_image_model_and_stt_and_pod_and_admin(compose):
 
     # worker가 실제 이미지 생성을 수행 — IMAGE_MODEL 필수. STT/POD도 미러.
     assert "IMAGE_MODEL" in worker_keys, "worker environment에 IMAGE_MODEL 누락"
+    assert "ILLUSTRATION_QUALITY_ENABLED" in worker_keys
     assert "STT_PROVIDER" in worker_keys
     assert "POD_MODE" in worker_keys
 
@@ -84,11 +86,12 @@ def test_infra_env_example_has_no_dead_vars():
     assert "RATE_LIMIT_REQUESTS" in text, "실제 config 필드 RATE_LIMIT_REQUESTS가 있어야 함"
 
 
-def test_check_env_requires_iap_vars():
+def test_check_env_always_requires_iap_mode():
     text = CHECK_ENV.read_text()
     # 닫는 괄호는 줄머리 ')' — 주석 안의 괄호에 조기 매칭되지 않도록 고정.
     m = re.search(r"PRODUCTION_REQUIRED_VARS=\(\n(.*?)\n\)", text, re.DOTALL)
     assert m, "PRODUCTION_REQUIRED_VARS 블록을 찾을 수 없음"
     block = m.group(1)
     assert "IAP_VERIFICATION_MODE" in block, "IAP_VERIFICATION_MODE가 production 필수여야 함"
-    assert "IAP_WEBHOOK_SECRET" in block, "IAP_WEBHOOK_SECRET이 production 필수여야 함"
+    # Store/webhook keys are conditional on PURCHASES_ENABLED for the free beta.
+    # The enabled/disabled behavior is exercised by test_external_release_preflight.py.

@@ -152,7 +152,7 @@ void main() {
     }
   });
 
-  /// FAB → 소스 시트 → '사진 보관함' 을 눌러 실제 `_pickImage` 경로를 태운다.
+  /// 빈 화면의 첫 만들기 → 소스 시트 → '사진 보관함'으로 실제 `_pickImage` 경로를 탄다.
   Future<_SpyApiClient> openPhotoPicker(
     WidgetTester tester, {
     required bool photosGranted,
@@ -162,7 +162,10 @@ void main() {
     await tester.pumpWidget(_harness(prefs: await _verifiedPrefs(), api: api));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byType(FloatingActionButton));
+    final l =
+        AppLocalizations.of(tester.element(find.byType(CharactersScreen)));
+    await tester.tap(
+        find.widgetWithText(ElevatedButton, l.charactersEmptyCreateButton));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byIcon(Icons.photo_library));

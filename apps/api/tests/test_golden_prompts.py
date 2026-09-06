@@ -40,6 +40,7 @@ _BASELINE_ENTRY = {
 _REQUIRED_STRUCTURAL = {
     "pipeline_completed",
     "pages_well_formed",
+    "page_count_matches_spec",
     "cover_image_present",
     "page_images_present",
     "learning_assets_present",
@@ -104,6 +105,23 @@ async def test_all_golden_prompts_pass_structural(golden_db):
 
 def _outcome_map(result: BookResult, spec):
     return {c.name: c.passed for c in structural_checks(result, spec)}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("requested_pages", [None, 8, 4])
+async def test_product_and_trial_lengths_complete_every_stage(golden_db, requested_pages):
+    entry = dict(_BASELINE_ENTRY)
+    if requested_pages is not None:
+        entry["page_count"] = requested_pages
+    spec = build_book_spec(entry)
+    expected = requested_pages or 12
+    generated = await _generate_one(spec, str(uuid.uuid4()))
+    assert generated["job_status"] == "done"
+    result = generated["result"]
+    assert [page.page_number for page in result.pages] == list(range(1, expected + 1))
+    assert all(page.image_url for page in result.pages)
+    assert [page.page for page in result.learning_assets.pages] == list(range(1, expected + 1))
+    assert _outcome_map(result, spec)["page_count_matches_spec"] is True
 
 
 def _quiz_page(dump: dict):
@@ -193,6 +211,7 @@ async def test_structural_checks_have_teeth(golden_db):
         "page_images_present": _set_placeholder_page,
         "learning_assets_present": _drop_learning,
         "pages_well_formed": _remove_page,
+        "page_count_matches_spec": _remove_page,
         "asset_status_generated": _degrade_status,
         "no_degraded_warnings": _add_warning,
         "style_matches_spec": _mismatch_style,

@@ -13,6 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.models.db import (
     Book,
     BookShare,
+    Character,
+    ContentReport,
     BranchStoryEdge,
     BranchStoryNode,
     DailyStory,
@@ -25,6 +27,7 @@ from src.models.db import (
     ReadingLog,
     Series,
     StoryDraftDB,
+    StoragePurgeTask,
 )
 
 
@@ -62,6 +65,7 @@ async def purge_book_children(db: AsyncSession, book_ids: list[str]) -> None:
         return
 
     # 하드 FK(NOT NULL) 자식 — 책 삭제 전 반드시 제거해야 FK 위반이 없다.
+    await db.execute(delete(ContentReport).where(ContentReport.book_id.in_(book_ids)))
     await db.execute(delete(BranchStoryEdge).where(BranchStoryEdge.book_id.in_(book_ids)))
     await db.execute(delete(BranchStoryNode).where(BranchStoryNode.book_id.in_(book_ids)))
     await db.execute(delete(Page).where(Page.book_id.in_(book_ids)))
@@ -130,6 +134,75 @@ async def collect_book_job_ids(db: AsyncSession, book_ids: list[str]) -> list[st
         return []
     job_rows = await db.execute(select(Book.job_id).where(Book.id.in_(book_ids)))
     return list(dict.fromkeys(jid for (jid,) in job_rows.all() if jid))
+
+
+async def preserve_photo_derived_jobs(
+    db: AsyncSession, user_key: str, character_ids: list[str]
+) -> list[str]:
+    """Keep photo provenance after a character's identifying record is deleted.
+
+    Older books do not have an independent photo marker. Mark their existing
+    jobs before removing the character relationship. The boolean contains no
+    face description or source URL and survives until the job/book is erased.
+    New generation requests set this marker when they create the job.
+    This function never commits; provenance and deletion must be atomic.
+    """
+    book_ids = await collect_books_referencing_characters(db, user_key, character_ids)
+    if book_ids:
+        await db.execute(
+            update(Job)
+            .where(
+                Job.user_key == user_key,
+                Job.id.in_(select(Book.job_id).where(Book.id.in_(book_ids))),
+            )
+            .values(photo_derived=True)
+        )
+    return book_ids
+
+
+def enqueue_character_asset_purge(
+    db: AsyncSession, character: Character, *, reason: str
+) -> list[StoragePurgeTask]:
+    """Queue original/avatar bytes in the same transaction as character removal.
+
+    A generating avatar may upload after the first prefix deletion. A separate
+    unattempted guard is deliberately omitted from the immediate task list so
+    the sweeper revisits its namespace after in-flight work has had time to end.
+    """
+    from src.services.purge_queue import enqueue_purge_prefix
+    from src.services.storage import character_file_prefix
+
+    prefix = character_file_prefix(character.id)
+    task = enqueue_purge_prefix(
+        db, user_key=character.user_key, reason=reason, prefix=prefix
+    )
+    if getattr(character, "avatar_status", None) == "generating":
+        enqueue_purge_prefix(
+            db,
+            user_key=character.user_key,
+            reason=f"{reason}_inflight_avatar",
+            prefix=prefix,
+        )
+    return [task] if task is not None else []
+
+
+async def prepare_character_deletion(
+    db: AsyncSession, character: Character
+) -> list[StoragePurgeTask]:
+    """Stage character deletion, provenance and durable media erasure.
+
+    Existing books remain readable when the parent removes a reusable
+    character. Their photo-derived jobs remain discoverable for later consent
+    withdrawal. The caller commits, then passes the returned tasks to
+    run_purge_tasks; storage errors must not be reported as complete erasure.
+    """
+    tasks: list[StoragePurgeTask] = []
+    if bool(getattr(character, "from_photo", False)):
+        await preserve_photo_derived_jobs(db, character.user_key, [character.id])
+        tasks = enqueue_character_asset_purge(db, character, reason="character_deletion")
+    await detach_series_from_characters(db, [character.id])
+    await db.delete(character)
+    return tasks
 
 
 async def purge_job_artifacts(db: AsyncSession, job_ids: list[str]) -> None:

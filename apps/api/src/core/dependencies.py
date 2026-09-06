@@ -3,7 +3,11 @@
 import re
 from typing import Optional
 
-from fastapi import Header, HTTPException
+from fastapi import Depends, Header, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.core.database import get_db
+from src.services.account_recovery import resolve_user_key
 
 # UUID v4 format: 8-4-4-4-12 hex characters
 _UUID_RE = re.compile(
@@ -12,18 +16,17 @@ _UUID_RE = re.compile(
 )
 
 
-def get_user_key(
-    x_user_key: str = Header(..., description="User identification key"),
+async def get_user_key(
+    x_user_key: str = Header(..., description="Device credential; legacy UUID or recovered device key"),
+    db: AsyncSession = Depends(get_db),
 ) -> str:
     """
-    Extract and validate user key from header.
+    Authenticate a device credential and return the stable ownership key.
 
     Raises:
-        HTTPException: If X-User-Key header is missing or not a valid UUID
+        HTTPException: If the credential is malformed, unknown, or revoked.
     """
-    if not x_user_key or not _UUID_RE.match(x_user_key):
-        raise HTTPException(status_code=400, detail="Invalid X-User-Key header: UUID format required")
-    return x_user_key
+    return await resolve_user_key(db, x_user_key)
 
 
 def get_profile_id(

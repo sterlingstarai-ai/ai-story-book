@@ -6,7 +6,7 @@ Users Router
 import structlog
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header
 
 from src.core.database import get_db
 from src.core.dependencies import get_user_key
@@ -34,8 +34,11 @@ from src.models.db import (
 )
 from src.services.data_deletion import (
     collect_purgeable_image_keys,
+    enqueue_character_asset_purge,
     purge_book_children,
 )
+from src.services.photo_lifecycle import lock_photo_account
+from src.services.account_recovery import revoke_deleted_account
 from src.services.purge_queue import (
     enqueue_purge_keys,
     enqueue_purge_prefix,
@@ -43,8 +46,8 @@ from src.services.purge_queue import (
 )
 from src.services.storage import (
     book_file_prefix,
-    character_file_prefix,
     mask_file_prefix,
+    voice_sample_prefix,
 )
 
 router = APIRouter()
@@ -55,6 +58,7 @@ logger = structlog.get_logger()
 async def delete_my_data(
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
+    x_user_key: str = Header(...),
 ):
     """
     내 데이터 전체 삭제.
@@ -63,16 +67,22 @@ async def delete_my_data(
     - 책/페이지/잡/캐릭터/크레딧/구독/스트릭/설정/프로필/로그
     - 저장소의 책 파일
     """
+    # Serializes with the final avatar/book publication transaction, including
+    # legacy users who do not yet have an AccountIdentity row.
+    await lock_photo_account(db, user_key)
     # 책 파일 제거를 위해 book ids 먼저 조회
     books_result = await db.execute(select(Book.id).where(Book.user_key == user_key))
     book_ids = [book_id for (book_id,) in books_result.all()]
-    jobs_result = await db.execute(select(Job.id).where(Job.user_key == user_key))
-    job_ids = [job_id for (job_id,) in jobs_result.all()]
+    jobs_result = await db.execute(select(Job.id, Job.status).where(Job.user_key == user_key))
+    jobs = jobs_result.all()
+    job_ids = [job_id for job_id, _ in jobs]
+    active_job_ids = {job_id for job_id, status in jobs if status in {"queued", "running"}}
     # 캐릭터 원본 사진/그림(characters/{id}/...)도 파기해야 함 — 행 삭제 전 id 확보
     chars_result = await db.execute(
-        select(Character.id).where(Character.user_key == user_key)
+        select(Character).where(Character.user_key == user_key)
     )
-    character_ids = [cid for (cid,) in chars_result.all()]
+    characters = list(chars_result.scalars().all())
+    has_inflight_avatar = any(c.avatar_status == "generating" for c in characters)
     # N1: 파이프라인 표지·페이지 이미지 키를 image_url에서 역산 — 반드시 행 삭제 전에 수집.
     # (계정 삭제는 그 사용자의 책 전부가 대상이라 H6 공유 제외에 걸릴 것이 없다 — 리텔의
     #  원본도 같은 사용자 소유이므로 함께 지워진다.)
@@ -122,6 +132,23 @@ async def delete_my_data(
     # 지울 행이 없어 200 success로 위장된다(unknown 결과 ≠ 성공).
     reason = "account_deletion"
     tasks = []
+    for job_id in job_ids:
+        task = enqueue_purge_prefix(
+            db, user_key=user_key, reason=reason, prefix=f"jobs/{job_id}/"
+        )
+        if task is not None:
+            tasks.append(task)
+        if job_id in active_job_ids:
+            # A provider upload can finish after the Job row and its currently
+            # known keys have been deleted. Leave a separate unattempted guard:
+            # the sweep's 15-minute grace exceeds the worker's hard time limit.
+            # Running this guard inline would miss those late objects forever.
+            enqueue_purge_prefix(
+                db,
+                user_key=user_key,
+                reason="account_deletion_inflight_images",
+                prefix=f"jobs/{job_id}/",
+            )
     for book_id in book_ids:
         task = enqueue_purge_prefix(
             db, user_key=user_key, reason=reason, prefix=book_file_prefix(book_id)
@@ -135,27 +162,20 @@ async def delete_my_data(
         if mask_task is not None:
             tasks.append(mask_task)
     # 아동 사진/그림 파생 캐릭터 원본 파기(PIPA/GDPR 삭제권 — revoke 경로와 동일)
-    for character_id in character_ids:
-        task = enqueue_purge_prefix(
-            db,
-            user_key=user_key,
-            reason=reason,
-            prefix=character_file_prefix(character_id),
-        )
-        if task is not None:
-            tasks.append(task)
+    for character in characters:
+        tasks.extend(enqueue_character_asset_purge(db, character, reason=reason))
     # 가족 음성 샘플(voice-samples/{user_key}/...)도 파기 — biometric-adjacent PII 잔존 방지.
-    voice_task = enqueue_purge_prefix(
-        db, user_key=user_key, reason=reason, prefix=f"voice-samples/{user_key}/"
-    )
-    if voice_task is not None:
-        tasks.append(voice_task)
+    for prefix in (voice_sample_prefix(user_key), f"voice-samples/{user_key}/"):
+        voice_task = enqueue_purge_prefix(db, user_key=user_key, reason=reason, prefix=prefix)
+        if voice_task is not None:
+            tasks.append(voice_task)
     # N1: books/{id}/ prefix 밖에 저장된 파이프라인 이미지(images/{provider}/{uuid} 등)를
     # image_url 역산 키로 직접 파기 — 아동 사진 파생 일러스트 잔존 방지.
     tasks.extend(
         enqueue_purge_keys(db, user_key=user_key, reason=reason, keys=image_keys)
     )
 
+    await revoke_deleted_account(db, user_key, x_user_key)
     await db.commit()
 
     # H8/G24: 스토리지 파기 실패를 삼키지 않고 표면화한다. 남은 실패는 outbox에 pending으로
@@ -164,16 +184,17 @@ async def delete_my_data(
     if failed_keys:
         logger.warning(
             "Storage purge failures during user deletion",
-            user_key=user_key,
+            user_key=user_key[:8] + "...",
             failed_key_count=len(failed_keys),
         )
 
     storage_failures = len(failed_keys)
+    purge_pending = bool(storage_failures or active_job_ids or has_inflight_avatar)
     return {
-        "status": "partial" if storage_failures else "success",
+        "status": "partial" if purge_pending else "success",
         "deleted_books": len(book_ids),
         "storage_delete_failures": storage_failures,
         # M8: 미완 파기는 durable 하게 재시도된다는 사실을 응답에 명시(운영·감사 관측점).
-        "purge_retry_pending": storage_failures > 0,
+        "purge_retry_pending": purge_pending,
         "message": "내 데이터가 삭제되었습니다.",
     }

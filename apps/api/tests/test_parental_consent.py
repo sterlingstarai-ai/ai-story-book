@@ -233,12 +233,15 @@ async def test_delete_character_purges_photo_original(client, db_session, monkey
     # 캐릭터 '삭제'도 철회 경로처럼 사진/그림 원본을 스토리지에서 파기해야 한다
     # (동의화면의 "철회 시 즉시 파기" 약속 집행 — 고아 사진 영구 잔류 방지).
     from src.services.storage import storage_service
+    from sqlalchemy import select
+    from src.models.db import Character, StoragePurgeTask
 
     called: list[str] = []
 
     async def _capture(prefix):
         called.append(prefix)
-        return 1
+        # Storage deletion returns failed keys; [] means every object was erased.
+        return []
 
     monkeypatch.setattr(storage_service, "delete_prefix", _capture)
 
@@ -251,6 +254,15 @@ async def test_delete_character_purges_photo_original(client, db_session, monkey
     r1 = await client.delete("/v1/characters/char-del-photo", headers=h)
     assert r1.status_code == 200, r1.text
     assert "characters/char-del-photo/" in called  # 사진 파생 → 원본 파기
+    assert r1.json()["status"] == "deleted"
+    assert r1.json()["purge_retry_pending"] is False
+    assert await db_session.get(Character, "char-del-photo") is None
+    purge = (await db_session.execute(select(StoragePurgeTask).where(
+        StoragePurgeTask.user_key == uk,
+        StoragePurgeTask.target == "characters/char-del-photo/",
+    ))).scalar_one()
+    assert purge.status == "done"
+    assert purge.attempts == 1
 
     called.clear()
     r2 = await client.delete("/v1/characters/char-del-text", headers=h)

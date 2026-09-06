@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
@@ -43,6 +44,7 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
   Map<String, dynamic>? _orderDetail;
 
   // H20: 서버 견적(표시-청구 일치 단일 소스). null이면 아직 미조회.
+  int _quoteVersion = 0;
   int? _quoteTotal;
   String? _quoteCurrency;
   // H6: 주문 시도당 1회 생성해 재시도 시 동일 키 재사용(이중 주문 방지). 성공 시 폐기.
@@ -73,21 +75,33 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
   }
 
   Future<void> _fetchQuote() async {
-    final country = _countryController.text.trim();
+    if (ref.read(capabilitiesProvider).valueOrNull?['pod_ordering_supported'] !=
+        true) {
+      return;
+    }
+    final quoteVersion = ++_quoteVersion;
+    final country = _countryController.text.trim().toUpperCase();
     if (country.length != 2) {
+      if (mounted) {
+        setState(() {
+          _quoteTotal = null;
+          _quoteCurrency = null;
+        });
+      }
       return;
     }
     try {
       final api = ref.read(apiClientProvider);
-      final quote = await api.getPodQuote(country: country, quantity: _quantity);
-      if (!mounted) return;
+      final quote =
+          await api.getPodQuote(country: country, quantity: _quantity);
+      if (!mounted || quoteVersion != _quoteVersion) return;
       setState(() {
         _quoteTotal = (quote['total_price'] as num?)?.toInt();
         _quoteCurrency = quote['currency']?.toString();
       });
     } catch (_) {
       // 견적 조회 실패는 표시만 비우고 주문 자체는 막지 않는다(서버가 재산출).
-      if (mounted) {
+      if (mounted && quoteVersion == _quoteVersion) {
         setState(() {
           _quoteTotal = null;
           _quoteCurrency = null;
@@ -97,7 +111,11 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
   }
 
   Future<void> _submitOrder() async {
-    if (_isSubmitting) {
+    if (ref.read(capabilitiesProvider).valueOrNull?['pod_ordering_supported'] !=
+        true) {
+      return;
+    }
+    if (_isSubmitting || _createdOrder != null) {
       return;
     }
     if (!_formKey.currentState!.validate()) {
@@ -212,6 +230,47 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
+    ref.listen(capabilitiesProvider, (previous, next) {
+      if (next.valueOrNull?['pod_ordering_supported'] == true &&
+          previous?.valueOrNull?['pod_ordering_supported'] != true) {
+        unawaited(_fetchQuote());
+      }
+    });
+    final caps = ref.watch(capabilitiesProvider);
+    if (caps.valueOrNull?['pod_ordering_supported'] != true &&
+        _createdOrder == null) {
+      return Scaffold(
+        appBar: AppBar(title: Text(l.podOrderTitle)),
+        body: SafeArea(
+            child: Center(
+                child: SingleChildScrollView(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            if (caps.isLoading)
+              const CircularProgressIndicator()
+            else ...[
+              const Icon(Icons.menu_book_outlined,
+                  size: 56, color: AppColors.primary),
+              const SizedBox(height: AppSpacing.md),
+              Text(
+                  caps.hasError
+                      ? l.podOrderStatusError
+                      : l.podOrderingUnavailable,
+                  textAlign: TextAlign.center,
+                  style: AppTextStyles.body),
+              if (caps.hasError) ...[
+                const SizedBox(height: AppSpacing.md),
+                FilledButton(
+                    style:
+                        FilledButton.styleFrom(minimumSize: const Size(64, 64)),
+                    onPressed: () => ref.invalidate(capabilitiesProvider),
+                    child: Text(l.retry)),
+              ],
+            ],
+          ]),
+        ))),
+      );
+    }
     final orderId = _createdOrder?['order_id']?.toString();
     final providerOrderId = _orderDetail?['provider_order_id']?.toString() ??
         _createdOrder?['provider_order_id']?.toString();
@@ -239,9 +298,9 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
           Container(
             padding: const EdgeInsets.all(AppSpacing.md),
             decoration: BoxDecoration(
-              color: AppColors.surface,
+              color: AppPalette.of(context).surface,
               borderRadius: BorderRadius.circular(AppRadius.md),
-              border: Border.all(color: AppColors.divider),
+              border: Border.all(color: AppPalette.of(context).divider),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -348,9 +407,9 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
           Container(
             padding: const EdgeInsets.all(AppSpacing.md),
             decoration: BoxDecoration(
-              color: AppColors.surface,
+              color: AppPalette.of(context).surface,
               borderRadius: BorderRadius.circular(AppRadius.md),
-              border: Border.all(color: AppColors.divider),
+              border: Border.all(color: AppPalette.of(context).divider),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -361,7 +420,11 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
                   children: [
                     IconButton(
                       tooltip: l.podOrderDecreaseQuantityTooltip,
-                      onPressed: _quantity <= 1
+                      constraints:
+                          const BoxConstraints(minWidth: 64, minHeight: 64),
+                      onPressed: _isSubmitting ||
+                              _createdOrder != null ||
+                              _quantity <= 1
                           ? null
                           : () {
                               setState(() => _quantity -= 1);
@@ -373,7 +436,11 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
                         style: AppTextStyles.heading3),
                     IconButton(
                       tooltip: l.podOrderIncreaseQuantityTooltip,
-                      onPressed: _quantity >= 10
+                      constraints:
+                          const BoxConstraints(minWidth: 64, minHeight: 64),
+                      onPressed: _isSubmitting ||
+                              _createdOrder != null ||
+                              _quantity >= 10
                           ? null
                           : () {
                               setState(() => _quantity += 1);
@@ -381,21 +448,24 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
                             },
                       icon: const Icon(Icons.add_circle_outline),
                     ),
-                    const Spacer(),
-                    if (_quoteTotal != null)
-                      Text(
-                        l.podOrderEstimatedTotal(
-                            _quoteTotal!, _quoteCurrency ?? ''),
-                        style: AppTextStyles.bodySmall,
-                      ),
                   ],
                 ),
+                if (_quoteTotal != null) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    l.podOrderEstimatedTotal(
+                        _quoteTotal!, _quoteCurrency ?? ''),
+                    style: AppTextStyles.bodySmall,
+                  ),
+                ],
               ],
             ),
           ),
           const SizedBox(height: AppSpacing.md),
           ElevatedButton.icon(
-            onPressed: _isSubmitting ? null : _submitOrder,
+            style: ElevatedButton.styleFrom(minimumSize: const Size(64, 64)),
+            onPressed:
+                _isSubmitting || _createdOrder != null ? null : _submitOrder,
             icon: _isSubmitting
                 ? const SizedBox(
                     width: 16,
@@ -403,8 +473,11 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.local_shipping_outlined),
-            label: Text(
-                _isSubmitting ? l.podOrderSubmitting : l.podOrderSubmitButton),
+            label: Text(_createdOrder != null
+                ? l.podOrderSubmitSuccess
+                : _isSubmitting
+                    ? l.podOrderSubmitting
+                    : l.podOrderSubmitButton),
           ),
           if (_errorMessage != null) ...[
             const SizedBox(height: AppSpacing.sm),
@@ -418,9 +491,9 @@ class _PodOrderScreenState extends ConsumerState<PodOrderScreen> {
             Container(
               padding: const EdgeInsets.all(AppSpacing.md),
               decoration: BoxDecoration(
-                color: AppColors.surface,
+                color: AppPalette.of(context).surface,
                 borderRadius: BorderRadius.circular(AppRadius.md),
-                border: Border.all(color: AppColors.divider),
+                border: Border.all(color: AppPalette.of(context).divider),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,

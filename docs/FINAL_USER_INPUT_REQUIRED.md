@@ -1,50 +1,77 @@
-# Final User Input Required (Keys / Accounts Only)
+# 남아 있는 외부 선행조건
 
-이 문서는 개발 코드 완료 후, 실제 외부 연동 검증에 필요한 **최종 사용자 개입 항목**만 정리합니다.
+2026-09-06 최신 기준은 [스토어 등록 전 공동 검토](PRE_REGISTRATION_REVIEW.md)입니다. Apple·Play 개인 계정과 기존 법적 정보를 확인했고 Apple 약관 동의도 갱신했습니다. 새 사업자 정보부터 다시 요구하지 않습니다. 사용자와 앱 최종 테스트를 먼저 하기로 했으므로 지금은 등록 전 준비만 진행합니다. 전체 출시 판정은 [LAUNCH_STATUS.md](LAUNCH_STATUS.md)를 함께 참고합니다.
 
-## 0) Preflight (자동 점검)
+## 2026-09-07 현재 실행에 필요한 외부 조건
+
+| 구분 | 준비한 결과와 남은 실행 |
+|---|---|
+| 제품 내용 품질 | 두 참조를 이용한 부분 교정 후에도8쪽 실험판은5쪽 오류·6쪽 육안 보류로 내보내지 않았다. 검수·차단 기능과 별개로 새 자동 생성 전체의 품질 통과는 아직 남은 개발 검증이다. 이를 사용자가 고칠 일이나 완료한 항목으로 넘기지 않는다. [실제 품질 결과](PHOTO_LIVE_VERIFICATION_2026-09-06.md) |
+| 운영비 승인 | 별도 Supabase Pro와 Render API·worker·영속 Redis를 합친 월$67 구성을 확정했다. 기존 무료 프로젝트는 보존했고 Render 무료 작업공간만 만들었다. 정기 과금 승인과 Render 카드 등록 후 전용 환경을 활성화·배포·검증한다. [실행 패키지](RENDER_DEPLOYMENT_PACKAGE.md) |
+| 실제 아이 사진 처리 | 공식 규칙·계정 설정을 확인하고 OpenAI ZDR 문의 초안을 완성했다. 문의 전송의 명시 승인 질문은 미응답이라 아직 보내지 않았다. 제공자 회신·프로젝트 적용을 확인한 뒤 실제 사진의 동화풍 변환·닮음·한 권 전체 생성을 검증한다. 가상 인물 검증으로 대체하지 않는다. |
+| 공개 고지·백업 | 연락처·승인된 개인정보/약관 문서를 넣을 지원 사이트, 비공개 저장소·외부 백업 설정과 검사를 준비했다. 유효한 운영 대상 연결과 법적 고지 확인 후 공개 주소·암호화 보관 및 실제 복원을 검증한다. |
+| 공동 최종 검토와 제출 | 앱 전체 디자인·모바일522개 검사·Android 서명 APK/AAB·iOS 무서명 빌드·임시 기기 여정을 마쳤다. 운영 API 연결 빌드의 실제 기기 검토와 iOS 배포 서명은 남아 있다. 사용자와 최종 확인하기 전 앱 레코드·Bundle ID 생성·업로드·등록·심사 제출은 하지 않는다. |
+
+로그인·기존 AI 키·이미 완료한 충전·개인 개발자 등록 정보를 다시 요청하지 않는다. 새 기술 작업의 진행 상황과 그림 품질의 실제 통과 범위는 [최신 출시 상태](LAUNCH_STATUS.md)를 우선한다. 아래15권 결과와 과거 검사 수치는 기준선 이력이다.
+
+## 보존한 자동 생성 품질 기준선 — 출시 GO 아님
+
+새 Sol/Pro 자동 생성 15권의 최종 판정은 **REDESIGN_REQUIRED**입니다. 기술 경로는 **15/15권 통과**했지만, 본문 **60쪽·원본 그림 75장**을 모두 검토한 인물 일관성 C1 합격률이 사전 중단 기준인 **60% 미만**입니다. 안전 위반이 없고 평균 점수가 높아도 이 중단 조건을 상쇄하지 않습니다. [최종 집계](acceptance/2026-09-06-quality-matrix-sol-v2/quality-summary.json).
+
+| 차원 | 2점 합격 비율 |
+|---|---:|
+| C1 인물 일관성 | 53.3333% |
+| C2 연령 적합성 | 100% |
+| C3 서사 일관성 | 86.6667% |
+| C4 글·그림 일치 | 53.3333% |
+| C5 한국어 자연성 | 100% |
+
+평균은 **1.773333/2**, S1 위반은 **0**입니다. 이 15권의 추정 비용은 텍스트 **$2.5069**, 이미지 **$10.5995**이며 당시 시험 환경 정리를 완료했습니다. 이후 **전체 그림 검사·부분 재생성·재검사는 구현했고 실제 저장 그림의 교정도 검증**했습니다. 다만 새 독립 표본 전수 품질 GO는 아닙니다. 근거는 [그림 품질 검사](ILLUSTRATION_QUALITY_GATE.md), 현재 제공자 이용 조건과 공동 테스트 범위는 [등록 전 검토](PRE_REGISTRATION_REVIEW.md)를 따릅니다.
+
+- 위 평가 시점의 누적 기술 생성 완료는 **기존 9권 + 새 15권 = 24권**입니다. 기존 9권은 합성 표본 7권, 동물 캐릭터 복구 검증용 합성 표본 4쪽 1권, 보호자 제공 이름 8쪽 1권입니다. **모델 선택용 텍스트 비교 24편은 이 24권과 별도**입니다. 기준선을 섞어 합격률을 계산하지 않으며 실사진 검증은 없습니다.
+- [모델 선택 근거](AI_MODEL_DECISION_2026-09-06.md)에 따라 로컬 텍스트 설정 `openai` / `gpt-5.6-sol` 적용과 `check-env --mode local`을 완료했습니다. 기존 Anthropic 자격증명은 비공개 보존했고 Gemini 설정과 운영 환경은 바꾸지 않았습니다. 텍스트 모델 선택은 전체 그림 품질 통과를 뜻하지 않습니다.
+- OpenAI **$10 충전**과 Google의 승인된 **₩10,000 추가 충전**을 완료했으며 자동 충전은 모두 꺼져 있습니다. 충전 이력이며 현재 잔액 표시는 아닙니다. 완료한 로그인·키 발급·결제를 다시 요청하지 않습니다.
+- 위 행렬 평가 시점의 전체 검사는 API **1,227 passed / 14 skipped / coverage 74.21%**, Flutter **359 passed / coverage 49.66%**였습니다. 이후 그림 검사 통합 결과는 [릴리스 준비](RELEASE_PREPARATION.md)에 있습니다. 진행 중인 분량·신고·디자인 변경의 최종 통합 검증은 별도이며, 코드 검사가 그림 품질을 대체하지 않습니다.
+
+이전 실패 기록도 보존합니다. 첫 Sol/Pro 행렬은 초기 2권이 ImagePrompts 길이 초과로 실패했고 이미지 **0회**, 텍스트 추정 **$0.3801**, 나머지 **13편 미실행**으로 종료됐습니다. 이후 네이티브 ImagePrompts 보완과 참조·등장인물 연결 보강을 적용해 별도 새 15권을 실행한 결과가 위 최종 집계입니다.
+
+보호자 제공 이름 8쪽 원본은 **228.23초 / LLM 6회 / 이미지 9회**, 텍스트 **$0.263580**·이미지 **$1.266672** 추정 비용으로 기술 완료됐지만 **C1=0 / C2=2 / C3=2 / C4=1 / C5=2, S1 위반 0**으로 보류했습니다. 문제 그림을 별도 편집한 개인 읽기용 최종 PDF는 10페이지 렌더와 원문 보존 검증을 완료했습니다. 그 편집본은 제품 자동 생성 품질 GO의 증거에 포함하지 않습니다.
+
+운영 서버·저장소·백업·AI 이용 조건·서비스 개인정보 고지·실기기 검증은 남아 있습니다. Apple 약관 동의와 개인 계정 정보 확인은 완료했으며, 스토어 등록은 공동 최종 검토 이후로 두었습니다.
+
+## 완료된 항목
+
+| 항목 | 확인된 상태 |
+|---|---|
+| Anthropic | 로그인·API 키·결제 연결 완료, 실제 생성 호출 확인 |
+| Google Gemini | 프로젝트·로그인·API 키·결제 연결과 실제 이미지 생성 확인, 승인된 ₩10,000 추가 충전 완료·자동 충전 꺼짐 |
+| OpenAI 접근·결제·실생성 | 전용 프로젝트와 Restricted 키 확보, 모델 metadata 조회 HTTP 200, $10 충전·자동 충전 꺼짐, 실제 비교 및 8쪽 전체 생성 경로 확인 |
+| Android 로컬 서명 | 업로드 키·`key.properties` 생성과 서명 검증 완료; Git 제외·파일 권한 확인 |
+| 계정 복구 | 서버·모바일 구현과 회귀 검사, 실제 PostgreSQL 동시성 검사 완료 |
+| PDF | 표지·본문·한국어 줄바꿈 보완과 실제 렌더 확인 완료 |
+| 백업 복원 | 격리 PostgreSQL·비공개 S3 환경에서 DB·미디어 무결성 및 인증 폐기 상태 복원 검증 완료 |
+
+위 완료 항목은 운영 배포·외부 백업 보관·스토어 게시·실기기 검증 완료를 의미하지 않습니다. 근거는 [배포 준비](RELEASE_PREPARATION.md), [Android 서명](ANDROID_SIGNING.md), [계정 복구](ACCOUNT_RECOVERY.md), [백업 복원](BACKUP_RESTORE.md)에 있습니다.
+
+초기 연결 확인 당시의 잔액 0·카드 미등록·$5 충전 요청은 이전 기록입니다. 사용자가 $10을 충전했고 결제 화면을 새로 고쳐 확인했으므로 해당 요청은 종료됐습니다. OpenAI 결제와 관련해 추가 입력을 요청하지 않습니다. 이후 GPT 두 모델의 각 6요청 비교를 포함한 동일 과제 24편 비교와 Sol 선택·로컬 적용까지 완료했습니다. 당시의 비교 진행 상태를 현재 승인 대기로 해석하지 않습니다.
+
+## 실제로 남은 항목
+
+| 항목 | 현재 상태와 필요한 외부 조건 |
+|---|---|
+| 운영 배포 대상 | 프로젝트에 연결된 운영 호스트·배포 접근 권한·공개 API의 HTTPS 주소 구성(호스팅 기본 주소 가능)이 없습니다. 실제 대상을 연결한 뒤 준비된 배포 절차를 적용합니다. |
+| 운영 비공개 저장소 | 앱에서 접근할 HTTPS 다운로드 경로와 비공개 S3 운영 구성이 아직 필요합니다. 로컬 저장소 검증과 구분합니다. |
+| 외부 백업 보관 | 운영 DB·미디어·최신 삭제/인증 폐기 기록 및 Android 서명 자료의 외부 암호화 백업은 아직 구성하지 않았습니다. 로컬 복원 리허설은 완료됐습니다. |
+| AI 제공자 이용 조건 | Gemini Developer·Google Cloud의 18세 미만 대상 사용 제한과 OpenAI 아동 개인정보 처리 시 ZDR 요건을 해결해야 합니다. 공식 근거와 미확인 범위는 [등록 전 검토](PRE_REGISTRATION_REVIEW.md)에 있습니다. |
+| 개인 계정·서비스 법적 고지 | Apple 약관 동의 갱신과 Apple·Play 개인 계정의 기존 법적 정보 확인은 완료했습니다. 새 사업자 정보를 선요구하지 않으며 서비스 개인정보 고지·법률 검토 완료로도 간주하지 않습니다. |
+| 공동 검토·스토어·실기기 | iOS Simulator·격리 mock API로 디자인/공동 테스트를 준비 중입니다. 사용자 최종 검토 전 앱 레코드·Bundle ID 생성·업로드·등록·심사 제출은 하지 않습니다. 배포 서명/profile과 실제 운영 API를 사용하는 실기기 검증은 별도로 남습니다. |
+
+## 현재 베타 범위
+
+무료 제한 베타에서는 새 구매·오디오·실물 주문을 비활성화합니다. Apple/Google IAP 상품·영수증 자격증명, 음성 API 키, Printful 키는 이번 무료 베타를 진행하기 위해 다시 요청할 항목이 아닙니다. 유료·오디오·실물 주문을 실제로 활성화하는 별도 단계에서 해당 검증을 진행합니다.
+
+운영 설정 점검은 다음 명령으로 수행합니다. 이 검사는 계정 결제나 약관 동의, 스토어·실기기 검증을 대신하지 않습니다.
 
 ```bash
-cd /Users/jmac/Desktop/ai-story-book
-./scripts/final-external-preflight.sh
+./scripts/final-external-preflight.sh --env-file infra/.env --json
 ```
-
-## 1) Backend `.env` keys
-
-- `APPLE_IAP_SHARED_SECRET`
-- `GOOGLE_PLAY_PACKAGE_NAME`
-- `GOOGLE_PLAY_ACCESS_TOKEN`
-- `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` 또는 `GOOGLE_PLAY_SERVICE_ACCOUNT_FILE`
-- `IAP_VERIFICATION_MODE=strict` (최종 검증 시)
-
-- `PRINTFUL_API_KEY`
-- `PRINTFUL_SYNC_VARIANT_ID`
-- `POD_MODE=strict` (최종 검증 시)
-
-- `KAKAO_NATIVE_APP_KEY` (mobile build-time)
-- `ADMOB_REWARDED_AD_UNIT_ANDROID` (mobile build-time)
-- `ADMOB_REWARDED_AD_UNIT_IOS` (mobile build-time)
-
-## 2) Mobile build command (with keys)
-
-```bash
-cd /Users/jmac/Desktop/ai-story-book/apps/mobile
-flutter build apk --release \
-  --dart-define=KAKAO_NATIVE_APP_KEY=YOUR_KAKAO_KEY \
-  --dart-define=ADMOB_REWARDED_AD_UNIT_ANDROID=YOUR_ADMOB_ANDROID_UNIT \
-  --dart-define=ADMOB_REWARDED_AD_UNIT_IOS=YOUR_ADMOB_IOS_UNIT
-```
-
-## 3) Backend strict verification smoke
-
-```bash
-cd /Users/jmac/Desktop/ai-story-book
-python3 -m pytest apps/api/tests/test_phase_new_endpoints.py -q
-python3 -m pytest apps/api/tests -q
-```
-
-## 4) Sandbox verification (manual)
-
-- Apple Sandbox 결제 후 `/v1/iap/verify` 응답이 `verification_source=apple_store` 인지 확인
-- Google 테스트 결제 후 `/v1/iap/verify` 응답이 `verification_source=google_play` 인지 확인
-- POD 주문 생성 후 `/v1/pod/orders/{order_id}`에서 `sync_source=printful` 및 상태 전이 확인

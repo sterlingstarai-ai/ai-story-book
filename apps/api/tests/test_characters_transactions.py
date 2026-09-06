@@ -1,4 +1,3 @@
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -76,28 +75,26 @@ async def test_create_character_rolls_back_on_commit_failure():
 
 
 @pytest.mark.asyncio
-async def test_delete_character_rolls_back_on_commit_failure():
-    existing_character = SimpleNamespace(
-        id="char-1",
-        user_key="user-12345678",
-    )
-    # H7: delete_character가 SELECT 후 update(Series) nullify를 실행하므로 execute가 2회.
-    # 두 번째(UPDATE) 결과는 사용되지 않는다.
-    db = _FailingCommitDbSession(execute_results=[existing_character, None])
+async def test_delete_character_rolls_back_on_commit_failure(db_session, monkeypatch, valid_character):
+    from src.models.db import Character, StoragePurgeTask
+    from sqlalchemy import select
 
+    existing = Character(id="char-1", user_key="user-12345678", **valid_character)
+    db_session.add(existing)
+    await db_session.commit()
+    monkeypatch.setattr(db_session, "commit", AsyncMock(side_effect=RuntimeError("commit failed")))
+    rollback = AsyncMock(wraps=db_session.rollback)
+    monkeypatch.setattr(db_session, "rollback", rollback)
     with pytest.raises(InternalServerError):
-        await delete_character(
-            character_id="char-1",
-            db=db,
-            user_key="user-12345678",
-        )
-
-    assert db.rollback_calls == 1
-    assert db.deleted_items == [existing_character]
+        await delete_character(character_id="char-1", db=db_session, user_key="user-12345678")
+    rollback.assert_awaited_once()
+    assert await db_session.get(Character, "char-1") is not None
+    assert not list((await db_session.scalars(select(StoragePurgeTask))).all())
 
 
 @pytest.mark.asyncio
-async def test_create_character_from_text_rolls_back_on_commit_failure():
+async def test_create_character_from_text_rolls_back_on_commit_failure(monkeypatch):
+    monkeypatch.setattr("src.routers.characters.consume_generation_budget", AsyncMock())
     db = _FailingCommitDbSession()
     mock_character_data = {
         "name": "토리",

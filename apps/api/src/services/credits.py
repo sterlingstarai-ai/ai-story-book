@@ -289,6 +289,7 @@ class CreditsService:
         used = await db.execute(
             select(CreditTransaction.id)
             .where(
+                CreditTransaction.user_key == user_key,
                 CreditTransaction.reference_id == job_id,
                 CreditTransaction.transaction_type == "usage",
             )
@@ -315,7 +316,10 @@ class CreditsService:
                     commit=False,
                 )
         except IntegrityError:
-            return False  # 동시 이중 환불 차단(멱등)
+            # Unrelated integrity failures must remain retryable by the monitor.
+            if await self._job_already_refunded(db, job_id):
+                return False
+            raise
 
         if commit:
             await db.commit()

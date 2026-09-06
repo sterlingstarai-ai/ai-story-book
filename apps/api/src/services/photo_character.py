@@ -3,6 +3,7 @@ Photo-based Character Service
 사진에서 캐릭터 생성
 """
 
+import asyncio
 import base64
 import json
 import re
@@ -11,17 +12,92 @@ import structlog
 from typing import Optional
 
 from src.core.config import settings
+from src.core.errors import ErrorCode, LLMError, get_backoff, get_retry_count
+from src.models.dto import CreateCharacterRequest
+from src.services.anthropic_contract import (
+    anthropic_generation_options,
+    anthropic_response_text,
+)
+from src.services.llm import _call_gemini, parse_json_response
+from src.services.openai_contract import request_openai_json
 
 logger = structlog.get_logger()
+
+
+def validate_text_character(data: dict) -> CreateCharacterRequest:
+    """Validate before persistence, normalizing only unambiguous empty attire.
+
+    Animals may have fur rather than hair and no trousers or shoes. Preserve
+    their actual description; do not invent human features or stringify objects.
+    Extra keys and genuinely malformed/overlong values must still fail schema
+    validation, whose diagnostics contain only owned field names and types.
+    """
+    if isinstance(data, dict):
+        data = dict(data)
+        for section in ("appearance", "clothing"):
+            values = data.get(section)
+            if not isinstance(values, dict):
+                continue
+            values = dict(values)
+            for key, value in values.items():
+                if isinstance(value, str):
+                    values[key] = value.strip()
+            if section == "appearance" and "hair" in values:
+                if values["hair"] is None or values["hair"] == "":
+                    values["hair"] = "없음"
+            if section == "clothing":
+                accessories = values.get("accessories")
+                if isinstance(accessories, list) and all(
+                    isinstance(item, str) for item in accessories
+                ):
+                    values["accessories"] = ", ".join(
+                        item.strip() for item in accessories if item.strip()
+                    )
+                for key in ("top", "bottom", "shoes", "accessories"):
+                    if key in values and (values[key] is None or values[key] == ""):
+                        values[key] = "없음"
+            data[section] = values
+    # Reuse the owned DTO diagnostic boundary. No raw response or validation
+    # exception is logged or attached to the domain error.
+    return parse_json_response(json.dumps(data, ensure_ascii=False), CreateCharacterRequest)
 
 
 class PhotoCharacterService:
     """사진 기반 캐릭터 생성 서비스"""
 
-    def __init__(self):
-        # Use centralized settings instead of direct os.getenv
-        self.llm_provider = settings.llm_provider
-        self.api_key = settings.llm_api_key
+    @property
+    def llm_provider(self):
+        return settings.llm_provider
+
+    @property
+    def api_key(self):
+        return settings.llm_api_key
+
+    @staticmethod
+    def _parse_object(content: str) -> dict:
+        match = re.search(r"\{[\s\S]*\}", content)
+        try:
+            value = json.loads(match.group() if match else content)
+        except (TypeError, ValueError):
+            # JSONDecodeError retains the complete child/provider text in .doc.
+            # Keep only the owned domain error at the adapter boundary.
+            raise LLMError(ErrorCode.LLM_JSON_INVALID, "Invalid character response") from None
+        if not isinstance(value, dict) or not value:
+            raise LLMError(ErrorCode.LLM_JSON_INVALID, "Empty character response")
+        return value
+
+    async def _analyze_with_gemini(self, image_base64: str, prompt: str) -> dict:
+        raw = base64.b64decode(image_base64)
+        mime = "image/png" if raw.startswith(b"\x89PNG") else "image/jpeg"
+        if raw.startswith(b"RIFF") and raw[8:12] == b"WEBP":
+            mime = "image/webp"
+        elif raw.startswith((b"GIF87a", b"GIF89a")):
+            mime = "image/gif"
+        text = await _call_gemini(
+            "Analyze the supplied image and return only the requested JSON.",
+            prompt, 1500, 0.3, image_base64=image_base64, image_mime_type=mime,
+        )
+        return self._parse_object(text)
 
     async def analyze_photo(self, image_data: bytes) -> dict:
         """
@@ -33,86 +109,45 @@ class PhotoCharacterService:
         Returns:
             분석된 특성 딕셔너리
         """
-        # Base64 인코딩
-        image_base64 = base64.b64encode(image_data).decode("utf-8")
-
-        if self.llm_provider == "openai":
-            return await self._analyze_with_openai(
-                image_base64,
-                self._get_analysis_prompt(),
-            )
-        elif self.llm_provider == "anthropic":
-            return await self._analyze_with_anthropic(
-                image_base64,
-                self._get_analysis_prompt(),
-            )
-        else:
-            # Mock response for testing
-            return self._mock_analysis()
+        return await self._analyze_media(image_data, self._get_analysis_prompt())
 
     async def analyze_drawing(self, image_data: bytes) -> dict:
-        """
-        아이 그림 분석하여 캐릭터 특성 추출
-        """
-        image_base64 = base64.b64encode(image_data).decode("utf-8")
+        return await self._analyze_media(image_data, self._get_drawing_analysis_prompt())
 
-        if self.llm_provider == "openai":
-            return await self._analyze_with_openai(
-                image_base64,
-                self._get_drawing_analysis_prompt(),
-            )
-        elif self.llm_provider == "anthropic":
-            return await self._analyze_with_anthropic(
-                image_base64,
-                self._get_drawing_analysis_prompt(),
-            )
-        else:
+    async def _analyze_media(self, image_data: bytes, prompt: str) -> dict:
+        # Photo configuration never inherits the writing provider or its key.
+        # Both photographic and drawing uploads contain potentially child data.
+        from src.services.photo_processing import ensure_photo_processing_ready
+
+        ensure_photo_processing_ready()
+        if settings.photo_analysis_provider == "mock":
             return self._mock_analysis()
+        encoded = base64.b64encode(image_data).decode("ascii")
+        # Upload boundaries normalize media to JPEG before dispatch. Preserve PNG
+        # for callers using a normalized illustration as the analysis source.
+        mime = "image/png" if image_data.startswith(b"\x89PNG") else "image/jpeg"
+        content = await request_openai_json(
+            model=settings.photo_analysis_model,
+            api_key=settings.photo_analysis_api_key,
+            timeout=settings.llm_timeout,
+            user_prompt=prompt,
+            max_tokens=1500,
+            image_url=f"data:{mime};base64,{encoded}",
+        )
+        return self._parse_object(content)
 
     async def _analyze_with_openai(self, image_base64: str, prompt: str) -> dict:
         """OpenAI Vision API로 분석"""
-        async with httpx.AsyncClient(timeout=60) as client:
-            response = await client.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": "gpt-4o",
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": [
-                                {
-                                    "type": "text",
-                                    "text": prompt,
-                                },
-                                {
-                                    "type": "image_url",
-                                    "image_url": {
-                                        "url": f"data:image/jpeg;base64,{image_base64}",
-                                    },
-                                },
-                            ],
-                        }
-                    ],
-                    "max_tokens": 1000,
-                    "response_format": {"type": "json_object"},
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
-
-            content = data["choices"][0]["message"]["content"]
-            try:
-                return json.loads(content)
-            except json.JSONDecodeError:
-                # M21: 실 프로바이더 파싱 실패를 고정 mock('양갈래 소녀')로 삼키지 않는다 —
-                # 부모가 올린 사진과 전혀 다른 캐릭터가 200으로 저장되던 fail-open 제거.
-                # 형제 텍스트 캐릭터 경로와 동일하게 raise(라우터가 5xx로 표준화).
-                logger.error("OpenAI vision returned invalid JSON", content=content[:200])
-                raise
+        content = await request_openai_json(
+            model=settings.llm_model, api_key=self.api_key,
+            timeout=settings.llm_timeout, user_prompt=prompt, max_tokens=1000,
+            image_url=f"data:image/jpeg;base64,{image_base64}",
+        )
+        try:
+            return self._parse_object(content)
+        except json.JSONDecodeError:
+            logger.error("OpenAI vision returned invalid JSON")
+            raise
 
     async def _analyze_with_anthropic(self, image_base64: str, prompt: str) -> dict:
         """Anthropic Claude Vision으로 분석"""
@@ -125,8 +160,9 @@ class PhotoCharacterService:
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": "claude-3-5-sonnet-20241022",
+                    "model": settings.llm_model,
                     "max_tokens": 1000,
+                    **anthropic_generation_options(settings.llm_model),
                     "messages": [
                         {
                             "role": "user",
@@ -151,15 +187,15 @@ class PhotoCharacterService:
             response.raise_for_status()
             data = response.json()
 
-            content = data["content"][0]["text"]
+            content = anthropic_response_text(data)
             try:
                 json_match = re.search(r"\{[\s\S]*\}", content)
                 if json_match:
-                    return json.loads(json_match.group())
-                return json.loads(content)
+                    return self._parse_object(json_match.group())
+                return self._parse_object(content)
             except json.JSONDecodeError:
                 # M21: 실 프로바이더 파싱 실패를 mock으로 삼키지 않고 raise(fail-open 제거).
-                logger.error("Anthropic vision returned invalid JSON", content=content[:200])
+                logger.error("Anthropic vision returned invalid JSON", response_length=len(content))
                 raise
 
     def _get_analysis_prompt(self) -> str:
@@ -355,7 +391,9 @@ class PhotoCharacterService:
             캐릭터 생성용 데이터
         """
         if self.llm_provider == "mock":
-            return self._mock_text_character(name, age, traits, style)
+            return validate_text_character(
+                self._mock_text_character(name, age, traits, style)
+            ).model_dump()
 
         prompt = f"""다음 정보로 동화책 캐릭터를 만들어주세요.
 
@@ -366,7 +404,7 @@ class PhotoCharacterService:
 
 JSON 형식으로 응답해주세요:
 {{
-    "name": "{name}",
+    "name": {json.dumps(name, ensure_ascii=False)},
     "master_description": "이미지 생성용 상세 외모 설명 (영문, 50단어 이내)",
     "appearance": {{
         "age_visual": "외모 나이 설명",
@@ -391,43 +429,65 @@ JSON 형식으로 응답해주세요:
 - master_description은 영어로, 나머지는 한국어로
 - 동화책에 어울리는 귀엽고 친근한 캐릭터로
 - distinctive_features: 안경·주근깨·곱슬머리·점 등 모든 그림에서 동일하게 유지할 식별 특징 2~3개
+- 사용자가 토끼·곰 등 동물을 지정하면 그 종·털색·귀·의상을 그대로 유지하고 사람 아이로 바꾸지 마세요.
+- 동물의 hair에는 털·귀 주변 모습을 적을 수 있습니다. 없는 머리카락이나 착용하지 않은 의복·신발·액세서리는 빈 값이나 null 대신 문자열 "없음"으로 적으세요.
+- appearance와 clothing은 위의 모든 키가 있는 객체이며 각 값은 문자열입니다. accessories도 배열이 아닌 한 문자열입니다.
+- 이름은 입력 이름 그대로 1~40자, master_description은 10~400자, visual_style_notes는 1~200자입니다.
+- appearance 길이: age_visual 1~40자, face/hair 각각 1~120자, skin/body 각각 1~80자.
+- clothing의 top/bottom/shoes/accessories는 각각 1~80자입니다.
+- personality_traits는 문자열 배열 1~10개, distinctive_features는 문자열 배열 2~3개(최대 10개)입니다.
+- 모든 글자 수는 공백·문장부호를 포함합니다. 지정한 키만 반환하고 긴 설명은 핵심 특징을 남겨 줄이세요.
 """
 
-        try:
-            if self.llm_provider == "openai":
-                return await self._generate_text_character_openai(prompt)
-            elif self.llm_provider == "anthropic":
-                return await self._generate_text_character_anthropic(prompt)
-            else:
-                return self._mock_text_character(name, age, traits, style)
-        except Exception:
-            return self._mock_text_character(name, age, traits, style)
+        # Schema/JSON invalidity is explicitly retryable in the existing error
+        # policy. At most three total requests; each retry starts from the same
+        # bounded instructions, never echoes an invalid payload or child data.
+        for attempt in range(get_retry_count(ErrorCode.LLM_JSON_INVALID) + 1):
+            try:
+                if self.llm_provider == "openai":
+                    data = await self._generate_text_character_openai(prompt)
+                elif self.llm_provider == "anthropic":
+                    data = await self._generate_text_character_anthropic(prompt)
+                elif self.llm_provider == "gemini":
+                    data = self._parse_object(await _call_gemini(
+                        "Return the requested character as JSON.", prompt, 1500, 0.7,
+                    ))
+                else:
+                    raise LLMError(ErrorCode.UNKNOWN, "Unsupported character provider")
+                return validate_text_character(data).model_dump()
+            except json.JSONDecodeError:
+                logger.warning("Text character JSON invalid", failure_kind="json_invalid")
+                error = LLMError(ErrorCode.LLM_JSON_INVALID, "캐릭터 응답 형식이 올바르지 않습니다.")
+            except (KeyError, IndexError, TypeError):
+                logger.warning("Text character response invalid", failure_kind="response_structure_invalid")
+                error = LLMError(ErrorCode.LLM_JSON_INVALID, "캐릭터 응답 형식이 올바르지 않습니다.")
+            except LLMError as exc:
+                if exc.code != ErrorCode.LLM_JSON_INVALID:
+                    raise LLMError(exc.code, "캐릭터 생성 공급자 요청이 실패했습니다.") from None
+                error = LLMError(ErrorCode.LLM_JSON_INVALID, "캐릭터 응답 형식이 올바르지 않습니다.")
+            except (httpx.TimeoutException, TimeoutError):
+                raise LLMError(ErrorCode.LLM_TIMEOUT, "캐릭터 생성 요청 시간이 초과되었습니다.") from None
+            except httpx.HTTPError:
+                # Authentication, billing, refusal and other HTTP failures do
+                # not trigger paid schema retries or expose provider bodies.
+                logger.warning("Text character provider request failed", failure_kind="http_error")
+                raise LLMError(ErrorCode.UNKNOWN, "캐릭터 생성 공급자 요청이 실패했습니다.") from None
+            if attempt >= get_retry_count(ErrorCode.LLM_JSON_INVALID):
+                raise error from None
+            logger.info("Retrying text character schema", attempt=attempt + 1)
+            await asyncio.sleep(get_backoff(ErrorCode.LLM_JSON_INVALID, attempt))
 
     async def _generate_text_character_openai(self, prompt: str) -> dict:
         """OpenAI로 텍스트 캐릭터 생성"""
-        async with httpx.AsyncClient(timeout=60) as client:
-            response = await client.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": "gpt-4o-mini",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 1000,
-                    "response_format": {"type": "json_object"},
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
-
-            content = data["choices"][0]["message"]["content"]
-            try:
-                return json.loads(content)
-            except json.JSONDecodeError:
-                logger.error("OpenAI text character returned invalid JSON", content=content[:200])
-                raise
+        content = await request_openai_json(
+            model=settings.llm_model, api_key=self.api_key,
+            timeout=settings.llm_timeout, user_prompt=prompt, max_tokens=1000,
+        )
+        try:
+            return self._parse_object(content)
+        except json.JSONDecodeError:
+            logger.error("OpenAI text character returned invalid JSON")
+            raise
 
     async def _generate_text_character_anthropic(self, prompt: str) -> dict:
         """Anthropic으로 텍스트 캐릭터 생성"""
@@ -440,22 +500,23 @@ JSON 형식으로 응답해주세요:
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": "claude-3-5-haiku-20241022",
+                    "model": settings.llm_model,
                     "max_tokens": 1000,
+                    **anthropic_generation_options(settings.llm_model),
                     "messages": [{"role": "user", "content": prompt}],
                 },
             )
             response.raise_for_status()
             data = response.json()
 
-            content = data["content"][0]["text"]
+            content = anthropic_response_text(data)
             try:
                 json_match = re.search(r"\{[\s\S]*\}", content)
                 if json_match:
-                    return json.loads(json_match.group())
-                return json.loads(content)
+                    return self._parse_object(json_match.group())
+                return self._parse_object(content)
             except json.JSONDecodeError:
-                logger.error("Anthropic text character returned invalid JSON", content=content[:200])
+                logger.error("Anthropic text character returned invalid JSON", response_length=len(content))
                 raise
 
     def _mock_text_character(

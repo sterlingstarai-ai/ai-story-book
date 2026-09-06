@@ -16,7 +16,7 @@ import structlog
 from src.core.config import settings
 from src.core.database import AsyncSessionLocal
 from src.core.utils import utcnow
-from src.models.db import Job
+from src.models.db import Book, CreditTransaction, Job
 from sqlalchemy import select, and_, func, update
 
 logger = structlog.get_logger()
@@ -80,7 +80,9 @@ class JobMonitor:
             # 실행되지 않는' 장부가 된다.
             try:
                 from src.services.purge_queue import sweep_pending_purges
+                from src.services.character_avatar import sweep_character_avatars
 
+                await sweep_character_avatars()
                 await sweep_pending_purges()
             except Exception as e:
                 logger.error("Storage purge sweep error", error=str(e))
@@ -160,6 +162,50 @@ class JobMonitor:
                     sla_breach=len(sla_breach_jobs),
                 )
 
+        # A worker can die after committing failed but before the refund commit.
+        # Failed jobs with a usage entry and no refund are the durable retry queue.
+        await self.reconcile_failed_job_refunds()
+
+    async def reconcile_failed_job_refunds(self, limit: int = 100) -> int:
+        """Retry unsettled failed-job refunds, with an independent transaction per job."""
+        from src.services.credits import credits_service
+
+        async with AsyncSessionLocal() as session:
+            charged = select(CreditTransaction.id).where(
+                CreditTransaction.reference_id == Job.id,
+                CreditTransaction.user_key == Job.user_key,
+                CreditTransaction.transaction_type == "usage",
+            ).exists()
+            refunded = select(CreditTransaction.id).where(
+                CreditTransaction.reference_id == Job.id,
+                CreditTransaction.transaction_type == "refund",
+            ).exists()
+            delivered = select(Book.id).where(Book.job_id == Job.id).exists()
+            jobs = list((await session.execute(
+                select(Job.id, Job.user_key).where(
+                    Job.status == "failed", charged, ~refunded, ~delivered
+                ).order_by(Job.updated_at, Job.id).limit(limit)
+            )).all())
+
+        count = 0
+        for job_id, user_key in jobs:
+            try:
+                async with AsyncSessionLocal() as session:
+                    refunded = await credits_service.refund_for_job(
+                        session, user_key, job_id,
+                        description="생성 실패 환불(자동 재처리)",
+                    )
+                    count += int(refunded)
+            except Exception as exc:
+                logger.error(
+                    "Failed-job refund reconciliation deferred",
+                    job_id=job_id,
+                    error_type=type(exc).__name__,
+                )
+        if count:
+            logger.info("Failed-job refunds reconciled", count=count)
+        return count
+
     async def _handle_stuck_job(self, session, job: Job, reason: str):
         """스턱 잡 처리 — 즉시 실패+환불(M18).
 
@@ -198,6 +244,18 @@ class JobMonitor:
         job.error_code = error_code
         job.error_message = message
         job.updated_at = _db_utcnow()
+
+        from src.services.purge_queue import enqueue_purge_keys, enqueue_purge_prefix
+
+        enqueue_purge_prefix(
+            session, user_key=job.user_key, reason="failed_job_images",
+            prefix=f"jobs/{job.id}/",
+        )
+        if isinstance(job.image_keys, list):
+            enqueue_purge_keys(
+                session, user_key=job.user_key, reason="failed_job_images",
+                keys=[str(key) for key in job.image_keys if key],
+            )
 
         # 스턱 잡은 요청경로에서 이미 성공 응답을 받았으므로 환불 경로가 없었다 →
         # 여기서 멱등 환불(과금된 잡만·1회만). 실패해도 잡 실패 처리는 막지 않는다.

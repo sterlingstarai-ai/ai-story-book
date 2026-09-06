@@ -70,9 +70,105 @@ Interpretation:
 
 ## 5. Local docker runtime
 
+For an isolated integration rehearsal, use the disposable runtime gate:
+
+```bash
+./scripts/run_runtime_e2e.sh
+```
+
+It requires Docker Compose, the API Python dependencies, and locally available
+`postgres:15-alpine`, `redis:7-alpine`, and `minio/minio:latest` images. It never pulls
+images, reads project `.env` files, calls paid AI providers, or uses existing volumes.
+Dependencies bind to random localhost ports and are removed after the run. A temporary
+source copy excludes credentials and runtime databases.
+
+The default suite must execute at least 21 PostgreSQL regression cases with zero skips:
+10 erasure/Celery cases, 4 account recovery concurrency cases, and 7 photo-lifecycle
+concurrency cases. The latter observe actual PostgreSQL lock waits for the same
+owner, including legacy users with no identity row, and verify publication versus
+consent-withdrawal ordering. They also verify that individual book deletion waits
+for an edit to publish and then erases its newest image. The runtime suite verifies
+the HTTP reading journey through a real Celery worker and
+private-S3 signed download, anonymous denial, signature tampering/expiry and share
+revocation. A separate HTTP journey uploads a locally generated color tile, polls
+the Celery portrait preview, checks that unapproved portraits cannot create books,
+approves its version, and verifies a twelve-page book and its durable portrait
+snapshot. It checks metadata removal and real S3 erasure of the temporary source
+after approval, then removes the character and withdraws consent to verify that
+the derived book, snapshot and images are still found and erased. The photo path
+explicitly sets `PHOTO_ANALYSIS_PROVIDER=mock` and `PHOTO_PROCESSING_ENABLED=false`;
+no real person, photograph, paid model or live portrait-quality review is used.
+`--suite media` runs migrations and the HTTP/media/portrait journeys only; CI uses
+that mode after its separate PostgreSQL/Celery regression gates. A mock release is
+expected to return **503 readiness**, while real dependency statuses must be healthy.
+This is runtime integration evidence, not live AI content quality or store acceptance.
+
+Use `--report-dir /tmp/storybook-runtime-report` to choose the report directory;
+`result.json` records pass/fail, separate PostgreSQL recovery/photo-lifecycle counts,
+portrait journey checks, executed coverage and cleanup status. Logs contain only
+synthetic test activity. Cleanup failure is a gate failure and includes the unique
+Compose project name for recovery.
+
+### Paid synthetic book comparison
+
+After explicit approval for paid generation, `run_live_book_acceptance.py` creates
+one fictional character and one book against disposable PostgreSQL, Celery and private
+S3. It reads only the named configuration files and never edits the active API `.env`.
+For a separate OpenAI credential file containing `OPENAI_API_KEY`:
+
+```bash
+apps/api/venv/bin/python scripts/run_live_book_acceptance.py --live \
+  --env-file apps/api/.env --llm-env-file /path/to/private-openai.env \
+  --llm-model gpt-5.6-sol --page-count 4 --age 5-7 \
+  --output-dir docs/acceptance/YYYY-MM-DD-gpt-book
+```
+
+Every new paid full-book run enables illustration review and therefore requires
+`gpt-6-astra` or `gpt-5.6-sol`; text-only comparisons can still evaluate Anthropic.
+Image models remain `gemini-3-pro-image` and `gemini-3.1-flash-image`. The selected
+provider endpoint and model are enforced before HTTP. Four-page runs allow at most
+16 LLM and 7 image requests; eight-page runs allow 16 LLM and 11 image requests.
+Failed attempts, initial generation retries, and at most two page repairs share
+these limits. Only page counts 4 and 8 are accepted. OpenAI output, including
+reasoning, is limited to 16,000 tokens per request; visual reviews use the narrower
+6,144-token ceiling. OpenAI requires `store:false` and rejects non-default service
+tiers. Existing Gemini request bodies are unchanged. See [the publication gate](ILLUSTRATION_QUALITY_GATE.md).
+
+`run_live_quality_matrix.py` accepts the same `--llm-env-file`, `--llm-model` and
+`--image-model` flags and schedules 15 four-page books, two at a time. It also accepts
+`--reader-profile-file` for an explicitly authorized private name/gender profile;
+omit its exact age so all three QA age bands remain covered. Profile privacy checks
+run before paid work, and all outputs stay Git-ignored with private permissions.
+It stops starting
+books after a failure or the $2 text/$11.50 image estimate threshold. An explicit
+`--text-spend-threshold-usd` may set a positive finite text threshold up to $10 after
+checking the selected provider's remaining credit and allowing for in-flight work.
+The default remains $2; the chosen thresholds are recorded in `matrix.json`. Estimates
+use each result's recorded model/provider and standard prices checked on 2026-09-06.
+New v2 journals record dimensions for every returned image, including images
+subsequently rejected or replaced. These estimates do not substitute final saved
+files when response metadata is missing. Legacy journals retain their original
+final-file fallback. Image estimates assume 1,120 image tokens for each verified
+896×1200 image; missing usage, unknown models, or other dimensions stop estimation. These are completed-usage
+estimates, not invoices or provider-enforced dollar caps; in-flight work can exceed a
+threshold. A completed sample still needs a separate content-quality review.
+
+For an independent PostgreSQL/private-media backup and restore rehearsal:
+
+```bash
+./scripts/run_backup_restore_rehearsal.sh --report-dir /tmp/storybook-restore-report
+```
+
+It migrates the current schema, restores synthetic data into a second empty stack,
+compares every table and media checksum, and verifies restored constraints and private
+access. Both temporary stacks and all dump/media files are removed. The result is a
+small-fixture recovery check, not production RTO/RPO evidence. See
+[BACKUP_RESTORE.md](BACKUP_RESTORE.md) for production ordering and deletion replay.
+
+For the persistent developer stack instead:
+
 ```bash
 cp -n infra/.env.example infra/.env
-./scripts/check-env.sh --mode production --env-file infra/.env
 
 if docker compose version >/dev/null 2>&1; then
   DC="docker compose"
@@ -92,8 +188,11 @@ For low-risk local validation, use mock providers where available.
 ```bash
 ./scripts/check-env.sh --mode production --env-file infra/.env
 ./scripts/deploy.sh --env-file infra/.env --image-tag <sha> deploy
-./scripts/smoke.sh http://localhost
+./scripts/deploy.sh --env-file infra/.env smoke
 ```
+
+Set `PROD_API_URL=https://<real-api-host>` in `infra/.env`. Deployment health and smoke
+use this HTTPS origin with certificate validation; a redirect is not a pass.
 
 Minimum acceptance after deploy:
 - `docker compose ps` healthy
@@ -109,7 +208,21 @@ Code-complete but live-key dependent:
 - Kakao share live key validation
 - AdMob rewarded ads with production units
 
-Until those keys are present, use mock or hybrid validation paths and do not mark the integration as production-verified.
+Use mock validation only in disposable environments. Production receipt verification
+stays strict. New purchases ship disabled for the initial free limited beta;
+`PURCHASES_ENABLED=true` requires both store configurations. Disabled audio/POD and
+optional Kakao do not require their keys.
+
+```bash
+./scripts/final-external-preflight.sh --env-file infra/.env --json
+```
+
+The external preflight loads only explicitly selected dotenv files without executing
+shell content; mobile values such as `PROD_API_URL` can be exported or provided with
+another `--env-file`. It reports `BLOCKED` for missing/placeholder/invalid settings and
+`CONFIGURED_NOT_VERIFIED` otherwise. `launch_ready` remains false because presence
+checks cannot prove live AI, legal approval, actual purchases or production operations.
+No secret values are included in text or JSON output.
 
 ## 8. Failure patterns
 
@@ -135,3 +248,30 @@ Check explicit availability rules:
 - Kakao native key configured
 - IAP available on device/store
 - POD provider mode not blocked by missing config
+
+### Preserve fictional live-review evidence
+
+For an explicitly approved live photo acceptance run using an entirely fictional
+fixture, add `--retain-fictional-review-evidence` to
+`scripts/run_live_photo_acceptance.py run`. This option rejects `real_child`
+input before startup. It saves generated cover/page bytes and the matching
+story/prompt context before QA under `fictional-review-evidence/review-01/`;
+the mandatory recheck, when reached, uses `review-02/`. Files are owned, mode
+0600, and Git-ignored. Source photos, credentials and raw provider responses
+are excluded. Normal disposable service cleanup still runs after failure.
+
+`scripts/replay_fictional_review.py --live --capture-dir <review-directory>
+--output-dir <new-private-output> --env-file <explicit-provider-config>
+--policy-file <new-approved-review-budget>` reuses those exact images and context
+for at most one guarded QA call. It generates no new images and does not publish
+a book. Assign its budget separately; starting a new journal is not permission
+to reuse a prior spending allowance. A validated response can contain defects;
+read its issue codes before treating it as a quality pass. The original evidence
+is unchanged. These commands do not establish real-child likeness or release
+approval.
+
+## 외부 PostgreSQL·비공개 S3 사전 점검
+
+[외부 호스팅 배포 준비](EXTERNAL_HOSTING_DEPLOYMENT.md)의 `check-env.sh --mode external`과 Compose `config --quiet`는 설정만 검증합니다. 실제 호스트에서 DB TLS·Celery·private media·삭제 흐름을 별도로 검증해야 합니다. `backup_external.py`는 기본 dry-run이며 운영자 승인·쓰기 중지·암호화 저장소 확인 후에만 읽기를 실행합니다. 백업 생성은 [격리 복원과 최신 삭제/인증 폐기 기록 재적용](BACKUP_RESTORE.md)을 대신하지 않습니다.
+
+Render 선택 시 [실행 패키지](RENDER_DEPLOYMENT_PACKAGE.md)의 CA Secret File·Auto Sync·작업 소진 후 worker 교체 조건을 확인합니다. 공식 스키마와 합성 이미지 검증은 실제 registry·계정·배포 검증을 대신하지 않습니다.

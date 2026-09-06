@@ -15,7 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.database import get_db
 from src.core.dependencies import get_user_key
 from src.core.exceptions import NotFoundError, ValidationError
-from src.models.db import Book, BranchStoryEdge, BranchStoryNode
+from src.models.db import Book, Page, BranchStoryEdge, BranchStoryNode
+from src.services.storage import key_from_public_url, media_url, canonical_media_url
 
 router = APIRouter()
 
@@ -54,6 +55,21 @@ async def _ensure_owned_book(*, db: AsyncSession, user_key: str, book_id: str) -
     return book
 
 
+async def _owned_image_keys(db: AsyncSession, book: Book) -> set[str]:
+    urls = [book.cover_image_url]
+    urls.extend((await db.execute(select(Page.image_url).where(Page.book_id == book.id))).scalars())
+    return {key for url in urls if (key := key_from_public_url(url))}
+
+
+def _branch_image_url(url: Optional[str], allowed_keys: set[str]) -> Optional[str]:
+    # Branch image_url is user-supplied, unlike generated Page.image_url. Never turn
+    # a guessed URL for another family's media into a signed download capability.
+    key = key_from_public_url(url)
+    if key and key not in allowed_keys:
+        return None
+    return media_url(url)
+
+
 @router.post("/books/{book_id}/initialize")
 async def initialize_branch_story(
     book_id: str,
@@ -67,7 +83,15 @@ async def initialize_branch_story(
     - overwrite=false: 기존 그래프가 있으면 에러
     - overwrite=true: 기존 노드/엣지를 모두 지우고 재생성
     """
-    await _ensure_owned_book(db=db, user_key=user_key, book_id=book_id)
+    book = await _ensure_owned_book(db=db, user_key=user_key, book_id=book_id)
+    allowed_keys = await _owned_image_keys(db, book)
+
+    for node in request.nodes:
+        key = key_from_public_url(node.image_url)
+        if key and key not in allowed_keys:
+            raise ValidationError("분기 이미지는 이 책의 이미지여야 합니다.")
+        if key:
+            node.image_url = canonical_media_url(key)
 
     node_keys = [node.node_key.strip() for node in request.nodes]
     if any(not key for key in node_keys):
@@ -158,7 +182,8 @@ async def get_branch_story_graph(
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
 ):
-    await _ensure_owned_book(db=db, user_key=user_key, book_id=book_id)
+    book = await _ensure_owned_book(db=db, user_key=user_key, book_id=book_id)
+    allowed_keys = await _owned_image_keys(db, book)
 
     nodes_result = await db.execute(
         select(BranchStoryNode)
@@ -182,7 +207,7 @@ async def get_branch_story_graph(
                 "node_key": node.node_key,
                 "page_number": node.page_number,
                 "text": node.text,
-                "image_url": node.image_url,
+                "image_url": _branch_image_url(node.image_url, allowed_keys),
             }
             for node in nodes
         ],
@@ -204,7 +229,8 @@ async def choose_branch_option(
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
 ):
-    await _ensure_owned_book(db=db, user_key=user_key, book_id=book_id)
+    book = await _ensure_owned_book(db=db, user_key=user_key, book_id=book_id)
+    allowed_keys = await _owned_image_keys(db, book)
 
     current_node_key = request.current_node_key.strip()
     raw_option_text = request.option_text
@@ -312,7 +338,7 @@ async def choose_branch_option(
             "node_key": next_node.node_key,
             "text": next_node.text,
             "page_number": next_node.page_number,
-            "image_url": next_node.image_url,
+            "image_url": _branch_image_url(next_node.image_url, allowed_keys),
         },
         "is_ending": len(next_edges) == 0,
         "next_options": [

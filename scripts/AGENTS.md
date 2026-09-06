@@ -19,7 +19,8 @@
 - `flutter-ui-preflight.sh` combines a focused widget test, source inventory, and the manual checklist. Inventory counts are diagnostic, not behavioral proof.
 - `run_integration.sh` needs a Flutter device/simulator; default device is `macos`.
 - `run_live_e2e.sh` runs Uvicorn with SQLite and mock providers. It proves the FastAPI background-generation path, not Postgres, Celery, S3, or live providers.
-- `final-external-preflight.sh` checks ambient release credentials only. It does not load an env file or perform live store/provider calls.
+- `run_backup_restore_rehearsal.sh` uses two disposable local PostgreSQL/MinIO stacks and synthetic data; compares restored checksums, constraints and media privacy; never loads `.env` or existing volumes. It is not production RTO/RPO evidence.
+- `final-external-preflight.sh` checks ambient configuration or explicitly selected `--env-file` files without executing their content. `--json` emits secret-free configuration status. It never performs live store/provider calls or proves launch readiness.
 
 ## ENVIRONMENT OWNERSHIP
 
@@ -38,6 +39,8 @@
 - `deploy.sh cleanup` prunes Docker resources across the host, not only this Compose project.
 - Preserve SHA-tagged API and worker selection. An env-file image override must not silently defeat `--image-tag`.
 - Do not validate deployment changes by touching a real host. Prefer syntax/config inspection and documented dry checks.
+- `prepare_android_signing.py` creates private, Git-ignored local upload material only when none exists. Never print passwords, pass them on argv, overwrite an existing key, or treat local generation as Play Console registration.
+- `deploy.sh health` requires the public HTTPS `PROD_API_URL` origin and exact HTTP 200. `deploy.sh smoke` runs the stateful smoke script against the same explicit origin.
 - `smoke.sh` is stateful: it attempts book creation. Confirm the target URL before running it outside disposable environments.
 - `load_test.py` defaults to real API calls and 100 jobs. Use `--mock` or `--simulate` unless real cost and state mutation are explicitly approved.
 - `load_test.py --test-stuck --db-url ...` inserts rows directly and may wait up to 15 minutes.
