@@ -1090,5 +1090,6 @@
   "loadingCreditRefundPending": "사용한 크레딧을 돌려드리는 중이에요. 잠시 후 상태를 다시 확인해 주세요.",
   "loadingCreditNotCharged": "이번 생성에서는 크레딧이 차감되지 않았어요.",
   "errorParentalConsentRequired": "부모 동의를 먼저 완료해 주세요. 설정에서 동의 내용을 확인할 수 있어요.",
-  "localMediaCleanupFailed": "기기에 남은 그림의 삭제를 아직 확인하지 못했어요. 이 화면에서 다시 시도하면 삭제 확인을 이어갑니다."
+  "localMediaCleanupFailed": "기기에 남은 그림의 삭제를 아직 확인하지 못했어요. 이 화면에서 다시 시도하면 삭제 확인을 이어갑니다.",
+  "viewerAiNarration": "AI 낭독"
 }

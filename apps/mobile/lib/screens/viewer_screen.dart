@@ -2622,10 +2622,28 @@ class _AudioButton extends StatelessWidget {
                     color: Colors.white,
                   ),
                 )
-              : Icon(
-                  isPlaying ? Icons.pause : Icons.volume_up,
-                  color: Colors.white,
-                  size: 24,
+              : Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      isPlaying ? Icons.pause : Icons.volume_up,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          l.viewerAiNarration,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
         ),
       ),

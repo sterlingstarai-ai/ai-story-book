@@ -241,6 +241,7 @@ void main() {
   testWidgets('오디오 지원 배포에서는 낭독 버튼이 노출된다 (과잉 차단 방지)', (tester) async {
     await _pumpViewer(tester, audioSupported: true);
     expect(find.byIcon(Icons.volume_up), findsOneWidget);
+    expect(find.text('AI 낭독'), findsOneWidget);
     await _teardownViewer(tester);
   });
 }

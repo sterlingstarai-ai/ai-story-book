@@ -93,7 +93,6 @@ class OpenAISTTProvider(BaseSTTProvider):
                 logger.error(
                     "OpenAI STT API error",
                     status=exc.response.status_code,
-                    body=exc.response.text[:200],
                 )
                 raise ValueError(
                     f"OpenAI STT API error: {exc.response.status_code}"
@@ -150,7 +149,6 @@ class GoogleSTTProvider(BaseSTTProvider):
                 logger.error(
                     "Google STT API error",
                     status=exc.response.status_code,
-                    body=exc.response.text[:200],
                 )
                 raise ValueError(
                     f"Google STT API error: {exc.response.status_code}"

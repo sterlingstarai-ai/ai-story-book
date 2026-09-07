@@ -6145,6 +6145,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'We could not confirm removal of cached images on this device. Retry on this screen to continue cleanup.'**
   String get localMediaCleanupFailed;
+
+  /// No description provided for @viewerAiNarration.
+  ///
+  /// In en, this message translates to:
+  /// **'AI voice'**
+  String get viewerAiNarration;
 }
 
 class _AppLocalizationsDelegate

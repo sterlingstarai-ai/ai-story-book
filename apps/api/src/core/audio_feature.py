@@ -22,7 +22,10 @@ def audio_readiness_issues() -> list[str]:
     issues: list[str] = []
 
     tts = (settings.tts_provider or "").strip().lower()
-    if tts == "google":
+    if tts == "openai":
+        if not settings.openai_tts_api_key:
+            issues.append("tts_key")
+    elif tts == "google":
         if not settings.google_tts_api_key:
             issues.append("tts_key")
     elif tts == "elevenlabs":

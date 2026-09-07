@@ -3452,4 +3452,7 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get localMediaCleanupFailed =>
       'We could not confirm removal of cached images on this device. Retry on this screen to continue cleanup.';
+
+  @override
+  String get viewerAiNarration => 'AI voice';
 }

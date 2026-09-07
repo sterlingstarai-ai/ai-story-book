@@ -90,6 +90,9 @@ services:
       # tts_provider_not_live/stt_provider_not_live로 잡혀 무음 오디오 배포를 차단한다.
       - AUDIO_FEATURE_ENABLED=${AUDIO_FEATURE_ENABLED:-false}
       - TTS_PROVIDER=${TTS_PROVIDER}
+      - OPENAI_TTS_API_KEY=${OPENAI_TTS_API_KEY:-}
+      - OPENAI_TTS_MODEL=${OPENAI_TTS_MODEL:-gpt-4o-mini-tts}
+      - OPENAI_TTS_VOICE=${OPENAI_TTS_VOICE:-coral}
       - GOOGLE_TTS_API_KEY=${GOOGLE_TTS_API_KEY:-}
       - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
       - ELEVENLABS_VOICE_ID=${ELEVENLABS_VOICE_ID:-21m00Tcm4TlvDq8ikWAM}
@@ -201,6 +204,9 @@ services:
       # tts_provider_not_live/stt_provider_not_live로 잡혀 무음 오디오 배포를 차단한다.
       - AUDIO_FEATURE_ENABLED=${AUDIO_FEATURE_ENABLED:-false}
       - TTS_PROVIDER=${TTS_PROVIDER}
+      - OPENAI_TTS_API_KEY=${OPENAI_TTS_API_KEY:-}
+      - OPENAI_TTS_MODEL=${OPENAI_TTS_MODEL:-gpt-4o-mini-tts}
+      - OPENAI_TTS_VOICE=${OPENAI_TTS_VOICE:-coral}
       - GOOGLE_TTS_API_KEY=${GOOGLE_TTS_API_KEY:-}
       - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
       - ELEVENLABS_VOICE_ID=${ELEVENLABS_VOICE_ID:-21m00Tcm4TlvDq8ikWAM}

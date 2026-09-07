@@ -105,7 +105,10 @@ class Settings(BaseSettings):
     audio_feature_enabled: bool = False
 
     # TTS (Text-to-Speech)
-    tts_provider: str = "mock"  # mock, google, elevenlabs
+    tts_provider: str = "mock"  # mock, openai, google, elevenlabs
+    openai_tts_api_key: Optional[str] = None
+    openai_tts_model: str = "gpt-4o-mini-tts"
+    openai_tts_voice: str = "coral"
     google_tts_api_key: Optional[str] = None
     elevenlabs_api_key: Optional[str] = None
     elevenlabs_voice_id: str = "21m00Tcm4TlvDq8ikWAM"

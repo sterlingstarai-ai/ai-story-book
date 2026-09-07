@@ -3277,4 +3277,7 @@ class AppLocalizationsKo extends AppLocalizations {
   @override
   String get localMediaCleanupFailed =>
       '기기에 남은 그림의 삭제를 아직 확인하지 못했어요. 이 화면에서 다시 시도하면 삭제 확인을 이어갑니다.';
+
+  @override
+  String get viewerAiNarration => 'AI 낭독';
 }

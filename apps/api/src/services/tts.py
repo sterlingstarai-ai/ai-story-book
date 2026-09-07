@@ -65,6 +65,69 @@ class BaseTTSProvider(ABC):
         pass
 
 
+class OpenAITTSProvider(BaseTTSProvider):
+    """Built-in narration voices only; never clones the child's voice."""
+
+    async def synthesize(
+        self,
+        text: str,
+        voice: str = "default",
+        *,
+        language: str = "ko",
+        speaking_rate: float = 0.9,
+    ) -> bytes:
+        resolve_tts_language(language)
+        if not text.strip() or len(text) > 4096:
+            raise ValueError("TTS text must contain 1 to 4096 characters")
+        key = settings.openai_tts_api_key
+        if not key:
+            raise ValueError("OPENAI_TTS_API_KEY not configured")
+        selected = settings.openai_tts_voice if voice == "default" else voice
+        if selected not in {
+            "alloy",
+            "ash",
+            "ballad",
+            "coral",
+            "echo",
+            "fable",
+            "onyx",
+            "nova",
+            "sage",
+            "shimmer",
+            "verse",
+            "marin",
+            "cedar",
+        }:
+            raise ValueError("Unsupported built-in narration voice")
+        payload = {
+            "model": settings.openai_tts_model,
+            "input": text,
+            "voice": selected,
+            "response_format": "mp3",
+            "speed": speaking_rate,
+        }
+        if settings.openai_tts_model.startswith("gpt-4o-mini-tts"):
+            payload["instructions"] = (
+                "Read the supplied story exactly as written, in its original language. "
+                "Use a warm, calm storytelling voice with natural pauses. "
+                "Do not add introductions, sound effects, or additional words."
+            )
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.post(
+                "https://api.openai.com/v1/audio/speech",
+                json=payload,
+                headers={"Authorization": f"Bearer {key}"},
+            )
+        if response.is_error:
+            # Provider response bodies may echo the story or credentials.
+            raise ValueError(f"OpenAI TTS API error: {response.status_code}")
+        if not response.content or not response.headers.get("content-type", "").startswith(
+            "audio/"
+        ):
+            raise ValueError("OpenAI TTS returned no audio")
+        return response.content
+
+
 class GoogleTTSProvider(BaseTTSProvider):
     """Google Cloud TTS Provider"""
 
@@ -114,11 +177,8 @@ class GoogleTTSProvider(BaseTTSProvider):
                 logger.error(
                     "Google TTS API error",
                     status=e.response.status_code,
-                    body=e.response.text[:200],
                 )
-                raise ValueError(
-                    f"Google TTS API error: {e.response.status_code}"
-                ) from e
+                raise ValueError(f"Google TTS API error: {e.response.status_code}") from e
 
             data = response.json()
 
@@ -179,11 +239,8 @@ class ElevenLabsProvider(BaseTTSProvider):
                 logger.error(
                     "ElevenLabs TTS API error",
                     status=e.response.status_code,
-                    body=e.response.text[:200],
                 )
-                raise ValueError(
-                    f"ElevenLabs TTS API error: {e.response.status_code}"
-                ) from e
+                raise ValueError(f"ElevenLabs TTS API error: {e.response.status_code}") from e
             return response.content
 
 
@@ -252,6 +309,8 @@ class TTSService:
         """
         provider_name = settings.tts_provider.lower().strip()
 
+        if provider_name == "openai":
+            return OpenAITTSProvider()
         if provider_name == "google":
             return GoogleTTSProvider()
         if provider_name == "elevenlabs":
@@ -264,7 +323,7 @@ class TTSService:
             )
         raise ValueError(
             f"알 수 없는 TTS_PROVIDER={settings.tts_provider!r} — "
-            "google/elevenlabs/mock만 허용(조용한 Mock 폴백 금지, H1)"
+            "openai/google/elevenlabs/mock만 허용(조용한 Mock 폴백 금지, H1)"
         )
 
     def _resolve_speed(self, target_age: Optional[str]) -> float:

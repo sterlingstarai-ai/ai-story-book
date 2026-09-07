@@ -3275,4 +3275,7 @@ class AppLocalizationsJa extends AppLocalizations {
   @override
   String get localMediaCleanupFailed =>
       'この端末に残っている画像の削除をまだ確認できません。この画面で再試行すると削除の確認を続けます。';
+
+  @override
+  String get viewerAiNarration => 'AI朗読';
 }

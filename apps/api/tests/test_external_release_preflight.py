@@ -218,3 +218,23 @@ def test_bundled_policy_release_gate_requires_both_complete_documents(tmp_path, 
 
 def test_missing_policy_asset_fails_release_gate(tmp_path):
     assert preflight.assess_bundled_policies(tmp_path)["ready"] is False
+
+
+def test_openai_narration_configuration_requires_dedicated_key(configured):
+    result = preflight.assess({**configured, 'AUDIO_FEATURE_ENABLED': 'true',
+                              'TTS_PROVIDER': 'openai', 'STT_PROVIDER': 'openai'})
+    assert 'OPENAI_TTS_API_KEY' in result['missing_or_placeholder']
+
+
+def test_planned_feature_check_does_not_rewrite_env(tmp_path):
+    env_file = tmp_path / 'release.env'
+    original = 'PURCHASES_ENABLED=false\nAUDIO_FEATURE_ENABLED=false\nPOD_ORDERING_ENABLED=false\n'
+    env_file.write_text(original)
+    result = subprocess.run(['bash', str(ROOT / 'scripts/final-external-preflight.sh'),
+                             '--env-file', str(env_file), '--check-planned-features', '--json'],
+                            capture_output=True, text=True)
+    payload = json.loads(result.stdout)
+    assert payload['planned_features_only'] is True
+    assert payload['features']['new_purchases'] is True
+    assert 'APPLE_IAP_SHARED_SECRET' in payload['missing_or_placeholder']
+    assert env_file.read_text() == original

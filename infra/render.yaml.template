@@ -77,6 +77,12 @@ services:
     value: 'false'
   - key: TTS_PROVIDER
     value: google
+  - key: OPENAI_TTS_API_KEY
+    value: ''
+  - key: OPENAI_TTS_MODEL
+    value: 'gpt-4o-mini-tts'
+  - key: OPENAI_TTS_VOICE
+    value: 'coral'
   - key: GOOGLE_TTS_API_KEY
     value: ''
   - key: ELEVENLABS_API_KEY
@@ -314,6 +320,21 @@ services:
       name: __PREFIX__-api
       type: web
       envVarKey: TTS_PROVIDER
+  - key: OPENAI_TTS_API_KEY
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: OPENAI_TTS_API_KEY
+  - key: OPENAI_TTS_MODEL
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: OPENAI_TTS_MODEL
+  - key: OPENAI_TTS_VOICE
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: OPENAI_TTS_VOICE
   - key: GOOGLE_TTS_API_KEY
     fromService:
       name: __PREFIX__-api

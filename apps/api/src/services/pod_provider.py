@@ -161,6 +161,8 @@ class PodProviderService:
             raise
 
     def _validate_printful_config(self) -> Optional[ValidationError]:
+        if (settings.pod_provider or "").strip().lower() != "printful":
+            return ValidationError("설정된 인쇄 제공자는 아직 연결되지 않았습니다.")
         missing: list[str] = []
         if not settings.printful_api_key:
             missing.append("PRINTFUL_API_KEY")
@@ -433,4 +435,3 @@ def _as_decimal(value: object) -> Optional[Decimal]:
 
 
 pod_provider_service = PodProviderService()
-

@@ -183,3 +183,13 @@ async def test_get_pod_order_survives_provider_timeout(
     r = await client.get(f"/v1/pod/orders/{order.id}", headers=headers)
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "submitted"
+
+
+def test_unknown_print_provider_is_never_sent_to_printful(monkeypatch):
+    from src.core.config import settings
+    from src.services.pod_provider import PodProviderService
+
+    monkeypatch.setattr(settings, "pod_provider", "unconfigured-printer")
+    monkeypatch.setattr(settings, "printful_api_key", "test")
+    monkeypatch.setattr(settings, "printful_sync_variant_id", 1)
+    assert PodProviderService()._validate_printful_config() is not None

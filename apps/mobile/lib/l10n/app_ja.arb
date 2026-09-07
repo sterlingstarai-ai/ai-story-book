@@ -1090,5 +1090,6 @@
   "loadingCreditRefundPending": "クレジットを返還しています。しばらくしてから状況を再度確認してください。",
   "loadingCreditNotCharged": "今回の作成ではクレジットは消費されていません。",
   "errorParentalConsentRequired": "保護者の同意を先に完了してください。設定で同意内容を確認できます。",
-  "localMediaCleanupFailed": "この端末に残っている画像の削除をまだ確認できません。この画面で再試行すると削除の確認を続けます。"
+  "localMediaCleanupFailed": "この端末に残っている画像の削除をまだ確認できません。この画面で再試行すると削除の確認を続けます。",
+  "viewerAiNarration": "AI朗読"
 }

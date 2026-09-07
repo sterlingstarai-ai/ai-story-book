@@ -169,15 +169,16 @@ def assess(values):
                 or (google_file and Path(google_file).is_file())):
             missing.append("GOOGLE_PLAY_AUTH")
     if audio:
-        choice("TTS_PROVIDER", {"google", "elevenlabs"})
+        choice("TTS_PROVIDER", {"openai", "google", "elevenlabs"})
         choice("STT_PROVIDER", {"google", "openai"})
-        tts_key = {"google": "GOOGLE_TTS_API_KEY", "elevenlabs": "ELEVENLABS_API_KEY"}.get(values.get("TTS_PROVIDER"))
+        tts_key = {"openai": "OPENAI_TTS_API_KEY", "google": "GOOGLE_TTS_API_KEY", "elevenlabs": "ELEVENLABS_API_KEY"}.get(values.get("TTS_PROVIDER"))
         stt_key = {"google": "GOOGLE_STT_API_KEY", "openai": "STT_API_KEY"}.get(values.get("STT_PROVIDER"))
         for name in (tts_key, stt_key):
             if name:
                 need(name)
     if pod:
         choice("POD_MODE", {"strict"})
+        choice("POD_PROVIDER", {"printful"})
         need("PRINTFUL_API_KEY")
         need("PRINTFUL_SYNC_VARIANT_ID")
     return {
@@ -231,6 +232,8 @@ def main():
     parser.add_argument("--json", action="store_true", help="Print JSON without secret values")
     parser.add_argument("--env-file", action="append", type=Path, default=[],
                         help="Explicit dotenv file; repeat to overlay files. Never executes shell content.")
+    parser.add_argument("--check-planned-features", action="store_true",
+                        help="Check purchase/audio/print prerequisites without enabling or deploying them")
     args = parser.parse_args()
     values = dict(os.environ)
     for path in args.env_file:
@@ -238,7 +241,12 @@ def main():
             parser.error("An explicitly selected environment file does not exist")
         from dotenv import dotenv_values
         values.update({key: value or "" for key, value in dotenv_values(path, interpolate=False).items()})
+    if args.check_planned_features:
+        # In-memory assessment only. Never mutate runtime configuration or charge anything.
+        values.update({name: "true" for name in
+                       ("PURCHASES_ENABLED", "AUDIO_FEATURE_ENABLED", "POD_ORDERING_ENABLED")})
     result = assess(values)
+    result["planned_features_only"] = args.check_planned_features
     result["bundled_policy_documents"] = assess_bundled_policies()
     if not result["bundled_policy_documents"]["ready"]:
         result["status"] = "BLOCKED"

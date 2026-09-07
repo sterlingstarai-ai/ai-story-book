@@ -1970,5 +1970,6 @@
   "loadingCreditRefundPending": "Your credits are being returned. Check the status again shortly.",
   "loadingCreditNotCharged": "No credits were charged for this generation.",
   "errorParentalConsentRequired": "Complete parental consent first. You can review consent in Settings.",
-  "localMediaCleanupFailed": "We could not confirm removal of cached images on this device. Retry on this screen to continue cleanup."
+  "localMediaCleanupFailed": "We could not confirm removal of cached images on this device. Retry on this screen to continue cleanup.",
+  "viewerAiNarration": "AI voice"
 }
