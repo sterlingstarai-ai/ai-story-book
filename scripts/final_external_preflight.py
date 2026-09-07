@@ -1,6 +1,7 @@
 """Configuration-only launch gate with secret-free, machine-readable results."""
 
 import argparse
+from datetime import date
 import ipaddress
 import json
 import os
@@ -201,6 +202,30 @@ def assess(values):
     }
 
 
+def assess_bundled_policies(root=None):
+    """A URL define must not let an unfinished bundled policy ship silently."""
+    root = Path(root) if root is not None else Path(__file__).resolve().parents[1]
+    documents = {}
+    for slug in ("privacy", "terms"):
+        try:
+            source = root / f"apps/mobile/assets/legal/{slug}.ko.json"
+            document = json.loads(source.read_text())
+            effective_date = document.get("effective_date") or ""
+            valid_effective_date = bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", effective_date))
+            if valid_effective_date:
+                date.fromisoformat(effective_date)
+            approved = (document.get("publication_status") == "approved"
+                        and valid_effective_date
+                        and bool(document.get("operator"))
+                        and bool(document.get("contact_email"))
+                        and bool(document.get("sections")))
+            documents[slug] = "approved" if approved else "review_required"
+        except (OSError, ValueError, TypeError, AttributeError):
+            documents[slug] = "missing_or_invalid"
+    return {"ready": all(value == "approved" for value in documents.values()),
+            "documents": documents}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--json", action="store_true", help="Print JSON without secret values")
@@ -214,6 +239,10 @@ def main():
         from dotenv import dotenv_values
         values.update({key: value or "" for key, value in dotenv_values(path, interpolate=False).items()})
     result = assess(values)
+    result["bundled_policy_documents"] = assess_bundled_policies()
+    if not result["bundled_policy_documents"]["ready"]:
+        result["status"] = "BLOCKED"
+        result["invalid_configuration"].append("BUNDLED_POLICY_DOCUMENTS (review and effective date required)")
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))
     else:

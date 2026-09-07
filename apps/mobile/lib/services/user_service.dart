@@ -24,14 +24,16 @@ class UserService {
   static const _userKeyKey = 'user_key';
   static const _initializedKey = 'user_key_initialized_v1';
   static const _pendingRecoveryKey = 'pending_recovered_user_key_v1';
+  static const deletionRequestedKey = 'account_deletion_requested_v1';
   static const deletionCommittedKey = 'account_deletion_committed_v1';
   static const recoveryBackupNeededKey = 'recovery_backup_needed_v1';
   static const _activeProfileIdKey = 'active_profile_id_v1';
 
   /// Android 는 Keystore 로 암호화된 SharedPreferences 백엔드를 명시해야 한다
   /// (기본 백엔드는 구형 기기에서 평문으로 떨어질 수 있다).
-  static const _secureOptions =
-      AndroidOptions(encryptedSharedPreferences: true);
+  static const _secureOptions = AndroidOptions(
+    encryptedSharedPreferences: true,
+  );
   static const _defaultSecureStorage = FlutterSecureStorage(
     aOptions: _secureOptions,
   );
@@ -46,10 +48,8 @@ class UserService {
   final SharedPreferences _prefs;
   final FlutterSecureStorage _secureStorage;
 
-  UserService(
-    this._prefs, {
-    FlutterSecureStorage? secureStorage,
-  }) : _secureStorage = secureStorage ?? _defaultSecureStorage;
+  UserService(this._prefs, {FlutterSecureStorage? secureStorage})
+    : _secureStorage = secureStorage ?? _defaultSecureStorage;
 
   /// 앱 부팅에서 1회 호출 — 보안 저장소에서 user_key 를 읽고, 없으면 평문 값을 이관한다.
   ///
@@ -146,7 +146,10 @@ class UserService {
     final key = 'asb_device_${base64UrlEncode(bytes).replaceAll('=', '')}';
     try {
       await _secureStorage.write(
-          key: _pendingRecoveryKey, value: key, aOptions: _secureOptions);
+        key: _pendingRecoveryKey,
+        value: key,
+        aOptions: _secureOptions,
+      );
       if (await _secureStorage.read(key: _pendingRecoveryKey) != key) {
         throw const UserKeyUnavailable();
       }
@@ -172,7 +175,9 @@ class UserService {
   Future<void> discardPendingRecoveryKey() async {
     try {
       await _secureStorage.delete(
-          key: _pendingRecoveryKey, aOptions: _secureOptions);
+        key: _pendingRecoveryKey,
+        aOptions: _secureOptions,
+      );
     } catch (_) {
       throw const UserKeyUnavailable();
     }
@@ -186,7 +191,10 @@ class UserService {
     _credentialUnavailable = true;
     try {
       await _secureStorage.write(
-          key: _userKeyKey, value: key, aOptions: _secureOptions);
+        key: _userKeyKey,
+        value: key,
+        aOptions: _secureOptions,
+      );
       if (await _secureStorage.read(key: _userKeyKey) != key) {
         throw const UserKeyUnavailable();
       }
@@ -205,6 +213,18 @@ class UserService {
     }
   }
 
+  bool get deletionRequested => _prefs.getBool(deletionRequestedKey) == true;
+
+  Future<void> markDeletionRequested() async {
+    if (!await _prefs.setBool(deletionRequestedKey, true)) {
+      throw const UserKeyUnavailable();
+    }
+  }
+
+  Future<void> resumeKeyForDeletion() async {
+    await bootstrapUserKey(_prefs, secureStorage: _secureStorage);
+  }
+
   /// Called only after the server confirms account deletion, including a durable
   /// media purge retry. The marker makes storage failure retryable at bootstrap.
   Future<void> completeAccountDeletion() async {
@@ -215,7 +235,10 @@ class UserService {
       }
       final key = const Uuid().v4();
       await _secureStorage.write(
-          key: _userKeyKey, value: key, aOptions: _secureOptions);
+        key: _userKeyKey,
+        value: key,
+        aOptions: _secureOptions,
+      );
       if (await _secureStorage.read(key: _userKeyKey) != key) {
         throw const UserKeyUnavailable();
       }

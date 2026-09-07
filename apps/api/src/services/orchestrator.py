@@ -21,6 +21,8 @@ import structlog
 
 from src.core.config import settings
 from src.core.book_assets import build_generation_warnings, build_page_asset_status
+from src.services.provider_runtime import record_job_provider_usage
+
 from src.core.errors import (
     StoryBookError,
     ErrorCode,
@@ -64,6 +66,7 @@ PLACEHOLDER_IMAGE_URL = "https://placeholder.invalid/image-unavailable.png"
 # ==================== Step Runner ====================
 
 
+@record_job_provider_usage
 async def run_step(
     job_id: str,
     step_name: str,
@@ -345,6 +348,13 @@ async def start_book_generation(
     series_index: Optional[int] = None,
 ):
     """Run one generation with a shared, non-resettable image request budget."""
+    from src.services.provider_runtime import job_provider_usage
+
+    with job_provider_usage(job_id):
+        return await _start_bounded_book_generation(job_id, spec, user_key, series_id, series_index)
+
+
+async def _start_bounded_book_generation(job_id, spec, user_key, series_id, series_index):
     from src.services.illustration_quality_pipeline import quality_enabled_for_operation
 
     try:
@@ -954,6 +964,7 @@ def _is_placeholder_image_url(url: str) -> bool:
     return isinstance(url, str) and "placeholder" in url
 
 
+@record_job_provider_usage
 async def generate_image_with_retry(
     prompt, job_id: str, page: int, reference_image_url: Optional[str] = None,
     *, max_attempts: Optional[int] = None,
@@ -987,7 +998,7 @@ async def generate_image_with_retry(
                 await asyncio.sleep(get_backoff(ErrorCode.IMAGE_TIMEOUT, attempt))
 
         except Exception as e:
-            if isinstance(e, StoryBookError) and e.code == ErrorCode.IMAGE_QUALITY_FAILED:
+            if isinstance(e, StoryBookError) and not is_retryable(e):
                 raise
             last_error = e
             logger.warning(

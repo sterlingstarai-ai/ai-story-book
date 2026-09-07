@@ -60,7 +60,7 @@ class TestRateLimiting:
         assert body["error"]["details"]["retry_after"] == settings.rate_limit_window
         assert response.headers.get("Retry-After") == str(settings.rate_limit_window)
         assert response.headers.get("X-RateLimit-Remaining") == "0"
-        assert response.headers.get("X-RateLimit-Limit") == str(settings.rate_limit_requests)
+        assert response.headers.get("X-RateLimit-Limit") == str(settings.rate_limit_read_requests)
 
     @pytest.mark.asyncio
     async def test_rate_limit_headers_present_when_request_allowed(

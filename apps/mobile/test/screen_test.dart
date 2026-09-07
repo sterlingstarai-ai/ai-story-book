@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:ai_story_book/core/api_error.dart';
 import 'package:ai_story_book/l10n/app_localizations.dart';
@@ -22,6 +23,8 @@ import 'package:ai_story_book/widgets/common_widgets.dart';
 
 // ==================== Helpers ====================
 
+late SharedPreferences _preferences;
+
 /// Wrap a widget in MaterialApp + ProviderScope with optional provider overrides
 Widget buildTestableWidget(
   Widget child, {
@@ -29,8 +32,10 @@ Widget buildTestableWidget(
 }) {
   return ProviderScope(
     overrides: [
+      sharedPreferencesProvider.overrideWithValue(_preferences),
       generationOptionsProvider.overrideWith(
-          (ref) async => const GenerationOptions(BookStyle.values)),
+        (ref) async => const GenerationOptions(BookStyle.values),
+      ),
       ...overrides,
     ],
     child: MaterialApp(
@@ -49,12 +54,16 @@ Widget buildTestableWidget(
 }
 
 Future<void> scrollCreateSection(WidgetTester tester, Finder target) async {
-  await tester.scrollUntilVisible(target, 180,
-      scrollable: find
-          .descendant(
-              of: find.byType(ListView).first,
-              matching: find.byType(Scrollable))
-          .first);
+  await tester.scrollUntilVisible(
+    target,
+    180,
+    scrollable: find
+        .descendant(
+          of: find.byType(ListView).first,
+          matching: find.byType(Scrollable),
+        )
+        .first,
+  );
   await tester.pump();
 }
 
@@ -145,29 +154,33 @@ const _sampleStreak = HomeStreakSnapshot(
 // ==================== Tests ====================
 
 void main() {
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    _preferences = await SharedPreferences.getInstance();
+  });
+
   // ==================== CreateScreen Tests ====================
 
   group('CreateScreen', () {
     List<Override> createOverrides([List<Character>? chars]) => [
-          charactersProvider.overrideWith(
-              () => _MockCharactersNotifier(chars ?? _sampleCharacters)),
-        ];
+      charactersProvider.overrideWith(
+        () => _MockCharactersNotifier(chars ?? _sampleCharacters),
+      ),
+    ];
 
     testWidgets('renders app bar with title', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CreateScreen(),
-        overrides: createOverrides(),
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(const CreateScreen(), overrides: createOverrides()),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('새 동화책 만들기'), findsOneWidget);
     });
 
     testWidgets('renders topic input field', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CreateScreen(),
-        overrides: createOverrides(),
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(const CreateScreen(), overrides: createOverrides()),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('어떤 이야기를 만들까요?'), findsOneWidget);
@@ -175,10 +188,9 @@ void main() {
     });
 
     testWidgets('renders age selection chips', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CreateScreen(),
-        overrides: createOverrides(),
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(const CreateScreen(), overrides: createOverrides()),
+      );
       await tester.pumpAndSettle();
 
       final l = AppLocalizations.of(tester.element(find.byType(CreateScreen)));
@@ -188,12 +200,12 @@ void main() {
       }
     });
 
-    testWidgets('shows live per-band age helper that updates on selection',
-        (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CreateScreen(),
-        overrides: createOverrides(),
-      ));
+    testWidgets('shows live per-band age helper that updates on selection', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        buildTestableWidget(const CreateScreen(), overrides: createOverrides()),
+      );
       await tester.pumpAndSettle();
 
       // 기본 연령(5-7세) 안내가 표시된다.
@@ -207,10 +219,9 @@ void main() {
     });
 
     testWidgets('shows only approved story language chips', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CreateScreen(),
-        overrides: createOverrides(),
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(const CreateScreen(), overrides: createOverrides()),
+      );
       await tester.pumpAndSettle();
 
       final listView = find.byType(ListView).first;
@@ -226,12 +237,12 @@ void main() {
       expect(find.text('中文', skipOffstage: false), findsNothing);
     });
 
-    testWidgets('tapping a quick-start template prefills topic and theme',
-        (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CreateScreen(),
-        overrides: createOverrides(),
-      ));
+    testWidgets('tapping a quick-start template prefills topic and theme', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        buildTestableWidget(const CreateScreen(), overrides: createOverrides()),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('추천으로 시작하기'), findsOneWidget);
@@ -241,12 +252,15 @@ void main() {
       expect(find.text('용감한 아기 동물이 숲에서 새 친구를 사귀는 이야기'), findsOneWidget);
     });
 
-    testWidgets('shows relationship selector when 2+ characters selected',
-        (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CreateScreen(),
-        overrides: createOverrides(), // 샘플 캐릭터 2명(토리, 하나)
-      ));
+    testWidgets('shows relationship selector when 2+ characters selected', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const CreateScreen(),
+          overrides: createOverrides(), // 샘플 캐릭터 2명(토리, 하나)
+        ),
+      );
       await tester.pumpAndSettle();
 
       // 관계 섹션은 처음엔 없다(캐릭터 미선택 = AI 자동).
@@ -276,18 +290,20 @@ void main() {
       expect(find.text('남매'), findsOneWidget);
     });
 
-    testWidgets('shows forbidden-elements selector and toggles a chip',
-        (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CreateScreen(),
-        overrides: createOverrides(),
-      ));
+    testWidgets('shows forbidden-elements selector and toggles a chip', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        buildTestableWidget(const CreateScreen(), overrides: createOverrides()),
+      );
       await tester.pumpAndSettle();
 
       final listView = find.byType(ListView).first;
-      for (var i = 0;
-          i < 25 && find.text('빼고 싶은 요소 (선택)').evaluate().isEmpty;
-          i++) {
+      for (
+        var i = 0;
+        i < 25 && find.text('빼고 싶은 요소 (선택)').evaluate().isEmpty;
+        i++
+      ) {
         await tester.drag(listView, const Offset(0, -250));
         await tester.pumpAndSettle();
       }
@@ -303,10 +319,9 @@ void main() {
     });
 
     testWidgets('renders style selection chips', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CreateScreen(),
-        overrides: createOverrides(),
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(const CreateScreen(), overrides: createOverrides()),
+      );
       await tester.pumpAndSettle();
 
       await scrollCreateSection(tester, find.text('수채화'));
@@ -314,7 +329,9 @@ void main() {
 
       final l = AppLocalizations.of(tester.element(find.byType(CreateScreen)));
       expect(
-          find.text(l.createStyleLabel, skipOffstage: false), findsOneWidget);
+        find.text(l.createStyleLabel, skipOffstage: false),
+        findsOneWidget,
+      );
       for (final style in BookStyle.values) {
         expect(
           find.text(style.localizedLabel(l), skipOffstage: false),
@@ -324,10 +341,9 @@ void main() {
     });
 
     testWidgets('renders theme section (offstage accessible)', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CreateScreen(),
-        overrides: createOverrides(),
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(const CreateScreen(), overrides: createOverrides()),
+      );
       await tester.pumpAndSettle();
 
       // 템플릿 행이 추가되어 테마 섹션이 더 아래로 밀렸으므로, lazy ListView가
@@ -340,10 +356,9 @@ void main() {
     });
 
     testWidgets('renders character section with characters', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CreateScreen(),
-        overrides: createOverrides(),
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(const CreateScreen(), overrides: createOverrides()),
+      );
       await tester.pumpAndSettle();
 
       await scrollCreateSection(tester, find.text('AI가 새 캐릭터 생성'));
@@ -356,10 +371,12 @@ void main() {
     });
 
     testWidgets('renders character section with empty list', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CreateScreen(),
-        overrides: createOverrides([]),
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const CreateScreen(),
+          overrides: createOverrides([]),
+        ),
+      );
       await tester.pumpAndSettle();
 
       await scrollCreateSection(tester, find.text('AI가 새 캐릭터 생성'));
@@ -368,29 +385,24 @@ void main() {
       expect(find.text('주인공 캐릭터', skipOffstage: false), findsOneWidget);
       expect(find.text('AI가 새 캐릭터 생성', skipOffstage: false), findsOneWidget);
       expect(
-        find.text(
-          '캐릭터를 추가하면 같은 캐릭터로 시리즈를 만들 수 있어요!',
-          skipOffstage: false,
-        ),
+        find.text('캐릭터를 추가하면 같은 캐릭터로 시리즈를 만들 수 있어요!', skipOffstage: false),
         findsOneWidget,
       );
     });
 
     testWidgets('renders submit button', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CreateScreen(),
-        overrides: createOverrides(),
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(const CreateScreen(), overrides: createOverrides()),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('동화책 만들기'), findsOneWidget);
     });
 
     testWidgets('validates empty topic on submit', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CreateScreen(),
-        overrides: createOverrides(),
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(const CreateScreen(), overrides: createOverrides()),
+      );
       await tester.pumpAndSettle();
 
       // Tap submit without entering topic
@@ -401,10 +413,9 @@ void main() {
     });
 
     testWidgets('validates short topic on submit', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CreateScreen(),
-        overrides: createOverrides(),
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(const CreateScreen(), overrides: createOverrides()),
+      );
       await tester.pumpAndSettle();
 
       await tester.enterText(find.byType(TextFormField), '토끼');
@@ -415,13 +426,16 @@ void main() {
     });
 
     testWidgets('shows loading indicator for characters', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CreateScreen(),
-        overrides: [
-          charactersProvider
-              .overrideWith(() => _MockLoadingCharactersNotifier()),
-        ],
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const CreateScreen(),
+          overrides: [
+            charactersProvider.overrideWith(
+              () => _MockLoadingCharactersNotifier(),
+            ),
+          ],
+        ),
+      );
       // Only pump once - loading state won't settle
       await tester.pump();
       await scrollCreateSection(tester, find.byType(CircularProgressIndicator));
@@ -434,19 +448,23 @@ void main() {
       );
     });
 
-    testWidgets('shows upgrade modal when create returns payment required',
-        (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CreateScreen(),
-        overrides: [
-          ...createOverrides(),
-          apiClientProvider.overrideWithValue(
-            _MockApiClient(creditsBalance: 3),
-          ),
-          bookCreationProvider
-              .overrideWith(() => _MockPaymentRequiredBookCreationNotifier()),
-        ],
-      ));
+    testWidgets('shows upgrade modal when create returns payment required', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const CreateScreen(),
+          overrides: [
+            ...createOverrides(),
+            apiClientProvider.overrideWithValue(
+              _MockApiClient(creditsBalance: 3),
+            ),
+            bookCreationProvider.overrideWith(
+              () => _MockPaymentRequiredBookCreationNotifier(),
+            ),
+          ],
+        ),
+      );
       await tester.pumpAndSettle();
 
       await tester.enterText(find.byType(TextFormField), '충분히 긴 테스트 주제입니다');
@@ -456,7 +474,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
 
       expect(find.text('플랜 업그레이드가 필요해요'), findsOneWidget);
-      expect(find.textContaining('watercolor/cartoon'), findsOneWidget);
+      expect(find.text('현재 플랜에서는 이 기능을 이용할 수 없어요.'), findsOneWidget);
     });
   });
 
@@ -467,21 +485,25 @@ void main() {
       HomeStreakSnapshot streak = _sampleStreak,
       List<LibraryBook>? books,
       List<Character>? characters,
-    }) =>
-        [
-          libraryProvider
-              .overrideWith(() => _MockLibraryNotifier(books ?? _sampleBooks)),
-          homeStreakProvider.overrideWith((ref) async => streak),
-          charactersProvider.overrideWith(
-              () => _MockCharactersNotifier(characters ?? const [])),
-        ];
+    }) => [
+      libraryProvider.overrideWith(
+        () => _MockLibraryNotifier(books ?? _sampleBooks),
+      ),
+      homeStreakProvider.overrideWith((ref) async => streak),
+      charactersProvider.overrideWith(
+        () => _MockCharactersNotifier(characters ?? const []),
+      ),
+    ];
 
-    testWidgets('renders streak card with current streak and today topic',
-        (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const HomeScreen(),
-        overrides: homeOverrides(books: const []),
-      ));
+    testWidgets('renders streak card with current streak and today topic', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const HomeScreen(),
+          overrides: homeOverrides(books: const []),
+        ),
+      );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 200));
 
@@ -502,10 +524,12 @@ void main() {
         readDates: {'2026-02-20'},
       );
 
-      await tester.pumpWidget(buildTestableWidget(
-        const HomeScreen(),
-        overrides: homeOverrides(streak: noBookStreak, books: const []),
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const HomeScreen(),
+          overrides: homeOverrides(streak: noBookStreak, books: const []),
+        ),
+      );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 200));
 
@@ -513,17 +537,20 @@ void main() {
     });
 
     testWidgets('shows streak error card when provider fails', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const HomeScreen(),
-        overrides: [
-          libraryProvider.overrideWith(() => _MockLibraryNotifier(const [])),
-          homeStreakProvider.overrideWith((ref) async {
-            throw Exception('network');
-          }),
-          charactersProvider
-              .overrideWith(() => _MockCharactersNotifier(const [])),
-        ],
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const HomeScreen(),
+          overrides: [
+            libraryProvider.overrideWith(() => _MockLibraryNotifier(const [])),
+            homeStreakProvider.overrideWith((ref) async {
+              throw Exception('network');
+            }),
+            charactersProvider.overrideWith(
+              () => _MockCharactersNotifier(const []),
+            ),
+          ],
+        ),
+      );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 200));
 
@@ -531,13 +558,18 @@ void main() {
       expect(find.text('다시 시도'), findsOneWidget);
     });
 
-    testWidgets('shows character-first quick-start row when characters exist',
-        (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const HomeScreen(),
-        overrides:
-            homeOverrides(books: const [], characters: _sampleCharacters),
-      ));
+    testWidgets('shows character-first quick-start row when characters exist', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const HomeScreen(),
+          overrides: homeOverrides(
+            books: const [],
+            characters: _sampleCharacters,
+          ),
+        ),
+      );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 200));
 
@@ -546,10 +578,12 @@ void main() {
     });
 
     testWidgets('shows photo-to-character entry card', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const HomeScreen(),
-        overrides: homeOverrides(books: const []),
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const HomeScreen(),
+          overrides: homeOverrides(books: const []),
+        ),
+      );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 200));
 
@@ -561,29 +595,31 @@ void main() {
 
   group('LibraryScreen', () {
     List<Override> libraryOverrides([LibraryBrowseState? state]) => [
-          libraryBrowseProvider.overrideWith(
-            () => _MockLibraryBrowseNotifier(
-              state ??
-                  LibraryBrowseState(
-                    books: _sampleBooks,
-                    total: _sampleBooks.length,
-                    nextCursor: null,
-                    hasMore: false,
-                    isLoadingMore: false,
-                    isOffline: false,
-                    sort: 'newest',
-                    style: null,
-                    targetAge: null,
-                  ),
-            ),
-          ),
-        ];
+      libraryBrowseProvider.overrideWith(
+        () => _MockLibraryBrowseNotifier(
+          state ??
+              LibraryBrowseState(
+                books: _sampleBooks,
+                total: _sampleBooks.length,
+                nextCursor: null,
+                hasMore: false,
+                isLoadingMore: false,
+                isOffline: false,
+                sort: 'newest',
+                style: null,
+                targetAge: null,
+              ),
+        ),
+      ),
+    ];
 
     testWidgets('renders app bar with title', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const LibraryScreen(),
-        overrides: libraryOverrides(),
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const LibraryScreen(),
+          overrides: libraryOverrides(),
+        ),
+      );
       // Use pump + short delay instead of pumpAndSettle to avoid RefreshIndicator issues
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
@@ -592,10 +628,12 @@ void main() {
     });
 
     testWidgets('renders refresh button', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const LibraryScreen(),
-        overrides: libraryOverrides(),
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const LibraryScreen(),
+          overrides: libraryOverrides(),
+        ),
+      );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
@@ -603,10 +641,12 @@ void main() {
     });
 
     testWidgets('renders book grid when data available', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const LibraryScreen(),
-        overrides: libraryOverrides(),
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const LibraryScreen(),
+          overrides: libraryOverrides(),
+        ),
+      );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
@@ -616,8 +656,9 @@ void main() {
       expect(find.text('하나의 여행'), findsOneWidget);
     });
 
-    testWidgets('groups series books into a shelf with an add-volume tile',
-        (tester) async {
+    testWidgets('groups series books into a shelf with an add-volume tile', (
+      tester,
+    ) async {
       final seriesBook = LibraryBook.fromJson({
         'book_id': 'sbook-1',
         'title': '시리즈 1권',
@@ -629,22 +670,24 @@ void main() {
         'series_index': 1,
         'character_id': 'char-x',
       });
-      await tester.pumpWidget(buildTestableWidget(
-        const LibraryScreen(),
-        overrides: libraryOverrides(
-          LibraryBrowseState(
-            books: [seriesBook],
-            total: 1,
-            nextCursor: null,
-            hasMore: false,
-            isLoadingMore: false,
-            isOffline: false,
-            sort: 'newest',
-            style: null,
-            targetAge: null,
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const LibraryScreen(),
+          overrides: libraryOverrides(
+            LibraryBrowseState(
+              books: [seriesBook],
+              total: 1,
+              nextCursor: null,
+              hasMore: false,
+              isLoadingMore: false,
+              isOffline: false,
+              sort: 'newest',
+              style: null,
+              targetAge: null,
+            ),
           ),
         ),
-      ));
+      );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
@@ -654,22 +697,24 @@ void main() {
     });
 
     testWidgets('shows empty state when no books', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const LibraryScreen(),
-        overrides: libraryOverrides(
-          const LibraryBrowseState(
-            books: [],
-            total: 0,
-            nextCursor: null,
-            hasMore: false,
-            isLoadingMore: false,
-            isOffline: false,
-            sort: 'newest',
-            style: null,
-            targetAge: null,
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const LibraryScreen(),
+          overrides: libraryOverrides(
+            const LibraryBrowseState(
+              books: [],
+              total: 0,
+              nextCursor: null,
+              hasMore: false,
+              isLoadingMore: false,
+              isOffline: false,
+              sort: 'newest',
+              style: null,
+              targetAge: null,
+            ),
           ),
         ),
-      ));
+      );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
@@ -679,26 +724,32 @@ void main() {
     });
 
     testWidgets('shows loading indicator', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const LibraryScreen(),
-        overrides: [
-          libraryBrowseProvider
-              .overrideWith(() => _MockLoadingLibraryBrowseNotifier()),
-        ],
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const LibraryScreen(),
+          overrides: [
+            libraryBrowseProvider.overrideWith(
+              () => _MockLoadingLibraryBrowseNotifier(),
+            ),
+          ],
+        ),
+      );
       await tester.pump();
 
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
     });
 
     testWidgets('shows error state', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const LibraryScreen(),
-        overrides: [
-          libraryBrowseProvider
-              .overrideWith(() => _MockErrorLibraryBrowseNotifier()),
-        ],
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const LibraryScreen(),
+          overrides: [
+            libraryBrowseProvider.overrideWith(
+              () => _MockErrorLibraryBrowseNotifier(),
+            ),
+          ],
+        ),
+      );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
@@ -707,10 +758,12 @@ void main() {
     });
 
     testWidgets('renders bottom navigation bar', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const LibraryScreen(),
-        overrides: libraryOverrides(),
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const LibraryScreen(),
+          overrides: libraryOverrides(),
+        ),
+      );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
@@ -725,19 +778,23 @@ void main() {
 
   group('LoadingScreen', () {
     testWidgets('shows progress content with queued status', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const LoadingScreen(jobId: 'test-job-1'),
-        overrides: [
-          jobPollingProvider('test-job-1').overrideWith(
-            (ref) => Stream.value(JobStatus(
-              jobId: 'test-job-1',
-              status: JobState.queued,
-              progress: 0,
-              currentStep: '대기 중...',
-            )),
-          ),
-        ],
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const LoadingScreen(jobId: 'test-job-1'),
+          overrides: [
+            jobPollingProvider('test-job-1').overrideWith(
+              (ref) => Stream.value(
+                JobStatus(
+                  jobId: 'test-job-1',
+                  status: JobState.queued,
+                  progress: 0,
+                  currentStep: '대기 중...',
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
@@ -745,19 +802,23 @@ void main() {
     });
 
     testWidgets('shows progress indicator during generation', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const LoadingScreen(jobId: 'test-job-2'),
-        overrides: [
-          jobPollingProvider('test-job-2').overrideWith(
-            (ref) => Stream.value(JobStatus(
-              jobId: 'test-job-2',
-              status: JobState.running,
-              progress: 50,
-              currentStep: 'generate_story',
-            )),
-          ),
-        ],
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const LoadingScreen(jobId: 'test-job-2'),
+          overrides: [
+            jobPollingProvider('test-job-2').overrideWith(
+              (ref) => Stream.value(
+                JobStatus(
+                  jobId: 'test-job-2',
+                  status: JobState.running,
+                  progress: 50,
+                  currentStep: 'generate_story',
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
@@ -766,19 +827,23 @@ void main() {
     });
 
     testWidgets('shows step description for each step', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const LoadingScreen(jobId: 'test-job-3'),
-        overrides: [
-          jobPollingProvider('test-job-3').overrideWith(
-            (ref) => Stream.value(JobStatus(
-              jobId: 'test-job-3',
-              status: JobState.running,
-              progress: 30,
-              currentStep: 'generate_story',
-            )),
-          ),
-        ],
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const LoadingScreen(jobId: 'test-job-3'),
+          overrides: [
+            jobPollingProvider('test-job-3').overrideWith(
+              (ref) => Stream.value(
+                JobStatus(
+                  jobId: 'test-job-3',
+                  status: JobState.running,
+                  progress: 30,
+                  currentStep: 'generate_story',
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
@@ -786,42 +851,101 @@ void main() {
     });
 
     testWidgets('shows error content on failure', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const LoadingScreen(jobId: 'test-job-err'),
-        overrides: [
-          jobPollingProvider('test-job-err').overrideWith(
-            (ref) => Stream.value(JobStatus(
-              jobId: 'test-job-err',
-              status: JobState.failed,
-              progress: 30,
-              errorMessage: 'LLM 타임아웃',
-            )),
-          ),
-        ],
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const LoadingScreen(jobId: 'test-job-err'),
+          overrides: [
+            jobPollingProvider('test-job-err').overrideWith(
+              (ref) => Stream.value(
+                JobStatus(
+                  jobId: 'test-job-err',
+                  status: JobState.failed,
+                  progress: 30,
+                  errorMessage: 'LLM 타임아웃',
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
       expect(find.text('문제가 발생했어요'), findsOneWidget);
-      expect(find.text('LLM 타임아웃'), findsOneWidget);
+      // 비-안전 실패는 서버 원문 대신 로컬라이즈된 문구를 보여 준다.
+      expect(find.text('LLM 타임아웃'), findsNothing);
+      expect(find.text('요청을 처리하지 못했어요. 잠시 후 다시 시도해 주세요.'), findsOneWidget);
       expect(find.text('다시 시도'), findsOneWidget);
       expect(find.text('홈으로 돌아가기'), findsOneWidget);
     });
 
+    testWidgets(
+      'refund confirmation follows the server ledger state, never an error message',
+      (tester) async {
+        for (final refund in [null, 'pending', 'refunded', 'not_charged']) {
+          final id = 'refund-$refund';
+          final status = JobStatus.fromJson({
+            'job_id': id,
+            'status': 'failed',
+            'progress': 88,
+            'error_code': 'IMAGE_QUALITY_FAILED',
+            'error_message': 'refunded (untrusted failure detail)',
+            if (refund != null) 'credit_refund_status': refund,
+          });
+          await tester.pumpWidget(
+            buildTestableWidget(
+              LoadingScreen(jobId: id),
+              overrides: [
+                jobPollingProvider(
+                  id,
+                ).overrideWith((ref) => Stream.value(status)),
+              ],
+            ),
+          );
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 100));
+          final l = AppLocalizations.of(
+            tester.element(find.byType(LoadingScreen)),
+          );
+          expect(
+            find.text(l.loadingCreditRefunded),
+            refund == 'refunded' ? findsOneWidget : findsNothing,
+          );
+          expect(
+            find.text(l.loadingCreditRefundPending),
+            refund == 'pending' ? findsOneWidget : findsNothing,
+          );
+          expect(
+            find.text(l.loadingCreditNotCharged),
+            refund == 'not_charged' ? findsOneWidget : findsNothing,
+          );
+          expect(
+            find.text('refunded (untrusted failure detail)'),
+            findsNothing,
+          );
+          await tester.pumpWidget(const SizedBox.shrink());
+        }
+      },
+    );
+
     testWidgets('shows error icon on failure', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const LoadingScreen(jobId: 'test-job-err2'),
-        overrides: [
-          jobPollingProvider('test-job-err2').overrideWith(
-            (ref) => Stream.value(JobStatus(
-              jobId: 'test-job-err2',
-              status: JobState.failed,
-              progress: 0,
-              errorMessage: '알 수 없는 오류',
-            )),
-          ),
-        ],
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const LoadingScreen(jobId: 'test-job-err2'),
+          overrides: [
+            jobPollingProvider('test-job-err2').overrideWith(
+              (ref) => Stream.value(
+                JobStatus(
+                  jobId: 'test-job-err2',
+                  status: JobState.failed,
+                  progress: 0,
+                  errorMessage: '알 수 없는 오류',
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
@@ -829,19 +953,23 @@ void main() {
     });
 
     testWidgets('shows tip during progress', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const LoadingScreen(jobId: 'test-job-tip'),
-        overrides: [
-          jobPollingProvider('test-job-tip').overrideWith(
-            (ref) => Stream.value(JobStatus(
-              jobId: 'test-job-tip',
-              status: JobState.running,
-              progress: 20,
-              currentStep: 'normalize',
-            )),
-          ),
-        ],
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const LoadingScreen(jobId: 'test-job-tip'),
+          overrides: [
+            jobPollingProvider('test-job-tip').overrideWith(
+              (ref) => Stream.value(
+                JobStatus(
+                  jobId: 'test-job-tip',
+                  status: JobState.running,
+                  progress: 20,
+                  currentStep: 'normalize',
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
@@ -853,25 +981,30 @@ void main() {
 
   group('CharactersScreen', () {
     List<Override> charOverrides([List<Character>? chars]) => [
-          charactersProvider.overrideWith(
-              () => _MockCharactersNotifier(chars ?? _sampleCharacters)),
-        ];
+      charactersProvider.overrideWith(
+        () => _MockCharactersNotifier(chars ?? _sampleCharacters),
+      ),
+    ];
 
     testWidgets('renders app bar with title', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CharactersScreen(),
-        overrides: charOverrides(),
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const CharactersScreen(),
+          overrides: charOverrides(),
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('내 캐릭터'), findsOneWidget);
     });
 
     testWidgets('renders character list when data available', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CharactersScreen(),
-        overrides: charOverrides(),
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const CharactersScreen(),
+          overrides: charOverrides(),
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('토리'), findsOneWidget);
@@ -879,10 +1012,12 @@ void main() {
     });
 
     testWidgets('shows character descriptions', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CharactersScreen(),
-        overrides: charOverrides(),
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const CharactersScreen(),
+          overrides: charOverrides(),
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('용감한 토끼'), findsOneWidget);
@@ -890,10 +1025,12 @@ void main() {
     });
 
     testWidgets('shows personality traits as chips', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CharactersScreen(),
-        overrides: charOverrides(),
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const CharactersScreen(),
+          overrides: charOverrides(),
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('용감함'), findsOneWidget);
@@ -902,10 +1039,12 @@ void main() {
     });
 
     testWidgets('shows empty state when no characters', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CharactersScreen(),
-        overrides: charOverrides([]),
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const CharactersScreen(),
+          overrides: charOverrides([]),
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('아직 캐릭터가 없어요'), findsOneWidget);
@@ -914,13 +1053,16 @@ void main() {
     });
 
     testWidgets('shows loading indicator', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CharactersScreen(),
-        overrides: [
-          charactersProvider
-              .overrideWith(() => _MockLoadingCharactersNotifier()),
-        ],
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const CharactersScreen(),
+          overrides: [
+            charactersProvider.overrideWith(
+              () => _MockLoadingCharactersNotifier(),
+            ),
+          ],
+        ),
+      );
       // Only pump once (loading state never settles)
       await tester.pump();
 
@@ -928,12 +1070,16 @@ void main() {
     });
 
     testWidgets('shows error state', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CharactersScreen(),
-        overrides: [
-          charactersProvider.overrideWith(() => _MockErrorCharactersNotifier()),
-        ],
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const CharactersScreen(),
+          overrides: [
+            charactersProvider.overrideWith(
+              () => _MockErrorCharactersNotifier(),
+            ),
+          ],
+        ),
+      );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
@@ -942,10 +1088,12 @@ void main() {
     });
 
     testWidgets('renders add character card in list', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CharactersScreen(),
-        overrides: charOverrides(),
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const CharactersScreen(),
+          overrides: charOverrides(),
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('새 캐릭터 추가'), findsOneWidget);
@@ -953,22 +1101,60 @@ void main() {
     });
 
     testWidgets('renders FAB button', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CharactersScreen(),
-        overrides: charOverrides(),
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const CharactersScreen(),
+          overrides: charOverrides(),
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(find.byType(FloatingActionButton), findsOneWidget);
       expect(find.text('캐릭터 만들기'), findsOneWidget);
     });
 
-    testWidgets('shows drawing conversion option in creation sheet',
-        (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CharactersScreen(),
-        overrides: charOverrides(),
-      ));
+    testWidgets('last character clears the FAB at small size and large text', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(320, 480);
+      tester.view.devicePixelRatio = 1;
+      tester.platformDispatcher.textScaleFactorTestValue = 1.6;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const CharactersScreen(),
+          overrides: charOverrides(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final list = find.byType(ListView).first;
+      await tester.drag(list, const Offset(0, -2000));
+      await tester.pumpAndSettle();
+      final lastCard = find
+          .ancestor(
+            of: find.text(_sampleCharacters.last.name),
+            matching: find.byType(GestureDetector),
+          )
+          .first;
+      final fab = find.byType(FloatingActionButton);
+      expect(
+        tester.getRect(lastCard).bottom,
+        lessThan(tester.getRect(fab).top),
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('shows drawing conversion option in creation sheet', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const CharactersScreen(),
+          overrides: charOverrides(),
+        ),
+      );
       await tester.pumpAndSettle();
 
       await tester.tap(find.byType(FloatingActionButton));
@@ -979,69 +1165,96 @@ void main() {
     });
 
     for (final scale in [1.0, 1.4]) {
-      testWidgets('limits pasted character names to 40 on short screen x$scale',
-          (tester) async {
-        tester.view.devicePixelRatio = 1;
-        tester.view.physicalSize = const Size(320, 480);
-        tester.platformDispatcher.textScaleFactorTestValue = scale;
-        addTearDown(() {
-          tester.view.resetPhysicalSize();
-          tester.view.resetDevicePixelRatio();
-          tester.platformDispatcher.clearTextScaleFactorTestValue();
-        });
+      testWidgets(
+        'limits pasted character names to 40 on short screen x$scale',
+        (tester) async {
+          tester.view.devicePixelRatio = 1;
+          tester.view.physicalSize = const Size(320, 480);
+          tester.platformDispatcher.textScaleFactorTestValue = scale;
+          addTearDown(() {
+            tester.view.resetPhysicalSize();
+            tester.view.resetDevicePixelRatio();
+            tester.platformDispatcher.clearTextScaleFactorTestValue();
+          });
 
-        await tester.pumpWidget(buildTestableWidget(
-          const CharactersScreen(),
-          overrides: charOverrides(),
-        ));
-        await tester.pumpAndSettle();
-        expect(tester.takeException(), isNull, reason: 'Character list layout');
-        final homeTarget = find
-            .ancestor(
-                of: find.text('홈'), matching: find.byType(GestureDetector))
-            .first;
-        expect(tester.getSize(homeTarget).width, greaterThanOrEqualTo(64));
-        expect(tester.getSize(homeTarget).height, greaterThanOrEqualTo(64));
-        await tester.tap(find.byTooltip('캐릭터 추가'));
-        await tester.pumpAndSettle();
-        expect(tester.takeException(), isNull,
-            reason: 'Creation options layout');
-        await tester.tap(find.text('직접 입력하기'));
-        await tester.pumpAndSettle();
-        expect(tester.takeException(), isNull,
-            reason: 'Text character form layout');
+          await tester.pumpWidget(
+            buildTestableWidget(
+              const CharactersScreen(),
+              overrides: charOverrides(),
+            ),
+          );
+          await tester.pumpAndSettle();
+          expect(
+            tester.takeException(),
+            isNull,
+            reason: 'Character list layout',
+          );
+          final homeTarget = find
+              .ancestor(
+                of: find.text('홈'),
+                matching: find.byType(GestureDetector),
+              )
+              .first;
+          expect(tester.getSize(homeTarget).width, greaterThanOrEqualTo(64));
+          expect(tester.getSize(homeTarget).height, greaterThanOrEqualTo(64));
+          await tester.tap(find.byTooltip('캐릭터 추가'));
+          await tester.pumpAndSettle();
+          expect(
+            tester.takeException(),
+            isNull,
+            reason: 'Creation options layout',
+          );
+          await tester.tap(find.text('직접 입력하기'));
+          await tester.pumpAndSettle();
+          expect(
+            tester.takeException(),
+            isNull,
+            reason: 'Text character form layout',
+          );
 
-        final l =
-            AppLocalizations.of(tester.element(find.byType(CharactersScreen)));
-        final nameField = find.byWidgetPredicate((widget) =>
-            widget is TextField &&
-            widget.decoration?.hintText == l.charactersFormNameHint);
-        await tester.ensureVisible(nameField);
-        final acceptedName = List.filled(40, '별').join();
-        await tester.enterText(nameField, acceptedName);
-        await tester.pumpAndSettle();
-        expect(
-            tester.widget<TextField>(nameField).controller!.text, acceptedName);
-        await tester.enterText(nameField, acceptedName.padRight(42, '별'));
-        await tester.pumpAndSettle();
-        expect(
-            tester.widget<TextField>(nameField).controller!.text, acceptedName);
-        expect(find.text('40/40'), findsOneWidget);
+          final l = AppLocalizations.of(
+            tester.element(find.byType(CharactersScreen)),
+          );
+          final nameField = find.byWidgetPredicate(
+            (widget) =>
+                widget is TextField &&
+                widget.decoration?.hintText == l.charactersFormNameHint,
+          );
+          await tester.ensureVisible(nameField);
+          final acceptedName = List.filled(40, '별').join();
+          await tester.enterText(nameField, acceptedName);
+          await tester.pumpAndSettle();
+          expect(
+            tester.widget<TextField>(nameField).controller!.text,
+            acceptedName,
+          );
+          await tester.enterText(nameField, acceptedName.padRight(42, '별'));
+          await tester.pumpAndSettle();
+          expect(
+            tester.widget<TextField>(nameField).controller!.text,
+            acceptedName,
+          );
+          expect(find.text('40/40'), findsOneWidget);
 
-        final submit =
-            find.widgetWithText(ElevatedButton, l.charactersFormSubmit);
-        await tester.ensureVisible(submit);
-        await tester.pumpAndSettle();
-        expect(tester.getCenter(submit).dy, lessThan(480));
-        expect(tester.takeException(), isNull);
-      });
+          final submit = find.widgetWithText(
+            ElevatedButton,
+            l.charactersFormSubmit,
+          );
+          await tester.ensureVisible(submit);
+          await tester.pumpAndSettle();
+          expect(tester.getCenter(submit).dy, lessThan(480));
+          expect(tester.takeException(), isNull);
+        },
+      );
     }
 
     testWidgets('renders bottom navigation bar', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CharactersScreen(),
-        overrides: charOverrides(),
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const CharactersScreen(),
+          overrides: charOverrides(),
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('홈'), findsOneWidget);
@@ -1055,12 +1268,12 @@ void main() {
 
   group('CreditsScreen', () {
     testWidgets('renders app bar with title', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CreditsScreen(),
-        overrides: [
-          apiClientProvider.overrideWithValue(_MockApiClient()),
-        ],
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const CreditsScreen(),
+          overrides: [apiClientProvider.overrideWithValue(_MockApiClient())],
+        ),
+      );
       // Pump once to build, then let the async initState start
       await tester.pump();
 
@@ -1072,12 +1285,12 @@ void main() {
 
     testWidgets('exposes 구매 복원 button (Apple 3.1.1)', (tester) async {
       // 구독/비소모성 상품 앱은 '구매 복원' UI 필수 — 없으면 자동 리젝. 회귀 가드.
-      await tester.pumpWidget(buildTestableWidget(
-        const CreditsScreen(),
-        overrides: [
-          apiClientProvider.overrideWithValue(_MockApiClient()),
-        ],
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const CreditsScreen(),
+          overrides: [apiClientProvider.overrideWithValue(_MockApiClient())],
+        ),
+      );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 200));
 
@@ -1086,12 +1299,12 @@ void main() {
     });
 
     testWidgets('shows loading indicator initially', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CreditsScreen(),
-        overrides: [
-          apiClientProvider.overrideWithValue(_MockApiClient()),
-        ],
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const CreditsScreen(),
+          overrides: [apiClientProvider.overrideWithValue(_MockApiClient())],
+        ),
+      );
       // First pump: widget builds with _isLoading = true
       await tester.pump();
 
@@ -1102,12 +1315,12 @@ void main() {
     });
 
     testWidgets('subscription start button tap does not throw', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CreditsScreen(),
-        overrides: [
-          apiClientProvider.overrideWithValue(_MockApiClient()),
-        ],
-      ));
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const CreditsScreen(),
+          overrides: [apiClientProvider.overrideWithValue(_MockApiClient())],
+        ),
+      );
       await tester.pump(const Duration(milliseconds: 200));
 
       final startButton = find.text('구독 시작하기');
@@ -1119,14 +1332,15 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('credit purchase button scrolls to plan section',
-        (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CreditsScreen(),
-        overrides: [
-          apiClientProvider.overrideWithValue(_MockApiClient()),
-        ],
-      ));
+    testWidgets('credit purchase button scrolls to plan section', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const CreditsScreen(),
+          overrides: [apiClientProvider.overrideWithValue(_MockApiClient())],
+        ),
+      );
       await tester.pump(const Duration(milliseconds: 200));
 
       final purchaseButton = find.text('크레딧 구매');
@@ -1139,27 +1353,30 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('renders transactions when amount is string without throwing',
-        (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CreditsScreen(),
-        overrides: [
-          apiClientProvider.overrideWithValue(
-            _MockApiClient(
-              transactions: [
-                {
-                  'id': 1,
-                  'amount': '5',
-                  'balance_after': 15,
-                  'transaction_type': 'purchase',
-                  'description': null,
-                  'created_at': '2026-01-01T12:30:00Z',
-                },
-              ],
+    testWidgets('renders transactions when amount is string without throwing', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const CreditsScreen(),
+          overrides: [
+            apiClientProvider.overrideWithValue(
+              _MockApiClient(
+                transactions: [
+                  {
+                    'id': 1,
+                    'amount': '5',
+                    'balance_after': 15,
+                    'transaction_type': 'purchase',
+                    'description': null,
+                    'created_at': '2026-01-01T12:30:00Z',
+                  },
+                ],
+              ),
             ),
-          ),
-        ],
-      ));
+          ],
+        ),
+      );
       await tester.pump(const Duration(milliseconds: 200));
 
       expect(find.text('거래 내역'), findsOneWidget);
@@ -1168,27 +1385,30 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('handles malformed credits status payload without crashing',
-        (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CreditsScreen(),
-        overrides: [
-          apiClientProvider.overrideWithValue(
-            _MockApiClient(
-              creditsStatus: {
-                'credits': 'unexpected',
-                'subscription': {
-                  'plan_name': 123,
-                  'credits_per_month': '10',
-                  'current_period_end': '2026-02-20T00:00:00Z',
-                  'features': 'not-a-list',
+    testWidgets('handles malformed credits status payload without crashing', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const CreditsScreen(),
+          overrides: [
+            apiClientProvider.overrideWithValue(
+              _MockApiClient(
+                creditsStatus: {
+                  'credits': 'unexpected',
+                  'subscription': {
+                    'plan_name': 123,
+                    'credits_per_month': '10',
+                    'current_period_end': '2026-02-20T00:00:00Z',
+                    'features': 'not-a-list',
+                  },
+                  'available_plans': 'not-a-list',
                 },
-                'available_plans': 'not-a-list',
-              },
+              ),
             ),
-          ),
-        ],
-      ));
+          ],
+        ),
+      );
       await tester.pump(const Duration(milliseconds: 200));
 
       expect(find.text('123 구독'), findsOneWidget);
@@ -1199,26 +1419,28 @@ void main() {
     });
 
     testWidgets('handles non-string map keys in plan payload', (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CreditsScreen(),
-        overrides: [
-          apiClientProvider.overrideWithValue(
-            _MockApiClient(
-              creditsStatus: {
-                'credits': {
-                  'credits': 2,
-                  'total_purchased': 0,
-                  'total_used': 1
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const CreditsScreen(),
+          overrides: [
+            apiClientProvider.overrideWithValue(
+              _MockApiClient(
+                creditsStatus: {
+                  'credits': {
+                    'credits': 2,
+                    'total_purchased': 0,
+                    'total_used': 1,
+                  },
+                  'subscription': null,
+                  'available_plans': [
+                    {1: 'invalid-key-map'},
+                  ],
                 },
-                'subscription': null,
-                'available_plans': [
-                  {1: 'invalid-key-map'},
-                ],
-              },
+              ),
             ),
-          ),
-        ],
-      ));
+          ],
+        ),
+      );
       await tester.pump(const Duration(milliseconds: 200));
 
       expect(find.text('구독 플랜'), findsOneWidget);
@@ -1226,33 +1448,36 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('shows scheduled-cancel badge for cancelled subscription',
-        (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const CreditsScreen(),
-        overrides: [
-          apiClientProvider.overrideWithValue(
-            _MockApiClient(
-              creditsStatus: {
-                'credits': {
-                  'credits': 8,
-                  'total_purchased': 10,
-                  'total_used': 2
+    testWidgets('shows scheduled-cancel badge for cancelled subscription', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const CreditsScreen(),
+          overrides: [
+            apiClientProvider.overrideWithValue(
+              _MockApiClient(
+                creditsStatus: {
+                  'credits': {
+                    'credits': 8,
+                    'total_purchased': 10,
+                    'total_used': 2,
+                  },
+                  'subscription': {
+                    'plan': 'basic',
+                    'plan_name': '베이직',
+                    'status': 'cancelled',
+                    'credits_per_month': 10,
+                    'current_period_end': '2026-03-20T00:00:00Z',
+                    'features': ['모든 스타일'],
+                  },
+                  'available_plans': [],
                 },
-                'subscription': {
-                  'plan': 'basic',
-                  'plan_name': '베이직',
-                  'status': 'cancelled',
-                  'credits_per_month': 10,
-                  'current_period_end': '2026-03-20T00:00:00Z',
-                  'features': ['모든 스타일'],
-                },
-                'available_plans': [],
-              },
+              ),
             ),
-          ),
-        ],
-      ));
+          ],
+        ),
+      );
       await tester.pump(const Duration(milliseconds: 200));
 
       expect(find.text('해지 예정'), findsOneWidget);
@@ -1262,16 +1487,19 @@ void main() {
   });
 
   group('InpaintScreen', () {
-    testWidgets('renders the region prompt field and apply button',
-        (tester) async {
-      await tester.pumpWidget(buildTestableWidget(
-        const InpaintScreen(
-          jobId: 'job-1',
-          bookId: 'book-1',
-          pageNumber: 1,
-          imageUrl: 'https://example.com/p1.png',
+    testWidgets('renders the region prompt field and apply button', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const InpaintScreen(
+            jobId: 'job-1',
+            bookId: 'book-1',
+            pageNumber: 1,
+            imageUrl: 'https://example.com/p1.png',
+          ),
         ),
-      ));
+      );
       await tester.pump();
 
       expect(find.text('부분 수정'), findsOneWidget); // 앱바 제목
@@ -1344,10 +1572,10 @@ class _MockErrorLibraryBrowseNotifier extends LibraryBrowseNotifier {
 class _MockApiClient extends ApiClient {
   @override
   Future<Map<String, dynamic>> getCapabilities() async => {
-        'purchases_supported': true,
-        'apple_purchases_supported': true,
-        'google_purchases_supported': true,
-      };
+    'purchases_supported': true,
+    'apple_purchases_supported': true,
+    'google_purchases_supported': true,
+  };
   final Map<String, dynamic> creditsStatus;
   final List<dynamic> transactions;
   final int creditsBalance;
@@ -1361,10 +1589,10 @@ class _MockApiClient extends ApiClient {
     this.transactions = const [],
     this.creditsBalance = 10,
   }) : super(
-          baseUrl: 'http://localhost',
-          userKey: 'test-key',
-          enableLogging: false,
-        );
+         baseUrl: 'http://localhost',
+         userKey: 'test-key',
+         enableLogging: false,
+       );
 
   @override
   Future<Map<String, dynamic>> getCreditsStatus() async {
@@ -1373,8 +1601,10 @@ class _MockApiClient extends ApiClient {
   }
 
   @override
-  Future<List<dynamic>> getTransactions(
-      {int limit = 20, int offset = 0}) async {
+  Future<List<dynamic>> getTransactions({
+    int limit = 20,
+    int offset = 0,
+  }) async {
     await Future.delayed(const Duration(milliseconds: 50));
     return transactions;
   }

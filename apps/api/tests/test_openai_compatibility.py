@@ -222,7 +222,7 @@ async def test_all_openai_adapters_use_matching_api_contract(monkeypatch, openai
 @pytest.mark.parametrize("failure,expected", [
     ("refusal", ErrorCode.SAFETY_OUTPUT), ("incomplete", ErrorCode.LLM_JSON_INVALID),
     ("invalid_json", ErrorCode.LLM_JSON_INVALID), ("provider_error", ErrorCode.UNKNOWN),
-    ("http_401", ErrorCode.UNKNOWN), ("http_429", ErrorCode.LLM_TIMEOUT),
+    ("http_401", ErrorCode.AI_PROVIDER_UNAVAILABLE), ("http_429", ErrorCode.LLM_TIMEOUT),
     ("timeout", ErrorCode.LLM_TIMEOUT), ("transport", ErrorCode.UNKNOWN),
 ])
 async def test_failures_across_adapters_are_canonical_without_private_diagnostics(

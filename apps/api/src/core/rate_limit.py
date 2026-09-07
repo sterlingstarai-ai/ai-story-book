@@ -6,10 +6,40 @@ from typing import Optional
 import structlog
 import uuid
 import hashlib
-
+from dataclasses import dataclass
+from datetime import timezone
 from src.core.config import settings
 from src.core.exceptions import APIError, RateLimitError
 from src.core.utils import utcnow
+
+
+# Count only admitted requests; rejected retries neither occupy a slot nor extend
+# the recovery window. Lua keeps check-and-admit atomic across API replicas.
+_ADMIT_SCRIPT = """
+local key, now, window, limit = KEYS[1], tonumber(ARGV[1]), tonumber(ARGV[2]), tonumber(ARGV[3])
+redis.call('ZREMRANGEBYSCORE', key, '-inf', now - window)
+local count = redis.call('ZCARD', key)
+if count >= limit then
+  local first = redis.call('ZRANGE', key, 0, 0, 'WITHSCORES')
+  return {0, 0, math.max(1, math.ceil(tonumber(first[2]) + window - now))}
+end
+redis.call('ZADD', key, now, ARGV[4])
+redis.call('EXPIRE', key, math.ceil(window) + 1)
+return {1, limit - count - 1, 0}
+"""
+
+
+@dataclass(frozen=True)
+class RateDecision:
+    allowed: bool
+    remaining: int
+    retry_after: int
+
+    def __iter__(self):
+        # Existing adapter callers consume the two-value contract.
+        yield self.allowed
+        yield self.remaining
+
 
 logger = structlog.get_logger()
 
@@ -32,39 +62,17 @@ class RateLimiter:
             )
         return self._redis
 
-    async def is_allowed(self, user_key: str) -> tuple[bool, int]:
-        """
-        Check if request is allowed for user.
-
-        Returns:
-            tuple: (is_allowed, remaining_requests)
-        """
+    async def is_allowed(self, user_key: str, *, bucket: str = "write") -> RateDecision:
+        """Atomically admit into a bounded read or write window."""
         r = await self.get_redis()
-        now = utcnow().timestamp()
-        window_start = now - settings.rate_limit_window
-
-        # Headers may contain a recovered device bearer. Redis persistence and
-        # diagnostics must not expose a credential capable of accessing a child.
-        key = f"rate_limit:{hashlib.sha256(user_key.encode()).hexdigest()}"
-        member = _rate_limit_member(now)
-
-        pipe = r.pipeline()
-        # Remove old entries
-        pipe.zremrangebyscore(key, 0, window_start)
-        # Add current request
-        pipe.zadd(key, {member: now})
-        # Count requests in window
-        pipe.zcard(key)
-        # Set expiry
-        pipe.expire(key, settings.rate_limit_window + 1)
-
-        results = await pipe.execute()
-        request_count = results[2]
-
-        remaining = max(0, settings.rate_limit_requests - request_count)
-        is_allowed = request_count <= settings.rate_limit_requests
-
-        return is_allowed, remaining
+        now = utcnow().replace(tzinfo=timezone.utc).timestamp()
+        limit = settings.rate_limit_read_requests if bucket == "read" else settings.rate_limit_requests
+        key = f"rate_limit:{bucket}:{hashlib.sha256(user_key.encode()).hexdigest()}"
+        admitted, remaining, retry_after = await r.eval(
+            _ADMIT_SCRIPT, 1, key, now, settings.rate_limit_window,
+            limit, _rate_limit_member(now),
+        )
+        return RateDecision(bool(admitted), int(remaining), int(retry_after))
 
     async def ping(self) -> bool:
         """Check Redis connectivity without mutating rate-limit state."""
@@ -102,15 +110,20 @@ async def check_rate_limit(request: Request):
     user_key = request.headers.get("X-User-Key")
 
     if not user_key:
-        # Let the endpoint handle missing user_key
-        return
+        # Bound malformed/missing-credential requests too, without trusting
+        # arbitrary proxy forwarding headers or recording an IP in Redis.
+        client = getattr(request, "client", None)
+        user_key = "anonymous:" + (getattr(client, "host", None) or "unknown")
+    bucket = "read" if getattr(request, "method", "POST") in {"GET", "HEAD"} else "write"
+    limit = settings.rate_limit_read_requests if bucket == "read" else settings.rate_limit_requests
 
     try:
-        is_allowed, remaining = await rate_limiter.is_allowed(user_key)
+        decision = await rate_limiter.is_allowed(user_key, bucket=bucket)
+        is_allowed, remaining = decision
 
         # Add headers for client
         request.state.rate_limit_remaining = remaining
-        request.state.rate_limit_limit = settings.rate_limit_requests
+        request.state.rate_limit_limit = limit
 
         if not is_allowed:
             # M2: 봉투 코드는 **다른 모든 코드와 같은 UPPER_SNAKE**여야 한다. 여기만
@@ -118,7 +131,7 @@ async def check_rate_limit(request: Request):
             # (api_error.dart)이 `RATE_LIMIT_EXCEEDED` 분기에 매칭하지 못해 en/ja
             # 사용자에게 한국어 서버 문구가 그대로 노출됐다(M15 로컬라이즈 우회).
             # retry_after 는 details 로 내린다(RateLimitError 계약).
-            raise RateLimitError(retry_after=settings.rate_limit_window)
+            raise RateLimitError(retry_after=getattr(decision, "retry_after", settings.rate_limit_window))
     except HTTPException:
         raise
     except Exception as e:

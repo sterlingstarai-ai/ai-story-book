@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
+from src.core.consent import require_parental_consent
 from src.core.dependencies import get_user_key
 from src.core.exceptions import NotFoundError, ValidationError
 from src.core.utils import derive_age_band, utcnow
@@ -94,6 +95,7 @@ async def create_profile(
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
 ):
+    await require_parental_consent(db, user_key)
     count_result = await db.execute(
         select(ChildProfile).where(ChildProfile.user_key == user_key)
     )
@@ -142,6 +144,7 @@ async def update_profile(
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
 ):
+    await require_parental_consent(db, user_key)
     result = await db.execute(
         select(ChildProfile).where(
             ChildProfile.id == profile_id,

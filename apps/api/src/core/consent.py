@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
-from src.core.exceptions import AuthorizationError
+from src.core.exceptions import APIError, AuthorizationError
 from src.models.db import Character, UserConsent
 
 
@@ -28,17 +28,20 @@ def _is_parental_consent_enabled() -> bool:
 async def latest_active_consent(
     db: AsyncSession, user_key: str
 ) -> Optional[UserConsent]:
-    """철회되지 않은 가장 최근 '필수 동의(granted)' 레코드. 동률 시 id로 결정적 tie-break."""
-    result = await db.execute(
-        select(UserConsent)
-        .where(
-            UserConsent.user_key == user_key,
-            UserConsent.granted.is_(True),
-            UserConsent.revoked_at.is_(None),
-        )
-        .order_by(UserConsent.created_at.desc(), UserConsent.id.desc())
-    )
-    return result.scalars().first()
+    """Return only the latest decision when mandatory consent is still active."""
+    latest = (await db.execute(select(UserConsent).where(UserConsent.user_key == user_key)
+        .order_by(UserConsent.created_at.desc(), UserConsent.id.desc()))).scalars().first()
+    return latest if (latest and latest.revoked_at is None and latest.granted
+                      and latest.privacy and latest.data_processing) else None
+
+
+async def require_parental_consent(db: AsyncSession, user_key: str) -> None:
+    """Require the latest mandatory consent before collecting/processing child data."""
+    if not _is_parental_consent_enabled():
+        return
+    if await latest_active_consent(db, user_key) is None:
+        raise APIError(403, "PARENTAL_CONSENT_REQUIRED",
+                       "보호자 동의를 확인한 뒤 다시 시도해주세요.")
 
 
 async def _has_active_photo_consent(db: AsyncSession, user_key: str) -> bool:

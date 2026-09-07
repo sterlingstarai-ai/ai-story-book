@@ -69,7 +69,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get onboardingSlide4Title => '無料ではじめる';
 
   @override
-  String get onboardingSlide4Subtitle => '初回3クレジットですぐに絵本を作れます。';
+  String get onboardingSlide4Subtitle => '毎月最大2冊の絵本を無料で作れます。';
 
   @override
   String onboardingPageIndicator(int current, int total) {
@@ -551,6 +551,9 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get loadingErrorTitle => '問題が発生しました';
+
+  @override
+  String get loadingGenericFailure => 'リクエストを処理できませんでした。しばらくしてからもう一度お試しください。';
 
   @override
   String get loadingUnknownError => '不明なエラー';
@@ -1612,7 +1615,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get planPremium => 'プレミアム';
 
   @override
-  String get planFeaturesFree => '月2冊作成|水彩・カートゥーンスタイル|音声/PDF非対応';
+  String get planFeaturesFree => '毎月2冊の物語|水彩・漫画のイラスト|アプリで物語を読む';
 
   @override
   String get planFeaturesBasic => '月10冊作成|すべてのスタイル|PDF|基本TTS';
@@ -2196,6 +2199,9 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get viewerRegenerateConfirm => '作り直す';
+
+  @override
+  String get viewerRegenerateCompleted => 'ページを作り直しました。';
 
   @override
   String get viewerRegenerateFailed => '再生成に失敗しました。しばらくしてから再試行してください。';
@@ -2883,7 +2889,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get loadingStatusUnavailable =>
-      'お話の進み具合を確認できませんでした。作成は続いている可能性があります。接続を確認してから、このお話の状況をもう一度確認してください。';
+      'お話の状況を確認できませんでした。作成は続いている可能性があります。しばらくしてからこのお話の状況を再度確認してください。';
 
   @override
   String get voiceProfilesUnavailable =>
@@ -3193,4 +3199,80 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get characterAvatarFailedDescription => 'もう一度作るか、別の写真を選んでください。';
+
+  @override
+  String errorMonthlyBookLimit(String limit) {
+    return '無料プランでは毎月$limit冊まで作成できます。韓国時間の翌月1日に上限がリセットされます。残りのクレジットは保持されます。';
+  }
+
+  @override
+  String get errorInsufficientCredits => 'お話を作成するためのクレジットが不足しています。';
+
+  @override
+  String get errorPlanFeature => '現在のプランではこの機能を利用できません。';
+
+  @override
+  String errorRateLimitWait(String seconds) {
+    return 'リクエストが集中しています。$seconds秒後に再試行してください。';
+  }
+
+  @override
+  String get settingsDeleteUncertain =>
+      '削除結果をまだ確認できません。同じアカウントで削除を再試行してください。アプリを再度開いた場合も、本棚を開く前に削除の確認を続けます。';
+
+  @override
+  String get recoveryFinishBackupFirst => 'コードを保管し、下の保存確認を完了してから戻ってください。';
+
+  @override
+  String get charactersRename => '名前を変更';
+
+  @override
+  String get charactersNameSaved => '名前を変更しました。承認済みの姿は変わりません。';
+
+  @override
+  String get charactersManage => 'キャラクターを管理';
+
+  @override
+  String activeChildLabel(String name) {
+    return '選択中のお子さま：$name';
+  }
+
+  @override
+  String get legalReadFull => '全文を読む';
+
+  @override
+  String get legalOpenWebsite => '公開ページを開く';
+
+  @override
+  String get legalKoreanOriginal => 'この文書は韓国語の原文です。';
+
+  @override
+  String get legalDraftNotice => '公開前の確認用です。施行日と外部処理の詳細は公開前に確定します。';
+
+  @override
+  String get consentRequiredOnly => '必須項目すべてに同意';
+
+  @override
+  String get consentOptionalSeparate => '写真の利用への同意は以下で個別に選べます。';
+
+  @override
+  String get consentScrollHint => '下にスクロールして内容をご確認ください。';
+
+  @override
+  String get loadingCreditRefunded => '今回の作成に使ったクレジットは返還されました。';
+
+  @override
+  String get loadingCreditRefundPending =>
+      'クレジットを返還しています。しばらくしてから状況を再度確認してください。';
+
+  @override
+  String get loadingCreditNotCharged => '今回の作成ではクレジットは消費されていません。';
+
+  @override
+  String get errorParentalConsentRequired =>
+      '保護者の同意を先に完了してください。設定で同意内容を確認できます。';
+
+  @override
+  String get localMediaCleanupFailed =>
+      'この端末に残っている画像の削除をまだ確認できません。この画面で再試行すると削除の確認を続けます。';
 }

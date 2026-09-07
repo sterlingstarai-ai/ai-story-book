@@ -79,13 +79,13 @@ async def test_failed_job_refund_recovers_after_transient_failure_once(db_sessio
     await mark_job_failed("job_lost_refund", ErrorCode.UNKNOWN, "failed")
     db_session.expire_all()
     assert (await db_session.get(Job, "job_lost_refund")).status == "failed"
-    assert await db_session.scalar(select(UserCredits.credits)) == 2
+    assert await db_session.scalar(select(UserCredits.credits)) == 1
     await db_session.rollback()
 
     monkeypatch.setattr(credits_service, "refund_for_job", real_refund)
     assert await job_monitor.reconcile_failed_job_refunds() == 1
     assert await job_monitor.reconcile_failed_job_refunds() == 0
-    assert await db_session.scalar(select(UserCredits.credits)) == 3
+    assert await db_session.scalar(select(UserCredits.credits)) == 2
     assert (
         await db_session.scalar(
             select(func.count(CreditTransaction.id)).where(
@@ -176,7 +176,7 @@ async def test_limit_recheck_rolls_back_credit_reservation(db_session, monkeypat
             credit_description="test",
         )
     assert exc.value.error_code == "DAILY_LIMIT_EXCEEDED"
-    assert await db_session.scalar(select(UserCredits.credits)) == 2
+    assert await db_session.scalar(select(UserCredits.credits)) == 1
     assert await db_session.get(Job, "job_rejected") is None
 
 

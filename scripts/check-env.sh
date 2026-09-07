@@ -179,6 +179,13 @@ run_ci_checks() {
     has_errors=true
   fi
 
+  if ! python3 "$ROOT_DIR/scripts/validate_rate_limit_contract.py"; then
+    has_errors=true
+  fi
+  if ! python3 "$ROOT_DIR/scripts/validate_provider_runtime_contract.py"; then
+    has_errors=true
+  fi
+
   if [ "$has_errors" = true ]; then
     exit 1
   fi
@@ -202,6 +209,21 @@ run_runtime_checks() {
     *) return 1 ;;
   esac
   local has_errors=false
+
+  if [ -n "${RATE_LIMIT:-}" ]; then
+    log_fail "RATE_LIMIT is unsupported; use RATE_LIMIT_REQUESTS and RATE_LIMIT_READ_REQUESTS"
+    has_errors=true
+  fi
+  local rate_writes="${RATE_LIMIT_REQUESTS:-10}"
+  local rate_reads="${RATE_LIMIT_READ_REQUESTS:-120}"
+  local rate_window="${RATE_LIMIT_WINDOW:-60}"
+  if [[ ! "$rate_writes" =~ ^[1-9][0-9]*$ ]] || [[ ! "$rate_reads" =~ ^[1-9][0-9]*$ ]] || [[ ! "$rate_window" =~ ^[1-9][0-9]*$ ]]; then
+    log_fail "Rate limits and window must be positive integers"
+    has_errors=true
+  elif [ "$((rate_reads * 60))" -lt "$((rate_window * 60))" ]; then
+    log_fail "Read rate must support at least 60 requests per minute for progress polling and navigation"
+    has_errors=true
+  fi
 
   echo "Checking required variables..."
   echo "----------------------------------------"

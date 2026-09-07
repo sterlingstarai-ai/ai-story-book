@@ -107,7 +107,6 @@ class ParentalControlService {
   ) async {
     await prefs.setBool(consentGrantedKey, granted);
     if (!granted) {
-      await prefs.setBool(onboardingDoneKey, false);
       await clearAgeGateSession(prefs);
     }
   }

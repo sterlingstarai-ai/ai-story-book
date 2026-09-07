@@ -21,13 +21,23 @@ class _ReadingApi extends ApiClient {
   final String? failure;
   final Completer<Map<String, dynamic>>? pending;
   final records = <({String bookId, int seconds, bool completed})>[];
+  var streakReads = 0;
 
   @override
   Future<Map<String, dynamic>> getSettings() async =>
       {'allow_kakao_share': false};
 
   @override
-  Future<Map<String, dynamic>> getStreakInfo() async => {'current_streak': 1};
+  Future<Map<String, dynamic>> getStreakInfo() async {
+    streakReads++;
+    return {'current_streak': 1};
+  }
+
+  @override
+  Future<Map<String, dynamic>> getTodayStory() async => {};
+
+  @override
+  Future<List<dynamic>> getReadingHistory({int days = 30}) async => [];
 
   @override
   Future<Map<String, dynamic>> recordReading({
@@ -75,15 +85,17 @@ Future<ProviderContainer> _pumpViewer(
         .overrideWith((ref) async => {'audio_supported': false}),
   ]);
   addTearDown(container.dispose);
-  await tester.pumpWidget(UncontrolledProviderScope(
-    container: container,
-    child: const MaterialApp(
-      locale: Locale('ko'),
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
-      supportedLocales: AppLocalizations.supportedLocales,
-      home: ViewerScreen(bookId: 'read-session-book'),
+  await tester.pumpWidget(
+    UncontrolledProviderScope(
+      container: container,
+      child: const MaterialApp(
+        locale: Locale('ko'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: ViewerScreen(bookId: 'read-session-book'),
+      ),
     ),
-  ));
+  );
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 200));
   return container;
@@ -129,30 +141,69 @@ void main() {
   });
 
   testWidgets(
-      'completion followed by disposal does not add an abandoned record',
-      (tester) async {
-    final pending = Completer<Map<String, dynamic>>();
-    final api = _ReadingApi(pending: pending);
-    await _pumpViewer(tester, api);
+    'a delayed successful exit record refreshes the cached home streak',
+    (tester) async {
+      final pending = Completer<Map<String, dynamic>>();
+      final api = _ReadingApi(pending: pending);
+      final container = await _pumpViewer(tester, api);
+      await container.read(homeStreakProvider.future);
+      expect(api.streakReads, 1);
+      await _nextPage(tester);
+      await _closeViewer(tester);
+      await container.read(homeStreakProvider.future);
+      expect(
+        api.streakReads,
+        1,
+        reason: 'Do not refresh before the write succeeds.',
+      );
+      pending.complete({});
+      await tester.pump();
+      await container.read(homeStreakProvider.future);
+      expect(api.streakReads, 2);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('a failed exit record leaves the cached streak intact', (
+    tester,
+  ) async {
+    final api = _ReadingApi(failure: 'async');
+    final container = await _pumpViewer(tester, api);
+    await container.read(homeStreakProvider.future);
     await _nextPage(tester);
-    await _nextPage(tester);
-    await _nextPage(tester);
-    expect(api.records, isEmpty);
-    final finish = find.byKey(const Key('viewer-finish-reading'));
-    await tester.ensureVisible(finish);
-    await tester.tap(finish);
-    await tester.pump();
-    expect(api.records, hasLength(1));
-    expect(api.records.single.completed, isTrue);
     await _closeViewer(tester);
-    pending.complete({});
-    await tester.pump();
-    expect(api.records, hasLength(1));
+    await container.read(homeStreakProvider.future);
+    expect(api.streakReads, 1);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('reaching the last page without finishing is still abandoned',
-      (tester) async {
+  testWidgets(
+    'completion followed by disposal does not add an abandoned record',
+    (tester) async {
+      final pending = Completer<Map<String, dynamic>>();
+      final api = _ReadingApi(pending: pending);
+      await _pumpViewer(tester, api);
+      await _nextPage(tester);
+      await _nextPage(tester);
+      await _nextPage(tester);
+      expect(api.records, isEmpty);
+      final finish = find.byKey(const Key('viewer-finish-reading'));
+      await tester.ensureVisible(finish);
+      await tester.tap(finish);
+      await tester.pump();
+      expect(api.records, hasLength(1));
+      expect(api.records.single.completed, isTrue);
+      await _closeViewer(tester);
+      pending.complete({});
+      await tester.pump();
+      expect(api.records, hasLength(1));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('reaching the last page without finishing is still abandoned', (
+    tester,
+  ) async {
     final api = _ReadingApi();
     await _pumpViewer(tester, api);
     await _nextPage(tester);

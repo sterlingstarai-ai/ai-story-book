@@ -221,6 +221,10 @@ async def generate_today_story(
     # H18: 재시도(타임아웃 후 재탭) 이중 생성·이중 차감 방지 — 기존 잡 반환. 일별 dedup과
     # 무관한 시도-단위 멱등키(다른 키면 새 생성이 정상).
     if idempotency_key:
+        from src.services.photo_lifecycle import lock_photo_account
+        from src.routers.books import _assert_job_profile_scope
+
+        await lock_photo_account(db, user_key)
         existing_job = (
             await db.execute(
                 select(Job).where(
@@ -230,6 +234,7 @@ async def generate_today_story(
             )
         ).scalar_one_or_none()
         if existing_job:
+            _assert_job_profile_scope(existing_job, scoped_profile_id)
             return CreateBookResponse(
                 job_id=existing_job.id,
                 status=JobState(existing_job.status),
@@ -271,7 +276,7 @@ async def generate_today_story(
     await consume_generation_budget(endpoint="streak.today_generate")
 
     job_id = f"job_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
-    await _create_job_with_credit(
+    existing = await _create_job_with_credit(
         db=db,
         user_key=user_key,
         job_id=job_id,
@@ -282,6 +287,8 @@ async def generate_today_story(
         profile_id=scoped_profile_id,
         validated_style=spec.style,
     )
+    if existing:
+        return existing
     await schedule_book_generation(db, background_tasks, job_id, spec, user_key)
 
     return CreateBookResponse(

@@ -53,7 +53,7 @@
   "onboardingSlide3Title": "A daily reading habit",
   "onboardingSlide3Subtitle": "Build a daily reading habit with streaks.",
   "onboardingSlide4Title": "Start for free",
-  "onboardingSlide4Subtitle": "Make your first storybook with 3 starter credits.",
+  "onboardingSlide4Subtitle": "Create up to two storybooks each month for free.",
   "onboardingPageIndicator": "Page {current} of {total}",
   "@onboardingPageIndicator": {
     "description": "Accessibility label for the onboarding page indicator",
@@ -218,6 +218,7 @@
   "loadingTitle": "Creating your storybook",
   "loadingCompleted": "All done!",
   "loadingErrorTitle": "Something went wrong",
+  "loadingGenericFailure": "We couldn't complete this request. Please try again in a moment.",
   "loadingUnknownError": "Unknown error",
   "loadingTimeoutMessage": "Generation is taking longer than expected. Please check the status again.",
   "errorValidation": "Please check your input.",
@@ -804,7 +805,7 @@
   "planFree": "Free",
   "planBasic": "Basic",
   "planPremium": "Premium",
-  "planFeaturesFree": "2 books / month|Watercolor & cartoon styles|No audio/PDF",
+  "planFeaturesFree": "2 books each month|Watercolor & cartoon illustrations|Read stories in the app",
   "planFeaturesBasic": "10 books / month|All styles|PDF|Basic TTS",
   "planFeaturesPremium": "30 books / month|All features|Premium TTS|Priority processing",
   "creditsCurrentPlan": "Current Plan",
@@ -989,6 +990,7 @@
   "viewerRegenerateFeedbackHint": "e.g. Make it shorter and simpler",
   "viewerRegenerateFeedbackRequired": "Tell us what you'd like changed",
   "viewerRegenerateConfirm": "Regenerate",
+  "viewerRegenerateCompleted": "This page has been remade.",
   "viewerRegenerateFailed": "Regeneration failed. Please try again in a moment.",
   "viewerPdfGenerating": "Generating PDF...",
   "viewerPdfSaved": "PDF saved: {fileName}",
@@ -1822,7 +1824,7 @@
   "accountUnavailableMessage": "We could not open your saved account. Unlock your device and retry, or restore it with your recovery code. Keep this app installed while resolving access.",
   "accountRetry": "Try again",
   "podOrderingUnavailable": "Physical book ordering is not available in this release.",
-  "loadingStatusUnavailable": "We could not check the progress of your story. It may still be creating. Check your connection, then check this story's status again.",
+  "loadingStatusUnavailable": "We could not check your story’s progress. It may still be creating. Check this story’s status again shortly.",
   "voiceProfilesUnavailable": "Family voice is unavailable in this release. You can still delete saved voice samples or withdraw consent.",
   "loadingStatusUnavailableTitle": "Let's check your story's progress",
   "settingsSavedVoices": "Manage saved voice samples",
@@ -1925,5 +1927,48 @@
   "characterAvatarHeroLabel": "Hero of this book",
   "characterAvatarApprovedDescription": "This character can join your next story, too.",
   "characterAvatarPreparingDescription": "Your story character is being created.",
-  "characterAvatarFailedDescription": "Try creating again or choose another photo."
+  "characterAvatarFailedDescription": "Try creating again or choose another photo.",
+  "errorMonthlyBookLimit": "The free plan allows {limit} books each month. Your limit resets on the first day of next month, Korea time. Remaining credits are kept.",
+  "@errorMonthlyBookLimit": {
+    "placeholders": {
+      "limit": {
+        "type": "String"
+      }
+    }
+  },
+  "errorInsufficientCredits": "You do not have enough credits to create this story.",
+  "errorPlanFeature": "This feature is not included in your current plan.",
+  "errorRateLimitWait": "Please wait {seconds} seconds before trying again.",
+  "@errorRateLimitWait": {
+    "placeholders": {
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsDeleteUncertain": "We could not confirm the deletion result yet. Retry deletion for this account. If you reopen the app, we will continue checking before opening your library.",
+  "recoveryFinishBackupFirst": "Save the code and complete the backup confirmation below before leaving.",
+  "charactersRename": "Rename",
+  "charactersNameSaved": "Character renamed. The approved appearance is unchanged.",
+  "charactersManage": "Manage character",
+  "activeChildLabel": "Current child: {name}",
+  "@activeChildLabel": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "legalReadFull": "Read full text",
+  "legalOpenWebsite": "Open public page",
+  "legalKoreanOriginal": "This document is provided in Korean.",
+  "legalDraftNotice": "Pre-release review copy. The effective date and external processing details will be finalized before publication.",
+  "consentRequiredOnly": "Agree to required items",
+  "consentOptionalSeparate": "Choose photo consent separately below.",
+  "consentScrollHint": "Scroll down to read all details.",
+  "loadingCreditRefunded": "The credits used for this generation have been returned.",
+  "loadingCreditRefundPending": "Your credits are being returned. Check the status again shortly.",
+  "loadingCreditNotCharged": "No credits were charged for this generation.",
+  "errorParentalConsentRequired": "Complete parental consent first. You can review consent in Settings.",
+  "localMediaCleanupFailed": "We could not confirm removal of cached images on this device. Retry on this screen to continue cleanup."
 }

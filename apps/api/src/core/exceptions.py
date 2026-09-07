@@ -318,34 +318,28 @@ async def validation_exception_handler(
     exc: RequestValidationError,
 ) -> JSONResponse:
     """Handle request schema validation errors consistently."""
-    details = jsonable_encoder(
-        exc.errors(),
-        custom_encoder={
-            ValueError: str,
-            Exception: str,
-        },
-    )
-    if request.url.path.startswith("/v1/account/"):
-        # Pydantic validation errors otherwise echo credential-bearing input,
-        # including an entire rejected request body or unknown extra field.
-        details = [
-            {key: item[key] for key in ("type", "loc", "msg") if key in item}
-            for item in details
-        ]
-        safe_locations = {
-            "body", "header", "query", "path", "recovery_code", "new_user_key",
-            "x-user-key", "x_user_key",
-        }
-        for item in details:
-            item["loc"] = [
-                part if isinstance(part, int) or part in safe_locations else "field"
-                for part in item.get("loc", [])
-            ]
+    # Never echo a rejected child photo, name, prompt, token, or unknown object
+    # key. Keep a bounded diagnostic shape; custom validators may echo values in
+    # their message, so only stable Pydantic metadata is public.
+    errors = exc.errors()
+    safe_fields = {"body", "header", "query", "path", "topic", "name", "protagonist_name",
+                   "target_age", "style", "page_count", "language", "character", "character_id",
+                   "character_ids", "x-user-key", "x_user_key", "x-profile-id", "recovery_code",
+                   "new_user_key", "birth_year", "birth_month"}
+    details = []
+    for item in errors[:20]:
+        kind = str(item.get("type", "validation_error"))[:80]
+        details.append({
+            "type": kind,
+            "loc": [part if isinstance(part, int) or part in safe_fields else "field"
+                    for part in item.get("loc", [])[:8]],
+            "msg": "Field required" if kind == "missing" else "Invalid field value",
+        })
     message = "입력 정보를 확인해주세요."
     logger.warning(
         "Validation error",
         error_code="VALIDATION_ERROR",
-        errors_count=len(details),
+        errors_count=len(errors),
         path=redact_path(request.url.path),
     )
 

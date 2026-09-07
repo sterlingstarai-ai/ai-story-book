@@ -16,6 +16,7 @@ import structlog
 from src.core.config import settings
 from src.services.storage import media_url
 from src.services.image_request_budget import consume_image_request
+from src.services.provider_runtime import begin_provider_request, observe_provider_response
 from src.services.image_correction import correction_scene_reference, provider_prompt_with_correction
 from src.core.errors import ImageError, ErrorCode
 from src.models.dto import ImagePrompt
@@ -163,6 +164,7 @@ async def _generate_openai(prompt: ImagePrompt, reference_image_url: str | None 
 
     async with httpx.AsyncClient(timeout=settings.image_timeout) as client:
         consume_image_request()
+        attempt = begin_provider_request(settings.image_provider, settings.image_model, "image", settings.image_api_key)
         if references:
             # Multipart sets its own boundary. GPT Image 2 always uses high
             # input fidelity; its API rejects an input_fidelity override.
@@ -190,6 +192,10 @@ async def _generate_openai(prompt: ImagePrompt, reference_image_url: str | None 
                 },
                 json=json_body,
             )
+
+        permanent_error = await observe_provider_response(attempt, response)
+        if permanent_error:
+            raise ImageError(permanent_error, "AI 제공자 서비스를 현재 사용할 수 없습니다.", page=prompt.page)
 
         if response.status_code == 429:
             logger.warning("OpenAI rate limit hit", page=prompt.page)
@@ -393,11 +399,16 @@ async def _generate_gemini(
 
     async with httpx.AsyncClient(timeout=settings.image_timeout) as client:
         consume_image_request()
+        attempt = begin_provider_request(settings.image_provider, settings.image_model, "image", settings.image_api_key)
         response = await client.post(
             f"{_GEMINI_BASE_URL}/{settings.image_model}:generateContent",
             headers={"Content-Type": "application/json", "x-goog-api-key": settings.image_api_key},
             json=body,
         )
+
+        permanent_error = await observe_provider_response(attempt, response)
+        if permanent_error:
+            raise ImageError(permanent_error, "AI 제공자 서비스를 현재 사용할 수 없습니다.", page=prompt.page)
 
         if response.status_code == 429:
             logger.warning("Gemini rate limit hit", page=prompt.page)
@@ -551,6 +562,7 @@ async def _generate_replicate(prompt: ImagePrompt) -> str:
     async with httpx.AsyncClient(timeout=settings.image_timeout) as client:
         # Create prediction
         consume_image_request()
+        attempt = begin_provider_request(settings.image_provider, settings.image_model, "image", settings.image_api_key)
         response = await client.post(
             "https://api.replicate.com/v1/predictions",
             headers={
@@ -579,6 +591,10 @@ async def _generate_replicate(prompt: ImagePrompt) -> str:
                 },
             },
         )
+
+        permanent_error = await observe_provider_response(attempt, response)
+        if permanent_error:
+            raise ImageError(permanent_error, "AI 제공자 서비스를 현재 사용할 수 없습니다.", page=prompt.page)
 
         if response.status_code != 201:
             logger.error(
@@ -681,6 +697,7 @@ async def _generate_fal(prompt: ImagePrompt) -> str:
 
     async with httpx.AsyncClient(timeout=settings.image_timeout) as client:
         consume_image_request()
+        attempt = begin_provider_request(settings.image_provider, settings.image_model, "image", settings.image_api_key)
         response = await client.post(
             endpoint,
             headers={
@@ -689,6 +706,10 @@ async def _generate_fal(prompt: ImagePrompt) -> str:
             },
             json=payload,
         )
+
+        permanent_error = await observe_provider_response(attempt, response)
+        if permanent_error:
+            raise ImageError(permanent_error, "AI 제공자 서비스를 현재 사용할 수 없습니다.", page=prompt.page)
 
         if response.status_code != 200:
             logger.error(

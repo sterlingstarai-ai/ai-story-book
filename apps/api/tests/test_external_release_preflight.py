@@ -193,3 +193,28 @@ def test_compose_preflight_accepts_free_beta_without_store_credentials(tmp_path,
 def test_explicit_openai_image_quality_is_valid_configuration(configured, quality):
     result = preflight.assess({**configured, "OPENAI_IMAGE_QUALITY": quality})
     assert result["status"] == "CONFIGURED_NOT_VERIFIED"
+
+
+@pytest.mark.parametrize("change", [
+    {"publication_status": "review"}, {"effective_date": None},
+    {"effective_date": "2026-99-99"}, {"operator": ""},
+    {"contact_email": ""}, {"sections": []},
+])
+def test_bundled_policy_release_gate_requires_both_complete_documents(tmp_path, change):
+    assets = tmp_path / "apps/mobile/assets/legal"
+    assets.mkdir(parents=True)
+    approved = {"publication_status": "approved", "effective_date": "2026-09-07",
+                "operator": "Fictional operator", "contact_email": "support@storybook-fixture.org",
+                "sections": [{"heading": "Fixture", "paragraphs": ["Fixture document."]}]}
+    (assets / "privacy.ko.json").write_text(json.dumps(approved))
+    (assets / "terms.ko.json").write_text(json.dumps(approved))
+    assert preflight.assess_bundled_policies(tmp_path)["ready"] is True
+    (assets / "terms.ko.json").write_text(json.dumps({**approved, **change}))
+    report = preflight.assess_bundled_policies(tmp_path)
+    assert report["ready"] is False
+    assert report["documents"]["privacy"] == "approved"
+    assert report["documents"]["terms"] != "approved"
+
+
+def test_missing_policy_asset_fails_release_gate(tmp_path):
+    assert preflight.assess_bundled_policies(tmp_path)["ready"] is False

@@ -8,12 +8,17 @@ import '../services/user_service.dart';
 import '../utils/constants.dart';
 import '../widgets/age_gate_dialog.dart';
 
-Future<bool> openAccountRecovery(BuildContext context, WidgetRef ref,
-    {bool restoreOnly = false}) async {
+Future<bool> openAccountRecovery(
+  BuildContext context,
+  WidgetRef ref, {
+  bool restoreOnly = false,
+}) async {
   if (!await ensureAgeGate(context, ref) || !context.mounted) return false;
-  final recovered = await Navigator.of(context).push<bool>(MaterialPageRoute(
-    builder: (_) => AccountRecoveryScreen(restoreOnly: restoreOnly),
-  ));
+  final recovered = await Navigator.of(context).push<bool>(
+    MaterialPageRoute(
+      builder: (_) => AccountRecoveryScreen(restoreOnly: restoreOnly),
+    ),
+  );
   return recovered == true;
 }
 
@@ -87,8 +92,9 @@ class _AccountRecoveryScreenState extends ConsumerState<AccountRecoveryScreen> {
       await ref
           .read(sharedPreferencesProvider)
           .setBool(UserService.recoveryBackupNeededKey, true);
-      final code =
-          await ref.read(apiClientProvider).createAccountRecoveryCode();
+      final code = await ref
+          .read(apiClientProvider)
+          .createAccountRecoveryCode();
       if (!mounted) return;
       setState(() {
         _code = code;
@@ -98,7 +104,8 @@ class _AccountRecoveryScreenState extends ConsumerState<AccountRecoveryScreen> {
     } catch (_) {
       if (mounted) {
         setState(
-            () => _error = AppLocalizations.of(context).recoveryIssueError);
+          () => _error = AppLocalizations.of(context).recoveryIssueError,
+        );
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -118,8 +125,9 @@ class _AccountRecoveryScreenState extends ConsumerState<AccountRecoveryScreen> {
       _error = null;
     });
     try {
-      final replacement =
-          await ref.read(accountRecoveryServiceProvider).recover(code);
+      final replacement = await ref
+          .read(accountRecoveryServiceProvider)
+          .recover(code);
       if (!mounted) return;
       invalidateRecoveredAccount(ref);
       _input.clear();
@@ -134,7 +142,9 @@ class _AccountRecoveryScreenState extends ConsumerState<AccountRecoveryScreen> {
       try {
         pending =
             await ref.read(userServiceProvider).pendingRecoveryKey() != null;
-      } catch (_) {/* Keep the recovery screen when storage cannot be read. */}
+      } catch (_) {
+        /* Keep the recovery screen when storage cannot be read. */
+      }
       if (!mounted) return;
       setState(() {
         _uncertain = pending;
@@ -177,18 +187,31 @@ class _AccountRecoveryScreenState extends ConsumerState<AccountRecoveryScreen> {
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
     final code = _code;
-    final currentAccountBackedUp = _enabled &&
+    final currentAccountBackedUp =
+        _enabled &&
         ref
                 .read(sharedPreferencesProvider)
                 .getBool(UserService.recoveryBackupNeededKey) !=
             true;
-    final canConfirm = code != null &&
+    final canConfirm =
+        code != null &&
         _saved &&
         _confirmation.text == code.substring(code.length - 6);
     return PopScope(
       canPop: !_busy && !_uncertain && !_recovered && code == null,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && code != null) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(l.recoveryFinishBackupFirst)));
+        }
+      },
       child: Scaffold(
-        appBar: AppBar(title: Text(l.recoveryTitle)),
+        appBar: AppBar(
+          title: Text(l.recoveryTitle),
+          automaticallyImplyLeading:
+              code == null && !_busy && !_uncertain && !_recovered,
+        ),
         body: SafeArea(
           child: Center(
             child: ConstrainedBox(
@@ -202,90 +225,112 @@ class _AccountRecoveryScreenState extends ConsumerState<AccountRecoveryScreen> {
                       const Center(child: CircularProgressIndicator())
                     else if (code != null) ...[
                       Text(
-                          _recovered
-                              ? l.recoverySucceeded
-                              : l.recoverySaveTitle,
-                          style: Theme.of(context).textTheme.headlineSmall),
+                        _recovered ? l.recoverySucceeded : l.recoverySaveTitle,
+                        style: Theme.of(context).textTheme.headlineSmall,
+                      ),
                       const SizedBox(height: 16),
                       Text(l.recoverySaveMessage),
                       const SizedBox(height: 20),
                       Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .surfaceContainerHighest,
-                            borderRadius: BorderRadius.circular(12)),
-                        child: SelectableText(code,
-                            style: const TextStyle(
-                                fontFamily: 'monospace', fontSize: 18)),
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: SelectableText(
+                          code,
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 18,
+                          ),
+                        ),
                       ),
                       const SizedBox(height: 12),
                       OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                              minimumSize: const Size(64, 64)),
-                          onPressed: () async {
-                            await Clipboard.setData(ClipboardData(text: code));
-                            if (!context.mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text(l.recoveryCopied)));
-                          },
-                          icon: const Icon(Icons.copy),
-                          label: Text(l.recoveryCopy)),
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size(64, 64),
+                        ),
+                        onPressed: () async {
+                          await Clipboard.setData(ClipboardData(text: code));
+                          if (!context.mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text(l.recoveryCopied)),
+                          );
+                        },
+                        icon: const Icon(Icons.copy),
+                        label: Text(l.recoveryCopy),
+                      ),
                       CheckboxListTile(
-                          contentPadding: EdgeInsets.zero,
-                          value: _saved,
-                          title: Text(l.recoverySavedCheck),
-                          onChanged: _busy
-                              ? null
-                              : (value) =>
-                                  setState(() => _saved = value ?? false)),
+                        contentPadding: EdgeInsets.zero,
+                        value: _saved,
+                        title: Text(l.recoverySavedCheck),
+                        onChanged: _busy
+                            ? null
+                            : (value) =>
+                                  setState(() => _saved = value ?? false),
+                      ),
                       TextField(
-                          controller: _confirmation,
-                          enabled: !_busy,
-                          textInputAction: TextInputAction.done,
-                          onSubmitted: (_) => _confirmSaved(),
-                          autocorrect: false,
-                          enableSuggestions: false,
-                          enableIMEPersonalizedLearning: false,
-                          maxLength: 6,
-                          decoration: InputDecoration(
-                              labelText: l.recoveryConfirmSuffix),
-                          onChanged: (_) => setState(() {})),
+                        controller: _confirmation,
+                        enabled: !_busy,
+                        textInputAction: TextInputAction.done,
+                        onSubmitted: (_) => _confirmSaved(),
+                        autocorrect: false,
+                        enableSuggestions: false,
+                        enableIMEPersonalizedLearning: false,
+                        maxLength: 6,
+                        decoration: InputDecoration(
+                          labelText: l.recoveryConfirmSuffix,
+                        ),
+                        onChanged: (_) => setState(() {}),
+                      ),
                       const SizedBox(height: 16),
-                      _button(l.recoveryConfirmSaved,
-                          canConfirm && !_busy ? _confirmSaved : null),
+                      _button(
+                        l.recoveryConfirmSaved,
+                        canConfirm && !_busy ? _confirmSaved : null,
+                      ),
                     ] else if (_recovered) ...[
-                      Text(l.recoverySucceeded,
-                          style: Theme.of(context).textTheme.headlineSmall),
+                      Text(
+                        l.recoverySucceeded,
+                        style: Theme.of(context).textTheme.headlineSmall,
+                      ),
                       const SizedBox(height: 16),
                       Text(l.recoveryBackupPending),
                       const SizedBox(height: 24),
-                      _button(l.recoveryContinue,
-                          () => Navigator.pop(context, true)),
+                      _button(
+                        l.recoveryContinue,
+                        () => Navigator.pop(context, true),
+                      ),
                     ] else if (_restore) ...[
-                      Text(l.recoveryRestoreTitle,
-                          style: Theme.of(context).textTheme.headlineSmall),
+                      Text(
+                        l.recoveryRestoreTitle,
+                        style: Theme.of(context).textTheme.headlineSmall,
+                      ),
                       const SizedBox(height: 16),
                       Text(l.recoveryRestoreMessage),
                       const SizedBox(height: 24),
                       TextField(
-                          key: const ValueKey('recovery-code-input'),
-                          controller: _input,
-                          textInputAction: TextInputAction.done,
-                          onSubmitted: (_) => _recover(),
-                          obscureText: true,
-                          autocorrect: false,
-                          enableSuggestions: false,
-                          enableIMEPersonalizedLearning: false,
-                          enabled: !_busy,
-                          decoration:
-                              InputDecoration(labelText: l.recoveryCodeLabel)),
+                        key: const ValueKey('recovery-code-input'),
+                        controller: _input,
+                        textInputAction: TextInputAction.done,
+                        onSubmitted: (_) => _recover(),
+                        obscureText: true,
+                        autocorrect: false,
+                        enableSuggestions: false,
+                        enableIMEPersonalizedLearning: false,
+                        enabled: !_busy,
+                        decoration: InputDecoration(
+                          labelText: l.recoveryCodeLabel,
+                        ),
+                      ),
                       const SizedBox(height: 24),
                       _button(l.recoveryRestoreButton, _busy ? null : _recover),
                     ] else ...[
-                      Text(_enabled ? l.recoveryEnabled : l.recoveryNotEnabled,
-                          style: Theme.of(context).textTheme.headlineSmall),
+                      Text(
+                        _enabled ? l.recoveryEnabled : l.recoveryNotEnabled,
+                        style: Theme.of(context).textTheme.headlineSmall,
+                      ),
                       const SizedBox(height: 16),
                       Text(l.recoveryDescription),
                       if (ref
@@ -298,10 +343,11 @@ class _AccountRecoveryScreenState extends ConsumerState<AccountRecoveryScreen> {
                       const SizedBox(height: 24),
                       if (_error == null)
                         _button(
-                            _enabled
-                                ? l.recoveryReplaceCode
-                                : l.recoveryCreateCode,
-                            _busy ? null : _issue)
+                          _enabled
+                              ? l.recoveryReplaceCode
+                              : l.recoveryCreateCode,
+                          _busy ? null : _issue,
+                        )
                       else
                         _button(l.accountRetry, _busy ? null : _load),
                       const SizedBox(height: 16),
@@ -310,26 +356,33 @@ class _AccountRecoveryScreenState extends ConsumerState<AccountRecoveryScreen> {
                         const SizedBox(height: 16),
                       ],
                       OutlinedButton(
-                          style: OutlinedButton.styleFrom(
-                              minimumSize: const Size(64, 64)),
-                          onPressed: _busy || !currentAccountBackedUp
-                              ? null
-                              : () => setState(() {
-                                    _restore = true;
-                                    _error = null;
-                                  }),
-                          child: Text(l.recoveryRestoreTitle)),
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size(64, 64),
+                        ),
+                        onPressed: _busy || !currentAccountBackedUp
+                            ? null
+                            : () => setState(() {
+                                _restore = true;
+                                _error = null;
+                              }),
+                        child: Text(l.recoveryRestoreTitle),
+                      ),
                     ],
                     if (_busy)
                       const Padding(
-                          padding: EdgeInsets.all(16),
-                          child: Center(child: CircularProgressIndicator())),
+                        padding: EdgeInsets.all(16),
+                        child: Center(child: CircularProgressIndicator()),
+                      ),
                     if (_error != null)
                       Padding(
-                          padding: const EdgeInsets.only(top: 16),
-                          child: Text(_error!,
-                              style: TextStyle(
-                                  color: Theme.of(context).colorScheme.error))),
+                        padding: const EdgeInsets.only(top: 16),
+                        child: Text(
+                          _error!,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -341,7 +394,8 @@ class _AccountRecoveryScreenState extends ConsumerState<AccountRecoveryScreen> {
   }
 
   Widget _button(String text, VoidCallback? onPressed) => FilledButton(
-      style: FilledButton.styleFrom(minimumSize: const Size(64, 64)),
-      onPressed: onPressed,
-      child: Text(text));
+    style: FilledButton.styleFrom(minimumSize: const Size(64, 64)),
+    onPressed: onPressed,
+    child: Text(text),
+  );
 }

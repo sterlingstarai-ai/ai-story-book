@@ -5,6 +5,7 @@ import '../l10n/app_localizations.dart';
 import '../providers/providers.dart';
 import '../utils/constants.dart';
 import 'account_recovery_screen.dart';
+import 'legal_document_screen.dart';
 
 /// 약관 버전 — 개정 시 올리면 재동의를 유발(서버 consent_version과 맞춤).
 const kConsentVersion = 'v2';
@@ -22,6 +23,14 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
   bool _dataProcess = false;
   bool _submitting = false;
   bool _checkingPhoto = false;
+  bool _photoDeletionConfirmed = false;
+  final _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
 
   // 필수 동의는 개인정보·데이터 처리뿐. 사진(아동 얼굴)은 *선택* — 데이터 최소수집·자유 동의
   // 원칙(PIPA)에 맞춰 앱 진입을 막지 않고, 실제 '사진 주인공' 사용 시점에 동의받는다.
@@ -30,7 +39,6 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
   void _setAll(bool value) {
     setState(() {
       _privacy = value;
-      _photo = value;
       _dataProcess = value;
     });
   }
@@ -46,8 +54,15 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
       final current = await apiClient.getConsent();
       serverHadPhotos = current['photos'] == true && current['revoked'] != true;
     } catch (_) {
-      // 조회 실패 시 파괴적 확인을 강제하지 않는다(동의 저장을 막지 않음).
-      return true;
+      // An unknown previous consent must not silently authorize photo deletion.
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(AppLocalizations.of(context).consentSaveError),
+          ),
+        );
+      }
+      return false;
     }
     if (!serverHadPhotos) {
       return true;
@@ -56,7 +71,8 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
       return false;
     }
     final l = AppLocalizations.of(context);
-    final confirmed = await showDialog<bool>(
+    final confirmed =
+        await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
             scrollable: true,
@@ -75,6 +91,7 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
           ),
         ) ??
         false;
+    _photoDeletionConfirmed = confirmed;
     return confirmed;
   }
 
@@ -97,8 +114,13 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
     final prefs = ref.read(sharedPreferencesProvider);
     final apiClient = ref.read(apiClientProvider);
     final parental = ref.read(parentalControlServiceProvider);
+    final mediaCleanup = ref.read(localMediaCleanupProvider);
+    var cleaningLocalMedia = false;
 
     try {
+      // Persist before the destructive server request: a lost response or app
+      // termination must not leave previously cached photo-derived images.
+      if (_photoDeletionConfirmed) await mediaCleanup.markPending();
       // 1) 서버에 동의 기록(사진 기능 게이트의 근거) — 성공해야 진행
       await apiClient.grantConsent(
         privacy: _privacy,
@@ -106,12 +128,25 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
         dataProcessing: _dataProcess,
         consentVersion: kConsentVersion,
       );
+      cleaningLocalMedia = true;
+      if (_photoDeletionConfirmed && mounted) {
+        invalidateAccountScope(
+          ProviderScope.containerOf(context, listen: false),
+        );
+      }
+      await mediaCleanup.retryPending();
+      cleaningLocalMedia = false;
       // 2) 로컬 플래그 저장
       await parental.setConsent(prefs, true);
       if (!mounted) {
         return;
       }
-      Navigator.pushReplacementNamed(context, '/onboarding');
+      final seenOnboarding = await parental.hasSeenOnboarding(prefs);
+      if (!mounted) return;
+      Navigator.pushReplacementNamed(
+        context,
+        seenOnboarding ? '/' : '/onboarding',
+      );
     } catch (e) {
       if (!mounted) {
         return;
@@ -119,7 +154,11 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
       setState(() => _submitting = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(AppLocalizations.of(context).consentSaveError),
+          content: Text(
+            cleaningLocalMedia
+                ? AppLocalizations.of(context).localMediaCleanupFailed
+                : AppLocalizations.of(context).consentSaveError,
+          ),
         ),
       );
     }
@@ -157,88 +196,130 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
               // 콘텐츠(PIPA 법정 고지 포함)는 스크롤 — 큰 글자·작은 화면에서도 안 잘림.
               // 버튼은 스크롤뷰 밖 하단에 고정(항상 보임, 오버플로우 없음).
               Expanded(
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SizedBox(height: AppSpacing.md),
-                      Text(l.consentTitle, style: AppTextStyles.heading1),
-                      const SizedBox(height: AppSpacing.sm),
-                      Text(
-                        l.consentSubtitle,
-                        style: AppTextStyles.bodySmall,
-                      ),
-                      TextButton.icon(
-                        onPressed: _submitting || _checkingPhoto
-                            ? null
-                            : () async {
-                                final recovered = await openAccountRecovery(
-                                    context, ref,
-                                    restoreOnly: true);
-                                if (!context.mounted || !recovered) return;
-                                Navigator.pushNamedAndRemoveUntil(
-                                    context, '/startup', (_) => false);
-                              },
-                        icon: const Icon(Icons.key_outlined),
-                        label: Text(l.recoveryRestoreTitle),
-                      ),
-                      const SizedBox(height: AppSpacing.xl),
-                      Container(
-                        decoration: BoxDecoration(
-                          color: AppPalette.of(context).primaryLight,
-                          borderRadius: BorderRadius.circular(AppRadius.md),
+                child: Scrollbar(
+                  controller: _scrollController,
+                  thumbVisibility: true,
+                  child: SingleChildScrollView(
+                    controller: _scrollController,
+                    padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const SizedBox(height: AppSpacing.md),
+                        Text(l.consentTitle, style: AppTextStyles.heading1),
+                        const SizedBox(height: AppSpacing.sm),
+                        Text(l.consentSubtitle, style: AppTextStyles.bodySmall),
+                        const SizedBox(height: AppSpacing.sm),
+                        Wrap(
+                          spacing: AppSpacing.sm,
+                          children: [
+                            for (final document in LegalDocument.values)
+                              TextButton.icon(
+                                onPressed: () => Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) =>
+                                        LegalDocumentScreen(document: document),
+                                  ),
+                                ),
+                                icon: const Icon(Icons.description_outlined),
+                                label: Text(
+                                  document == LegalDocument.privacy
+                                      ? l.settingsPrivacyPolicy
+                                      : l.settingsTermsOfService,
+                                ),
+                              ),
+                          ],
                         ),
-                        child: CheckboxListTile(
-                          value: _privacy && _photo && _dataProcess,
+                        TextButton.icon(
+                          onPressed: _submitting || _checkingPhoto
+                              ? null
+                              : () async {
+                                  final recovered = await openAccountRecovery(
+                                    context,
+                                    ref,
+                                    restoreOnly: true,
+                                  );
+                                  if (!context.mounted || !recovered) return;
+                                  Navigator.pushNamedAndRemoveUntil(
+                                    context,
+                                    '/startup',
+                                    (_) => false,
+                                  );
+                                },
+                          icon: const Icon(Icons.key_outlined),
+                          label: Text(l.recoveryRestoreTitle),
+                        ),
+                        const SizedBox(height: AppSpacing.xl),
+                        Container(
+                          decoration: BoxDecoration(
+                            color: AppPalette.of(context).primaryLight,
+                            borderRadius: BorderRadius.circular(AppRadius.md),
+                          ),
+                          child: CheckboxListTile(
+                            value: _privacy && _dataProcess,
+                            onChanged: _submitting || _checkingPhoto
+                                ? null
+                                : (value) => _setAll(value ?? false),
+                            title: Text(
+                              l.consentRequiredOnly,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            subtitle: Text(l.consentOptionalSeparate),
+                          ),
+                        ),
+                        const Divider(height: AppSpacing.lg),
+                        CheckboxListTile(
+                          value: _privacy,
                           onChanged: _submitting || _checkingPhoto
                               ? null
-                              : (value) => _setAll(value ?? false),
-                          title: Text(
-                            l.consentAgreeAll,
-                            style: const TextStyle(fontWeight: FontWeight.w700),
+                              : (value) =>
+                                    setState(() => _privacy = value ?? false),
+                          title: Text(l.consentPrivacyRequired),
+                        ),
+                        CheckboxListTile(
+                          value: _dataProcess,
+                          onChanged: _submitting || _checkingPhoto
+                              ? null
+                              : (value) => setState(
+                                  () => _dataProcess = value ?? false,
+                                ),
+                          title: Text(l.consentDataProcessingRequired),
+                        ),
+                        CheckboxListTile(
+                          value: _photo,
+                          onChanged: _submitting || _checkingPhoto
+                              ? null
+                              : (value) =>
+                                    setState(() => _photo = value ?? false),
+                          title: Text(l.consentPhotoOptionalTitle),
+                          subtitle: Text(
+                            l.consentPhotoDisclosure,
+                            style: const TextStyle(fontSize: 12),
                           ),
-                          subtitle: Text(l.consentAgreeAllSubtitle),
+                          isThreeLine: true,
                         ),
-                      ),
-                      const Divider(height: AppSpacing.lg),
-                      CheckboxListTile(
-                        value: _privacy,
-                        onChanged: _submitting || _checkingPhoto
-                            ? null
-                            : (value) =>
-                                setState(() => _privacy = value ?? false),
-                        title: Text(l.consentPrivacyRequired),
-                      ),
-                      CheckboxListTile(
-                        value: _photo,
-                        onChanged: _submitting || _checkingPhoto
-                            ? null
-                            : (value) =>
-                                setState(() => _photo = value ?? false),
-                        title: Text(l.consentPhotoOptionalTitle),
-                        subtitle: Text(
-                          l.consentPhotoDisclosure,
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                        isThreeLine: true,
-                      ),
-                      CheckboxListTile(
-                        value: _dataProcess,
-                        onChanged: _submitting || _checkingPhoto
-                            ? null
-                            : (value) =>
-                                setState(() => _dataProcess = value ?? false),
-                        title: Text(l.consentDataProcessingRequired),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
+              ),
+              Text(
+                l.consentScrollHint,
+                style: Theme.of(context).textTheme.bodySmall,
               ),
               const SizedBox(height: AppSpacing.sm),
               SizedBox(
                 width: double.infinity,
-                height: 64,
                 child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(64),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 16,
+                      horizontal: 20,
+                    ),
+                  ),
                   onPressed: (_canContinue && !_submitting && !_checkingPhoto)
                       ? _accept
                       : null,
@@ -257,8 +338,14 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
               const SizedBox(height: AppSpacing.sm),
               SizedBox(
                 width: double.infinity,
-                height: 64,
                 child: OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(64),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 16,
+                      horizontal: 20,
+                    ),
+                  ),
                   onPressed: _submitting || _checkingPhoto ? null : _reject,
                   child: Text(l.consentRejectButton),
                 ),

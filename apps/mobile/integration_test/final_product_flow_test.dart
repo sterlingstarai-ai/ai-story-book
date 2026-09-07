@@ -168,8 +168,9 @@ void main() {
         Future<void> shot(String stage) async {
           await tester.pump(const Duration(milliseconds: 400));
           expect(tester.takeException(), isNull);
-          final render = boundary.currentContext!.findRenderObject()!
-              as RenderRepaintBoundary;
+          final render =
+              boundary.currentContext!.findRenderObject()!
+                  as RenderRepaintBoundary;
           final image = await render.toImage(pixelRatio: 1);
           try {
             final data = await image.toByteData(format: ui.ImageByteFormat.png);
@@ -258,7 +259,10 @@ void main() {
         await until(find.byType(ProfilesScreen));
         await tap(find.byTooltip(l.profilesAddTooltip));
         await tester.enterText(find.byType(TextField), '시우');
+        FocusManager.instance.primaryFocus?.unfocus();
+        await tester.pumpAndSettle();
         await tap(find.text(l.profilesAgeBand57));
+        await until(find.text(l.profilesAgeBand79));
         await tap(find.text(l.profilesAgeBand79).last);
         await tap(find.widgetWithText(TextButton, l.profilesAddAction));
         await until(find.text('시우'));

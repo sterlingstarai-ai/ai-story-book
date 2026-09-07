@@ -280,7 +280,7 @@ async def test_batch_audio_returns_pollable_job_id():
     from src.routers import books
 
     book = SimpleNamespace(
-        id="book-1", user_key="user-1", target_age="5-7", language="ko"
+        id="book-1", user_key="user-1", target_age="5-7", language="ko", profile_id=None
     )
     page = SimpleNamespace(
         id="page-1", page_number=1, text="hi", text_ko="안녕", text_en="hi"

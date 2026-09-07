@@ -140,7 +140,8 @@ async def test_account_erasure_revokes_device_and_backup_and_keeps_canonical_blo
     assert (await recover(client, next_code))[0].status_code == 401
     identity = await db_session.get(AccountIdentity, user_key, populate_existing=True)
     assert identity.deleted
-    assert identity.device_key_hash is identity.recovery_code_hash is None
+    assert identity.device_key_hash is not None  # hashed erasure acknowledgement, never auth
+    assert identity.recovery_code_hash is None
     assert identity.previous_recovery_code_hash is None
 
 

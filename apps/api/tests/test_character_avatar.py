@@ -151,6 +151,25 @@ def test_normalize_rejects_invalid_input(data):
         avatars.normalize_character_image(data)
 
 
+@pytest.mark.parametrize("height,allowed", [(4000, True), (4001, False)])
+def test_normalize_dimension_boundary_has_specific_resolution_error(height, allowed):
+    source = BytesIO()
+    Image.new("L", (4000, height), 128).save(source, format="PNG")
+    if allowed:
+        with Image.open(BytesIO(avatars.normalize_character_image(source.getvalue()))) as clean:
+            assert max(clean.size) <= 1024
+    else:
+        with pytest.raises(ValidationError) as caught:
+            avatars.normalize_character_image(source.getvalue())
+        assert caught.value.status_code == 400
+        assert caught.value.error_code == "VALIDATION_ERROR"
+        assert caught.value.details == {
+            "reason": "image_dimensions_exceeded", "max_pixels": 16_000_000
+        }
+        assert "해상도가 너무 높습니다" in caught.value.message
+        assert "읽을 수 없습니다" not in caught.value.message
+
+
 def test_normalize_downsizes_and_flattens_alpha():
     image = Image.new("RGBA", (2000, 1000), (255, 0, 0, 0))
     output = BytesIO()

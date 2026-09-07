@@ -13,7 +13,8 @@ import '../widgets/common_widgets.dart';
 /// 안전 차단(SAFETY_INPUT)은 서버가 사용자 언어로 생성된 reasons만 담아 오므로,
 /// 클라이언트가 로컬라이즈된 접두어를 붙여 표시한다(한국어 접두어 하드코딩 제거).
 /// 그림 품질 실패는 검증되지 않은 서버 상세나 환불 상태를 표시하지 않는다.
-/// 그 외 에러 코드는 서버 메시지를 원문 그대로 사용한다.
+/// SAFETY_OUTPUT도 서버가 제공한 안전 사유를 보존한다. 그 외 실패는
+/// 서버의 언어 고정 일반 문구 대신 앱의 로컬라이즈된 안내를 사용한다.
 String composeJobErrorText(
   AppLocalizations l,
   String? errorCode,
@@ -26,14 +27,26 @@ String composeJobErrorText(
   if (errorCode == 'STATUS_UNAVAILABLE') {
     return l.loadingStatusUnavailable;
   }
+  if (errorCode == 'AI_PROVIDER_UNAVAILABLE') return l.errorServiceUnavailable;
   if (errorCode == 'IMAGE_QUALITY_FAILED') {
     return l.loadingImageQualityFailed;
   }
-  final message = errorMessage ?? l.loadingUnknownError;
+  // 서버가 원문을 그대로 내보내는 코드는 안전 코드뿐이다(core/errors.py의
+  // CLIENT_SAFE_ERROR_CODES). 그 외 실패는 서버가 한국어 일반 문구 하나로 바꿔 저장하므로,
+  // 그대로 렌더하면 en/ja 사용자가 실패 화면에서 한국어를 보게 된다.
+  final serverMessage = errorMessage?.trim();
   if (errorCode == 'SAFETY_INPUT') {
-    return '${l.loadingSafetyBlockedPrefix} $message';
+    final detail = (serverMessage == null || serverMessage.isEmpty)
+        ? l.loadingUnknownError
+        : serverMessage;
+    return '${l.loadingSafetyBlockedPrefix} $detail';
   }
-  return message;
+  if (errorCode == 'SAFETY_OUTPUT' &&
+      serverMessage != null &&
+      serverMessage.isNotEmpty) {
+    return serverMessage;
+  }
+  return l.loadingGenericFailure;
 }
 
 /// 로딩 화면 (책 생성 진행 상황)
@@ -69,8 +82,10 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
             padding: const EdgeInsets.all(AppSpacing.lg),
             child: ConstrainedBox(
               constraints: BoxConstraints(
-                minHeight: (constraints.maxHeight - AppSpacing.lg * 2)
-                    .clamp(0, double.infinity),
+                minHeight: (constraints.maxHeight - AppSpacing.lg * 2).clamp(
+                  0,
+                  double.infinity,
+                ),
               ),
               child: jobStatusAsync.when(
                 data: (status) {
@@ -174,9 +189,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
         // 진행률
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-          child: ProgressIndicatorBar(
-            progress: status.progress,
-          ),
+          child: ProgressIndicatorBar(progress: status.progress),
         ),
 
         const SizedBox(height: AppSpacing.xxl),
@@ -190,8 +203,10 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
           ),
           child: Row(
             children: [
-              Icon(Icons.lightbulb_outline,
-                  color: AppPalette.of(context).primary),
+              Icon(
+                Icons.lightbulb_outline,
+                color: AppPalette.of(context).primary,
+              ),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Text(
@@ -213,16 +228,9 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(
-            Icons.check_circle,
-            size: 80,
-            color: AppColors.success,
-          ),
+          const Icon(Icons.check_circle, size: 80, color: AppColors.success),
           const SizedBox(height: AppSpacing.lg),
-          Text(
-            l.loadingCompleted,
-            style: AppTextStyles.heading2,
-          ),
+          Text(l.loadingCompleted, style: AppTextStyles.heading2),
         ],
       ),
     );
@@ -234,11 +242,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(
-            Icons.error_outline,
-            size: 80,
-            color: AppColors.error,
-          ),
+          const Icon(Icons.error_outline, size: 80, color: AppColors.error),
           const SizedBox(height: AppSpacing.lg),
           Text(
             status.errorCode == 'TIMEOUT' ||
@@ -254,6 +258,22 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
             style: AppTextStyles.bodySmall,
             textAlign: TextAlign.center,
           ),
+          if (const {
+            'refunded',
+            'pending',
+            'not_charged',
+          }.contains(status.creditRefundStatus)) ...[
+            const SizedBox(height: AppSpacing.md),
+            Text(
+              status.creditRefundStatus == 'refunded'
+                  ? l.loadingCreditRefunded
+                  : status.creditRefundStatus == 'pending'
+                  ? l.loadingCreditRefundPending
+                  : l.loadingCreditNotCharged,
+              style: AppTextStyles.bodySmall,
+              textAlign: TextAlign.center,
+            ),
+          ],
           const SizedBox(height: AppSpacing.xl),
           // H17: 타임아웃이면 주 액션은 '상태 다시 확인'(현재 잡 재조회) — 신규 생성으로
           // 직행하면 크레딧 재차감·서재 중복이 발생한다. 진짜 서버 실패에서만 신규 생성.
@@ -274,18 +294,14 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
             ),
             const SizedBox(height: AppSpacing.sm),
             TextButton(
-              style: TextButton.styleFrom(
-                minimumSize: const Size(64, 64),
-              ),
+              style: TextButton.styleFrom(minimumSize: const Size(64, 64)),
               onPressed: () => ref.invalidate(jobPollingProvider(widget.jobId)),
               child: Text(l.loadingCheckStatusButton),
             ),
           ],
           const SizedBox(height: AppSpacing.md),
           TextButton(
-            style: TextButton.styleFrom(
-              minimumSize: const Size(64, 64),
-            ),
+            style: TextButton.styleFrom(minimumSize: const Size(64, 64)),
             onPressed: () => Navigator.pushReplacementNamed(context, '/'),
             child: Text(l.loadingBackToHomeButton),
           ),
@@ -362,9 +378,10 @@ class _AnimatedBookIconState extends State<_AnimatedBookIcon>
       vsync: this,
     )..repeat(reverse: true);
 
-    _animation = Tween<double>(begin: 0.9, end: 1.1).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
-    );
+    _animation = Tween<double>(
+      begin: 0.9,
+      end: 1.1,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
   }
 
   @override
@@ -389,10 +406,7 @@ class _AnimatedBookIconState extends State<_AnimatedBookIcon>
     return AnimatedBuilder(
       animation: _animation,
       builder: (context, child) {
-        return Transform.scale(
-          scale: _animation.value,
-          child: child,
-        );
+        return Transform.scale(scale: _animation.value, child: child);
       },
       child: Container(
         width: 120,
@@ -412,11 +426,7 @@ class _AnimatedBookIconState extends State<_AnimatedBookIcon>
             ),
           ],
         ),
-        child: const Icon(
-          Icons.auto_stories,
-          size: 60,
-          color: Colors.white,
-        ),
+        child: const Icon(Icons.auto_stories, size: 60, color: Colors.white),
       ),
     );
   }

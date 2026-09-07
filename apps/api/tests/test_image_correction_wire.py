@@ -81,7 +81,7 @@ async def test_real_reference_payload_uses_page_for_local_defects_and_avatar_for
     with pytest.raises(StoryBookError):
         await image.generate_image(prompt, reference_image_url=avatar_url)
 
-    local = issue not in {"identity_swap", "duplicate_character"}
+    local = issue not in {"identity_swap", "duplicate_character", "action_mismatch"}
     assert loaded == ["page-7" if local else "approved-avatar", "approved-avatar"]
     assert sent[0][0] == (page_bytes if local else avatar_bytes)
     assert ("EDIT THE GENERATED STORYBOOK PAGE" in sent[0][1]) is local

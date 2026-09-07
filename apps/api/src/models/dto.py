@@ -82,7 +82,7 @@ class JobState(str, Enum):
 
 
 class CharacterSpec(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     name: str = Field(min_length=1, max_length=40)
     gender: Optional[Literal["male", "female", "neutral"]] = None
@@ -91,7 +91,7 @@ class CharacterSpec(BaseModel):
 
 
 class BookSpec(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     topic: str = Field(min_length=1, max_length=200)
     protagonist_name: Optional[str] = Field(default=None, min_length=1, max_length=40)
@@ -232,7 +232,7 @@ class CharacterClothing(BaseModel):
 
 
 class CharacterSheet(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     character_id: str = Field(min_length=1, max_length=30)
     name: str = Field(min_length=1, max_length=40)
@@ -363,6 +363,7 @@ class JobStatus(BaseModel):
     current_step: str = Field(min_length=1, max_length=120)
     error: Optional[ErrorInfo] = None
     result: Optional[BookResult] = None
+    credit_refund_status: Optional[Literal["refunded", "pending", "not_charged"]] = None
 
 
 class CreateBookResponse(BaseModel):
@@ -472,7 +473,7 @@ class LearningAssets(BaseModel):
 
 
 class SeriesNextRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     character_id: str = Field(min_length=1, max_length=60)
     topic: str = Field(min_length=1, max_length=200)
@@ -494,7 +495,7 @@ class SeriesNextRequest(BaseModel):
 
 
 class CreateCharacterRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     name: str = Field(min_length=1, max_length=40)
     master_description: str = Field(min_length=10, max_length=400)

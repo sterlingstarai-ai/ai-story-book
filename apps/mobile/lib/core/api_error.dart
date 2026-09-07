@@ -9,6 +9,7 @@ class ApiError implements Exception {
   final int statusCode;
   final dynamic details;
   final String? requestId;
+  final Duration? retryAfter;
 
   ApiError({
     required this.code,
@@ -16,11 +17,13 @@ class ApiError implements Exception {
     required this.statusCode,
     this.details,
     this.requestId,
+    this.retryAfter,
   });
 
   /// Create ApiError from DioException
   factory ApiError.fromDioException(DioException e) {
     final response = e.response;
+    final retryAfter = _parseRetryAfter(response?.headers.value('retry-after'));
 
     if (response != null) {
       final statusCode = response.statusCode ?? 500;
@@ -28,12 +31,15 @@ class ApiError implements Exception {
       if (data is Map<String, dynamic> && data.containsKey('error')) {
         final error = data['error'];
         if (error is Map<String, dynamic>) {
-          final envelopeCode = _nonEmptyString(error['code']) ??
+          final envelopeCode =
+              _nonEmptyString(error['code']) ??
               _nonEmptyString(error['error_code']);
           final envelopeMessage = _nonEmptyString(error['message']);
           return ApiError(
+            retryAfter: retryAfter,
             code: envelopeCode ?? _codeFromStatus(statusCode),
-            message: envelopeMessage ??
+            message:
+                envelopeMessage ??
                 _messageFromDetail(data['detail']) ??
                 '알 수 없는 오류가 발생했습니다.',
             statusCode: statusCode,
@@ -45,6 +51,7 @@ class ApiError implements Exception {
 
       if (data is Map<String, dynamic> && data.containsKey('detail')) {
         return ApiError(
+          retryAfter: retryAfter,
           code: _codeFromStatus(statusCode),
           message: _messageFromDetail(data['detail']) ?? '요청 처리 중 오류가 발생했습니다.',
           statusCode: statusCode,
@@ -55,6 +62,7 @@ class ApiError implements Exception {
 
       // Fallback for non-standard error responses
       return ApiError(
+        retryAfter: retryAfter,
         code: _codeFromStatus(statusCode),
         message: data?.toString() ?? '서버 오류가 발생했습니다.',
         statusCode: statusCode,
@@ -96,6 +104,12 @@ class ApiError implements Exception {
     }
   }
 
+  static Duration? _parseRetryAfter(String? value) {
+    final seconds = int.tryParse(value?.trim() ?? '');
+    if (seconds != null && seconds >= 0) return Duration(seconds: seconds);
+    return null;
+  }
+
   static String _codeFromStatus(int statusCode) {
     switch (statusCode) {
       case 400:
@@ -131,7 +145,8 @@ class ApiError implements Exception {
       return detail;
     }
     if (detail is Map<String, dynamic>) {
-      final msg = _nonEmptyString(detail['message']) ??
+      final msg =
+          _nonEmptyString(detail['message']) ??
           _nonEmptyString(detail['detail']);
       if (msg != null) {
         return msg;
@@ -208,14 +223,27 @@ class ApiError implements Exception {
         return l.errorUnauthorized;
       case 'FORBIDDEN':
         return l.errorForbidden;
-      // PAYMENT_REQUIRED(402)는 무료플랜 한도 등 서버가 구체 사유를 담으므로 message 유지
-      // (서버측 402 로컬라이즈는 M15 서버 잔여). 여기서 일반화하면 의미가 소실된다.
+      case 'PARENTAL_CONSENT_REQUIRED':
+        return l.errorParentalConsentRequired;
+      case 'PAYMENT_REQUIRED':
+        if (paymentReason?.toLowerCase() == 'free_plan_monthly_limit') {
+          final values = details is Map ? details as Map : const {};
+          final limit = values['monthly_limit']?.toString() ?? '2';
+          return l.errorMonthlyBookLimit(limit);
+        }
+        if (paymentReason?.toLowerCase() == 'insufficient_credits') {
+          return l.errorInsufficientCredits;
+        }
+        return l.errorPlanFeature;
       case 'INTERNAL_ERROR':
         return l.errorInternal;
       case 'RATE_LIMIT_EXCEEDED':
-        return l.errorRateLimit;
+        return retryAfter == null
+            ? l.errorRateLimit
+            : l.errorRateLimitWait(retryAfter!.inSeconds.toString());
       case 'BAD_GATEWAY':
       case 'SERVICE_UNAVAILABLE':
+      case 'AI_SERVICE_UNAVAILABLE':
       case 'GATEWAY_TIMEOUT':
         return l.errorServiceUnavailable;
       case 'TIMEOUT':

@@ -121,6 +121,14 @@ curl -fsS http://127.0.0.1:8000/health/ready
 
 `/health/ready` is the deployment readiness source of truth. Non-healthy readiness returns `503`.
 
+Policy and terms are bundled for offline reading before consent and from Settings.
+Their canonical sources are `apps/mobile/assets/legal/*.ko.json`; run
+`python3 scripts/render_legal_documents.py` to render matching review HTML.
+Mobile release compilation requires both public policy URL defines, and the
+external release preflight rejects draft bundled documents or missing effective
+dates. An available policy screen does not establish legal approval or deployment.
+See [public policy publishing](apps/public-site/README.md).
+
 ## Production deployment
 
 Production deploy is image-based. The repository is not the build artifact; tagged container images are.
@@ -163,3 +171,6 @@ Code paths are implemented, but end-to-end real verification still requires live
 - AdMob rewarded ads
 
 Until then, local, mock, or hybrid paths are used for non-production verification.
+
+`./scripts/check-env.sh --mode ci`는 생성·수정 및 조회 요청 한도의 기본값을
+API·배포 설정·CI 사이에서 대조합니다. 실제 생성 검증에는 운영 기본 한도를 적용합니다.

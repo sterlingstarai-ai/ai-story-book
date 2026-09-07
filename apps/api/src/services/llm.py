@@ -24,6 +24,7 @@ from src.services.structured_output import (
     provider_output_schema,
 )
 from src.services.openai_contract import request_openai_json
+from src.services.provider_runtime import begin_provider_request, observe_provider_response
 from src.models.dto import (
     BookSpec,
     StoryDraft,
@@ -411,6 +412,7 @@ async def _call_anthropic(
         }}}
 
     async with httpx.AsyncClient(timeout=settings.llm_timeout) as client:
+        attempt = begin_provider_request(settings.llm_provider, settings.llm_model, "llm", settings.llm_api_key)
         response = await client.post(
             "https://api.anthropic.com/v1/messages",
             headers={
@@ -430,6 +432,9 @@ async def _call_anthropic(
             },
         )
 
+        permanent_error = await observe_provider_response(attempt, response)
+        if permanent_error:
+            raise LLMError(permanent_error, "AI 제공자 서비스를 현재 사용할 수 없습니다.")
         if response.status_code != 200:
             status = response.status_code
             error_code = (
@@ -491,6 +496,7 @@ async def _call_gemini(
         parts.append({"inlineData": {"mimeType": image_mime_type, "data": image_base64}})
 
     async with httpx.AsyncClient(timeout=settings.llm_timeout) as client:
+        attempt = begin_provider_request(settings.llm_provider, settings.llm_model, "llm", settings.llm_api_key)
         response = await client.post(
             f"{_GEMINI_LLM_BASE_URL}/{settings.llm_model}:generateContent",
             headers={"Content-Type": "application/json", "x-goog-api-key": settings.llm_api_key},
@@ -505,6 +511,9 @@ async def _call_gemini(
             },
         )
 
+        permanent_error = await observe_provider_response(attempt, response)
+        if permanent_error:
+            raise LLMError(permanent_error, "AI 제공자 서비스를 현재 사용할 수 없습니다.")
         if response.status_code != 200:
             status = response.status_code
             error_code = (

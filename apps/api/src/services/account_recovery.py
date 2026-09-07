@@ -30,6 +30,11 @@ def credential_hash(value: str, *, kind: str) -> str:
     return hashlib.sha256(f"asb:{kind}:v1\0{value}".encode()).hexdigest()
 
 
+def deleted_account_error() -> APIError:
+    return APIError(401, "ACCOUNT_DELETED", "계정 데이터가 삭제되었습니다.",
+                    details={"account_deleted": True, "purge_retry_pending": True})
+
+
 def authentication_error() -> APIError:
     return APIError(401, "UNAUTHORIZED", "계정 인증이 만료되었습니다. 복구 코드를 사용해주세요.")
 
@@ -44,11 +49,16 @@ async def resolve_user_key(db: AsyncSession, credential: str) -> str:
     identity = (
         await db.execute(select(AccountIdentity).where(AccountIdentity.device_key_hash == digest))
     ).scalar_one_or_none()
-    if identity is not None and not identity.deleted:
+    if identity is not None:
+        if identity.deleted:
+            raise deleted_account_error()
         return identity.user_key
     # A modern credential can never create a legacy account. A canonical UUID
     # already enrolled (or deleted) can never bypass a rotated device credential.
-    if modern or await db.get(AccountIdentity, credential) is not None:
+    canonical = None if modern else await db.get(AccountIdentity, credential)
+    if canonical is not None and canonical.deleted:
+        raise deleted_account_error()
+    if modern or canonical is not None:
         raise authentication_error()
     return credential
 
@@ -151,8 +161,12 @@ async def revoke_deleted_account(db: AsyncSession, user_key: str, credential: st
     """Preserve only the tombstone needed to block old canonical-key fallback."""
     identity = await db.get(AccountIdentity, user_key)
     if identity is None:
-        # Legacy erasure already allows reuse of an empty UUID account. Avoid
-        # changing that behavior until this account explicitly enables recovery.
+        # Erasure must revoke legacy bearers too; a delayed retry must confirm
+        # completion, never silently recreate balances/profiles under that key.
+        db.add(AccountIdentity(user_key=user_key,
+                               device_key_hash=credential_hash(credential, kind="device"),
+                               deleted=True))
+        await db.flush()
         return
     result = await db.execute(
         update(AccountIdentity)
@@ -162,7 +176,9 @@ async def revoke_deleted_account(db: AsyncSession, user_key: str, credential: st
             AccountIdentity.deleted.is_(False),
         )
         .values(
-            device_key_hash=None,
+            # Retain only a hash so the erased bearer can receive completion
+            # on a lost-response retry; it cannot authenticate any data access.
+            device_key_hash=credential_hash(credential, kind="device"),
             recovery_code_hash=None,
             previous_recovery_code_hash=None,
             recovery_code_created_at=None,

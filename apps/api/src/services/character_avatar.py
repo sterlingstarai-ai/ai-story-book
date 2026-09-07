@@ -85,6 +85,13 @@ def build_avatar_prompt(values: dict, *, style: str, version: int) -> ImagePromp
     )
 
 
+def _image_dimensions_error() -> ValidationError:
+    return ValidationError(
+        "사진 해상도가 너무 높습니다. 1,600만 화소 이하로 크기를 줄인 뒤 다시 선택해주세요.",
+        details={"reason": "image_dimensions_exceeded", "max_pixels": MAX_SOURCE_PIXELS},
+    )
+
+
 def normalize_character_image(data: bytes) -> bytes:
     """Decode a bounded still image, apply orientation, and emit metadata-free JPEG."""
     if not data or len(data) > MAX_SOURCE_BYTES:
@@ -96,7 +103,7 @@ def normalize_character_image(data: bytes) -> bytes:
                 if source.format not in {"JPEG", "PNG", "WEBP"} or getattr(source, "n_frames", 1) != 1:
                     raise ValueError("unsupported still image")
                 if source.width * source.height > MAX_SOURCE_PIXELS:
-                    raise ValueError("image dimensions too large")
+                    raise _image_dimensions_error()
                 source.load()
                 oriented = ImageOps.exif_transpose(source)
                 oriented.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
@@ -107,8 +114,9 @@ def normalize_character_image(data: bytes) -> bytes:
                 output = BytesIO()
                 clean.save(output, format="JPEG", quality=85)
                 return output.getvalue()
-    except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError,
-            Image.DecompressionBombWarning):
+    except (Image.DecompressionBombError, Image.DecompressionBombWarning):
+        raise _image_dimensions_error() from None
+    except (UnidentifiedImageError, OSError, ValueError):
         raise ValidationError("사진 파일을 읽을 수 없습니다. JPEG, PNG, WebP 사진을 다시 선택해주세요.") from None
 
 

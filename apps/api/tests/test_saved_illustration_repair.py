@@ -54,7 +54,7 @@ def completed_review(*, issues, issue_pages=(2,)):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("recheck_fails", [False, True])
-async def test_production_helper_repairs_one_page_once_and_preserves_source(
+async def test_production_helper_uses_remaining_repairs_and_preserves_source(
     monkeypatch, tmp_path, tool, recheck_fails,
 ):
     inputs, manifest = fixture_book()
@@ -75,7 +75,7 @@ async def test_production_helper_repairs_one_page_once_and_preserves_source(
             parts = kwargs["json"]["contents"][0]["parts"]
             assert [base64.b64decode(part["inline_data"]["data"])
                     for part in parts if "inline_data" in part] == [
-                        inputs["images"][2][0], inputs["images"][0][0],
+                        inputs["images"][2][0] if review_count == 1 else repaired, inputs["images"][0][0],
                     ]
             assert "IMAGE1 is the generated page to edit" in parts[0]["text"]
             assert "IMAGE2 is the book cover" in parts[0]["text"]
@@ -91,21 +91,22 @@ async def test_production_helper_repairs_one_page_once_and_preserves_source(
                              image_provider="gemini", image_model="gemini-3-pro-image",
                              image_api_key="inert-image", llm_timeout=90, image_timeout=90)
     report = await tool.run_repair(inputs, manifest, tmp_path, config)
-    assert calls == [tool.REVIEW_URL, tool.IMAGE_URL, tool.REVIEW_URL]
+    rounds = 2 if recheck_fails else 1
+    assert calls == [tool.REVIEW_URL] + [tool.IMAGE_URL, tool.REVIEW_URL] * rounds
     assert report["status"] == ("failed" if recheck_fails else "passed")
-    assert len(report["reviews"]) == 2 and len(report["regenerated_files"]) == 1
+    assert len(report["reviews"]) == rounds + 1 and len(report["regenerated_files"]) == rounds
     assert report["source_unchanged"] is True
     assert report["published"] is report["real_postgres"] is report["real_s3"] is report["real_celery"] is False
     assert report["source_photo_used"] is False
-    assert report["estimates_usd"] == pytest.approx({"llm": 0.088, "image": 0.1376})
+    assert report["estimates_usd"] == pytest.approx({"llm": 0.044 * (rounds + 1), "image": 0.1376 * rounds})
     assert [item["step"] for item in report["progress"]] == [
-        "verify_illustrations", "repair_illustrations", "verify_illustrations"]
+        "verify_illustrations"] + ["repair_illustrations", "verify_illustrations"] * rounds
     if not recheck_fails:
         assert report["changed_pages"] == report["repaired_pages"] == [2]
         assert report["image_budget_used"] == 1
         assert report["visual_briefs_before_sha256"] == report["visual_briefs_after_sha256"]
     assert [event["full_original_visual_brief_preserved"] for event in report["requests"]
-            if event["role"] == "image"] == [True]
+            if event["role"] == "image"] == [True] * rounds
     before = {item["page_number"]: item["sha256"] for item in manifest["illustrations"]}
     changed = [item["page_number"] for item in report["candidate_after_not_published"]
                if item["sha256"] != before[item["page_number"]]]

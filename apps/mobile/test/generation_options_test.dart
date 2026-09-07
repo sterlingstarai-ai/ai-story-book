@@ -79,6 +79,10 @@ Future<void> _pump(WidgetTester tester, _Api api) async {
 
 Future<void> _show(WidgetTester tester, Finder target,
     {double delta = 160}) async {
+  // The form now stays mounted off screen. Dismiss the input focus just as a
+  // user drag does, so the keyboard does not scroll the topic back into view.
+  FocusManager.instance.primaryFocus?.unfocus();
+  await tester.pumpAndSettle();
   await tester.scrollUntilVisible(target, delta,
       maxScrolls: 60,
       scrollable: find
@@ -86,6 +90,8 @@ Future<void> _show(WidgetTester tester, Finder target,
               of: find.byType(ListView).first,
               matching: find.byType(Scrollable))
           .first);
+  await tester.pumpAndSettle();
+  await Scrollable.ensureVisible(tester.element(target), alignment: 0.5);
   await tester.pumpAndSettle();
 }
 
@@ -120,7 +126,9 @@ void main() {
     expect(find.widgetWithText(ChoiceChip, '수채화'), findsOneWidget);
     expect(find.widgetWithText(ChoiceChip, '3D'), findsNothing);
     expect(find.widgetWithText(ChoiceChip, '픽셀아트'), findsNothing);
-    await tester.tap(find.text('카툰'));
+    final cartoon = find.widgetWithText(ChoiceChip, '카툰');
+    expect(cartoon.hitTestable(), findsOneWidget);
+    await tester.tap(cartoon);
     await tester.pumpAndSettle();
     await tester.tap(find.text('동화책 만들기'));
     await tester.pumpAndSettle();
@@ -136,7 +144,9 @@ void main() {
     await _pump(tester, api);
     await _show(tester, find.text('3D'));
     expect(find.widgetWithText(ChoiceChip, '3D'), findsOneWidget);
-    await tester.tap(find.text('3D'));
+    final threeD = find.widgetWithText(ChoiceChip, '3D');
+    expect(threeD.hitTestable(), findsOneWidget);
+    await tester.tap(threeD);
     await tester.pumpAndSettle();
     api.fail = true;
     final container =

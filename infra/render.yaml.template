@@ -45,6 +45,10 @@ services:
     value: gpt-5.6-sol
   - key: LLM_TIMEOUT
     value: '90'
+  - key: PROVIDER_OBSERVATION_TTL_SECONDS
+    value: '86400'
+  - key: PROVIDER_USAGE_PRICES_JSON
+    value: '{}'
   - key: IMAGE_PROVIDER
     value: openai
   - key: IMAGE_API_KEY
@@ -129,6 +133,8 @@ services:
     sync: false
   - key: RATE_LIMIT_REQUESTS
     value: '10'
+  - key: RATE_LIMIT_READ_REQUESTS
+    value: '120'
   - key: RATE_LIMIT_WINDOW
     value: '60'
   - key: DAILY_GENERATION_BUDGET
@@ -228,6 +234,16 @@ services:
       name: __PREFIX__-api
       type: web
       envVarKey: LLM_TIMEOUT
+  - key: PROVIDER_OBSERVATION_TTL_SECONDS
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: PROVIDER_OBSERVATION_TTL_SECONDS
+  - key: PROVIDER_USAGE_PRICES_JSON
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: PROVIDER_USAGE_PRICES_JSON
   - key: IMAGE_PROVIDER
     fromService:
       name: __PREFIX__-api
@@ -438,6 +454,11 @@ services:
       name: __PREFIX__-api
       type: web
       envVarKey: RATE_LIMIT_REQUESTS
+  - key: RATE_LIMIT_READ_REQUESTS
+    fromService:
+      type: web
+      name: __PREFIX__-api
+      envVarKey: RATE_LIMIT_READ_REQUESTS
   - key: RATE_LIMIT_WINDOW
     fromService:
       name: __PREFIX__-api

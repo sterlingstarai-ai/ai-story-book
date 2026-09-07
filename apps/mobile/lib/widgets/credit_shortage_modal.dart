@@ -16,18 +16,12 @@ Future<void> showCreditShortageModal(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    builder: (context) => _CreditShortageSheet(
-      title: title,
-      message: message,
-    ),
+    builder: (context) => _CreditShortageSheet(title: title, message: message),
   );
 }
 
 class _CreditShortageSheet extends ConsumerWidget {
-  const _CreditShortageSheet({
-    this.title,
-    this.message,
-  });
+  const _CreditShortageSheet({this.title, this.message});
 
   final String? title;
   final String? message;
@@ -35,27 +29,33 @@ class _CreditShortageSheet extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
-    final canPurchase = ref.watch(capabilitiesProvider).maybeWhen(
-          data: (caps) => purchasesSupportedForPlatform(caps,
-              platform: defaultTargetPlatform, isWeb: kIsWeb),
+    final canPurchase = ref
+        .watch(capabilitiesProvider)
+        .maybeWhen(
+          data: (caps) => purchasesSupportedForPlatform(
+            caps,
+            platform: defaultTargetPlatform,
+            isWeb: kIsWeb,
+          ),
           orElse: () => false,
         );
     final resolvedTitle = !canPurchase
         ? l10n.creditBetaLimitTitle
         : title != null && title!.trim().isNotEmpty
-            ? title!.trim()
-            : l10n.creditShortageTitle;
-    final resolvedMessage = !canPurchase
+        ? title!.trim()
+        : l10n.creditShortageTitle;
+    final resolvedMessage = message != null && message!.trim().isNotEmpty
+        ? message!.trim()
+        : !canPurchase
         ? l10n.creditBetaLimitMessage
-        : message != null && message!.trim().isNotEmpty
-            ? message!.trim()
-            : l10n.creditShortageMessage;
+        : l10n.creditShortageMessage;
 
     return Container(
       decoration: BoxDecoration(
         color: AppPalette.of(context).surface,
-        borderRadius:
-            const BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(AppRadius.xl),
+        ),
       ),
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.lg,
@@ -66,79 +66,77 @@ class _CreditShortageSheet extends ConsumerWidget {
       child: SafeArea(
         top: false,
         child: SingleChildScrollView(
-            child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AppPalette.of(context).divider,
-                  borderRadius: BorderRadius.circular(2),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppPalette.of(context).divider,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            Text(resolvedTitle, style: AppTextStyles.heading2),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              resolvedMessage,
-              style: AppTextStyles.bodySmall,
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            if (canPurchase)
-              _ActionCard(
-                icon: Icons.workspace_premium,
-                title: l10n.creditShortageSubscribeTitle,
-                subtitle: l10n.creditShortageSubscribeSubtitle,
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.pushNamed(context, '/credits');
-                },
-              ),
-            if (canPurchase) const SizedBox(height: AppSpacing.sm),
-            if (canPurchase)
-              _ActionCard(
-                icon: Icons.local_offer,
-                title: l10n.creditShortagePurchaseTitle,
-                subtitle: l10n.creditShortagePurchaseSubtitle,
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.pushNamed(context, '/credits');
-                },
-              ),
-            if (!canPurchase) ...[
-              _ActionCard(
-                icon: Icons.auto_stories,
-                title: l10n.libraryTitle,
-                subtitle: l10n.creditBetaLibrarySubtitle,
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.pushNamed(context, '/library');
-                },
-              ),
+              const SizedBox(height: AppSpacing.lg),
+              Text(resolvedTitle, style: AppTextStyles.heading2),
               const SizedBox(height: AppSpacing.sm),
-              _ActionCard(
-                icon: Icons.account_balance_wallet_outlined,
-                title: l10n.creditsTitle,
-                subtitle: l10n.creditBetaStatusSubtitle,
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.pushNamed(context, '/credits');
-                },
+              Text(resolvedMessage, style: AppTextStyles.bodySmall),
+              const SizedBox(height: AppSpacing.lg),
+              if (canPurchase)
+                _ActionCard(
+                  icon: Icons.workspace_premium,
+                  title: l10n.creditShortageSubscribeTitle,
+                  subtitle: l10n.creditShortageSubscribeSubtitle,
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.pushNamed(context, '/credits');
+                  },
+                ),
+              if (canPurchase) const SizedBox(height: AppSpacing.sm),
+              if (canPurchase)
+                _ActionCard(
+                  icon: Icons.local_offer,
+                  title: l10n.creditShortagePurchaseTitle,
+                  subtitle: l10n.creditShortagePurchaseSubtitle,
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.pushNamed(context, '/credits');
+                  },
+                ),
+              if (!canPurchase) ...[
+                _ActionCard(
+                  icon: Icons.auto_stories,
+                  title: l10n.libraryTitle,
+                  subtitle: l10n.creditBetaLibrarySubtitle,
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.pushNamed(context, '/library');
+                  },
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                _ActionCard(
+                  icon: Icons.account_balance_wallet_outlined,
+                  title: l10n.creditsTitle,
+                  subtitle: l10n.creditBetaStatusSubtitle,
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.pushNamed(context, '/credits');
+                  },
+                ),
+              ],
+              const SizedBox(height: AppSpacing.md),
+              Center(
+                child: TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text(l10n.creditShortageClose),
+                ),
               ),
             ],
-            const SizedBox(height: AppSpacing.md),
-            Center(
-              child: TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: Text(l10n.creditShortageClose),
-              ),
-            ),
-          ],
-        )),
+          ),
+        ),
       ),
     );
   }
@@ -178,9 +176,12 @@ class _ActionCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title,
-                      style: AppTextStyles.body
-                          .copyWith(fontWeight: FontWeight.w700)),
+                  Text(
+                    title,
+                    style: AppTextStyles.body.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                   const SizedBox(height: 2),
                   Text(subtitle, style: AppTextStyles.caption),
                 ],

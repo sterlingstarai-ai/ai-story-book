@@ -42,7 +42,7 @@ from run_runtime_e2e import (
 # Stable public JobStatus.error.code values only. Never copy an error message or
 # an arbitrary uppercase provider value into acceptance reports.
 _JOB_ERROR_CODES = frozenset({
-    "SAFETY_INPUT", "SAFETY_OUTPUT", "LLM_TIMEOUT", "LLM_JSON_INVALID", "IMAGE_TIMEOUT",
+    "AI_PROVIDER_UNAVAILABLE", "SAFETY_INPUT", "SAFETY_OUTPUT", "LLM_TIMEOUT", "LLM_JSON_INVALID", "IMAGE_TIMEOUT",
     "IMAGE_RATE_LIMIT", "IMAGE_FAILED", "IMAGE_QUALITY_FAILED", "STORAGE_UPLOAD_FAILED",
     "CHARACTER_APPROVAL_REQUIRED", "CHARACTER_REFERENCE_UNAVAILABLE",
     "PHOTO_PROCESSING_UNAVAILABLE", "DB_WRITE_FAILED", "QUEUE_FAILED", "UNKNOWN",
@@ -367,7 +367,8 @@ def run_acceptance(args, *, profile=None):
               "age": args.age, "case": args.case, "requested_pages": args.page_count,
               "real_ai": True, **data_scope(reader_profile),
               "request_limits": profile.request_limits if profile is not None else request_limits(args.page_count, True),
-              "illustration_quality_enabled": True, "quality_review_max_calls": 2,
+              "illustration_quality_enabled": True, "quality_review_max_calls": 4,
+              "rate_limit_config": {"mutations": 10, "reads": 120, "window_seconds": 60},
               "provider_journal_version": JOURNAL_VERSION,
               "llm_output_token_limit": LLM_TOKEN_LIMITS[config.llm_provider],
               "providers": {"llm": config.llm_provider, "image": config.image_provider},
@@ -421,7 +422,8 @@ def run_acceptance(args, *, profile=None):
                 S3_ACCESS_KEY="runtime_test", S3_SECRET_KEY="disposable-runtime-password",
                 TTS_PROVIDER="mock", STT_PROVIDER="mock", AUDIO_FEATURE_ENABLED="false",
                 POD_ORDERING_ENABLED="false", PURCHASES_ENABLED="false", IAP_VERIFICATION_MODE="strict",
-                RATE_LIMIT_REQUESTS="1000", DAILY_GENERATION_BUDGET="2", LLM_TIMEOUT="90",
+                RATE_LIMIT_REQUESTS="10", RATE_LIMIT_READ_REQUESTS="120", RATE_LIMIT_WINDOW="60",
+                DAILY_GENERATION_BUDGET="2", LLM_TIMEOUT="90",
                 IMAGE_MAX_RETRIES="1", LIVE_ACCEPTANCE_JOURNAL=str(journal),
                 OBJC_DISABLE_INITIALIZE_FORK_SAFETY="YES")
             runtime.update(quality_environment)

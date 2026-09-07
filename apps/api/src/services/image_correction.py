@@ -18,11 +18,11 @@ CORRECTION_INSTRUCTIONS = {
     "duplicate_character": "Draw each named character exactly once; remove clones and extra bystanders.",
     "identity_swap": "Restore each character's own face, hair, outfit and colors; do not exchange identities.",
     "action_mismatch": (
-        "Depict the current action and object state. Show the actual contact point and an unobstructed "
-        "path to the intended destination. For filling, place the receiving opening directly under "
-        "the stream, not its spout or the ground. A lidded rain barrel keeps its lid with a small "
-        "screened inlet connected to the downpipe, not a sealed surface blocking the water. "
-        "Apply only to the depicted objects; do not add these props to unrelated scenes."
+        "Create a new composition for the action in the page narrative. Discard the previous pose, "
+        "camera angle and movement direction. Make actors, object contact and destination clear; "
+        "ascending and descending are different actions. Use side/rear views to show travel toward "
+        "the destination instead of forcing front-facing faces. Preserve approved identities, "
+        "clothing and style. Use only story props; do not invent an alternative event."
     ),
 }
 MAX_CORRECTION_NARRATIVE = 600
@@ -56,12 +56,12 @@ def image_correction_scope(*, page_text: str, issues: list[str], source_image_ur
 def correction_scene_reference() -> str | None:
     """A trusted, already ownership-checked page can anchor a local defect edit.
 
-    Identity/cast defects still need the caller's approved character reference;
+    Identity/cast/action defects still need the caller's approved character reference;
     copying the erroneous character would reinforce that defect. Prompt text or
     reviewer prose cannot choose a source URL or enter this scope.
     """
     context = _correction.get()
-    if context is None or set(context.issues) & {"identity_swap", "duplicate_character"}:
+    if context is None or set(context.issues) & {"identity_swap", "duplicate_character", "action_mismatch"}:
         return None
     return context.source_image_url
 

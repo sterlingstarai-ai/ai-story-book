@@ -69,6 +69,9 @@ class Settings(BaseSettings):
     llm_api_key: Optional[str] = None
     llm_model: str = "gpt-4o-mini"
     llm_timeout: int = 90
+    # Cached observations never initiate paid calls or promise future credit.
+    provider_observation_ttl_seconds: int = Field(default=86400, ge=60, le=86400)
+    provider_usage_prices_json: str = "{}"  # Optional per-model reference rates.
 
     # Explicit operator enablement after child-data processing conditions have
     # been verified for analysis, illustration generation and illustration QA.
@@ -145,7 +148,8 @@ class Settings(BaseSettings):
     printful_base_url: str = "https://api.printful.com"
 
     # Rate Limiting
-    rate_limit_requests: int = 10
+    rate_limit_requests: int = Field(default=10, ge=1)  # mutation requests per window
+    rate_limit_read_requests: int = Field(default=120, ge=1)  # polling + ordinary navigation
     rate_limit_window: int = 60  # seconds
     # 테스트에선 시간 기반 리미터가 실행 속도에 따라 플래키하게 429를 내므로 기본 우회.
     # 레이트리밋 자체를 검증하는 테스트만 이 플래그를 켠다(consent 게이트와 동일 패턴).
@@ -157,7 +161,7 @@ class Settings(BaseSettings):
     use_celery: bool = False  # Use Celery for background tasks (True for production)
 
     # Guardrails
-    daily_job_limit_per_user: int = 20  # Max jobs per user per day
+    daily_job_limit_per_user: int = 20  # New books/day; excludes failed/ancillary jobs
     # S4: 전역 일일 생성 예산(전 사용자 합계). X-User-Key 로테이션으로 per-user 통제가
     # 모두 우회되므로, 개별 식별자와 무관한 상한으로 LLM/이미지 청구서 폭증을 막는다.
     # 0 이하 = 비활성. 운영은 실측 트래픽 기준으로 넉넉히 잡고 알림으로 조기 인지한다.

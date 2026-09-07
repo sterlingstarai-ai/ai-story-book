@@ -11,8 +11,10 @@ class AppShell extends StatelessWidget {
     required this.body,
     this.backgroundColor,
     this.floatingActionButton,
+    this.showNavigation = true,
   });
 
+  final bool showNavigation;
   final int currentIndex;
   final PreferredSizeWidget? appBar;
   final Widget body;
@@ -26,7 +28,9 @@ class AppShell extends StatelessWidget {
       appBar: appBar,
       body: body,
       floatingActionButton: floatingActionButton,
-      bottomNavigationBar: _BottomNavBar(currentIndex: currentIndex),
+      bottomNavigationBar: showNavigation
+          ? _BottomNavBar(currentIndex: currentIndex)
+          : null,
     );
   }
 }
@@ -89,8 +93,10 @@ class _BottomNavBar extends StatelessWidget {
                 isSelected: currentIndex == 3,
                 onTap: currentIndex == 3
                     ? () {}
-                    : () =>
-                        Navigator.pushReplacementNamed(context, '/characters'),
+                    : () => Navigator.pushReplacementNamed(
+                        context,
+                        '/characters',
+                      ),
               ),
             ].map((item) => Expanded(child: item)).toList(),
           ),
@@ -128,8 +134,9 @@ class _NavItem extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(AppRadius.lg),
         child: Container(
-          constraints:
-              const BoxConstraints(minHeight: AppSizing.minTouchTarget),
+          constraints: const BoxConstraints(
+            minHeight: AppSizing.minTouchTarget,
+          ),
           padding: const EdgeInsets.symmetric(
             horizontal: AppSpacing.xs,
             vertical: AppSpacing.sm,
@@ -142,8 +149,9 @@ class _NavItem extends StatelessWidget {
                 width: AppSizing.minTouchTarget,
                 padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
                 decoration: BoxDecoration(
-                  color:
-                      isSelected ? AppPalette.of(context).primaryLight : null,
+                  color: isSelected
+                      ? AppPalette.of(context).primaryLight
+                      : null,
                   borderRadius: BorderRadius.circular(AppRadius.lg),
                 ),
                 child: Icon(icon, color: color, size: 26),

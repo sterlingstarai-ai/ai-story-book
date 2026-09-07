@@ -980,6 +980,22 @@
         "title": "CharacterListResponse",
         "type": "object"
       },
+      "CharacterNameRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "CharacterNameRequest",
+        "type": "object"
+      },
       "CharacterResponse": {
         "additionalProperties": false,
         "properties": {
@@ -1541,6 +1557,7 @@
         "enum": [
           "SAFETY_INPUT",
           "SAFETY_OUTPUT",
+          "AI_PROVIDER_UNAVAILABLE",
           "LLM_TIMEOUT",
           "LLM_JSON_INVALID",
           "IMAGE_TIMEOUT",
@@ -1578,6 +1595,7 @@
         "type": "object"
       },
       "FromPresetRequest": {
+        "additionalProperties": false,
         "properties": {
           "language": {
             "anyOf": [
@@ -1593,6 +1611,8 @@
           "name": {
             "anyOf": [
               {
+                "maxLength": 40,
+                "minLength": 1,
                 "type": "string"
               },
               {
@@ -1865,6 +1885,22 @@
       "JobStatus": {
         "additionalProperties": false,
         "properties": {
+          "credit_refund_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "refunded",
+                  "pending",
+                  "not_charged"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credit Refund Status"
+          },
           "current_step": {
             "maxLength": 120,
             "minLength": 1,
@@ -3752,8 +3788,8 @@
   },
   "info": {
     "contact": {
-      "email": "support@aistorybook.com",
-      "name": "AI Story Book Team"
+      "email": "sterling.star.ai@gmail.com",
+      "name": "AI Story Book (hanbyeol jang)"
     },
     "description": "\n# AI Story Book API\n\nAI 기반 맞춤형 동화책 생성 API입니다.\n\n## 주요 기능\n\n* **책 생성**: 주제, 연령대, 스타일을 입력하면 AI가 동화책을 생성합니다\n* **캐릭터 관리**: 사진에서 캐릭터를 추출하거나 직접 생성할 수 있습니다\n* **시리즈 생성**: 같은 캐릭터로 연속된 이야기를 만들 수 있습니다\n* **PDF/오디오 내보내기**: 완성된 책을 PDF나 오디오로 내보낼 수 있습니다\n\n## 인증\n\n모든 API는 `X-User-Key` 헤더가 필요합니다.\n중복 요청 방지를 위해 `X-Idempotency-Key` 헤더 사용을 권장합니다.\n\n## Rate Limiting\n\n- 기본: 분당 10회 요청 제한\n- 초과 시 429 Too Many Requests 응답\n\n## 크레딧 시스템\n\n책 1권 생성에 크레딧 1개가 소모됩니다.\n    ",
     "license": {
@@ -4835,6 +4871,24 @@
               ],
               "title": "X-Idempotency-Key"
             }
+          },
+          {
+            "description": "Optional active child profile id",
+            "in": "header",
+            "name": "x-profile-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional active child profile id",
+              "title": "X-Profile-Id"
+            }
           }
         ],
         "requestBody": {
@@ -5495,7 +5549,6 @@
         ]
       },
       "post": {
-        "description": "새 캐릭터 저장\n\n- 책 생성 후 캐릭터 시트를 저장하여 재사용\n- 시리즈 생성 시 character_id로 참조",
         "operationId": "create_character_v1_characters_post",
         "parameters": [
           {
@@ -5692,7 +5745,6 @@
     },
     "/v1/characters/from-preset": {
       "post": {
-        "description": "기본 캐릭터 프리셋으로 주인공 캐릭터를 생성한다(아이 이름 지정 가능).\n\n표시 텍스트(name/appearance/clothing/visual_style_notes)는 요청 언어로 저장하고,\nmaster_description 은 이미지 최적 영어로 고정 저장한다(G31 불변식).",
         "operationId": "create_character_from_preset_v1_characters_from_preset_post",
         "parameters": [
           {
@@ -5947,6 +5999,65 @@
           }
         },
         "summary": "Get Character",
+        "tags": [
+          "Characters"
+        ]
+      },
+      "patch": {
+        "operationId": "rename_character_v1_characters__character_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "character_id",
+            "required": true,
+            "schema": {
+              "title": "Character Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Device credential; legacy UUID or recovered device key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "Device credential; legacy UUID or recovered device key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CharacterNameRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rename Character",
         "tags": [
           "Characters"
         ]

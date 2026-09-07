@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -12,6 +13,7 @@ import '../l10n/app_localizations.dart';
 import '../providers/providers.dart';
 import '../services/api_client.dart';
 import '../services/selected_photo_cache.dart';
+import '../services/photo_upload_fingerprint.dart';
 import '../models/character.dart';
 import 'character_avatar_preview.dart';
 import '../utils/constants.dart';
@@ -81,13 +83,19 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
   String? _attemptSig;
   final ImagePicker _picker = ImagePicker();
 
+  String? get _childName {
+    final name = widget.childName?.trim();
+    return name == null || name.isEmpty ? null : name;
+  }
+
   void _showError(String message) {
     if (!mounted) {
       return;
     }
     setState(() => _busy = false);
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _useFromPreset(Map<String, dynamic> preset) async {
@@ -98,9 +106,11 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
     final language = Localizations.localeOf(context).languageCode;
     setState(() => _busy = true);
     try {
-      final id = await ref.read(apiClientProvider).createCharacterFromPreset(
+      final id = await ref
+          .read(apiClientProvider)
+          .createCharacterFromPreset(
             presetId: preset['preset_id'].toString(),
-            name: widget.childName,
+            name: _childName,
             language: language,
           );
       if (!mounted) return;
@@ -125,18 +135,28 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
         try {
           if (!await ensureAgeGate(context, ref) || !mounted) return;
           image = await _picker.pickImage(
-              source: currentSource, maxWidth: 1024, imageQuality: 85);
+            source: currentSource,
+            maxWidth: 1024,
+            imageQuality: 85,
+          );
           if (image == null || !mounted) return;
           final api = ref.read(apiClientProvider);
           if (!await _ensurePhotoConsent(api) || !mounted) return;
           setState(() => _busy = true);
-          final attemptSig = '${image.path}|${widget.childName ?? ''}';
+          final digest = await ref.read(photoUploadFingerprintProvider)(
+            File(image.path),
+          );
+          if (!mounted) return;
+          final attemptSig = jsonEncode([digest, _childName ?? '']);
           if (_attemptKey == null || _attemptSig != attemptSig) {
             _attemptKey = const Uuid().v4();
             _attemptSig = attemptSig;
           }
-          final result = await api.createCharacterFromPhoto(File(image.path),
-              name: widget.childName, idempotencyKey: _attemptKey);
+          final result = await api.createCharacterFromPhoto(
+            File(image.path),
+            name: _childName,
+            idempotencyKey: _attemptKey,
+          );
           _attemptKey = null;
           _attemptSig = null;
           id = result['character_id']?.toString();
@@ -145,15 +165,20 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
           }
           try {
             character = Character.fromJson(result);
-          } on FormatException {/* GET resolves legacy upload envelopes. */}
+          } on FormatException {
+            /* GET resolves legacy upload envelopes. */
+          }
         } finally {
           await cleanSelectedPhoto(image);
           if (mounted) setState(() => _busy = false);
         }
         if (!mounted) return;
         ref.invalidate(charactersProvider);
-        final preview = await showCharacterAvatarPreview(context,
-            characterId: id, initialCharacter: character);
+        final preview = await showCharacterAvatarPreview(
+          context,
+          characterId: id,
+          initialCharacter: character,
+        );
         if (!mounted) return;
         ref.invalidate(charactersProvider);
         if (preview?.character?.canUseInBook == true) {
@@ -285,8 +310,9 @@ class _PresetChip extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppRadius.md),
         child: Container(
           width: 100,
-          constraints:
-              const BoxConstraints(minHeight: AppSizing.minTouchTarget),
+          constraints: const BoxConstraints(
+            minHeight: AppSizing.minTouchTarget,
+          ),
           padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
           decoration: BoxDecoration(
             color: AppPalette.of(context).primaryLight,

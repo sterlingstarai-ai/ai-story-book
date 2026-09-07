@@ -74,7 +74,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get onboardingSlide4Subtitle =>
-      'Make your first storybook with 3 starter credits.';
+      'Create up to two storybooks each month for free.';
 
   @override
   String onboardingPageIndicator(int current, int total) {
@@ -580,6 +580,10 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get loadingErrorTitle => 'Something went wrong';
+
+  @override
+  String get loadingGenericFailure =>
+      'We couldn\'t complete this request. Please try again in a moment.';
 
   @override
   String get loadingUnknownError => 'Unknown error';
@@ -1684,7 +1688,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get planFeaturesFree =>
-      '2 books / month|Watercolor & cartoon styles|No audio/PDF';
+      '2 books each month|Watercolor & cartoon illustrations|Read stories in the app';
 
   @override
   String get planFeaturesBasic => '10 books / month|All styles|PDF|Basic TTS';
@@ -2307,6 +2311,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get viewerRegenerateConfirm => 'Regenerate';
+
+  @override
+  String get viewerRegenerateCompleted => 'This page has been remade.';
 
   @override
   String get viewerRegenerateFailed =>
@@ -3022,7 +3029,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get loadingStatusUnavailable =>
-      'We could not check the progress of your story. It may still be creating. Check your connection, then check this story\'s status again.';
+      'We could not check your story’s progress. It may still be creating. Check this story’s status again shortly.';
 
   @override
   String get voiceProfilesUnavailable =>
@@ -3361,4 +3368,88 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get characterAvatarFailedDescription =>
       'Try creating again or choose another photo.';
+
+  @override
+  String errorMonthlyBookLimit(String limit) {
+    return 'The free plan allows $limit books each month. Your limit resets on the first day of next month, Korea time. Remaining credits are kept.';
+  }
+
+  @override
+  String get errorInsufficientCredits =>
+      'You do not have enough credits to create this story.';
+
+  @override
+  String get errorPlanFeature =>
+      'This feature is not included in your current plan.';
+
+  @override
+  String errorRateLimitWait(String seconds) {
+    return 'Please wait $seconds seconds before trying again.';
+  }
+
+  @override
+  String get settingsDeleteUncertain =>
+      'We could not confirm the deletion result yet. Retry deletion for this account. If you reopen the app, we will continue checking before opening your library.';
+
+  @override
+  String get recoveryFinishBackupFirst =>
+      'Save the code and complete the backup confirmation below before leaving.';
+
+  @override
+  String get charactersRename => 'Rename';
+
+  @override
+  String get charactersNameSaved =>
+      'Character renamed. The approved appearance is unchanged.';
+
+  @override
+  String get charactersManage => 'Manage character';
+
+  @override
+  String activeChildLabel(String name) {
+    return 'Current child: $name';
+  }
+
+  @override
+  String get legalReadFull => 'Read full text';
+
+  @override
+  String get legalOpenWebsite => 'Open public page';
+
+  @override
+  String get legalKoreanOriginal => 'This document is provided in Korean.';
+
+  @override
+  String get legalDraftNotice =>
+      'Pre-release review copy. The effective date and external processing details will be finalized before publication.';
+
+  @override
+  String get consentRequiredOnly => 'Agree to required items';
+
+  @override
+  String get consentOptionalSeparate =>
+      'Choose photo consent separately below.';
+
+  @override
+  String get consentScrollHint => 'Scroll down to read all details.';
+
+  @override
+  String get loadingCreditRefunded =>
+      'The credits used for this generation have been returned.';
+
+  @override
+  String get loadingCreditRefundPending =>
+      'Your credits are being returned. Check the status again shortly.';
+
+  @override
+  String get loadingCreditNotCharged =>
+      'No credits were charged for this generation.';
+
+  @override
+  String get errorParentalConsentRequired =>
+      'Complete parental consent first. You can review consent in Settings.';
+
+  @override
+  String get localMediaCleanupFailed =>
+      'We could not confirm removal of cached images on this device. Retry on this screen to continue cleanup.';
 }

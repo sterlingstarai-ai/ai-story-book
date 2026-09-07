@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -33,27 +34,27 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   String? _seriesAttemptSig;
 
   Map<String, String> _sortLabels(AppLocalizations l) => {
-        'newest': l.librarySortNewest,
-        'oldest': l.librarySortOldest,
-        'title': l.librarySortTitle,
-      };
+    'newest': l.librarySortNewest,
+    'oldest': l.librarySortOldest,
+    'title': l.librarySortTitle,
+  };
 
   Map<String, String> _styleLabels(AppLocalizations l) => {
-        'watercolor': l.libraryStyleWatercolor,
-        'cartoon': l.libraryStyleCartoon,
-        '3d': l.libraryStyle3d,
-        'pixel': l.libraryStylePixel,
-        'oil_painting': l.libraryStyleOilPainting,
-        'claymation': l.libraryStyleClaymation,
-        'realistic': l.libraryStyleRealistic,
-      };
+    'watercolor': l.libraryStyleWatercolor,
+    'cartoon': l.libraryStyleCartoon,
+    '3d': l.libraryStyle3d,
+    'pixel': l.libraryStylePixel,
+    'oil_painting': l.libraryStyleOilPainting,
+    'claymation': l.libraryStyleClaymation,
+    'realistic': l.libraryStyleRealistic,
+  };
 
   Map<String, String> _ageLabels(AppLocalizations l) => {
-        '3-5': l.libraryAge3to5,
-        '5-7': l.libraryAge5to7,
-        '7-9': l.libraryAge7to9,
-        'adult': l.libraryAgeAdult,
-      };
+    '3-5': l.libraryAge3to5,
+    '5-7': l.libraryAge5to7,
+    '7-9': l.libraryAge7to9,
+    'adult': l.libraryAgeAdult,
+  };
 
   @override
   void initState() {
@@ -123,16 +124,16 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l.libraryRenameSuccess)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.libraryRenameSuccess)));
     } catch (error) {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_friendlyErrorMessage(error))),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_friendlyErrorMessage(error))));
     } finally {
       controller.dispose();
     }
@@ -140,13 +141,12 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
 
   Future<void> _confirmDelete(LibraryBook book) async {
     final l = AppLocalizations.of(context);
-    final confirmed = await showDialog<bool>(
+    final confirmed =
+        await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
             title: Text(l.libraryDeleteDialogTitle),
-            content: Text(
-              l.libraryDeleteDialogContent(book.title),
-            ),
+            content: Text(l.libraryDeleteDialogContent(book.title)),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, false),
@@ -173,16 +173,16 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l.libraryDeleteSuccess)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.libraryDeleteSuccess)));
     } catch (error) {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_friendlyErrorMessage(error))),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_friendlyErrorMessage(error))));
     }
   }
 
@@ -190,6 +190,12 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     final l = AppLocalizations.of(context);
     if (error is ApiError) {
       return error.localizedMessage(l);
+    }
+    if (error is DioException) {
+      return (error.error is ApiError
+              ? error.error as ApiError
+              : ApiError.fromDioException(error))
+          .localizedMessage(l);
     }
     final raw = error.toString().toLowerCase();
     if (raw.contains('socketexception') ||
@@ -239,10 +245,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     }
 
     try {
-      await Share.share(
-        message,
-        sharePositionOrigin: origin,
-      );
+      await Share.share(message, sharePositionOrigin: origin);
     } catch (_) {
       if (!mounted) {
         return;
@@ -275,8 +278,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
         centerTitle: false,
         actions: [
           IconButton(
-            icon:
-                Icon(Icons.refresh, color: AppPalette.of(context).textPrimary),
+            icon: Icon(
+              Icons.refresh,
+              color: AppPalette.of(context).textPrimary,
+            ),
             tooltip: l.libraryRefresh,
             onPressed: () => notifier.refresh(),
           ),
@@ -302,13 +307,15 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                 onResetFilters: notifier.clearFilters,
               ),
               if (state.isOffline)
-                _OfflineBanner(
-                  onClose: notifier.clearOfflineBanner,
-                ),
+                _OfflineBanner(onClose: notifier.clearOfflineBanner),
               Expanded(
                 child: hasBooks
                     ? _buildBookContent(
-                        state, notifier.refresh, ageLabels, styleLabels)
+                        state,
+                        notifier.refresh,
+                        ageLabels,
+                        styleLabels,
+                      )
                     : EmptyState(
                         icon: hasFilter
                             ? Icons.filter_alt_off_outlined
@@ -378,8 +385,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
       }
     }
     for (final volumes in groups.values) {
-      volumes
-          .sort((a, b) => (a.seriesIndex ?? 0).compareTo(b.seriesIndex ?? 0));
+      volumes.sort(
+        (a, b) => (a.seriesIndex ?? 0).compareTo(b.seriesIndex ?? 0),
+      );
     }
 
     return RefreshIndicator(
@@ -392,11 +400,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
             SliverToBoxAdapter(
               child: _SeriesShelf(
                 volumes: volumes,
-                onOpen: (book) => Navigator.pushNamed(
-                  context,
-                  '/viewer',
-                  arguments: book.id,
-                ),
+                onOpen: (book) =>
+                    Navigator.pushNamed(context, '/viewer', arguments: book.id),
                 onAddVolume: () => _createNextVolume(volumes.last),
               ),
             ),
@@ -408,33 +413,31 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                   crossAxisCount: 2,
                   mainAxisSpacing: AppSpacing.md,
                   crossAxisSpacing: AppSpacing.md,
-                  mainAxisExtent: (MediaQuery.sizeOf(context).width -
+                  mainAxisExtent:
+                      (MediaQuery.sizeOf(context).width -
                               AppSpacing.lg * 2 -
                               AppSpacing.md) /
                           2 /
                           0.9 +
                       MediaQuery.textScalerOf(context).scale(112),
                 ),
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    final book = standalone[index];
-                    return _LibraryBookCard(
-                      book: book,
-                      onTap: () => Navigator.pushNamed(
-                        context,
-                        '/viewer',
-                        arguments: book.id,
-                      ),
-                      onRename: () => _showRenameDialog(book),
-                      onDelete: () => _confirmDelete(book),
-                      onShare: () => _shareBook(book),
-                      ageLabel: ageLabels[book.targetAge] ?? book.targetAge,
-                      styleLabel: styleLabels[book.style] ?? book.style,
-                      dateLabel: _formatDate(book.createdAt),
-                    );
-                  },
-                  childCount: standalone.length,
-                ),
+                delegate: SliverChildBuilderDelegate((context, index) {
+                  final book = standalone[index];
+                  return _LibraryBookCard(
+                    book: book,
+                    onTap: () => Navigator.pushNamed(
+                      context,
+                      '/viewer',
+                      arguments: book.id,
+                    ),
+                    onRename: () => _showRenameDialog(book),
+                    onDelete: () => _confirmDelete(book),
+                    onShare: () => _shareBook(book),
+                    ageLabel: ageLabels[book.targetAge] ?? book.targetAge,
+                    styleLabel: styleLabels[book.style] ?? book.style,
+                    dateLabel: _formatDate(book.createdAt),
+                  );
+                }, childCount: standalone.length),
               ),
             ),
           if (state.hasMore)
@@ -444,9 +447,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                 child: Center(child: CircularProgressIndicator()),
               ),
             ),
-          const SliverToBoxAdapter(
-            child: SizedBox(height: AppSpacing.lg),
-          ),
+          const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.lg)),
         ],
       ),
     );
@@ -457,9 +458,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     final l = AppLocalizations.of(context);
     final characterId = latest.characterId;
     if (characterId == null || characterId.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l.libraryErrorGeneric)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.libraryErrorGeneric)));
       return;
     }
     final controller = TextEditingController();
@@ -497,7 +498,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
         _seriesAttemptKey = _uuid.v4();
         _seriesAttemptSig = attemptSig;
       }
-      final response = await ref.read(apiClientProvider).createSeriesBook(
+      final response = await ref
+          .read(apiClientProvider)
+          .createSeriesBook(
             characterId: characterId,
             topic: topic,
             seriesId: latest.seriesId,
@@ -517,9 +520,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_friendlyErrorMessage(error))),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_friendlyErrorMessage(error))));
     } finally {
       controller.dispose();
     }
@@ -661,13 +664,23 @@ class _LabeledDropdown extends StatelessWidget {
       selectedItemBuilder: (context) => [
         if (nullLabel != null)
           Align(
-              alignment: Alignment.centerLeft,
-              child: Text(nullLabel!,
-                  maxLines: 1, overflow: TextOverflow.ellipsis)),
-        ...entries.map((entry) => Align(
             alignment: Alignment.centerLeft,
-            child: Text(entry.value,
-                maxLines: 1, overflow: TextOverflow.ellipsis))),
+            child: Text(
+              nullLabel!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ...entries.map(
+          (entry) => Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              entry.value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ),
       ],
       decoration: InputDecoration(
         labelText: label,
@@ -678,10 +691,7 @@ class _LabeledDropdown extends StatelessWidget {
       ),
       items: [
         if (nullLabel != null)
-          DropdownMenuItem<String>(
-            value: _allValue,
-            child: Text(nullLabel!),
-          ),
+          DropdownMenuItem<String>(value: _allValue, child: Text(nullLabel!)),
         ...entries.map(
           (entry) => DropdownMenuItem<String>(
             value: entry.key,
@@ -722,10 +732,7 @@ class _OfflineBanner extends StatelessWidget {
           const Icon(Icons.wifi_off_rounded, size: 18),
           const SizedBox(width: AppSpacing.sm),
           Expanded(
-            child: Text(
-              l.libraryOfflineBanner,
-              style: AppTextStyles.caption,
-            ),
+            child: Text(l.libraryOfflineBanner, style: AppTextStyles.caption),
           ),
           IconButton(
             onPressed: onClose,
@@ -802,8 +809,11 @@ class _LibraryBookCard extends StatelessWidget {
             child: PopupMenuButton<_BookCardMenuAction>(
               tooltip: l.libraryBookOptions,
               style: IconButton.styleFrom(
-                  minimumSize: const Size(
-                      AppSizing.minTouchTarget, AppSizing.minTouchTarget)),
+                minimumSize: const Size(
+                  AppSizing.minTouchTarget,
+                  AppSizing.minTouchTarget,
+                ),
+              ),
               icon: Container(
                 width: 32,
                 height: 32,
@@ -812,8 +822,11 @@ class _LibraryBookCard extends StatelessWidget {
                   shape: BoxShape.circle,
                   border: Border.all(color: AppColors.divider),
                 ),
-                child: const Icon(Icons.more_horiz,
-                    color: AppColors.textPrimary, size: 20),
+                child: const Icon(
+                  Icons.more_horiz,
+                  color: AppColors.textPrimary,
+                  size: 20,
+                ),
               ),
               onSelected: (value) {
                 if (value == _BookCardMenuAction.rename) {
@@ -852,8 +865,11 @@ class _LibraryBookCard extends StatelessWidget {
                   value: _BookCardMenuAction.delete,
                   child: Row(
                     children: [
-                      const Icon(Icons.delete_outline,
-                          size: 20, color: Colors.red),
+                      const Icon(
+                        Icons.delete_outline,
+                        size: 20,
+                        color: Colors.red,
+                      ),
                       const SizedBox(width: AppSpacing.sm),
                       Text(l.libraryMenuDelete),
                     ],
@@ -868,11 +884,7 @@ class _LibraryBookCard extends StatelessWidget {
   }
 }
 
-enum _BookCardMenuAction {
-  rename,
-  share,
-  delete,
-}
+enum _BookCardMenuAction { rename, share, delete }
 
 class _MiniChip extends StatelessWidget {
   final String label;
@@ -927,17 +939,25 @@ class _SeriesShelf extends StatelessWidget {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(
-              AppSpacing.lg, AppSpacing.md, AppSpacing.lg, AppSpacing.sm),
+            AppSpacing.lg,
+            AppSpacing.md,
+            AppSpacing.lg,
+            AppSpacing.sm,
+          ),
           child: Row(
             children: [
-              Icon(Icons.collections_bookmark_outlined,
-                  size: 18, color: AppPalette.of(context).primary),
+              Icon(
+                Icons.collections_bookmark_outlined,
+                size: 18,
+                color: AppPalette.of(context).primary,
+              ),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
-                  child: Text(
-                '${l.librarySeriesBadge} · ${volumes.length}',
-                style: AppTextStyles.heading3,
-              )),
+                child: Text(
+                  '${l.librarySeriesBadge} · ${volumes.length}',
+                  style: AppTextStyles.heading3,
+                ),
+              ),
             ],
           ),
         ),
@@ -993,16 +1013,20 @@ class _AddVolumeTile extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.add_circle_outline,
-                  color: AppPalette.of(context).primary, size: 32),
+              Icon(
+                Icons.add_circle_outline,
+                color: AppPalette.of(context).primary,
+                size: 32,
+              ),
               const SizedBox(height: AppSpacing.sm),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 8),
                 child: Text(
                   l.librarySeriesAddVolume,
                   textAlign: TextAlign.center,
-                  style: AppTextStyles.caption
-                      .copyWith(color: AppPalette.of(context).primary),
+                  style: AppTextStyles.caption.copyWith(
+                    color: AppPalette.of(context).primary,
+                  ),
                 ),
               ),
             ],

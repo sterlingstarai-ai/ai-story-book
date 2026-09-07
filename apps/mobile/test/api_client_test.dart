@@ -64,6 +64,10 @@ void main() {
         final body = await utf8.decoder.bind(request).join();
         captured = jsonDecode(body) as Map<String, dynamic>;
         request.response.statusCode = HttpStatus.ok;
+        // 서버 계약: 재생성은 큐에 등록된 잡 ID를 돌려준다.
+        request.response.headers.contentType = ContentType.json;
+        request.response
+            .write(jsonEncode({'job_id': 'regen-1', 'status': 'queued'}));
         await request.response.close();
         done.complete();
       });
@@ -90,6 +94,10 @@ void main() {
         final body = await utf8.decoder.bind(request).join();
         captured = jsonDecode(body) as Map<String, dynamic>;
         request.response.statusCode = HttpStatus.ok;
+        // 서버 계약: 재생성은 큐에 등록된 잡 ID를 돌려준다.
+        request.response.headers.contentType = ContentType.json;
+        request.response
+            .write(jsonEncode({'job_id': 'regen-1', 'status': 'queued'}));
         await request.response.close();
         done.complete();
       });

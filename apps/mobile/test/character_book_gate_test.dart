@@ -82,6 +82,8 @@ Future<void> _open(WidgetTester tester, _Api api, List<String> selected) async {
               builder: (_) => const Scaffold(body: Text('created'))))));
   await tester.pumpAndSettle();
   await tester.enterText(find.byType(TextFormField).first, '함께 꽃을 키우는 아이');
+  FocusManager.instance.primaryFocus?.unfocus();
+  await tester.pumpAndSettle();
 }
 
 Future<void> _submit(WidgetTester tester) async {

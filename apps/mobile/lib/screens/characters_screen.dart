@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:dio/dio.dart';
 import '../core/api_error.dart';
 import 'package:flutter/material.dart';
@@ -9,21 +10,21 @@ import '../core/photo_consent.dart';
 import '../l10n/app_localizations.dart';
 import '../models/models.dart';
 import '../providers/providers.dart';
+import '../providers/active_child_profile.dart';
 import '../utils/constants.dart';
 import '../widgets/age_gate_dialog.dart';
 import '../widgets/app_shell.dart';
 import '../widgets/common_widgets.dart';
 import '../widgets/character_avatar_preview.dart';
 import '../services/selected_photo_cache.dart';
+import '../services/photo_upload_fingerprint.dart';
 
-enum _CharacterCreationMode {
-  photo,
-  drawing,
-}
+enum _CharacterCreationMode { photo, drawing }
 
 /// 캐릭터 목록 화면
 class CharactersScreen extends ConsumerStatefulWidget {
-  const CharactersScreen({super.key});
+  const CharactersScreen({super.key, this.selectionMode = false});
+  final bool selectionMode;
 
   @override
   ConsumerState<CharactersScreen> createState() => _CharactersScreenState();
@@ -44,6 +45,7 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
 
     return AppShell(
       currentIndex: 3,
+      showNavigation: !widget.selectionMode,
       appBar: AppBar(
         backgroundColor: AppPalette.of(context).background,
         elevation: 0,
@@ -51,15 +53,20 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
         centerTitle: false,
         actions: [
           IconButton(
-            icon: Icon(Icons.add_circle_outline,
-                color: AppPalette.of(context).primary),
-            onPressed:
-                _isCreatingCharacter ? null : () => _showCharacterOptions(),
+            icon: Icon(
+              Icons.add_circle_outline,
+              color: AppPalette.of(context).primary,
+            ),
+            onPressed: _isCreatingCharacter
+                ? null
+                : () => _showCharacterOptions(),
             tooltip: l.charactersAddTooltip,
           ),
           IconButton(
-            icon:
-                Icon(Icons.refresh, color: AppPalette.of(context).textPrimary),
+            icon: Icon(
+              Icons.refresh,
+              color: AppPalette.of(context).textPrimary,
+            ),
             onPressed: () => ref.read(charactersProvider.notifier).refresh(),
             tooltip: l.charactersRefreshTooltip,
           ),
@@ -73,8 +80,9 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
               title: l.charactersEmptyTitle,
               subtitle: l.charactersEmptySubtitle,
               buttonText: l.charactersEmptyCreateButton,
-              onButtonPressed:
-                  _isCreatingCharacter ? null : _showCharacterOptions,
+              onButtonPressed: _isCreatingCharacter
+                  ? null
+                  : _showCharacterOptions,
             );
           }
 
@@ -103,7 +111,10 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
                 final character = characters[index - 1];
                 return _CharacterListItem(
                   character: character,
-                  onTap: () => _showCharacterDetail(context, ref, character),
+                  onTap: () => widget.selectionMode && character.canUseInBook
+                      ? Navigator.pop(context, character)
+                      : _showCharacterDetail(context, ref, character),
+                  onRename: () => _renameCharacter(character),
                   onLongPress: () => _showDeleteCharacterDialog(character),
                 );
               },
@@ -124,8 +135,9 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
           : SizedBox(
               height: AppSizing.minTouchTarget,
               child: FloatingActionButton.extended(
-                onPressed:
-                    _isCreatingCharacter ? null : () => _showCharacterOptions(),
+                onPressed: _isCreatingCharacter
+                    ? null
+                    : () => _showCharacterOptions(),
                 backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,
                 icon: _isCreatingCharacter
@@ -138,9 +150,11 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
                         ),
                       )
                     : const Icon(Icons.person_add_alt_1),
-                label: Text(_isCreatingCharacter
-                    ? l.charactersFabCreating
-                    : l.charactersFabCreate),
+                label: Text(
+                  _isCreatingCharacter
+                      ? l.charactersFabCreating
+                      : l.charactersFabCreate,
+                ),
               ),
             ),
     );
@@ -164,8 +178,10 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
           children: [
             const SizedBox(height: AppSpacing.lg),
             ListTile(
-              leading:
-                  Icon(Icons.edit_note, color: AppPalette.of(context).primary),
+              leading: Icon(
+                Icons.edit_note,
+                color: AppPalette.of(context).primary,
+              ),
               title: Text(l.charactersOptionTextTitle),
               subtitle: Text(l.charactersOptionTextSubtitle),
               onTap: () {
@@ -175,8 +191,10 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
             ),
             const Divider(height: 1),
             ListTile(
-              leading:
-                  Icon(Icons.camera_alt, color: AppPalette.of(context).primary),
+              leading: Icon(
+                Icons.camera_alt,
+                color: AppPalette.of(context).primary,
+              ),
               title: Text(l.charactersOptionCameraTitle),
               subtitle: Text(l.charactersOptionCameraSubtitle),
               onTap: () {
@@ -185,8 +203,10 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
               },
             ),
             ListTile(
-              leading: Icon(Icons.photo_library,
-                  color: AppPalette.of(context).primary),
+              leading: Icon(
+                Icons.photo_library,
+                color: AppPalette.of(context).primary,
+              ),
               title: Text(l.charactersOptionGalleryTitle),
               subtitle: Text(l.charactersOptionGallerySubtitle),
               onTap: () {
@@ -196,8 +216,10 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
             ),
             const Divider(height: 1),
             ListTile(
-              leading: Icon(Icons.brush_outlined,
-                  color: AppPalette.of(context).primary),
+              leading: Icon(
+                Icons.brush_outlined,
+                color: AppPalette.of(context).primary,
+              ),
               title: Text(l.charactersOptionDrawingTitle),
               subtitle: Text(l.charactersOptionDrawingSubtitle),
               onTap: () {
@@ -233,7 +255,10 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
   }
 
   Future<void> _createCharacterFromText(
-      String name, String age, String traits) async {
+    String name,
+    String age,
+    String traits,
+  ) async {
     setState(() => _isCreatingCharacter = true);
 
     try {
@@ -249,8 +274,10 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
         final l = AppLocalizations.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text(
-                  l.charactersCreatedSnack(result['name']?.toString() ?? ''))),
+            content: Text(
+              l.charactersCreatedSnack(result['name']?.toString() ?? ''),
+            ),
+          ),
         );
         ref.read(charactersProvider.notifier).refresh();
       }
@@ -259,11 +286,14 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
         final l = AppLocalizations.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(e is DioException &&
-                    e.error is ApiError &&
-                    (e.error as ApiError).code == 'PHOTO_PROCESSING_UNAVAILABLE'
-                ? l.characterAvatarUnavailable
-                : l.charactersCreateFailed),
+            content: Text(
+              e is DioException &&
+                      e.error is ApiError &&
+                      (e.error as ApiError).code ==
+                          'PHOTO_PROCESSING_UNAVAILABLE'
+                  ? l.characterAvatarUnavailable
+                  : l.charactersCreateFailed,
+            ),
             backgroundColor: AppColors.error,
           ),
         );
@@ -291,19 +321,23 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
         try {
           if (!await ensureAgeGate(context, ref) || !mounted) return;
           image = await _picker.pickImage(
-              source: currentSource,
-              maxWidth: 1024,
-              maxHeight: 1024,
-              imageQuality: 85);
+            source: currentSource,
+            maxWidth: 1024,
+            maxHeight: 1024,
+            imageQuality: 85,
+          );
           if (image == null || !mounted) return;
           final api = ref.read(apiClientProvider);
           if (!await ensurePhotoConsent(context, api) || !mounted) return;
           final name = previousName ?? await _showNameDialog();
           if (name == null || !mounted) return;
           previousName = name;
-          preview = await _createCharacterFromImage(File(image.path), name,
-              creationMode: creationMode,
-              onUploadFinished: () => cleanSelectedPhoto(image));
+          preview = await _createCharacterFromImage(
+            File(image.path),
+            name.isEmpty ? null : name,
+            creationMode: creationMode,
+            onUploadFinished: () => cleanSelectedPhoto(image),
+          );
         } finally {
           await cleanSelectedPhoto(image);
         }
@@ -312,9 +346,13 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
       }
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content:
-                Text(AppLocalizations.of(context).charactersImagePickFailed)));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              AppLocalizations.of(context).charactersImagePickFailed,
+            ),
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _isChoosingImage = false);
@@ -322,13 +360,20 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
   }
 
   Future<String?> _showNameDialog() async {
-    final l = AppLocalizations.of(context);
     var name = '';
+    try {
+      name = (await ref.refresh(activeChildProfileProvider.future))?.name ?? '';
+    } catch (_) {
+      // The name remains editable when optional profile defaults are offline.
+    }
+    if (!mounted) return null;
+    final l = AppLocalizations.of(context);
     final result = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(l.charactersNameDialogTitle),
-        content: TextField(
+        content: TextFormField(
+          initialValue: name,
           onChanged: (value) => name = value,
           maxLength: 40,
           decoration: InputDecoration(
@@ -343,8 +388,7 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
             child: Text(l.charactersCancel),
           ),
           TextButton(
-            onPressed: () => Navigator.pop(
-                context, name.trim().isEmpty ? null : name.trim()),
+            onPressed: () => Navigator.pop(context, name.trim()),
             child: Text(l.charactersConfirm),
           ),
         ],
@@ -353,9 +397,64 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
     return result;
   }
 
+  Future<void> _renameCharacter(Character character) async {
+    if (!await ensureAgeGate(context, ref) || !mounted) return;
+    final l = AppLocalizations.of(context);
+    var name = character.name;
+    final next = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        scrollable: true,
+        title: Text(l.charactersRename),
+        content: TextFormField(
+          initialValue: name,
+          maxLength: 40,
+          autofocus: true,
+          onChanged: (value) => name = value,
+          decoration: InputDecoration(labelText: l.charactersRename),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(l.settingsCancel),
+          ),
+          TextButton(
+            onPressed: () {
+              if (name.trim().isNotEmpty) Navigator.pop(context, name.trim());
+            },
+            child: Text(l.settingsSave),
+          ),
+        ],
+      ),
+    );
+    if (next == null || !mounted || next == character.name) return;
+    final api = ref.read(apiClientProvider);
+    try {
+      await api.renameCharacter(character.id, next);
+      if (!mounted || !identical(api, ref.read(apiClientProvider))) return;
+      ref.invalidate(charactersProvider);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.charactersNameSaved)));
+    } catch (error) {
+      if (!mounted) return;
+      final apiError = error is DioException && error.error is ApiError
+          ? error.error as ApiError
+          : null;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            apiError?.localizedMessage(l) ?? l.charactersCreateFailed,
+          ),
+        ),
+      );
+    }
+  }
+
   Future<void> _showDeleteCharacterDialog(Character character) async {
     final l = AppLocalizations.of(context);
-    final confirmed = await showDialog<bool>(
+    final confirmed =
+        await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
             title: Text(l.charactersDeleteDialogTitle),
@@ -385,18 +484,18 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
         return;
       }
       final l = AppLocalizations.of(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l.charactersDeletedSnack)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.charactersDeletedSnack)));
       await ref.read(charactersProvider.notifier).refresh();
     } catch (_) {
       if (!mounted) {
         return;
       }
       final l = AppLocalizations.of(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l.charactersDeleteFailed)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.charactersDeleteFailed)));
     }
   }
 
@@ -410,10 +509,11 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
 
     try {
       final apiClient = ref.read(apiClientProvider);
-      // H17/G19: 시도-단위 멱등키. 타임아웃 후 같은 사진/모드로 재시도하면 같은 키를
-      // 재사용해 서버가 기존 캐릭터를 반환한다(중복 캐릭터·vision 비용 이중 지출 차단).
-      // 대상 서명이 바뀌면 새 키(#20 — 무스코프 키가 다른 대상 생성을 no-op으로 만드는 결함 방지).
-      final attemptSig = '${photo.path}|${creationMode.name}|${name ?? ''}';
+      // The picker changes cache paths on re-selection. Match the actual bytes
+      // and request fields so an uncertain upload can reuse its existing job.
+      final digest = await ref.read(photoUploadFingerprintProvider)(photo);
+      if (!mounted) return null;
+      final attemptSig = jsonEncode([digest, creationMode.name, name ?? '']);
       if (_characterAttemptKey == null || _characterAttemptSig != attemptSig) {
         _characterAttemptKey = const Uuid().v4();
         _characterAttemptSig = attemptSig;
@@ -449,15 +549,28 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
       Character? initial;
       try {
         initial = Character.fromJson(result);
-      } on FormatException {/* Reload full response in preview. */}
-      final preview = await showCharacterAvatarPreview(context,
-          characterId: id, initialCharacter: initial);
+      } on FormatException {
+        /* Reload full response in preview. */
+      }
+      final preview = await showCharacterAvatarPreview(
+        context,
+        characterId: id,
+        initialCharacter: initial,
+      );
       if (mounted) {
         ref.invalidate(charactersProvider);
         if (preview?.character?.canUseInBook == true) {
-          Navigator.pushNamed(context, '/create', arguments: {
-            'characterIds': [preview!.character!.id]
-          });
+          if (widget.selectionMode) {
+            Navigator.pop(context, preview!.character);
+          } else {
+            Navigator.pushNamed(
+              context,
+              '/create',
+              arguments: {
+                'characterIds': [preview!.character!.id],
+              },
+            );
+          }
         }
       }
       return preview;
@@ -466,11 +579,14 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
         final l = AppLocalizations.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(e is DioException &&
-                    e.error is ApiError &&
-                    (e.error as ApiError).code == 'PHOTO_PROCESSING_UNAVAILABLE'
-                ? l.characterAvatarUnavailable
-                : l.charactersCreateFailed),
+            content: Text(
+              e is DioException &&
+                      e.error is ApiError &&
+                      (e.error as ApiError).code ==
+                          'PHOTO_PROCESSING_UNAVAILABLE'
+                  ? l.characterAvatarUnavailable
+                  : l.charactersCreateFailed,
+            ),
             backgroundColor: AppColors.error,
           ),
         );
@@ -484,18 +600,32 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
   }
 
   Future<void> _showCharacterDetail(
-      BuildContext context, WidgetRef ref, Character character) async {
+    BuildContext context,
+    WidgetRef ref,
+    Character character,
+  ) async {
     if (character.needsAvatarApproval && !character.canUseInBook) {
-      final result = await showCharacterAvatarPreview(context,
-          characterId: character.id, initialCharacter: character);
+      final result = await showCharacterAvatarPreview(
+        context,
+        characterId: character.id,
+        initialCharacter: character,
+      );
       if (!mounted || !context.mounted) return;
       ref.invalidate(charactersProvider);
       if (result?.chooseAnotherPhoto == true) {
         await _pickImage(ImageSource.gallery);
       } else if (result?.character?.canUseInBook == true) {
-        Navigator.pushNamed(context, '/create', arguments: {
-          'characterIds': [result!.character!.id]
-        });
+        if (widget.selectionMode) {
+          Navigator.pop(context, result!.character);
+        } else {
+          Navigator.pushNamed(
+            context,
+            '/create',
+            arguments: {
+              'characterIds': [result!.character!.id],
+            },
+          );
+        }
       }
       return;
     }
@@ -525,10 +655,7 @@ class _AddCharacterCard extends StatelessWidget {
   final VoidCallback? onTap;
   final bool isLoading;
 
-  const _AddCharacterCard({
-    required this.onTap,
-    this.isLoading = false,
-  });
+  const _AddCharacterCard({required this.onTap, this.isLoading = false});
 
   @override
   Widget build(BuildContext context) {
@@ -595,10 +722,7 @@ class _AddCharacterCard extends StatelessWidget {
                 ],
               ),
             ),
-            Icon(
-              Icons.chevron_right,
-              color: AppPalette.of(context).primary,
-            ),
+            Icon(Icons.chevron_right, color: AppPalette.of(context).primary),
           ],
         ),
       ),
@@ -611,11 +735,13 @@ class _CharacterListItem extends StatelessWidget {
   final Character character;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
+  final VoidCallback onRename;
 
   const _CharacterListItem({
     required this.character,
     required this.onTap,
     required this.onLongPress,
+    required this.onRename,
   });
 
   @override
@@ -646,15 +772,15 @@ class _CharacterListItem extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    character.name,
-                    style: AppTextStyles.heading3,
-                  ),
+                  Text(character.name, style: AppTextStyles.heading3),
                   if (character.needsAvatarApproval) ...[
                     const SizedBox(height: AppSpacing.xs),
-                    Text(characterAvatarStatusLabel(l, character),
-                        style: AppTextStyles.caption
-                            .copyWith(color: AppPalette.of(context).primary)),
+                    Text(
+                      characterAvatarStatusLabel(l, character),
+                      style: AppTextStyles.caption.copyWith(
+                        color: AppPalette.of(context).primary,
+                      ),
+                    ),
                   ],
                   const SizedBox(height: AppSpacing.xs),
                   Text(
@@ -667,8 +793,9 @@ class _CharacterListItem extends StatelessWidget {
                     const SizedBox(height: AppSpacing.sm),
                     Wrap(
                       spacing: AppSpacing.xs,
-                      children:
-                          character.personalityTraits.take(3).map((trait) {
+                      children: character.personalityTraits.take(3).map((
+                        trait,
+                      ) {
                         return Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: AppSpacing.sm,
@@ -691,7 +818,25 @@ class _CharacterListItem extends StatelessWidget {
                 ],
               ),
             ),
-            Icon(Icons.chevron_right, color: AppPalette.of(context).textHint),
+            PopupMenuButton<String>(
+              tooltip: l.charactersManage,
+              constraints: const BoxConstraints(minWidth: 180),
+              style: IconButton.styleFrom(minimumSize: const Size(64, 64)),
+              onSelected: (value) =>
+                  value == 'rename' ? onRename() : onLongPress(),
+              itemBuilder: (_) => [
+                PopupMenuItem(
+                  value: 'rename',
+                  height: 64,
+                  child: Text(l.charactersRename),
+                ),
+                PopupMenuItem(
+                  value: 'delete',
+                  height: 64,
+                  child: Text(l.charactersDeleteDialogTitle),
+                ),
+              ],
+            ),
           ],
         ),
       ),
@@ -753,8 +898,10 @@ class _CharacterDetailSheet extends StatelessWidget {
 
               // 설명
               _SectionTitle(l.charactersDetailDescription),
-              Text(characterDisplayDescription(l, character),
-                  style: AppTextStyles.body),
+              Text(
+                characterDisplayDescription(l, character),
+                style: AppTextStyles.body,
+              ),
 
               const SizedBox(height: AppSpacing.lg),
 
@@ -789,7 +936,9 @@ class _CharacterDetailSheet extends StatelessWidget {
                 // 외형
                 _SectionTitle(l.charactersDetailAppearance),
                 _DetailRow(
-                    l.charactersDetailAge, character.appearance.ageVisual),
+                  l.charactersDetailAge,
+                  character.appearance.ageVisual,
+                ),
                 _DetailRow(l.charactersDetailFace, character.appearance.face),
                 _DetailRow(l.charactersDetailHair, character.appearance.hair),
                 _DetailRow(l.charactersDetailSkin, character.appearance.skin),
@@ -802,8 +951,10 @@ class _CharacterDetailSheet extends StatelessWidget {
                 _DetailRow(l.charactersDetailTop, character.clothing.top),
                 _DetailRow(l.charactersDetailBottom, character.clothing.bottom),
                 _DetailRow(l.charactersDetailShoes, character.clothing.shoes),
-                _DetailRow(l.charactersDetailAccessories,
-                    character.clothing.accessories),
+                _DetailRow(
+                  l.charactersDetailAccessories,
+                  character.clothing.accessories,
+                ),
 
                 if (character.visualStyleNotes != null) ...[
                   const SizedBox(height: AppSpacing.lg),
@@ -823,15 +974,18 @@ class _CharacterDetailSheet extends StatelessWidget {
                     children: character.distinctiveFeatures!.map((f) {
                       return Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 6),
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
                         decoration: BoxDecoration(
                           color: AppPalette.of(context).primaryLight,
                           borderRadius: BorderRadius.circular(999),
                         ),
                         child: Text(
                           f,
-                          style: AppTextStyles.caption
-                              .copyWith(color: AppPalette.of(context).primary),
+                          style: AppTextStyles.caption.copyWith(
+                            color: AppPalette.of(context).primary,
+                          ),
                         ),
                       );
                     }).toList(),
@@ -902,9 +1056,7 @@ class _DetailRow extends StatelessWidget {
             width: 80,
             child: Text(label, style: AppTextStyles.bodySmall),
           ),
-          Expanded(
-            child: Text(value, style: AppTextStyles.body),
-          ),
+          Expanded(child: Text(value, style: AppTextStyles.body)),
         ],
       ),
     );
@@ -936,17 +1088,17 @@ const _characterRoles = [
 
 // _characterRoles와 동일 순서로 인덱스가 1:1 대응되는 표시용 라벨.
 List<String> _characterRoleLabels(AppLocalizations l) => [
-      l.charactersRoleChild,
-      l.charactersRoleBrother,
-      l.charactersRoleSister,
-      l.charactersRoleMom,
-      l.charactersRoleDad,
-      l.charactersRoleGrandma,
-      l.charactersRoleGrandpa,
-      l.charactersRoleFriend,
-      l.charactersRoleTeacher,
-      l.charactersRolePet,
-    ];
+  l.charactersRoleChild,
+  l.charactersRoleBrother,
+  l.charactersRoleSister,
+  l.charactersRoleMom,
+  l.charactersRoleDad,
+  l.charactersRoleGrandma,
+  l.charactersRoleGrandpa,
+  l.charactersRoleFriend,
+  l.charactersRoleTeacher,
+  l.charactersRolePet,
+];
 
 /// 텍스트 기반 캐릭터 생성 폼
 class _TextCharacterForm extends StatefulWidget {
@@ -1025,10 +1177,9 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
     final customTraits = _traitsController.text.trim();
     final allTraits = [..._selectedTraits];
     if (customTraits.isNotEmpty) {
-      allTraits.addAll(customTraits
-          .split(',')
-          .map((t) => t.trim())
-          .where((t) => t.isNotEmpty));
+      allTraits.addAll(
+        customTraits.split(',').map((t) => t.trim()).where((t) => t.isNotEmpty),
+      );
     }
     return allTraits.join(', ');
   }
@@ -1062,8 +1213,11 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
               ),
               const SizedBox(height: AppSpacing.lg),
               Center(
-                child: Text(l.charactersFormTitle,
-                    style: AppTextStyles.heading2, textAlign: TextAlign.center),
+                child: Text(
+                  l.charactersFormTitle,
+                  style: AppTextStyles.heading2,
+                  textAlign: TextAlign.center,
+                ),
               ),
               const SizedBox(height: AppSpacing.xl),
 
@@ -1089,7 +1243,8 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
                         }),
                         child: Container(
                           constraints: const BoxConstraints(
-                              minHeight: AppSizing.minTouchTarget),
+                            minHeight: AppSizing.minTouchTarget,
+                          ),
                           padding: const EdgeInsets.symmetric(
                             horizontal: AppSpacing.md,
                             vertical: AppSpacing.sm,
@@ -1109,8 +1264,10 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Text(role.emoji,
-                                  style: const TextStyle(fontSize: 20)),
+                              Text(
+                                role.emoji,
+                                style: const TextStyle(fontSize: 20),
+                              ),
                               const SizedBox(width: AppSpacing.xs),
                               Flexible(
                                 child: Text(
@@ -1142,7 +1299,8 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
                       }),
                       child: Container(
                         constraints: const BoxConstraints(
-                            minHeight: AppSizing.minTouchTarget),
+                          minHeight: AppSizing.minTouchTarget,
+                        ),
                         padding: const EdgeInsets.symmetric(
                           horizontal: AppSpacing.md,
                           vertical: AppSpacing.sm,
@@ -1228,8 +1386,9 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
               const SizedBox(height: AppSpacing.xs),
               Text(
                 l.charactersFormTraitsHelper,
-                style: AppTextStyles.caption
-                    .copyWith(color: AppPalette.of(context).textHint),
+                style: AppTextStyles.caption.copyWith(
+                  color: AppPalette.of(context).textHint,
+                ),
               ),
               const SizedBox(height: AppSpacing.sm),
               Wrap(
@@ -1250,7 +1409,8 @@ class _TextCharacterFormState extends State<_TextCharacterForm> {
                       }),
                       child: Container(
                         constraints: const BoxConstraints(
-                            minHeight: AppSizing.minTouchTarget),
+                          minHeight: AppSizing.minTouchTarget,
+                        ),
                         alignment: Alignment.center,
                         width: 112,
                         padding: const EdgeInsets.symmetric(

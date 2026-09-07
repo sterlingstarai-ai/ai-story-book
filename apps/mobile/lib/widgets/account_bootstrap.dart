@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
+import '../services/account_recovery_service.dart';
 import '../utils/app_theme.dart';
 
 /// 계정 접근에 실패해도 새 계정을 만들지 않고 같은 부트스트랩을 재시도한다.
@@ -23,6 +24,7 @@ class AccountBootstrap extends StatefulWidget {
 class _AccountBootstrapState extends State<AccountBootstrap> {
   bool _loading = true;
   bool _ready = false;
+  bool _deletionPending = false;
 
   @override
   void initState() {
@@ -35,7 +37,8 @@ class _AccountBootstrapState extends State<AccountBootstrap> {
     try {
       await widget.initialize();
       if (mounted) setState(() => _ready = true);
-    } catch (_) {
+    } catch (error) {
+      _deletionPending = error is AccountDeletionUnconfirmed;
       // 오류 원문에 플랫폼 자격증명 정보가 포함될 수 있어 화면·로그에 노출하지 않는다.
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -51,49 +54,61 @@ class _AccountBootstrapState extends State<AccountBootstrap> {
       supportedLocales: AppLocalizations.supportedLocales,
       theme: buildAppTheme(Brightness.light),
       darkTheme: buildAppTheme(Brightness.dark),
-      home: Builder(builder: (context) {
-        final l = AppLocalizations.of(context);
-        return Scaffold(
-          body: SafeArea(
-            child: Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
-                child: _loading
-                    ? CircularProgressIndicator(
-                        semanticsLabel: l.accountOpening)
-                    : Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(l.accountUnavailableTitle,
-                              style: Theme.of(context).textTheme.headlineSmall),
-                          const SizedBox(height: 16),
-                          Text(l.accountUnavailableMessage),
-                          const SizedBox(height: 24),
-                          FilledButton(
-                            style: FilledButton.styleFrom(
-                              minimumSize: const Size(160, 64),
-                              backgroundColor: const Color(0xFF4F46E5),
+      home: Builder(
+        builder: (context) {
+          final l = AppLocalizations.of(context);
+          return Scaffold(
+            body: SafeArea(
+              child: Center(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(24),
+                  child: _loading
+                      ? CircularProgressIndicator(
+                          semanticsLabel: l.accountOpening,
+                        )
+                      : Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              l.accountUnavailableTitle,
+                              style: Theme.of(context).textTheme.headlineSmall,
                             ),
-                            onPressed: _initialize,
-                            child: Text(l.accountRetry),
-                          ),
-                          if (widget.onRestore != null) ...[
                             const SizedBox(height: 16),
-                            TextButton(
+                            Text(
+                              _deletionPending
+                                  ? l.settingsDeleteUncertain
+                                  : l.accountUnavailableMessage,
+                            ),
+                            const SizedBox(height: 24),
+                            FilledButton(
+                              style: FilledButton.styleFrom(
+                                minimumSize: const Size(160, 64),
+                                backgroundColor: const Color(0xFF4F46E5),
+                              ),
+                              onPressed: _initialize,
+                              child: Text(l.accountRetry),
+                            ),
+                            if (widget.onRestore != null &&
+                                !_deletionPending) ...[
+                              const SizedBox(height: 16),
+                              TextButton(
                                 onPressed: () async {
-                                  final recovered =
-                                      await widget.onRestore!(context);
+                                  final recovered = await widget.onRestore!(
+                                    context,
+                                  );
                                   if (mounted && recovered) await _initialize();
                                 },
-                                child: Text(l.recoveryRestoreTitle)),
+                                child: Text(l.recoveryRestoreTitle),
+                              ),
+                            ],
                           ],
-                        ],
-                      ),
+                        ),
+                ),
               ),
             ),
-          ),
-        );
-      }),
+          );
+        },
+      ),
     );
   }
 }

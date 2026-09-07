@@ -11,66 +11,41 @@ from src.core.rate_limit import RateLimiter, check_rate_limit, rate_limiter
 
 
 @pytest.mark.asyncio
-async def test_is_allowed_uses_unique_zset_member(monkeypatch: pytest.MonkeyPatch):
+async def test_is_allowed_uses_unique_members_and_bounded_atomic_script(monkeypatch):
     limiter = RateLimiter()
-
-    pipe = MagicMock()
-    pipe.zremrangebyscore.return_value = pipe
-    pipe.zadd.return_value = pipe
-    pipe.zcard.return_value = pipe
-    pipe.expire.return_value = pipe
-    pipe.execute = AsyncMock(return_value=[0, 1, 1, True])
-
-    redis_client = MagicMock()
-    redis_client.pipeline.return_value = pipe
-    monkeypatch.setattr(limiter, "get_redis", AsyncMock(return_value=redis_client))
-
-    fixed_dt = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-    monkeypatch.setattr("src.core.rate_limit.utcnow", lambda: fixed_dt)
-
-    class _FixedUUID:
-        hex = "abc123"
-
-    monkeypatch.setattr("src.core.rate_limit.uuid.uuid4", lambda: _FixedUUID())
-
-    allowed, remaining = await limiter.is_allowed("test-user")
-
-    now_ts = fixed_dt.timestamp()
-    window_start = now_ts - settings.rate_limit_window
-
-    key = f"rate_limit:{hashlib.sha256(b'test-user').hexdigest()}"
-    pipe.zremrangebyscore.assert_called_once_with(key, 0, window_start)
-    pipe.zadd.assert_called_once_with(
-        key,
-        {f"{now_ts}:abc123": now_ts},
-    )
-    pipe.zcard.assert_called_once_with(key)
-    pipe.expire.assert_called_once_with(key, settings.rate_limit_window + 1)
-
-    assert allowed is True
-    assert remaining == max(0, settings.rate_limit_requests - 1)
+    from tests.fake_redis import FakeRedis
+    fake = FakeRedis()
+    monkeypatch.setattr(limiter, "get_redis", AsyncMock(return_value=fake))
+    instant = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    monkeypatch.setattr("src.core.rate_limit.utcnow", lambda: instant)
+    for _ in range(settings.rate_limit_requests):
+        decision = await limiter.is_allowed("test-user")
+        assert decision.allowed
+    denied = await limiter.is_allowed("test-user")
+    assert not denied.allowed
+    assert denied.retry_after == settings.rate_limit_window
+    key = f"rate_limit:write:{hashlib.sha256(b'test-user').hexdigest()}"
+    assert len(fake.sorted_sets[key]) == settings.rate_limit_requests
 
 
 @pytest.mark.asyncio
-async def test_is_allowed_blocks_when_count_exceeds_limit(monkeypatch: pytest.MonkeyPatch):
-    limiter = RateLimiter()
-
-    over_limit_count = settings.rate_limit_requests + 1
-    pipe = MagicMock()
-    pipe.zremrangebyscore.return_value = pipe
-    pipe.zadd.return_value = pipe
-    pipe.zcard.return_value = pipe
-    pipe.expire.return_value = pipe
-    pipe.execute = AsyncMock(return_value=[0, 1, over_limit_count, True])
-
-    redis_client = MagicMock()
-    redis_client.pipeline.return_value = pipe
-    monkeypatch.setattr(limiter, "get_redis", AsyncMock(return_value=redis_client))
-
-    allowed, remaining = await limiter.is_allowed("test-user")
-
-    assert allowed is False
-    assert remaining == 0
+async def test_rejected_polls_do_not_extend_window_or_consume_write_slots(monkeypatch):
+    from datetime import timedelta
+    from tests.fake_redis import FakeRedis
+    limiter, fake = RateLimiter(), FakeRedis()
+    monkeypatch.setattr(limiter, "get_redis", AsyncMock(return_value=fake))
+    instant = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    clock = [instant]
+    monkeypatch.setattr("src.core.rate_limit.utcnow", lambda: clock[0])
+    for _ in range(settings.rate_limit_requests):
+        assert (await limiter.is_allowed("test-user")).allowed
+    clock[0] += timedelta(seconds=30)
+    for _ in range(30):
+        decision = await limiter.is_allowed("test-user")
+        assert not decision.allowed and decision.retry_after == 30
+        assert (await limiter.is_allowed("test-user", bucket="read")).allowed
+    clock[0] += timedelta(seconds=30)
+    assert (await limiter.is_allowed("test-user")).allowed
 
 
 @pytest.mark.asyncio

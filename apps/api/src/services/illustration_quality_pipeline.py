@@ -138,7 +138,7 @@ async def verify_and_repair_illustrations(
     on_progress: Callable[[str, int], Awaitable[None]] | None = None,
     repairable_pages: set[int] | None = None,
 ) -> VerifiedIllustrations:
-    """Review, repair each affected page once within the book limit, review all again.
+    """Review and repair only failing pages within one shared request/time budget.
 
     A regeneration callback receives current candidate URLs, except that page 0
     is omitted when it is the repair target or has not passed the initial review.
@@ -198,56 +198,69 @@ async def verify_and_repair_illustrations(
         if repairable_pages is not None and not set(findings).issubset(repairable_pages):
             raise quality_failure("repair_scope_invalid")
 
-        # Reserve the mandatory second review and commit before dividing the
-        # remaining time. Edit tasks have a shorter SLA than normal generation;
-        # requiring every repair's full configured timeout makes them impossible.
-        # A flagged cover remains untrusted even after its one repair until the
-        # mandatory whole-book recheck. Do not add a third review or spread its
-        # unverified replacement to other pages in this repair batch.
         from src.core.config import settings
         from src.services.image import image_book_reference_scope, supports_image_reference
+        from src.services.image_request_budget import remaining_image_requests
 
-        cover_passed_review = 0 not in findings
         repair_reserve = REVIEW_TIMEOUT + COMMIT_RESERVE_SECONDS
-        if seconds_remaining(deadline, reserve=repair_reserve) < len(findings) * MIN_REPAIR_SECONDS:
-            raise quality_failure("repair_deadline_insufficient")
-        if on_progress:
-            await on_progress("repair_illustrations", PROGRESS_REPAIR)
-        for index, page in enumerate(sorted(findings)):
-            repair_timeout = min(
-                float(settings.image_timeout),
-                seconds_remaining(deadline, reserve=repair_reserve) / (len(findings) - index),
-            )
-            if repair_timeout < MIN_REPAIR_SECONDS:
+        attempts_used = 0
+        repaired_pages: set[int] = set()
+        while findings:
+            # The allowance counts attempts, not distinct pages. A page that
+            # still fails may use the remaining allowance; neither retries nor
+            # a second pass can reset the book-wide paid request ceiling.
+            remaining_attempts = min(repair_limit - attempts_used, remaining_image_requests(repair_limit))
+            if len(findings) > remaining_attempts:
+                raise quality_failure("recheck_failed")
+            if any(issue in _BLOCKING_ISSUES for issues in findings.values() for issue in issues):
+                raise quality_failure("blocking_issue")
+            if repairable_pages is not None and not set(findings).issubset(repairable_pages):
+                raise quality_failure("repair_scope_invalid")
+            if seconds_remaining(deadline, reserve=repair_reserve) < len(findings) * MIN_REPAIR_SECONDS:
                 raise quality_failure("repair_deadline_insufficient")
-            prompt = corrected_prompt(prompts[page], page_texts[page], findings[page])
-            reference_urls = dict(urls)
-            if page == 0 or not cover_passed_review:
-                reference_urls.pop(0, None)
-            book_reference = reference_urls.get(0) if supports_image_reference() else None
-            with image_correction_scope(
-                page_text=page_texts[page], issues=findings[page], source_image_url=urls[page],
-            ), image_book_reference_scope(book_reference):
-                url = await asyncio.wait_for(
-                    regenerate(page, prompt, reference_urls),
-                    timeout=repair_timeout,
+            cover_passed_review = 0 not in findings
+            if on_progress:
+                await on_progress("repair_illustrations", PROGRESS_REPAIR if attempts_used == 0 else PROGRESS_REVERIFY)
+            for index, page in enumerate(sorted(findings)):
+                repair_timeout = min(
+                    float(settings.image_timeout),
+                    seconds_remaining(deadline, reserve=repair_reserve) / (len(findings) - index),
                 )
-            key = key_from_public_url(url)
-            if not key or not url or "placeholder" in url:
-                raise quality_failure("asset_invalid")
-            allowed_keys.add(key)
-            if url != urls[page]:
-                discarded.append(urls[page])
-            urls[page] = url
-            prompts[page] = prompt
-        if on_progress:
-            await on_progress("verify_illustrations", PROGRESS_REVERIFY)
-        if await review():
-            raise quality_failure("recheck_failed")
-        return VerifiedIllustrations(urls, prompts, discarded, sorted(findings))
+                if repair_timeout < MIN_REPAIR_SECONDS:
+                    raise quality_failure("repair_deadline_insufficient")
+                prompt = corrected_prompt(prompts[page], page_texts[page], findings[page])
+                reference_urls = dict(urls)
+                if page == 0 or not cover_passed_review:
+                    reference_urls.pop(0, None)
+                book_reference = reference_urls.get(0) if supports_image_reference() else None
+                attempts_used += 1
+                with image_correction_scope(
+                    page_text=page_texts[page], issues=findings[page], source_image_url=urls[page],
+                ), image_book_reference_scope(book_reference):
+                    url = await asyncio.wait_for(
+                        regenerate(page, prompt, reference_urls),
+                        timeout=repair_timeout,
+                    )
+                key = key_from_public_url(url)
+                if not key or not url or "placeholder" in url:
+                    raise quality_failure("asset_invalid")
+                allowed_keys.add(key)
+                if url != urls[page]:
+                    discarded.append(urls[page])
+                urls[page] = url
+                prompts[page] = prompt
+                repaired_pages.add(page)
+            if on_progress:
+                await on_progress("verify_illustrations", PROGRESS_REVERIFY)
+            # Every accepted result has a complete final review. A previously
+            # rejected cover may anchor later repairs only after passing here.
+            findings = await review()
+        return VerifiedIllustrations(urls, prompts, discarded, sorted(repaired_pages))
     except asyncio.CancelledError:
         raise
     except Exception as exc:
+        if isinstance(exc, StoryBookError) and exc.code == ErrorCode.AI_PROVIDER_UNAVAILABLE:
+            raise
         record_illustration_diagnostic(
             "pipeline", "pipeline_exception", error_code=getattr(exc, "code", None),
         )

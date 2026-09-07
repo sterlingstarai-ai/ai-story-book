@@ -66,6 +66,8 @@ def production_inputs(config, config_path):
         require(hashlib.sha256(data).hexdigest() == config[name + "_sha256"], "POLICY_APPROVAL_HASH_MISMATCH")
         text = data.decode("utf-8")
         decoded = html.unescape(text)
+        require(not re.search(r'<meta\s+name=["\']legal-status["\']\s+content=["\']review["\']',
+                              decoded, re.I), "POLICY_STILL_IN_REVIEW")
         compact = re.sub(r"[\x00-\x20]+", "", decoded)
         require(not re.search(r"<(script|iframe|form|object|embed)\b|\bon\w+\s*=", decoded, re.I)
                 and not re.search(r"javascript:", compact, re.I),

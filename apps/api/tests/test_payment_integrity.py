@@ -297,58 +297,35 @@ async def test_admin_add_duplicate_transaction_id_idempotent(client, headers, mo
     assert r2.status_code == 200, r2.text  # 멱등(2번째도 성공 응답)
 
     bal = await client.get("/v1/credits/balance", headers=headers)
-    assert bal.json()["credits"] == 13  # 신규 3 + 10 (20 아님)
+    assert bal.json()["credits"] == 12  # 월간 무료 2 + 구매 10 (중복 구매 없음)
 
 
 # ── L8: get_or_create_credits 동시 최초 요청 PK 충돌 흡수 ──
 @pytest.mark.asyncio
 async def test_get_or_create_credits_absorbs_concurrent_insert(db_session, monkeypatch):
-    """신규 사용자 동시 첫 요청 PK 충돌을 흡수·재조회(500·보너스 이중지급 없음)."""
-    from src.core.database import AsyncSessionLocal
-
+    """Force a stale first read, then exercise the real unique-constraint recovery."""
+    from types import SimpleNamespace
+    from src.core.utils import local_month_bounds_utc
     uk = "l8-race"
-    real_record = credits_service._record_transaction
-    fired = {"done": False}
-
-    async def racing_record(*args, **kwargs):
-        if not fired["done"]:
-            fired["done"] = True
-            # 경쟁 세션이 같은 PK를 먼저 커밋(별도 세션, 같은 test.db).
-            async with AsyncSessionLocal() as other:
-                other.add(
-                    UserCredits(user_key=uk, credits=3, total_purchased=0, total_used=0)
-                )
-                other.add(
-                    CreditTransaction(
-                        user_key=uk, amount=3, balance_after=3,
-                        transaction_type="bonus", description="신규 가입 보너스 크레딧",
-                    )
-                )
-                await other.commit()
-        return await real_record(*args, **kwargs)
-
-    monkeypatch.setattr(credits_service, "_record_transaction", racing_record)
-
-    uc = await credits_service.get_or_create_credits(db_session, uk, commit=False)
+    db_session.add(UserCredits(user_key=uk, credits=2, total_purchased=0, total_used=0))
+    db_session.add(CreditTransaction(user_key=uk, amount=2, balance_after=2,
+        transaction_type="free_monthly", reference_id="free_month:" + local_month_bounds_utc()[0].isoformat()))
     await db_session.commit()
-    assert uc is not None
-
-    db_session.expire_all()
-    rows = (
-        await db_session.execute(
-            select(UserCredits).where(UserCredits.user_key == uk)
-        )
-    ).scalars().all()
-    assert len(rows) == 1  # 이중 행 없음
-    bonuses = (
-        await db_session.execute(
-            select(CreditTransaction).where(
-                CreditTransaction.user_key == uk,
-                CreditTransaction.transaction_type == "bonus",
-            )
-        )
-    ).scalars().all()
-    assert len(bonuses) == 1  # 보너스 이중 지급 없음
+    real_execute, missed = db_session.execute, [False]
+    async def stale_first_balance_read(statement, *args, **kwargs):
+        descriptions = getattr(statement, "column_descriptions", [])
+        if not missed[0] and descriptions and descriptions[0].get("expr") is UserCredits:
+            missed[0] = True
+            return SimpleNamespace(scalar_one_or_none=lambda: None)
+        return await real_execute(statement, *args, **kwargs)
+    monkeypatch.setattr(db_session, "execute", stale_first_balance_read)
+    result = await credits_service.get_or_create_credits(db_session, uk)
+    assert missed[0] and result.credits == 2
+    rows = (await db_session.execute(select(UserCredits).where(UserCredits.user_key == uk))).scalars().all()
+    assert len(rows) == 1
+    grants = (await db_session.execute(select(CreditTransaction).where(
+        CreditTransaction.user_key == uk, CreditTransaction.transaction_type == "free_monthly"))).scalars().all()
+    assert len(grants) == 1 and grants[0].amount == 2
 
 
 # ── H10: 잡 상태 write-back fence + 완료 후 환불 clawback(MA2) ──

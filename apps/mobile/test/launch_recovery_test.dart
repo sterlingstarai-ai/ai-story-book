@@ -173,6 +173,7 @@ Future<void> _pump(
   await tester.pumpWidget(ProviderScope(
     overrides: [
       sharedPreferencesProvider.overrideWithValue(prefs),
+        localMediaCachePurgerProvider.overrideWithValue(() async {}),
       apiClientProvider.overrideWithValue(api),
       capabilitiesProvider.overrideWith((ref) async =>
           {'audio_supported': audioSupported, 'pod_ordering_supported': false}),
@@ -483,6 +484,7 @@ void main() {
       final api = _LibraryApi()..deletionFails = action == 'failed-delete';
       final container = ProviderContainer(overrides: [
         sharedPreferencesProvider.overrideWithValue(prefs),
+        localMediaCachePurgerProvider.overrideWithValue(() async {}),
         apiClientProvider.overrideWithValue(api),
       ]);
       addTearDown(container.dispose);

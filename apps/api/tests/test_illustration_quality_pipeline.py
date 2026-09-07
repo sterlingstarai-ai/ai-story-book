@@ -158,7 +158,7 @@ async def test_page_repairs_use_only_the_current_cover_that_passed_full_review(m
     with image.image_book_reference_scope("https://other-book.invalid/cover.png"):
         result = await pipeline.verify_and_repair_illustrations(**original, regenerate=generate)
         assert image._book_reference_url.get() == "https://other-book.invalid/cover.png"
-    assert seen == [(page, original["image_urls"][0], original["image_urls"][page], original["image_urls"][0])
+    assert seen == [(page, original["image_urls"][0], None if page == 1 else original["image_urls"][page], original["image_urls"][0])
                     for page in (1, 3)]
     assert result.repaired_pages == [1, 3]
     assert reviewer.await_count == 2
@@ -314,14 +314,14 @@ async def test_review_failure_or_missing_page_is_never_a_pass(
 
 
 @pytest.mark.asyncio
-async def test_failed_recheck_has_no_third_review_or_second_repair(monkeypatch, review_bytes):
+async def test_failed_recheck_uses_remaining_allowance_then_stops(monkeypatch, review_bytes):
     reviewer = AsyncMock(return_value=_review(failures={2: ["action_mismatch"]}))
     monkeypatch.setattr(image_quality, "review_book_illustrations", reviewer)
     generate = AsyncMock(return_value=canonical_media_url("jobs/q/fix.png"))
     with pytest.raises(StoryBookError):
         await pipeline.verify_and_repair_illustrations(**_inputs(), regenerate=generate)
-    assert reviewer.await_count == 2
-    assert generate.await_count == 1
+    assert reviewer.await_count == 3
+    assert generate.await_count == 2
 
 
 @pytest.mark.asyncio
@@ -584,6 +584,7 @@ async def test_new_book_quality_failure_refunds_once_and_never_publishes(
     await credits_service.get_or_create_credits(db_session, "owner")
     db_session.add(Job(id="new-job", status="queued", user_key="owner"))
     await db_session.commit()
+    starting_credits = await db_session.scalar(select(UserCredits.credits))
     await credits_service.use_credit(db_session, "owner", reference_id="new-job")
 
     async def reject(**kwargs):
@@ -598,7 +599,7 @@ async def test_new_book_quality_failure_refunds_once_and_never_publishes(
     job = await db_session.get(Job, "new-job")
     assert job.status == "failed" and job.error_code == "IMAGE_QUALITY_FAILED"
     assert await db_session.scalar(select(func.count(Book.id))) == 0
-    assert await db_session.scalar(select(UserCredits.credits)) == 3
+    assert await db_session.scalar(select(UserCredits.credits)) == starting_credits
     repeated = await tasks._run_book_task_async("new-job", valid_book_spec, "owner")
     assert repeated["status"] == "skipped"
 
@@ -739,6 +740,9 @@ async def test_verified_retell_copies_images_only_after_pass(db_session, monkeyp
     from src.services import illustration_quality_edits as edits
 
     await _seed_book(db_session)
+    source = await db_session.get(Book, "source")
+    source.profile_id = "child-a"
+    await db_session.commit()
     review_done = False
 
     async def review(**kwargs):
@@ -762,6 +766,8 @@ async def test_verified_retell_copies_images_only_after_pass(db_session, monkeyp
     )
     book = await db_session.get(Book, new_id)
     assert book.retelling_source_book_id == "source"
+    assert book.profile_id == "child-a"
+    assert (await db_session.get(Job, book.job_id)).profile_id == "child-a"
     assert (await db_session.get(Job, book.job_id)).status == "done"
     assert book.cover_image_url != canonical_media_url("jobs/source/cover.png")
 
@@ -791,3 +797,50 @@ async def test_new_book_all_passes_is_published_after_review(
     db_session.expire_all()
     assert (await db_session.get(Job, "new-job")).status == "done"
     assert await db_session.get(Book, result.book_id) is not None
+
+
+@pytest.mark.asyncio
+async def test_twelve_page_book_uses_last_repair_for_one_remaining_defect(monkeypatch, review_bytes):
+    from src.services.image_correction import correction_scene_reference
+    from src.services.image_request_budget import image_request_budget, consume_image_request
+    reviewer = AsyncMock(side_effect=[
+        _review(13, {2: ["action_mismatch"], 3: ["action_mismatch"]}),
+        _review(13, {3: ["action_mismatch"]}), _review(13),
+    ])
+    monkeypatch.setattr(image_quality, "review_book_illustrations", reviewer)
+    calls = []
+    async def repair(page, prompt, current):
+        assert correction_scene_reference() is None
+        consume_image_request()
+        calls.append(page)
+        return canonical_media_url(f"jobs/q/repaired-{page}-{len(calls)}.png")
+    inputs = _inputs(13)
+    with image_request_budget(16, inputs["deadline"]) as budget:
+        for _ in range(13):
+            consume_image_request()
+        result = await pipeline.verify_and_repair_illustrations(**inputs, regenerate=repair)
+        assert budget.used == 16
+    assert calls == [2, 3, 3]
+    assert reviewer.await_count == 3
+    assert result.repaired_pages == [2, 3]
+    assert len(result.discarded_urls) == 3
+
+
+@pytest.mark.asyncio
+async def test_transient_image_retries_reduce_quality_repair_allowance(monkeypatch, review_bytes):
+    from src.services.image_request_budget import image_request_budget, consume_image_request
+    reviewer = AsyncMock(return_value=_review(13, {3: ["action_mismatch"]}))
+    monkeypatch.setattr(image_quality, "review_book_illustrations", reviewer)
+    inputs = _inputs(13)
+    calls = []
+    async def repair(page, prompt, current):
+        consume_image_request()
+        calls.append(page)
+        return canonical_media_url("jobs/q/last-allowed.png")
+    with image_request_budget(16, inputs["deadline"]) as budget:
+        for _ in range(15):
+            consume_image_request()
+        with pytest.raises(StoryBookError):
+            await pipeline.verify_and_repair_illustrations(**inputs, regenerate=repair)
+        assert budget.used == 16
+    assert calls == [3] and reviewer.await_count == 2

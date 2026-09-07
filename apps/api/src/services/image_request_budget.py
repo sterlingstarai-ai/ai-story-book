@@ -42,3 +42,9 @@ def consume_image_request() -> None:
     budget = _budget.get()
     if budget is not None:
         budget.consume()
+
+
+def remaining_image_requests(default: int) -> int:
+    """Read the shared allowance without consuming it (mocks retain a local cap)."""
+    budget = _budget.get()
+    return max(0, budget.limit - budget.used) if budget is not None else default

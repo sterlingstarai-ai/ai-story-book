@@ -7,6 +7,7 @@ class ErrorCode(str, Enum):
 
     SAFETY_INPUT = "SAFETY_INPUT"  # 입력 안전성 위반
     SAFETY_OUTPUT = "SAFETY_OUTPUT"  # 출력 안전성 위반
+    AI_PROVIDER_UNAVAILABLE = "AI_PROVIDER_UNAVAILABLE"  # 잔액/인증 실패: 자동 재시도 금지
     LLM_TIMEOUT = "LLM_TIMEOUT"  # LLM 타임아웃
     LLM_JSON_INVALID = "LLM_JSON_INVALID"  # LLM JSON 파싱 실패
     IMAGE_TIMEOUT = "IMAGE_TIMEOUT"  # 이미지 생성 타임아웃

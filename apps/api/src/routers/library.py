@@ -77,7 +77,12 @@ async def get_library(
     base_filter = Book.user_key == user_key
     filters = [base_filter]
     if scoped_profile_id:
-        filters.append(Book.profile_id == scoped_profile_id)
+        # 아이별 격리는 '어떤 아이에게 배정된' 책에만 적용한다. 프로필을 쓰기 전에 만든
+        # 책은 profile_id 가 없고 어느 아이의 것도 아니므로 계정 공용으로 계속 보여야
+        # 한다 — 안 그러면 프로필을 처음 만드는 순간 기존 서재가 통째로 사라진다.
+        filters.append(
+            or_(Book.profile_id == scoped_profile_id, Book.profile_id.is_(None))
+        )
 
     if style:
         filters.append(Book.style == style)
@@ -172,7 +177,12 @@ async def update_book(
     if book.user_key != user_key:
         raise AuthorizationError()
     scoped_profile_id = await _validate_profile_ownership(db, user_key, profile_id)
-    if scoped_profile_id and book.profile_id != scoped_profile_id:
+    # 배정되지 않은(profile_id 없는) 책은 계정 공용 — 목록 필터와 같은 규칙.
+    if (
+        scoped_profile_id
+        and book.profile_id is not None
+        and book.profile_id != scoped_profile_id
+    ):
         raise AuthorizationError("선택한 프로필의 책이 아닙니다.")
 
     normalized_title = request.title.strip()
@@ -216,7 +226,12 @@ async def delete_book(
     if book.user_key != user_key:
         raise AuthorizationError()
     scoped_profile_id = await _validate_profile_ownership(db, user_key, profile_id)
-    if scoped_profile_id and book.profile_id != scoped_profile_id:
+    # 배정되지 않은(profile_id 없는) 책은 계정 공용 — 목록 필터와 같은 규칙.
+    if (
+        scoped_profile_id
+        and book.profile_id is not None
+        and book.profile_id != scoped_profile_id
+    ):
         raise AuthorizationError("선택한 프로필의 책이 아닙니다.")
 
     # N1: 파이프라인 이미지(images/{provider}/…)는 books/{id}/ prefix 밖이라 prefix 삭제로

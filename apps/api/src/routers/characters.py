@@ -1,5 +1,5 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, File, UploadFile, Form
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import Optional
@@ -11,7 +11,7 @@ from src.core.character_presets import (
     CHARACTER_PRESETS,
     get_preset_localized,
 )
-from src.core.consent import require_photo_consent
+from src.core.consent import require_photo_consent, require_parental_consent
 from src.core.i18n import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES
 from src.core.database import get_db
 
@@ -294,6 +294,7 @@ async def create_character(
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
 ):
+    await require_parental_consent(db, user_key)
     """
     새 캐릭터 저장
 
@@ -353,9 +354,33 @@ async def create_character(
     )
 
 
+class CharacterNameRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    name: str = Field(min_length=1, max_length=40)
+
+
+@router.patch("/{character_id}")
+async def rename_character(
+    character_id: str,
+    request: CharacterNameRequest,
+    db: AsyncSession = Depends(get_db),
+    user_key: str = Depends(get_user_key),
+):
+    await require_parental_consent(db, user_key)
+    character = (await db.execute(select(Character).where(
+        Character.id == character_id, Character.user_key == user_key,
+    ))).scalar_one_or_none()
+    if character is None:
+        raise NotFoundError("캐릭터", character_id)
+    character.name = request.name
+    await db.commit()
+    return {"character_id": character.id, "name": character.name}
+
+
 class FromPresetRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     preset_id: str
-    name: Optional[str] = None
+    name: Optional[str] = Field(default=None, min_length=1, max_length=40)
     language: Optional[str] = None
 
 
@@ -386,6 +411,7 @@ async def create_character_from_preset(
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
 ):
+    await require_parental_consent(db, user_key)
     """기본 캐릭터 프리셋으로 주인공 캐릭터를 생성한다(아이 이름 지정 가능).
 
     표시 텍스트(name/appearance/clothing/visual_style_notes)는 요청 언어로 저장하고,
@@ -572,6 +598,7 @@ async def create_character_from_text(
     """
     if not name.strip() or not age.strip() or not traits.strip():
         raise ValidationError("이름, 나이, 특징을 입력해주세요.")
+    await require_parental_consent(db, user_key)
     await consume_generation_budget(endpoint="characters.from_text")
     try:
         # 성격 특성 파싱

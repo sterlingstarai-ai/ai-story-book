@@ -25,19 +25,23 @@ import 'package:ai_story_book/services/parental_control_service.dart';
 /// 네트워크 경계만 가짜로 — 동의/조회 등 여정에 필요한 메서드만.
 class _MockApi extends ApiClient {
   _MockApi()
-      : super(
-            baseUrl: 'http://localhost',
-            userKey: 'itest',
-            enableLogging: false);
+    : super(
+        baseUrl: 'http://localhost',
+        userKey: 'itest',
+        enableLogging: false,
+      ) {
+    // Unexpected calls stay inside the synthetic test process.
+    close();
+  }
 
   bool consentGranted = false;
 
   @override
   Future<Map<String, dynamic>> getConsent() async => {
-        'photos': false,
-        'privacy': consentGranted,
-        'data_processing': consentGranted,
-      };
+    'photos': false,
+    'privacy': consentGranted,
+    'data_processing': consentGranted,
+  };
 
   @override
   Future<Map<String, dynamic>> grantConsent({
@@ -50,7 +54,7 @@ class _MockApi extends ApiClient {
     return {
       'photos': photos,
       'privacy': privacy,
-      'data_processing': dataProcessing
+      'data_processing': dataProcessing,
     };
   }
 }
@@ -61,48 +65,48 @@ class _EmptyLibrary extends LibraryNotifier {
 }
 
 GrowthReport _growth() => const GrowthReport(
-      booksRead: 7,
-      currentStreak: 3,
-      longestStreak: 5,
-      totalReadingDays: 9,
-      vocabLearned: 12,
-      quizTotal: 8,
-      quizCorrect: 6,
-      quizAccuracy: 0.75,
-      completion: 0.8,
-      levelNumber: 4,
-      levelKey: 'steady_growth',
-      levelLabel: '기초 다지기',
-      scoreValue: 60,
-    );
+  booksRead: 7,
+  currentStreak: 3,
+  longestStreak: 5,
+  totalReadingDays: 9,
+  vocabLearned: 12,
+  quizTotal: 8,
+  quizCorrect: 6,
+  quizAccuracy: 0.75,
+  completion: 0.8,
+  levelNumber: 4,
+  levelKey: 'steady_growth',
+  levelLabel: '기초 다지기',
+  scoreValue: 60,
+);
 
 HomeStreakSnapshot _streak() => const HomeStreakSnapshot(
-      currentStreak: 3,
-      longestStreak: 5,
-      totalDays: 9,
-      readToday: true,
-      todayThemeName: '우정',
-      todayTopic: '숲속 친구들의 모험',
-      todayBookId: null,
-      readDates: {},
-    );
+  currentStreak: 3,
+  longestStreak: 5,
+  totalDays: 9,
+  readToday: true,
+  todayThemeName: '우정',
+  todayTopic: '숲속 친구들의 모험',
+  todayBookId: null,
+  readDates: {},
+);
 
 PeerComparison _peer() => const PeerComparison(
-      ageBand: '5-7',
-      peerCount: 2,
-      isBaseline: true,
-      showRanking: false,
-      myBooks: 7,
-      peerBooks: 5,
-      myVocab: 12,
-      peerVocab: 8,
-      myAccuracy: 0.75,
-      peerAccuracy: 0.6,
-      myScore: 60,
-      peerScore: 50,
-      topPercent: 50,
-      medal: 'none',
-    );
+  ageBand: '5-7',
+  peerCount: 2,
+  isBaseline: true,
+  showRanking: false,
+  myBooks: 7,
+  peerBooks: 5,
+  myVocab: 12,
+  peerVocab: 8,
+  myAccuracy: 0.75,
+  peerAccuracy: 0.6,
+  myScore: 60,
+  peerScore: 50,
+  topPercent: 50,
+  medal: 'none',
+);
 
 Future<SharedPreferences> _prefs({
   bool consent = false,
@@ -120,19 +124,20 @@ Future<SharedPreferences> _prefs({
 }
 
 Widget _app(SharedPreferences prefs, ApiClient api) => ProviderScope(
-      overrides: [
-        sharedPreferencesProvider.overrideWithValue(prefs),
-        apiClientProvider.overrideWithValue(api),
-        // 화면 데이터는 결정적 값으로(네트워크 비의존) — 라우팅/통합이 테스트 대상.
-        libraryProvider.overrideWith(() => _EmptyLibrary()),
-        homeStreakProvider.overrideWith((ref) async => _streak()),
-        growthReportProvider.overrideWith((ref) async => _growth()),
-        peerComparisonProvider.overrideWith((ref) async => _peer()),
-        weeklyReadingTrendProvider
-            .overrideWith((ref) async => const <int>[1, 2, 3]),
-      ],
-      child: const _IntegrationApp(),
-    );
+  overrides: [
+    sharedPreferencesProvider.overrideWithValue(prefs),
+    apiClientProvider.overrideWithValue(api),
+    // 화면 데이터는 결정적 값으로(네트워크 비의존) — 라우팅/통합이 테스트 대상.
+    libraryProvider.overrideWith(() => _EmptyLibrary()),
+    homeStreakProvider.overrideWith((ref) async => _streak()),
+    growthReportProvider.overrideWith((ref) async => _growth()),
+    peerComparisonProvider.overrideWith((ref) async => _peer()),
+    weeklyReadingTrendProvider.overrideWith(
+      (ref) async => const <int>[1, 2, 3],
+    ),
+  ],
+  child: const _IntegrationApp(),
+);
 
 /// 실제 라우팅(buildAppRoute)을 쓰는 앱 셸 — provider override는 바깥 ProviderScope가 담당.
 class _IntegrationApp extends StatelessWidget {
@@ -140,12 +145,12 @@ class _IntegrationApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => const MaterialApp(
-        initialRoute: '/startup',
-        onGenerateRoute: buildAppRoute,
-        locale: Locale('ko'),
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-      );
+    initialRoute: '/startup',
+    onGenerateRoute: buildAppRoute,
+    locale: Locale('ko'),
+    localizationsDelegates: AppLocalizations.localizationsDelegates,
+    supportedLocales: AppLocalizations.supportedLocales,
+  );
 }
 
 void main() {
@@ -158,8 +163,11 @@ void main() {
     // StartupGate가 동의 미완료를 감지 → 동의 화면으로 라우팅
     expect(find.byType(ConsentScreen), findsOneWidget);
 
-    // 약관 전체 동의 → 시작 버튼 활성 → 진행
-    await tester.tap(find.text('약관 전체 동의'));
+    // 필수 항목만 동의 → 선택 사진 동의 없이 진행
+    final l = AppLocalizations.of(tester.element(find.byType(ConsentScreen)));
+    await tester.ensureVisible(find.text(l.consentRequiredOnly));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l.consentRequiredOnly));
     await tester.pumpAndSettle();
     await tester.tap(find.text('동의하고 시작하기'));
     await tester.pumpAndSettle();
@@ -178,10 +186,12 @@ void main() {
   });
 
   testWidgets('재방문 사용자 여정: 시작 게이트 → 홈 → 읽기 성장', (tester) async {
-    await tester.pumpWidget(_app(
-      await _prefs(consent: true, onboarding: true, ageGate: true),
-      _MockApi(),
-    ));
+    await tester.pumpWidget(
+      _app(
+        await _prefs(consent: true, onboarding: true, ageGate: true),
+        _MockApi(),
+      ),
+    );
     await tester.pumpAndSettle();
 
     // 동의·온보딩 완료 → 바로 홈

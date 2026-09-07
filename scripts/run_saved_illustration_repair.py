@@ -3,7 +3,7 @@
 
 Uses production review/repair/image adapters with an ownership-checked local
 byte store. This does not exercise PostgreSQL, Celery, S3, or publication. Source
-files are immutable. At most two review and two image HTTP attempts are allowed.
+files are immutable. At most three review and two image HTTP attempts are allowed.
 """
 
 import argparse
@@ -32,7 +32,7 @@ from run_live_quality_matrix import costs
 REVIEW_URL = "https://api.openai.com/v1/responses"
 IMAGE_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent"
 OWNED_BASE = "https://owned.invalid/books"
-REQUEST_LIMITS = {"llm": 2, "image": 2}
+REQUEST_LIMITS = {"llm": 3, "image": 2}
 
 
 def validate_repair_request(url, payload, *, follow_redirects, schema, cover, owned_images,
@@ -147,7 +147,9 @@ async def run_repair(inputs, manifest, output, config):
             decoded.verify()
         require(mime == actual_mime and actual_mime is not None, "REPAIR_IMAGE_FORMAT_REFUSED")
         suffix = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}[mime]
-        name = f"repaired-page-{active_page:02}.{suffix}"
+        attempt = 1 + sum(item["page_number"] == active_page for item in report["regenerated_files"])
+        tag = "" if attempt == 1 else f"-attempt-{attempt}"
+        name = f"repaired-page-{active_page:02}{tag}.{suffix}"
         path = output / name
         require(not path.exists(), "REPAIR_ALREADY_ATTEMPTED")
         with path.open("xb") as stream:

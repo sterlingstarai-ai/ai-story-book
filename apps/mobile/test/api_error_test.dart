@@ -3,7 +3,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ai_story_book/l10n/app_localizations.dart';
 import 'package:flutter/widgets.dart';
 
-
 import 'package:ai_story_book/core/api_error.dart';
 
 void main() {
@@ -65,7 +64,7 @@ void main() {
           'loc': ['body', 'topic'],
           'msg': 'Field required',
           'type': 'missing',
-        }
+        },
       ];
 
       final response = Response(
@@ -120,10 +119,7 @@ void main() {
 
       expect(apiError.code, 'SERVICE_UNAVAILABLE');
       expect(apiError.message, 'temporarily unavailable');
-      expect(
-        apiError.userMessage,
-        '서버가 일시적으로 불안정합니다. 잠시 후 다시 시도해주세요.',
-      );
+      expect(apiError.userMessage, '서버가 일시적으로 불안정합니다. 잠시 후 다시 시도해주세요.');
     });
 
     test('handles non-string envelope code without cast error', () {
@@ -132,10 +128,7 @@ void main() {
         requestOptions: requestOptions,
         statusCode: 500,
         data: {
-          'error': {
-            'code': 1234,
-            'message': 'broken envelope code type',
-          },
+          'error': {'code': 1234, 'message': 'broken envelope code type'},
         },
       );
 
@@ -212,18 +205,30 @@ void main() {
       final en = await AppLocalizations.delegate.load(const Locale('en'));
       final ja = await AppLocalizations.delegate.load(const Locale('ja'));
 
-      final conn = ApiError(code: 'CONNECTION_ERROR', message: '인터넷 연결을 확인해주세요.', statusCode: 0);
+      final conn = ApiError(
+        code: 'CONNECTION_ERROR',
+        message: '인터넷 연결을 확인해주세요.',
+        statusCode: 0,
+      );
       expect(conn.localizedMessage(en), en.errorConnection);
       expect(conn.localizedMessage(en), isNot(contains('인터넷')));
       expect(conn.localizedMessage(ja), ja.errorConnection);
 
-      final val = ApiError(code: 'VALIDATION_ERROR', message: 'x', statusCode: 422);
+      final val = ApiError(
+        code: 'VALIDATION_ERROR',
+        message: 'x',
+        statusCode: 422,
+      );
       expect(val.localizedMessage(en), en.errorValidation);
 
       // M2: ApiError 를 손으로 만들면 서버가 실제로 보내는 코드와 어긋나도 통과한다
       // (실제로 서버는 소문자 `rate_limit_exceeded` 를 보내고 있었고, 이 테스트는 그동안
       // green 이었다 = false-green). 아래 '실제 서버 429 봉투' 테스트가 정본이다.
-      final rate = ApiError(code: 'RATE_LIMIT_EXCEEDED', message: 'x', statusCode: 429);
+      final rate = ApiError(
+        code: 'RATE_LIMIT_EXCEEDED',
+        message: 'x',
+        statusCode: 429,
+      );
       expect(rate.localizedMessage(ja), ja.errorRateLimit);
     });
 
@@ -257,17 +262,21 @@ void main() {
         ),
       );
 
-      expect(apiError.code, 'RATE_LIMIT_EXCEEDED',
-          reason: '서버 봉투 코드가 클라이언트 분기 키와 일치해야 한다');
-      expect(apiError.localizedMessage(en), en.errorRateLimit);
+      expect(
+        apiError.code,
+        'RATE_LIMIT_EXCEEDED',
+        reason: '서버 봉투 코드가 클라이언트 분기 키와 일치해야 한다',
+      );
+      expect(apiError.localizedMessage(en), en.errorRateLimitWait('60'));
       expect(apiError.localizedMessage(en), isNot(contains('한도')));
-      expect(apiError.localizedMessage(ja), ja.errorRateLimit);
+      expect(apiError.localizedMessage(ja), ja.errorRateLimitWait('60'));
       expect(apiError.localizedMessage(ja), isNot(contains('한도')));
       expect((apiError.details as Map)['retry_after'], 60);
     });
 
     test('402 분기는 메시지가 아니라 details.reason 으로 결정된다 (M5)', () {
-      ApiError build(String? reason, String message) => ApiError.fromDioException(
+      ApiError build(String? reason, String message) =>
+          ApiError.fromDioException(
             DioException(
               requestOptions: RequestOptions(path: '/v1/books'),
               response: Response(
@@ -298,22 +307,49 @@ void main() {
       expect(build('free_plan_feature', 'x').isPlanUpgradeRequired, isTrue);
 
       // 크레딧 부족은 업그레이드가 아니라 충전 안내다.
-      expect(build('insufficient_credits', '크레딧이 부족합니다.').isPlanUpgradeRequired,
-          isFalse);
+      expect(
+        build('insufficient_credits', '크레딧이 부족합니다.').isPlanUpgradeRequired,
+        isFalse,
+      );
       expect(build('credit_charge_failed', 'x').isPlanUpgradeRequired, isFalse);
 
       // 402 가 아닌 코드는 무조건 false.
-      final notPayment = ApiError(code: 'NOT_FOUND', message: '플랜', statusCode: 404);
+      final notPayment = ApiError(
+        code: 'NOT_FOUND',
+        message: '플랜',
+        statusCode: 404,
+      );
       expect(notPayment.isPlanUpgradeRequired, isFalse);
     });
 
-    test('server-message codes (NOT_FOUND/PAYMENT_REQUIRED) keep the specific message', () async {
-      final en = await AppLocalizations.delegate.load(const Locale('en'));
-      final nf = ApiError(code: 'NOT_FOUND', message: 'Book not found', statusCode: 404);
-      expect(nf.localizedMessage(en), 'Book not found');
-      final pay = ApiError(code: 'PAYMENT_REQUIRED', message: '무료 플랜은 월 2권까지 생성할 수 있습니다.', statusCode: 402);
-      expect(pay.localizedMessage(en), '무료 플랜은 월 2권까지 생성할 수 있습니다.');
-    });
+    test(
+      'NOT_FOUND preserves supplied message; payments use localized stable reasons',
+      () async {
+        final en = await AppLocalizations.delegate.load(const Locale('en'));
+        final nf = ApiError(
+          code: 'NOT_FOUND',
+          message: 'Book not found',
+          statusCode: 404,
+        );
+        expect(nf.localizedMessage(en), 'Book not found');
+        final pay = ApiError(
+          code: 'PAYMENT_REQUIRED',
+          message: '무료 플랜은 월 2권까지 생성할 수 있습니다.',
+          statusCode: 402,
+        );
+        expect(pay.localizedMessage(en), en.errorPlanFeature);
+        final capped = ApiError(
+          code: 'PAYMENT_REQUIRED',
+          message: '한국어',
+          statusCode: 402,
+          details: {'reason': 'free_plan_monthly_limit', 'monthly_limit': 2},
+        );
+        expect(capped.localizedMessage(en), en.errorMonthlyBookLimit('2'));
+        expect(
+          capped.localizedMessage(en),
+          contains('first day of next month'),
+        );
+      },
+    );
   });
-
 }

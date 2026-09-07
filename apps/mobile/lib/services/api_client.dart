@@ -36,16 +36,16 @@ class ApiClient {
     required String userKey,
     String? profileId,
     bool enableLogging = kDebugMode,
-  })  : _userKey = userKey,
-        _profileId = profileId,
-        _dio = Dio(
-          BaseOptions(
-            baseUrl: baseUrl,
-            connectTimeout: const Duration(seconds: 30),
-            receiveTimeout: const Duration(seconds: 30),
-            headers: {'Content-Type': 'application/json'},
-          ),
-        ) {
+  }) : _userKey = userKey,
+       _profileId = profileId,
+       _dio = Dio(
+         BaseOptions(
+           baseUrl: baseUrl,
+           connectTimeout: const Duration(seconds: 30),
+           receiveTimeout: const Duration(seconds: 30),
+           headers: {'Content-Type': 'application/json'},
+         ),
+       ) {
     // Do not attach Dio's raw logger: headers contain the account credential,
     // requests contain child data, and responses contain signed download URLs.
 
@@ -107,10 +107,9 @@ class ApiClient {
   void close() => _dio.close(force: true);
 
   Map<String, String> get _headers => {
-        'X-User-Key': _userKey,
-        if (_profileId != null && _profileId.isNotEmpty)
-          'X-Profile-Id': _profileId,
-      };
+    'X-User-Key': _userKey,
+    if (_profileId != null && _profileId.isNotEmpty) 'X-Profile-Id': _profileId,
+  };
 
   // ==================== Content reporting ====================
 
@@ -236,14 +235,16 @@ class ApiClient {
     );
   }
 
-  /// 페이지 재생성
-  Future<void> regeneratePage(
+  /// 페이지 재생성 — 큐에 등록된 재생성 잡 ID를 돌려준다.
+  /// 응답은 큐 등록 시점이라 결과가 아직 없다. 호출부는 이 ID로 완료를 기다린 뒤에만
+  /// 성공으로 처리하고 책을 다시 읽어야 한다(인페인트와 동일 규약).
+  Future<String> regeneratePage(
     String jobId,
     int pageNumber, {
     required String regenerateTarget,
     String? feedback,
   }) async {
-    await _dio.post(
+    final response = await _dio.post(
       '/v1/books/$jobId/pages/$pageNumber/regenerate',
       // L14: 계약 정본 키는 'mode'(openapi RegeneratePageRequest, additionalProperties:false).
       // 값(text/image/both)은 mode enum과 동일. 백엔드 alias는 구버전 앱 호환용으로만 존재.
@@ -255,6 +256,15 @@ class ApiClient {
       },
       options: Options(headers: _headers),
     );
+    final map = _asJsonMap(
+      response.data,
+      context: '/v1/books/{id}/regenerate response',
+    );
+    final newJobId = map['job_id'];
+    if (newJobId is! String || newJobId.isEmpty) {
+      throw StateError('regenerate response missing job_id');
+    }
+    return newJobId;
   }
 
   /// 부분 재생성(인페인트) — 마스크 PNG + 영역 설명을 보내고 잡 ID를 받는다.
@@ -462,6 +472,15 @@ class ApiClient {
   }
 
   /// 캐릭터 상세
+  Future<void> renameCharacter(String characterId, String name) async {
+    final response = await _dio.patch(
+      '/v1/characters/$characterId',
+      data: {'name': name.trim()},
+      options: Options(headers: _headers),
+    );
+    _asJsonMap(response.data, context: 'rename character');
+  }
+
   Future<Character> getCharacter(String characterId) async {
     final response = await _dio.get(
       '/v1/characters/$characterId',
@@ -752,7 +771,9 @@ class ApiClient {
   Future<void> deleteMyData() async {
     final response = await _dio.delete(
       '/v1/users/me',
-      options: Options(headers: _headers),
+      // The account may already be erased after a lost response; an old profile
+      // must not prevent retrying the account-level operation.
+      options: Options(headers: {'X-User-Key': _userKey}),
     );
     _checkPurgePending(response.data);
   }

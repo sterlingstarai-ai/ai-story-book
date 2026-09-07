@@ -7,6 +7,19 @@ class FakeRedis:
         self.sorted_sets = {}
         self.ttls = {}
 
+    async def eval(self, script, numkeys, key, now, window, limit, member):
+        # Boundary fake for admission HTTP tests; real Lua behavior is exercised
+        # separately against Redis, including same-timestamp concurrency.
+        import math
+        members = self.sorted_sets.setdefault(key, {})
+        for old in [item for item, score in members.items() if score <= now - window]:
+            del members[old]
+        if len(members) >= limit:
+            return [0, 0, max(1, math.ceil(min(members.values()) + window - now))]
+        members[member] = now
+        self.ttls[key] = math.ceil(window) + 1
+        return [1, limit - len(members), 0]
+
     async def ping(self):
         return True
 

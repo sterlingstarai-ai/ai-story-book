@@ -244,8 +244,8 @@ AI 기반 맞춤형 동화책 생성 API입니다.
         },
     ],
     contact={
-        "name": "AI Story Book Team",
-        "email": "support@aistorybook.com",
+        "name": "AI Story Book (hanbyeol jang)",
+        "email": "sterling.star.ai@gmail.com",
     },
     license_info={
         "name": "MIT",
@@ -523,6 +523,17 @@ async def _build_readiness_payload(
             daily_generation_budget=settings.daily_generation_budget,
         )
 
+    from src.services.provider_runtime import provider_runtime_status
+    provider_runtime = await provider_runtime_status()
+    if provider_runtime["status"] == "unverified":
+        warnings.append("provider_runtime_unverified")
+    # A configured key without a recent successful response is not evidence that
+    # paid generation works. Operators establish observations on the candidate
+    # with the explicit generic preflight; health GETs never make paid requests.
+    provider_ready = provider_runtime["status"] == "healthy" or (
+        settings.testing and provider_runtime["status"] == "unverified"
+    )
+
     overall_status = (
         "healthy"
         if db_status == "healthy"
@@ -530,6 +541,7 @@ async def _build_readiness_payload(
         and jobs_status == "healthy"
         and storage_status == "healthy"
         and keys_status == "healthy"
+        and provider_ready
         else "degraded"
     )
 
@@ -542,6 +554,8 @@ async def _build_readiness_payload(
             "job_monitor": jobs_status,
             "storage": storage_status,
             "provider_keys": keys_status,
+            "provider_runtime": provider_runtime["status"],
+            "provider_access_observed": provider_runtime["status"] == "healthy" and keys_status == "healthy",
             "llm_provider": settings.llm_provider,
             "image_provider": settings.image_provider,
             # H4/R3-1: 비용 가드레일이 켜져 있는지를 공개 payload에서도 boolean으로 노출한다
@@ -558,10 +572,13 @@ async def _build_readiness_payload(
         payload["missing_keys"] = missing_keys
     if warnings and expose_missing_keys:
         payload["warnings"] = warnings
+    if expose_missing_keys:
+        payload["provider_observations"] = provider_runtime["observations"]
     if include_metrics:
         payload["jobs"] = job_metrics
         payload["config"] = {
             "rate_limit_requests": settings.rate_limit_requests,
+            "rate_limit_read_requests": settings.rate_limit_read_requests,
             "rate_limit_window": settings.rate_limit_window,
             "job_sla_seconds": settings.job_sla_seconds,
             "image_max_concurrent": settings.image_max_concurrent,

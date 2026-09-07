@@ -6,11 +6,11 @@ Credits Service
 from datetime import timedelta
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, case
+from sqlalchemy import select, update, case, func
 from sqlalchemy.exc import IntegrityError
 
-from ..models.db import UserCredits, Subscription, CreditTransaction
-from ..core.utils import utcnow
+from ..models.db import UserCredits, Subscription, CreditTransaction, AccountIdentity
+from ..core.utils import utcnow, local_month_bounds_utc
 
 
 # 구독 플랜 정의
@@ -45,51 +45,93 @@ class CreditsService:
         user_key: str,
         commit: bool = True,
     ) -> UserCredits:
-        """사용자 크레딧 정보 조회 또는 생성"""
-        result = await db.execute(
-            select(UserCredits).where(UserCredits.user_key == user_key)
-        )
+        """Read balance and lazily grant the current free calendar-month allowance."""
+        from .photo_lifecycle import lock_photo_account
+        await lock_photo_account(db, user_key)
+        identity = await db.get(AccountIdentity, user_key)
+        if identity is not None and identity.deleted:
+            from .account_recovery import deleted_account_error
+            raise deleted_account_error()
+        result = await db.execute(select(UserCredits).where(UserCredits.user_key == user_key))
         user_credits = result.scalar_one_or_none()
-
-        if not user_credits:
-            # 신규 사용자 첫 요청 2건이 동시에 오면 PK(user_key) 충돌로 한쪽이 IntegrityError.
-            # SAVEPOINT로 감싸 위반 시 이 인서트만 롤백하고 재조회해 500·보너스 이중지급을
-            # 막는다(L8). commit=False 호출자의 상위 트랜잭션은 보존.
+        created_now = False
+        if user_credits is None:
             try:
                 async with db.begin_nested():
-                    user_credits = UserCredits(
-                        user_key=user_key,
-                        credits=3,
-                        total_purchased=0,
-                        total_used=0,
-                    )
+                    user_credits = UserCredits(user_key=user_key, credits=0,
+                                               total_purchased=0, total_used=0)
                     db.add(user_credits)
-                    await self._record_transaction(
-                        db=db,
-                        user_key=user_key,
-                        amount=3,
-                        balance_after=3,
-                        transaction_type="bonus",
-                        description="신규 가입 보너스 크레딧",
-                        commit=False,
-                    )
+                    created_now = True
                     await db.flush()
             except IntegrityError:
-                # 동시 최초 요청 경쟁 패자 — 재조회(보너스 이중 지급 없음).
-                user_credits = (
-                    await db.execute(
-                        select(UserCredits).where(UserCredits.user_key == user_key)
-                    )
-                ).scalar_one()
-                return user_credits
-
-            if commit:
-                await db.commit()
-                await db.refresh(user_credits)
-            else:
-                await db.flush()
-
+                user_credits = (await db.execute(select(UserCredits).where(
+                    UserCredits.user_key == user_key))).scalar_one()
+        await self._grant_free_month(db, user_key, newly_created=created_now)
+        if commit:
+            await db.commit()
+        await db.refresh(user_credits)
         return user_credits
+
+    async def _grant_free_month(self, db: AsyncSession, user_key: str, *, newly_created: bool = False) -> None:
+        """One atomic top-up per Korea calendar month, without a paid subscription.
+
+        The claim persists even when the amount is zero. Existing/purchased
+        balances are never reduced; free credits do not pile up while absent.
+        Initial legacy bonuses/usage in this month count toward the allowance.
+        """
+        subscription = await self.get_active_subscription(db, user_key)
+        if subscription is not None and subscription.plan != "free":
+            return
+        month_start, month_end = local_month_bounds_utc(utcnow())
+        reference = "free_month:" + month_start.isoformat()
+        if (await db.execute(select(CreditTransaction.id).where(
+            CreditTransaction.user_key == user_key,
+            CreditTransaction.transaction_type == "free_monthly",
+            CreditTransaction.reference_id == reference,
+        ))).first():
+            return
+        # Lock the balance before inserting the unique claim, serializing its
+        # arithmetic with spending on PostgreSQL; UPDATE itself is atomic too.
+        balance = (await db.execute(select(UserCredits.credits).where(
+            UserCredits.user_key == user_key).with_for_update())).scalar_one()
+        spent = (await db.execute(select(func.coalesce(func.sum(CreditTransaction.amount), 0)).where(
+            CreditTransaction.user_key == user_key,
+            CreditTransaction.transaction_type.in_(["usage", "refund"]),
+            CreditTransaction.created_at >= month_start,
+            CreditTransaction.created_at < month_end,
+        ))).scalar_one()
+        from src.core.config import settings
+        allowance = max(1, settings.free_plan_monthly_book_limit)
+        target = max(0, allowance + min(0, int(spent)))
+        amount = max(0, target - balance)
+        account_created = (await db.execute(select(UserCredits.created_at).where(
+            UserCredits.user_key == user_key))).scalar_one()
+        has_previous_claim = (await db.execute(select(CreditTransaction.id).where(
+            CreditTransaction.user_key == user_key,
+            CreditTransaction.transaction_type == "free_monthly",
+        ).limit(1))).first() is not None
+        if not newly_created and not has_previous_claim and account_created >= month_start:
+            # Existing installations already received the legacy signup grant.
+            # Migration must not refill their spent balance again this month.
+            amount = 0
+        try:
+            async with db.begin_nested():
+                db.add(CreditTransaction(user_key=user_key, amount=amount,
+                    balance_after=balance + amount, transaction_type="free_monthly",
+                    reference_id=reference, description="무료 플랜 월간 크레딧"))
+                await db.flush()
+                if amount:
+                    await db.execute(update(UserCredits).where(UserCredits.user_key == user_key)
+                                     .values(credits=UserCredits.credits + amount))
+        except IntegrityError:
+            # Another replica claimed the same month. Never issue twice.
+            existing = (await db.execute(select(CreditTransaction.id).where(
+                CreditTransaction.user_key == user_key,
+                CreditTransaction.transaction_type == "free_monthly",
+                CreditTransaction.reference_id == reference,
+            ))).first()
+            if existing is None:
+                raise
 
     async def get_credits(
         self,
@@ -107,8 +149,10 @@ class CreditsService:
         required: int = 1,
     ) -> bool:
         """크레딧이 충분한지 확인"""
-        credits = await self.get_credits(db, user_key)
-        return credits >= required
+        # A policy check must not commit its caller's transaction or release
+        # the account lock before the job/idempotency/budget reservation.
+        balance = await self.get_or_create_credits(db, user_key, commit=False)
+        return balance.credits >= required
 
     async def use_credit(
         self,
@@ -545,7 +589,9 @@ class CreditsService:
                 raise
 
             # 월간 크레딧 지급(선택). 복원 등은 grant_credits=False로 재지급하지 않는다.
-            if grant_credits:
+            if grant_credits and plan == "free":
+                await self.get_or_create_credits(db, user_key, commit=False)
+            elif grant_credits:
                 await self.add_credits(
                     db=db,
                     user_key=user_key,

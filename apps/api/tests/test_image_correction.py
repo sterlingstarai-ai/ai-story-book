@@ -49,8 +49,8 @@ def test_full_repair_context_fits_reference_provider_request_without_losing_tail
     # stricter live acceptance request guard with a full negative prompt/reference.
     assert len(wire) <= 5000
     assert original.positive_prompt in wire and narrative in wire
-    assert "receiving opening directly under" in wire
-    assert "small screened inlet connected to the downpipe" in wire
+    assert "Create a new composition for the action" in wire
+    assert "do not invent an alternative event" in wire
     assert wire.endswith(original.negative_prompt)
 
 
@@ -142,7 +142,7 @@ async def test_only_local_defects_use_owned_page_composition_anchor(monkeypatch,
     ):
         await image.generate_image(original, reference_image_url="https://owned.invalid/approved-avatar")
     await image.generate_image(original, reference_image_url="https://owned.invalid/approved-avatar")
-    if issue in {"identity_swap", "duplicate_character"}:
+    if issue in {"identity_swap", "duplicate_character", "action_mismatch"}:
         assert calls[0][0] == "https://owned.invalid/approved-avatar"
         assert "EDIT THE GENERATED" not in calls[0][1]
     else:

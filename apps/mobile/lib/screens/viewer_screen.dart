@@ -28,6 +28,9 @@ import '../widgets/common_widgets.dart';
 import '../widgets/credit_shortage_modal.dart';
 import '../widgets/content_report_sheet.dart';
 
+/// 페이지 재생성 잡의 관측 결과. 타임아웃을 실패로 섞지 않는다(느린 성공 보호).
+enum _PageJobOutcome { completed, failed, qualityFailed, timeout }
+
 /// 책 뷰어 화면
 class ViewerScreen extends ConsumerStatefulWidget {
   final String bookId;
@@ -59,7 +62,11 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   // Keep the reading session's identity: disposal may happen after providers
   // have changed or become unavailable, and must never read a new profile.
   late final ApiClient _readingSessionApi;
+  // 읽기 기록은 이 라우트보다 오래 산다(퇴장 기록은 dispose에서 발행). 기록이 끝난 뒤
+  // 홈의 '오늘의 읽기' 카드를 새로 읽어오려면 위젯이 아닌 컨테이너를 잡아 둬야 한다.
+  late final ProviderContainer _readingSessionScope;
   bool _progressRestored = false;
+  bool _regenerationInFlight = false;
   // 같은 세션에서 학습 시트 재오픈 시 동일 퀴즈 중복 기록 방지(성장 집계 왜곡 방지)
   final Set<String> _recordedQuiz = {};
   bool _dualLanguageEnabled = false;
@@ -91,6 +98,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   void initState() {
     super.initState();
     _readingSessionApi = ref.read(apiClientProvider);
+    _readingSessionScope = ProviderScope.containerOf(context, listen: false);
     WidgetsBinding.instance.addObserver(this);
     _mediaRefreshTimer = Timer.periodic(
         const Duration(minutes: 1), (_) => _refreshMediaIfNeeded());
@@ -180,11 +188,18 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     // Reading metrics must not interrupt disposal. Future.sync also catches
     // synchronous transport errors (for example a client closed at sign-out).
     unawaited(
-      Future<Map<String, dynamic>>.sync(() => _readingSessionApi.recordReading(
-            bookId: widget.bookId,
-            readingTime: seconds < 0 ? 0 : seconds,
-            completed: false,
-          )).catchError((_) => <String, dynamic>{}),
+      Future<Map<String, dynamic>>.sync(
+        () => _readingSessionApi.recordReading(
+          bookId: widget.bookId,
+          readingTime: seconds < 0 ? 0 : seconds,
+          completed: false,
+        ),
+      ).then((result) {
+        // 서버는 이 기록만으로도 '오늘 읽음'이 된다. 홈 카드가 캐시된 옛 값을
+        // 계속 보여 주지 않도록 기록 성공 후에만 무효화한다.
+        _readingSessionScope.invalidate(homeStreakProvider);
+        return result;
+      }).catchError((_) => <String, dynamic>{}),
     );
   }
 
@@ -500,6 +515,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
         readingTime: readingSeconds < 0 ? 0 : readingSeconds,
         completed: true,
       );
+      _readingSessionScope.invalidate(homeStreakProvider);
       if (!mounted) return;
       final milestones = readResult['milestones'];
       if (milestones is List && milestones.isNotEmpty && mounted) {
@@ -1581,6 +1597,12 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
 
   void _showRegenerateOptions(BookResult book) {
     final l = AppLocalizations.of(context);
+    if (_regenerationInFlight) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.viewerRegenerating)));
+      return;
+    }
     final pageIndex = _currentPage - 1; // 표지 제외
     if (pageIndex < 0) return;
     // 능력기반: 알려진 미지원이면 인페인트 옵션 숨김(미확정/지원은 노출, 409로 폴백).
@@ -1690,7 +1712,11 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   }
 
   Future<void> _regeneratePage(
-      BookResult book, int pageNumber, String target) async {
+    BookResult book,
+    int pageNumber,
+    String target,
+  ) async {
+    if (_regenerationInFlight) return;
     final l = AppLocalizations.of(context);
     if (book.jobId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1699,39 +1725,69 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
       return;
     }
 
-    String? feedback;
-    if (target == 'text' || target == 'both') {
-      feedback = await _askRegenerateFeedback();
-      if (feedback == null) {
-        return; // 사용자가 취소
-      }
-      if (feedback.isEmpty) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l.viewerRegenerateFeedbackRequired)),
-        );
-        return;
-      }
-    }
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(l.viewerRegenerating)),
-    );
-
+    _regenerationInFlight = true;
     try {
-      final apiClient = ref.read(apiClientProvider);
-      await apiClient.regeneratePage(book.jobId!, pageNumber,
-          regenerateTarget: target, feedback: feedback);
+      String? feedback;
+      if (target == 'text' || target == 'both') {
+        feedback = await _askRegenerateFeedback();
+        if (feedback == null) {
+          return; // 사용자가 취소
+        }
+        if (feedback.isEmpty) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(l.viewerRegenerateFeedbackRequired)),
+          );
+          return;
+        }
+      }
+      if (!mounted) return;
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content:
-                  Text(AppLocalizations.of(context).viewerRegenerateStarted)),
-        );
-        // 책 데이터 새로고침
-        ref.invalidate(bookDetailProvider(widget.bookId));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l.viewerRegenerating)),
+      );
+
+      final apiClient = ref.read(apiClientProvider);
+      final regenJobId = await apiClient.regeneratePage(
+        book.jobId!,
+        pageNumber,
+        regenerateTarget: target,
+        feedback: feedback,
+      );
+      if (!mounted) return;
+
+      // 응답은 '큐에 넣었다'까지다. 여기서 바로 새로고침하면 워커가 끝나기 전의 옛 그림을
+      // 다시 받아 캐시에 고정되고, 이후 재조회가 없어 새 그림이 영영 보이지 않았다.
+      // 인페인트와 같이 잡 완료를 기다린 뒤에만 성공으로 처리한다.
+      final outcome = await _waitForPageJob(apiClient, regenJobId);
+      if (!mounted) return;
+      final l10n = AppLocalizations.of(context);
+      switch (outcome) {
+        case _PageJobOutcome.completed:
+          ref.invalidate(bookDetailProvider(widget.bookId));
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(l10n.viewerRegenerateCompleted)),
+          );
+          break;
+        case _PageJobOutcome.failed:
+        case _PageJobOutcome.qualityFailed:
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                outcome == _PageJobOutcome.qualityFailed
+                    ? l10n.viewerImageQualityFailed
+                    : l10n.viewerRegenerateFailed,
+              ),
+              backgroundColor: AppColors.error,
+            ),
+          );
+          break;
+        case _PageJobOutcome.timeout:
+          // 아직 처리 중일 수 있다. 실패로 단정하지 않고 기다림을 안내한다.
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(l10n.inpaintApplyingRefreshLater)),
+          );
+          break;
       }
     } catch (e) {
       if (mounted) {
@@ -1746,7 +1802,32 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
           ),
         );
       }
+    } finally {
+      _regenerationInFlight = false;
     }
+  }
+
+  /// 페이지 재생성 잡의 완료를 기다린다(인페인트의 `_waitForJob`과 같은 규약).
+  /// 느린 성공을 실패로 오분류하지 않도록 이미지 타임아웃 스펙(90초×재시도)에 맞춘 예산.
+  Future<_PageJobOutcome> _waitForPageJob(ApiClient api, String jobId) async {
+    final startedAt = DateTime.now();
+    const budget = Duration(minutes: 3);
+    while (mounted && DateTime.now().difference(startedAt) < budget) {
+      await Future.delayed(const Duration(seconds: 1));
+      if (!mounted) break;
+      try {
+        final js = await api.getBookStatus(jobId);
+        if (js.isComplete) return _PageJobOutcome.completed;
+        if (js.isFailed) {
+          return js.errorCode == 'IMAGE_QUALITY_FAILED'
+              ? _PageJobOutcome.qualityFailed
+              : _PageJobOutcome.failed;
+        }
+      } catch (_) {
+        // 일시적 오류는 무시하고 재시도
+      }
+    }
+    return _PageJobOutcome.timeout;
   }
 
   Future<void> _downloadPdf(BookResult book) async {
@@ -2230,6 +2311,14 @@ class _CoverPage extends StatelessWidget {
           bottom: controlsVisible ? 160 : 100,
           child: Text(
             title,
+            // 표지 제목만 삽화 위에 겹쳐 그린다. 시스템 글자 크기를 그대로 곱하면
+            // 접근성 크기에서 세 줄로 불어나 인물과 그림을 통째로 덮었다(스크롤도 없음).
+            // 본문 글자 크기는 그대로 두고, 이 겹치는 제목만 배율과 줄 수를 제한한다.
+            textScaler: TextScaler.linear(
+              MediaQuery.textScalerOf(context).scale(1.0).clamp(1.0, 1.3),
+            ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               fontSize: 32,
               fontWeight: FontWeight.bold,

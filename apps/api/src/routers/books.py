@@ -11,6 +11,7 @@ from fastapi import (
 )
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select, func, and_, or_, update
 from typing import Optional
 import math
@@ -23,7 +24,7 @@ from src.core.cost_budget import consume_daily_generation_budget
 from src.core.database import get_db
 from src.core.book_assets import build_generation_warnings, build_page_asset_status
 from src.core.config import settings
-from src.core.consent import require_consent_for_characters, require_photo_consent
+from src.core.consent import require_consent_for_characters, require_photo_consent, require_parental_consent
 from src.core.dependencies import get_profile_id, get_user_key
 from src.models.dto import (
     BookSpec,
@@ -38,7 +39,7 @@ from src.models.dto import (
     RetellRequest,
     RetellResponse,
 )
-from src.models.db import ChildProfile, Job, Book, Page, Character
+from src.models.db import ChildProfile, Job, Book, Page, Character, CreditTransaction
 from src.models.dto import Style
 from src.models.generation_options import GenerationOptionsResponse
 from src.services.orchestrator import start_book_generation
@@ -125,21 +126,43 @@ async def get_generation_options(
     return GenerationOptionsResponse(allowed_styles=_allowed_styles_for_plan(effective_plan))
 
 
-async def _count_monthly_book_creations(db: AsyncSession, user_key: str) -> int:
-    # '이번 달'도 사용자 tz 로컬 기준(일일 한도·스트릭과 일관, H2).
-    from src.services.streak import load_user_tz
-
-    tz = await load_user_tz(db, user_key)
-    month_start, month_end = local_month_bounds_utc(tz=tz)
-    result = await db.execute(
-        select(func.count(Job.id)).where(
-            Job.user_key == user_key,
-            Job.created_at >= month_start,
-            Job.created_at < month_end,
-            Job.status.in_(["queued", "running", "done"]),
-            or_(Job.id.startswith("job_"), Job.id.startswith("series_")),
-        )
+def _book_creation_quota_filter():
+    # Count newly generated books consistently in the daily and monthly quotas.
+    # Retells reuse an existing story; page edits/audio are ancillary operations.
+    # Failed generations are refunded. All paid attempts still consume the
+    # separate service-wide cost budget before provider work starts.
+    return and_(
+        Job.status.in_(["queued", "running", "done"]),
+        or_(Job.id.startswith("job_"), Job.id.startswith("series_")),
     )
+
+
+def _creation_ids_in_period(user_key: str, start, end):
+    """Surviving jobs plus minimal billing records after child-content erasure."""
+    live_jobs = select(Job.id.label("creation_id")).where(
+        Job.user_key == user_key, Job.created_at >= start, Job.created_at < end,
+        _book_creation_quota_filter(),
+    )
+    refunded = select(CreditTransaction.reference_id).where(
+        CreditTransaction.user_key == user_key,
+        CreditTransaction.transaction_type == "refund",
+        CreditTransaction.reference_id.is_not(None),
+    )
+    charged = select(CreditTransaction.reference_id.label("creation_id")).where(
+        CreditTransaction.user_key == user_key,
+        CreditTransaction.transaction_type == "usage",
+        CreditTransaction.created_at >= start, CreditTransaction.created_at < end,
+        or_(CreditTransaction.reference_id.startswith("job_"),
+            CreditTransaction.reference_id.startswith("series_")),
+        CreditTransaction.reference_id.not_in(refunded),
+    )
+    return live_jobs.union(charged).subquery()
+
+
+async def _count_monthly_book_creations(db: AsyncSession, user_key: str) -> int:
+    month_start, month_end = local_month_bounds_utc()
+    result = await db.execute(select(func.count()).select_from(
+        _creation_ids_in_period(user_key, month_start, month_end)))
     return int(result.scalar() or 0)
 
 
@@ -165,11 +188,15 @@ async def _enforce_free_plan_create_limits(
     monthly_limit = max(1, int(getattr(settings, "free_plan_monthly_book_limit", 2) or 2))
     monthly_created = await _count_monthly_book_creations(db, user_key)
     if monthly_created >= monthly_limit:
+        _, month_end = local_month_bounds_utc()
         raise PaymentRequiredError(
             f"무료 플랜은 월 {monthly_limit}권까지 생성할 수 있습니다. 베이직 이상으로 업그레이드해주세요.",
             details={
                 "reason": PaymentReason.FREE_PLAN_MONTHLY_LIMIT,
                 "monthly_limit": monthly_limit,
+                "used": monthly_created,
+                "resets_at": month_end.isoformat() + "Z",
+                "retry_after": max(1, int((month_end - utcnow()).total_seconds())),
             },
         )
 
@@ -265,6 +292,24 @@ def get_idempotency_key(
     return x_idempotency_key
 
 
+async def _existing_creation_response(
+    db: AsyncSession, user_key: str, idempotency_key: Optional[str],
+    profile_id: Optional[str],
+) -> Optional[CreateBookResponse]:
+    if not idempotency_key:
+        return None
+    job = await db.scalar(
+        select(Job).where(Job.user_key == user_key, Job.idempotency_key == idempotency_key)
+        .execution_options(populate_existing=True)
+    )
+    if job is None:
+        return None
+    _assert_job_profile_scope(job, profile_id)
+    return CreateBookResponse(
+        job_id=job.id, status=JobState(job.status), estimated_time_seconds=120,
+    )
+
+
 async def _create_job_with_credit(
     *,
     db: AsyncSession,
@@ -276,7 +321,7 @@ async def _create_job_with_credit(
     profile_id: Optional[str] = None,
     validated_style: object = None,
     character_ids: Optional[list[str]] = None,
-):
+) -> Optional[CreateBookResponse]:
     """
     Create a queued job with credit deduction, **atomically**.
 
@@ -289,8 +334,17 @@ async def _create_job_with_credit(
     from src.services.photo_lifecycle import lock_photo_account
 
     await lock_photo_account(db, user_key)
+    existing = await _existing_creation_response(db, user_key, idempotency_key, profile_id)
+    if existing:
+        return existing
+    from src.services.provider_runtime import ensure_generation_available
+    await ensure_generation_available()
     has_credits = await credits_service.has_credits(db, user_key, required=1)
     if not has_credits:
+        await db.rollback()
+        existing = await _existing_creation_response(db, user_key, idempotency_key, profile_id)
+        if existing:
+            return existing
         raise PaymentRequiredError(
             "크레딧이 부족합니다. 크레딧을 충전해주세요.",
             details={"reason": PaymentReason.INSUFFICIENT_CREDITS},
@@ -308,12 +362,21 @@ async def _create_job_with_credit(
     if not credit_used:
         # 동시 차감 등으로 조건부 UPDATE 가 0행이면(부족) 미커밋 상태를 폐기하고 거절.
         await db.rollback()
+        existing = await _existing_creation_response(db, user_key, idempotency_key, profile_id)
+        if existing:
+            return existing
         raise PaymentRequiredError(
             "크레딧 차감에 실패했습니다.",
             details={"reason": PaymentReason.CREDIT_CHARGE_FAILED},
         )
 
     try:
+        # A competing request can commit while this request waits for the credit
+        # UPDATE. Return its job and discard this reservation before any limits.
+        existing = await _existing_creation_response(db, user_key, idempotency_key, profile_id)
+        if existing:
+            await db.rollback()
+            return existing
         # The credit UPDATE above holds this user's row lock until commit.
         # Recheck the count while serialized so simultaneous taps cannot all
         # pass a read-then-insert daily/pending limit.
@@ -338,6 +401,16 @@ async def _create_job_with_credit(
     except APIError:
         await db.rollback()
         raise
+    except IntegrityError as e:
+        await db.rollback()
+        # Recover only a committed job for this owner/key. Other constraint
+        # failures still fail; never dispatch a second task or charge twice.
+        existing = await _existing_creation_response(db, user_key, idempotency_key, profile_id)
+        if existing:
+            return existing
+        raise InternalServerError(
+            message="잡 생성에 실패했습니다. 크레딧은 차감되지 않았습니다."
+        ) from e
     except Exception as e:
         # 롤백이 차감까지 되돌린다 — 환불 트랜잭션 없이 원상복구.
         logger.error(
@@ -457,7 +530,9 @@ def _assert_book_profile_scope(
     normalized = profile_id.strip()
     if not normalized:
         return
-    if getattr(book, "profile_id", None) != normalized:
+    scope = getattr(book, "profile_id", None)
+    # 배정되지 않은(프로필 도입 전에 만든) 책은 계정 공용 — 목록 필터와 같은 규칙.
+    if scope is not None and scope != normalized:
         raise AuthorizationError("선택한 프로필의 책이 아닙니다.")
 
 
@@ -470,7 +545,9 @@ def _assert_job_profile_scope(
     normalized = profile_id.strip()
     if not normalized:
         return
-    if getattr(job, "profile_id", None) != normalized:
+    scope = getattr(job, "profile_id", None)
+    # 위와 같은 이유. 배정되지 않은 작업은 계정 공용이다.
+    if scope is not None and scope != normalized:
         raise AuthorizationError("선택한 프로필의 작업이 아닙니다.")
 
 
@@ -489,6 +566,7 @@ async def enforce_book_spec_access(
     새로운 생성 진입점을 만들 때는 반드시 이 함수를 호출해야 한다
     (`test_security_wave_20260817.py` 의 구조 불변식 테스트가 전수를 강제한다).
     """
+    await require_parental_consent(db, user_key)
     char_ids = list(spec.character_ids or [])
     if spec.character_id:
         char_ids.append(spec.character_id)
@@ -535,6 +613,8 @@ async def consume_generation_budget(*, endpoint: str) -> None:
         from src.services.illustration_quality_pipeline import quality_enabled_for_operation
 
         quality_enabled_for_operation()
+    from src.services.provider_runtime import ensure_generation_available
+    await ensure_generation_available()
     budget_ok, budget_used = await consume_daily_generation_budget()
     if budget_ok:
         return
@@ -563,21 +643,16 @@ async def check_guardrails(db: AsyncSession, user_key: str):
     비용 0인 무효 요청(소유권 실패·동의 없음·멱등 재시도)도 여기를 지난다. 예산은
     `consume_generation_budget()` 으로 실제 비용 직전에 소비한다.
     """
-    # Check daily job limit per user — '하루' 경계는 사용자 tz 로컬 기준(스트릭/오늘읽음과 일관, H2).
+    await require_parental_consent(db, user_key)
+    # New-book quota, not every background task. Keep the same book/status
+    # definition as the monthly quota and use the user's local day boundary.
     from src.services.streak import load_user_tz
 
     now = utcnow()
     tz = await load_user_tz(db, user_key)
     today_start, next_day_start = local_day_bounds_utc(now, tz=tz)
-    daily_jobs_result = await db.execute(
-        select(func.count(Job.id)).where(
-            and_(
-                Job.user_key == user_key,
-                Job.created_at >= today_start,
-                Job.created_at < next_day_start,
-            )
-        )
-    )
+    daily_jobs_result = await db.execute(select(func.count()).select_from(
+        _creation_ids_in_period(user_key, today_start, next_day_start)))
     daily_job_count = daily_jobs_result.scalar() or 0
 
     if daily_job_count >= settings.daily_job_limit_per_user:
@@ -707,6 +782,10 @@ async def create_book(
 
     # Check idempotency
     if idempotency_key:
+        # Serialize same-account retries on PostgreSQL before quota/budget checks.
+        from src.services.photo_lifecycle import lock_photo_account
+
+        await lock_photo_account(db, user_key)
         result = await db.execute(
             select(Job).where(
                 Job.idempotency_key == idempotency_key,
@@ -732,7 +811,7 @@ async def create_book(
     # Create new job
     job_id = f"job_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
 
-    await _create_job_with_credit(
+    existing = await _create_job_with_credit(
         db=db,
         user_key=user_key,
         job_id=job_id,
@@ -743,6 +822,8 @@ async def create_book(
         profile_id=scoped_profile_id,
         validated_style=spec.style,
     )
+    if existing:
+        return existing
 
     # Start background task (Celery or FastAPI BackgroundTasks)
     await schedule_book_generation(db, background_tasks, job_id, spec, user_key)
@@ -785,6 +866,17 @@ async def get_book_status(
         error=None,
         result=None,
     )
+
+    if job.status == "failed":
+        transactions = (await db.execute(select(CreditTransaction.transaction_type).where(
+            CreditTransaction.user_key == user_key,
+            CreditTransaction.reference_id == job.id,
+            CreditTransaction.transaction_type.in_(["usage", "refund"]),
+        ))).scalars().all()
+        response.credit_refund_status = (
+            "refunded" if "refund" in transactions else
+            "pending" if "usage" in transactions else "not_charged"
+        )
 
     # Add error info if failed
     if job.status == "failed" and job.error_code:
@@ -905,6 +997,7 @@ async def regenerate_book_page(
     photo_derived = await existing_book_is_photo_derived(db, book)
     if photo_derived:
         await reference_for_existing_book(job_id, user_key)
+    await require_parental_consent(db, user_key)
     await consume_generation_budget(endpoint="books.regenerate")
 
     # Create regeneration task
@@ -916,6 +1009,10 @@ async def regenerate_book_page(
         progress=0,
         current_step="페이지 재생성 대기 중",
         user_key=user_key,
+        # 원본 잡의 프로필 범위를 그대로 물려받는다. 비워 두면 프로필을 쓰는 앱이
+        # 자기가 만든 재생성 잡을 조회할 때 _assert_job_profile_scope 에서 403을 맞아
+        # 결과를 영영 확인하지 못한다(범위를 넓히지도 좁히지도 않는다).
+        profile_id=job.profile_id,
         photo_derived=photo_derived,
     )
     db.add(regen_job)
@@ -1040,6 +1137,7 @@ async def inpaint_book_page(
     photo_derived = await existing_book_is_photo_derived(db, book)
     if photo_derived:
         await reference_for_existing_book(job_id, user_key)
+    await require_parental_consent(db, user_key)
     await consume_generation_budget(endpoint="books.inpaint")
 
     # 마스크 업로드 → S3
@@ -1055,6 +1153,8 @@ async def inpaint_book_page(
         progress=0,
         current_step="부분 재생성 대기 중",
         user_key=user_key,
+        # 재생성과 같은 이유로 원본 잡의 프로필 범위를 물려받는다(미설정 시 폴링이 403).
+        profile_id=job.profile_id,
         photo_derived=photo_derived,
         # F2: 마스크 키를 잡에 기록 — 계정 삭제(전 잡 image_keys 수집)가 이 고아를 파기.
         image_keys=[mask_key],
@@ -1112,6 +1212,9 @@ async def create_series_next(
 
     # H18: 재시도(타임아웃 후 재탭) 이중 생성·이중 차감 방지 — 기존 잡 반환.
     if idempotency_key:
+        from src.services.photo_lifecycle import lock_photo_account
+
+        await lock_photo_account(db, user_key)
         existing_job = (
             await db.execute(
                 select(Job).where(
@@ -1178,7 +1281,7 @@ async def create_series_next(
     # Create new job for series
     job_id = f"series_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
 
-    await _create_job_with_credit(
+    existing = await _create_job_with_credit(
         db=db,
         user_key=user_key,
         job_id=job_id,
@@ -1189,6 +1292,8 @@ async def create_series_next(
         profile_id=scoped_profile_id,
         validated_style=effective_style,
     )
+    if existing:
+        return existing
 
     # Start background task for series generation
     # 테스트 환경에서는 background_tasks 실행 스킵 (테스트 안정화)
@@ -1297,11 +1402,13 @@ async def retell_book(
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
     idempotency_key: Optional[str] = Depends(get_idempotency_key),
+    profile_id: Optional[str] = Depends(get_profile_id),
 ):
     """
     '아이와 함께 자라는' 리텔 — 같은 책을 다른 연령대 본문으로 다시 써서 새 책으로 저장한다.
     삽화(표지·페이지 이미지)는 그대로 재사용하므로 이미지 생성/크레딧 소모가 없다.
     """
+    scoped_profile_id = await _validate_profile_ownership(db, user_key, profile_id)
     # H17/G19: 요청 내에서 LLM 리텔을 동기 수행하므로 클라 타임아웃 후 서버는 완주한다
     # (재시도 시 중복 리텔 책 생성 + LLM 비용). H18의 잡 멱등 패턴을 미러해 같은
     # 시도키의 재요청은 기존 결과를 그대로 반환한다.
@@ -1315,12 +1422,14 @@ async def retell_book(
             )
         ).scalar_one_or_none()
         if existing_job:
+            _assert_job_profile_scope(existing_job, scoped_profile_id)
             existing_book = (
                 await db.execute(
                     select(Book).where(Book.job_id == existing_job.id)
                 )
             ).scalar_one_or_none()
             if existing_book:
+                _assert_book_profile_scope(existing_book, scoped_profile_id)
                 return RetellResponse(
                     book_id=existing_book.id,
                     target_age=request.target_age,
@@ -1334,6 +1443,7 @@ async def retell_book(
         raise NotFoundError("Book", book_id)
     if source.user_key != user_key:
         raise AuthorizationError()
+    _assert_book_profile_scope(source, scoped_profile_id)
 
     source_pages = (
         await db.execute(
@@ -1351,6 +1461,7 @@ async def retell_book(
     photo_derived = await existing_book_is_photo_derived(db, source)
     character_reference = await reference_for_existing_book(source.job_id, user_key) if photo_derived else None
     source_job = await db.get(Job, source.job_id)
+    await require_parental_consent(db, user_key)
     await consume_generation_budget(endpoint="books.retell")
 
     # 본문만 새 연령대로 다시 쓰기 (텍스트 전용 LLM 호출)
@@ -1425,6 +1536,7 @@ async def retell_book(
             id=new_job_id,
             status="done",
             user_key=user_key,
+            profile_id=source.profile_id,
             idempotency_key=idempotency_key,  # H17/G19: 재시도 dedup 키
             photo_derived=photo_derived,
             character_reference_url=new_character_reference,
@@ -1636,6 +1748,7 @@ async def generate_book_audio(
     if not pages:
         raise NotFoundError("Pages", book_id)
 
+    await require_parental_consent(db, user_key)
     # L5: fire-and-forget였던 배치 오디오를 audio_ Job 행으로 관측 가능하게 한다. 실패/타임아웃이
     # 잡 상태(done/failed)로 표면화되고 GET /v1/books/{job_id}로 폴링 가능(형제 regen/inpaint와 대칭).
     audio_job_id = f"audio_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
@@ -1645,6 +1758,7 @@ async def generate_book_audio(
         progress=0,
         current_step="오디오 생성 대기 중",
         user_key=user_key,
+        profile_id=book.profile_id,
     )
     db.add(audio_job)
     try:

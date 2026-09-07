@@ -1,13 +1,34 @@
 import 'dart:io';
+import 'release_policy_gate.dart';
 
 /// Environment configuration. Both release URL defines share the same gate.
 class EnvConfig {
+  static void validateReleaseConfiguration() {
+    // Referencing the constant also enforces missing values at build time.
+    if (releasePolicyGate.release || !_isDebugMode) {
+      validatePublicDocumentUrl(releasePolicyGate.privacy);
+      validatePublicDocumentUrl(releasePolicyGate.terms);
+    }
+  }
+
+  static String validatePublicDocumentUrl(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null || uri.hasQuery || uri.hasFragment || url.trim() != url) {
+      throw StateError('A public HTTPS document URL is required for release.');
+    }
+    if (!uri.hasAuthority || uri.scheme != 'https' || uri.userInfo.isNotEmpty) {
+      throw StateError('A public HTTPS document URL is required for release.');
+    }
+    validateProdUrl(uri.origin);
+    return uri.toString();
+  }
+
   static String get apiBaseUrl => resolveApiBaseUrl(
-        isDebug: _isDebugMode,
-        isAndroid: Platform.isAndroid,
-        overrideUrl: const String.fromEnvironment('API_BASE_URL'),
-        productionUrl: const String.fromEnvironment('PROD_API_URL'),
-      );
+    isDebug: _isDebugMode,
+    isAndroid: Platform.isAndroid,
+    overrideUrl: const String.fromEnvironment('API_BASE_URL'),
+    productionUrl: const String.fromEnvironment('PROD_API_URL'),
+  );
 
   static String resolveApiBaseUrl({
     required bool isDebug,
@@ -29,13 +50,23 @@ class EnvConfig {
   static String validateProdUrl(String url) {
     final uri = Uri.tryParse(url);
     final host = uri?.host.toLowerCase() ?? '';
-    final reserved = host == 'localhost' ||
+    final reserved =
+        host == 'localhost' ||
         !host.contains('.') ||
         InternetAddress.tryParse(host) != null ||
-        ['.localhost', '.local', '.internal', '.test', '.invalid', '.example']
-            .any(host.endsWith) ||
-        ['example.com', 'example.net', 'example.org']
-            .any((domain) => host == domain || host.endsWith('.$domain'));
+        [
+          '.localhost',
+          '.local',
+          '.internal',
+          '.test',
+          '.invalid',
+          '.example',
+        ].any(host.endsWith) ||
+        [
+          'example.com',
+          'example.net',
+          'example.org',
+        ].any((domain) => host == domain || host.endsWith('.$domain'));
     if (url.trim() != url ||
         uri == null ||
         uri.scheme != 'https' ||

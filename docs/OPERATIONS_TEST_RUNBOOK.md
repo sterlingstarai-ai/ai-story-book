@@ -65,8 +65,19 @@ curl -fsS http://127.0.0.1:8000/health/ready
 
 Interpretation:
 - `200 /health/live`: process is up
-- `200 /health/ready`: dependencies are healthy enough for traffic
-- `503 /health/ready`: service is up but not ready
+- `200 /health/ready`: dependencies/configuration are healthy and all required real
+  providers have recent successful response observations (outside `TESTING=true`)
+- `503 /health/ready`: service is up but not ready, including unverified provider
+  access or an observed quota/credential failure
+
+Before promoting a candidate, run the explicitly billable
+`python scripts/provider_preflight.py --allow-billable-requests` from its API image
+(`/app`) with exactly the candidate API/worker configuration, Redis and storage.
+It sends generic content and requires no ready HTTP server. A check-only run or
+health GET cannot prove usable API credit and never makes paid calls. After a
+manual top-up, repeat the explicit preflight to clear the observed quota failure;
+do not clear observations by hand. See
+[provider operations](PROVIDER_RUNTIME_AND_REPAIR.md) for expiry and cost details.
 
 ## 5. Local docker runtime
 
@@ -224,6 +235,19 @@ another `--env-file`. It reports `BLOCKED` for missing/placeholder/invalid setti
 checks cannot prove live AI, legal approval, actual purchases or production operations.
 No secret values are included in text or JSON output.
 
+The preflight also checks both `apps/mobile/assets/legal/*.ko.json` sources for
+approved status and a valid effective date. Run `python3 scripts/render_legal_documents.py`
+after an approved source revision, then refresh the private publication hashes.
+The public builder rejects a document still marked `review`, even with an approval
+flag. Mobile release compilation rejects absent public policy URL defines; native
+policy reading itself uses bundled assets and works before consent and offline.
+
+For provider availability, use the explicit operator probe documented in
+[provider observations and repairs](PROVIDER_RUNTIME_AND_REPAIR.md). Health requests
+do not spend API credit. `unverified` observations cannot prove usable AI balance;
+known billing failures return readiness 503. After funding, verify recovery with a
+successful probe against the same credentials and Redis used by API and workers.
+
 ## 8. Failure patterns
 
 ### Phase gate passes in `apps/api` but fails from repo root
@@ -275,3 +299,11 @@ approval.
 [외부 호스팅 배포 준비](EXTERNAL_HOSTING_DEPLOYMENT.md)의 `check-env.sh --mode external`과 Compose `config --quiet`는 설정만 검증합니다. 실제 호스트에서 DB TLS·Celery·private media·삭제 흐름을 별도로 검증해야 합니다. `backup_external.py`는 기본 dry-run이며 운영자 승인·쓰기 중지·암호화 저장소 확인 후에만 읽기를 실행합니다. 백업 생성은 [격리 복원과 최신 삭제/인증 폐기 기록 재적용](BACKUP_RESTORE.md)을 대신하지 않습니다.
 
 Render 선택 시 [실행 패키지](RENDER_DEPLOYMENT_PACKAGE.md)의 CA Secret File·Auto Sync·작업 소진 후 worker 교체 조건을 확인합니다. 공식 스키마와 합성 이미지 검증은 실제 registry·계정·배포 검증을 대신하지 않습니다.
+
+
+요청 제한 회귀 확인: 생성·수정 10회/분과 조회 120회/분은 별도 집계입니다.
+실제 생성 검증에서는 한도를 임의로 높이지 말고 2초 상태 조회가 완성까지 유지되는지
+확인합니다. 월간 무료 크레딧은 한국 시간 매월 1일에 다음 접속 시 최대 2개로 보충하며,
+이전 잔액이나 구매분을 줄이지 않습니다. 사진 동의 철회로 콘텐츠를 지워도 과금 기록의
+생성 식별자로 당월 사용량을 유지합니다. 전체 삭제 후 이전 인증키는 `ACCOUNT_DELETED`로
+거부되어 삭제 응답을 놓친 앱도 완료를 확인할 수 있습니다.

@@ -4,6 +4,7 @@ Users Router
 """
 
 import structlog
+import asyncio
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import APIRouter, Depends, Header
@@ -52,6 +53,7 @@ from src.services.storage import (
 
 router = APIRouter()
 logger = structlog.get_logger()
+_INLINE_PURGE_TIMEOUT_SECONDS = 5
 
 
 @router.delete("/me")
@@ -180,7 +182,16 @@ async def delete_my_data(
 
     # H8/G24: 스토리지 파기 실패를 삼키지 않고 표면화한다. 남은 실패는 outbox에 pending으로
     # 남아 job_monitor 스윕이 멱등 재실행하며, 응답은 그동안 success 를 주장하지 않는다.
-    failed_keys = await run_purge_tasks(db, tasks)
+    # Account erasure is already committed with a durable purge outbox. Keep
+    # object-store latency below the mobile request timeout; the worker owns
+    # unfinished purges rather than making a successful erasure look failed.
+    task_targets = [task.target for task in tasks]
+    try:
+        failed_keys = await asyncio.wait_for(run_purge_tasks(db, tasks), timeout=_INLINE_PURGE_TIMEOUT_SECONDS)
+    except TimeoutError:
+        await db.rollback()
+        failed_keys = task_targets
+
     if failed_keys:
         logger.warning(
             "Storage purge failures during user deletion",
@@ -192,6 +203,7 @@ async def delete_my_data(
     purge_pending = bool(storage_failures or active_job_ids or has_inflight_avatar)
     return {
         "status": "partial" if purge_pending else "success",
+        "account_deleted": True,
         "deleted_books": len(book_ids),
         "storage_delete_failures": storage_failures,
         # M8: 미완 파기는 durable 하게 재시도된다는 사실을 응답에 명시(운영·감사 관측점).

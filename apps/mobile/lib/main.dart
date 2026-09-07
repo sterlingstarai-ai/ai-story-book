@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'core/app_telemetry.dart';
+import 'core/env_config.dart';
 import 'l10n/app_localizations.dart';
 import 'providers/providers.dart';
 import 'screens/screens.dart';
@@ -21,6 +22,7 @@ import 'widgets/screen_time_lock.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  EnvConfig.validateReleaseConfiguration();
 
   FlutterError.onError = (details) {
     AppTelemetry.recordError(
@@ -61,22 +63,21 @@ void main() async {
   // 이 캐시를 쓰므로 runApp 전에 완료돼야 한다.
   runApp(
     ProviderScope(
-      overrides: [
-        sharedPreferencesProvider.overrideWithValue(prefs),
-      ],
+      overrides: [sharedPreferencesProvider.overrideWithValue(prefs)],
       child: Consumer(
-          builder: (context, ref, _) => AccountBootstrap(
-                onRestore: (context) =>
-                    openAccountRecovery(context, ref, restoreOnly: true),
-                initialize: () async {
-                  await ref.read(accountRecoveryServiceProvider).initialize();
-                  await UserService.bootstrapUserKey(prefs);
-                  await ref
-                      .read(accountRecoveryServiceProvider)
-                      .validateCurrentSession();
-                },
-                child: const AIStoryBookApp(),
-              )),
+        builder: (context, ref, _) => AccountBootstrap(
+          onRestore: (context) =>
+              openAccountRecovery(context, ref, restoreOnly: true),
+          initialize: () async {
+            await ref.read(accountRecoveryServiceProvider).initialize();
+            await UserService.bootstrapUserKey(prefs);
+            await ref
+                .read(accountRecoveryServiceProvider)
+                .validateCurrentSession();
+          },
+          child: const AIStoryBookApp(),
+        ),
+      ),
     ),
   );
 }
@@ -90,36 +91,43 @@ class AIStoryBookApp extends ConsumerStatefulWidget {
 
 class _AIStoryBookAppState extends ConsumerState<AIStoryBookApp>
     with WidgetsBindingObserver {
+  late ScreenTimeNotifier _screenTimeNotifier;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     ref.read(analyticsProvider).logEvent(AnalyticsEvents.appOpen);
-    final screenTimeNotifier = ref.read(screenTimeStateProvider.notifier);
-    unawaited(screenTimeNotifier.initialize().then((_) {
-      screenTimeNotifier.onAppResumed();
-    }));
+    _screenTimeNotifier = ref.read(screenTimeStateProvider.notifier);
+    final initializedNotifier = _screenTimeNotifier;
+    unawaited(
+      initializedNotifier.initialize().then((_) {
+        if (mounted && identical(initializedNotifier, _screenTimeNotifier)) {
+          initializedNotifier.onAppResumed();
+        }
+      }),
+    );
     unawaited(ref.read(notificationSchedulerProvider).initialize());
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    final screenTimeNotifier = ref.read(screenTimeStateProvider.notifier);
+    _screenTimeNotifier = ref.read(screenTimeStateProvider.notifier);
     if (state == AppLifecycleState.resumed) {
-      screenTimeNotifier.onAppResumed();
+      _screenTimeNotifier.onAppResumed();
       return;
     }
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
-      unawaited(screenTimeNotifier.onAppPaused());
+      unawaited(_screenTimeNotifier.onAppPaused());
     }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    unawaited(ref.read(screenTimeStateProvider.notifier).onAppPaused());
+    unawaited(_screenTimeNotifier.onAppPaused());
     super.dispose();
   }
 
@@ -141,6 +149,7 @@ class _AIStoryBookAppState extends ConsumerState<AIStoryBookApp>
   Widget build(BuildContext context) {
     final themeMode = ref.watch(appThemeModeProvider);
     final screenTime = ref.watch(screenTimeStateProvider);
+    _screenTimeNotifier = ref.read(screenTimeStateProvider.notifier);
     return MaterialApp(
       // M15: 작업 전환기/웹 탭 타이틀을 로케일별로(한국어 하드코딩 제거).
       onGenerateTitle: (context) => AppLocalizations.of(context).appTitle,
@@ -175,14 +184,10 @@ class _AIStoryBookAppState extends ConsumerState<AIStoryBookApp>
 Route<dynamic> buildAppRoute(RouteSettings settings) {
   switch (settings.name) {
     case '/startup':
-      return MaterialPageRoute(
-        builder: (_) => const StartupGateScreen(),
-      );
+      return MaterialPageRoute(builder: (_) => const StartupGateScreen());
 
     case '/':
-      return MaterialPageRoute(
-        builder: (_) => const HomeScreen(),
-      );
+      return MaterialPageRoute(builder: (_) => const HomeScreen());
 
     case '/create':
       return MaterialPageRoute(
@@ -196,9 +201,7 @@ Route<dynamic> buildAppRoute(RouteSettings settings) {
       if (jobId == null) {
         return _homeRoute();
       }
-      return MaterialPageRoute(
-        builder: (_) => LoadingScreen(jobId: jobId),
-      );
+      return MaterialPageRoute(builder: (_) => LoadingScreen(jobId: jobId));
 
     case '/viewer':
       final bookId = _readRouteStringArg(settings.arguments);
@@ -211,14 +214,10 @@ Route<dynamic> buildAppRoute(RouteSettings settings) {
       );
 
     case '/library':
-      return MaterialPageRoute(
-        builder: (_) => const LibraryScreen(),
-      );
+      return MaterialPageRoute(builder: (_) => const LibraryScreen());
 
     case '/characters':
-      return MaterialPageRoute(
-        builder: (_) => const CharactersScreen(),
-      );
+      return MaterialPageRoute(builder: (_) => const CharactersScreen());
 
     case '/credits':
       return MaterialPageRoute(
@@ -227,19 +226,13 @@ Route<dynamic> buildAppRoute(RouteSettings settings) {
       );
 
     case '/settings':
-      return MaterialPageRoute(
-        builder: (_) => const SettingsScreen(),
-      );
+      return MaterialPageRoute(builder: (_) => const SettingsScreen());
 
     case '/profiles':
-      return MaterialPageRoute(
-        builder: (_) => const ProfilesScreen(),
-      );
+      return MaterialPageRoute(builder: (_) => const ProfilesScreen());
 
     case '/parent-dashboard':
-      return MaterialPageRoute(
-        builder: (_) => const ParentDashboardScreen(),
-      );
+      return MaterialPageRoute(builder: (_) => const ParentDashboardScreen());
 
     case '/reading-growth':
       return MaterialPageRoute(
@@ -248,9 +241,7 @@ Route<dynamic> buildAppRoute(RouteSettings settings) {
       );
 
     case '/voice-profiles':
-      return MaterialPageRoute(
-        builder: (_) => const VoiceProfilesScreen(),
-      );
+      return MaterialPageRoute(builder: (_) => const VoiceProfilesScreen());
 
     case '/branch-story':
       final args = _readRouteMapArg(settings.arguments);
@@ -267,8 +258,9 @@ Route<dynamic> buildAppRoute(RouteSettings settings) {
       final bookId = args?['bookId']?.toString();
       final expectedText = args?['expectedText']?.toString();
       final pageRaw = args?['pageNumber'];
-      final pageNumber =
-          pageRaw is int ? pageRaw : int.tryParse(pageRaw?.toString() ?? '');
+      final pageNumber = pageRaw is int
+          ? pageRaw
+          : int.tryParse(pageRaw?.toString() ?? '');
       if (bookId == null ||
           bookId.isEmpty ||
           expectedText == null ||
@@ -283,7 +275,8 @@ Route<dynamic> buildAppRoute(RouteSettings settings) {
           bookId: bookId,
           pageNumber: pageNumber,
           expectedText: expectedText,
-          language: (pronunciationLanguage != null &&
+          language:
+              (pronunciationLanguage != null &&
                   pronunciationLanguage.isNotEmpty)
               ? pronunciationLanguage
               : 'ko',
@@ -298,21 +291,14 @@ Route<dynamic> buildAppRoute(RouteSettings settings) {
         return _homeRoute();
       }
       return MaterialPageRoute(
-        builder: (_) => PodOrderScreen(
-          bookId: bookId,
-          bookTitle: title,
-        ),
+        builder: (_) => PodOrderScreen(bookId: bookId, bookTitle: title),
       );
 
     case '/consent':
-      return MaterialPageRoute(
-        builder: (_) => const ConsentScreen(),
-      );
+      return MaterialPageRoute(builder: (_) => const ConsentScreen());
 
     case '/onboarding':
-      return MaterialPageRoute(
-        builder: (_) => const OnboardingScreen(),
-      );
+      return MaterialPageRoute(builder: (_) => const OnboardingScreen());
 
     default:
       return _homeRoute();
@@ -320,9 +306,7 @@ Route<dynamic> buildAppRoute(RouteSettings settings) {
 }
 
 Route<dynamic> _homeRoute() {
-  return MaterialPageRoute(
-    builder: (_) => const HomeScreen(),
-  );
+  return MaterialPageRoute(builder: (_) => const HomeScreen());
 }
 
 String? _readRouteStringArg(dynamic argument) {

@@ -473,6 +473,7 @@ async def test_delete_me_removes_profiles_and_characters(
     headers: dict,
     valid_character: dict,
     monkeypatch,
+    db_session,
 ):
     from src.services.storage import storage_service
 
@@ -514,17 +515,16 @@ async def test_delete_me_removes_profiles_and_characters(
     assert delete_res.status_code == 200
     assert delete_res.json()["status"] == "success"
 
-    profiles_after = await client.get("/v1/profiles", headers=headers)
-    assert profiles_after.status_code == 200
-    assert profiles_after.json()["profiles"] == []
-
-    characters_after = await client.get("/v1/characters", headers=headers)
-    assert characters_after.status_code == 200
-    assert characters_after.json()["characters"] == []
-
-    voice_after = await client.get("/v1/voice-profiles", headers=headers)
-    assert voice_after.status_code == 200
-    assert voice_after.json()["profiles"] == []
+    # An erased bearer cannot recreate an empty account or its free allowance.
+    for path in ["/v1/profiles", "/v1/characters", "/v1/voice-profiles"]:
+        after = await client.get(path, headers=headers)
+        assert after.status_code == 401
+        assert after.json()["error"]["code"] == "ACCOUNT_DELETED"
+    from src.models.db import ChildProfile, Character, VoiceProfile
+    for model in [ChildProfile, Character, VoiceProfile]:
+        rows = (await db_session.execute(select(model).where(
+            model.user_key == headers["X-User-Key"])) ).scalars().all()
+        assert rows == []
 
     # 아동 사진/그림 원본(characters/{id}/) 스토리지 파기까지 수행됐는지(삭제권)
     assert any(p.startswith("characters/") for p in deleted_prefixes)

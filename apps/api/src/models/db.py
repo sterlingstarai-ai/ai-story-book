@@ -324,7 +324,7 @@ class UserCredits(Base):
     __tablename__ = "user_credits"
 
     user_key = Column(String(80), primary_key=True)
-    credits = Column(Integer, default=3)  # 기본 3크레딧 무료 제공
+    credits = Column(Integer, default=0)  # 서비스의 월간 지급 트랜잭션으로만 무료 크레딧 생성
     total_purchased = Column(Integer, default=0)  # 총 구매 크레딧
     total_used = Column(Integer, default=0)  # 총 사용 크레딧
     created_at = Column(DateTime, default=utcnow)
@@ -366,6 +366,11 @@ class CreditTransaction(Base):
 
     __tablename__ = "credit_transactions"
     __table_args__ = (
+        Index(
+            "uq_credit_transactions_free_monthly", "user_key", "reference_id", unique=True,
+            sqlite_where=text("transaction_type = 'free_monthly'"),
+            postgresql_where=text("transaction_type = 'free_monthly'"),
+        ),
         Index(
             "uq_credit_transactions_milestone_bonus",
             "user_key",

@@ -83,6 +83,7 @@ class PeriodicCredits:
         result = await session.execute(
             select(Subscription).where(
                 Subscription.status == "active",
+                Subscription.plan != "free",
                 Subscription.current_period_end <= now,
             )
         )

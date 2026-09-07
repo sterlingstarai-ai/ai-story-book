@@ -3,6 +3,31 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ai_story_book/core/env_config.dart';
 
 void main() {
+  test(
+    'release document URLs reject missing placeholders and credentials but allow document paths',
+    () {
+      for (final value in [
+        '',
+        'http://policies.org/privacy',
+        'https://example.com/privacy',
+        'https://localhost/privacy',
+        'https://user:secret@policies.org/privacy',
+        '/privacy',
+        'https://policies.org/privacy?token=private',
+      ]) {
+        expect(
+          () => EnvConfig.validatePublicDocumentUrl(value),
+          throwsStateError,
+        );
+      }
+      expect(
+        EnvConfig.validatePublicDocumentUrl(
+          'https://storybook.pages.dev/privacy/',
+        ),
+        'https://storybook.pages.dev/privacy/',
+      );
+    },
+  );
   group('EnvConfig.validateProdUrl', () {
     test('placeholder(example.com) URL은 차단(릴리스 빌드 사고 방지)', () {
       expect(
@@ -40,25 +65,35 @@ void main() {
     test('release rejects unsafe origin through either define: $url', () {
       expect(() => EnvConfig.validateProdUrl(url), throwsStateError);
       expect(
-          () => EnvConfig.resolveApiBaseUrl(
-              isDebug: false,
-              overrideUrl: url,
-              productionUrl: 'https://api.aistorybook.app'),
-          throwsStateError);
+        () => EnvConfig.resolveApiBaseUrl(
+          isDebug: false,
+          overrideUrl: url,
+          productionUrl: 'https://api.aistorybook.app',
+        ),
+        throwsStateError,
+      );
     });
   }
 
-  test('debug override retains local HTTP and release normalizes HTTPS origin',
-      () {
-    expect(
+  test(
+    'debug override retains local HTTP and release normalizes HTTPS origin',
+    () {
+      expect(
         EnvConfig.resolveApiBaseUrl(
-            isDebug: true, overrideUrl: 'http://localhost:9000'),
-        'http://localhost:9000');
-    expect(
+          isDebug: true,
+          overrideUrl: 'http://localhost:9000',
+        ),
+        'http://localhost:9000',
+      );
+      expect(
         EnvConfig.resolveApiBaseUrl(
-            isDebug: false, overrideUrl: 'https://api.aistorybook.app/'),
-        'https://api.aistorybook.app');
-  });
+          isDebug: false,
+          overrideUrl: 'https://api.aistorybook.app/',
+        ),
+        'https://api.aistorybook.app',
+      );
+    },
+  );
 
   test('디버그/테스트 모드에서는 localhost로 안전하게 해석(throw 없음)', () {
     // 테스트는 debug 모드 → prod 가드 경로에 닿지 않고 localhost 계열 반환

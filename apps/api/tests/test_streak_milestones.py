@@ -96,7 +96,7 @@ async def test_grant_milestone_rewards_is_idempotent(
 
     assert first_grant == 1
     assert repeated_grant == 0
-    assert balance == 4
+    assert balance == 3  # current-month allowance 2 + milestone 1
     assert reward_transactions == 1
 
 

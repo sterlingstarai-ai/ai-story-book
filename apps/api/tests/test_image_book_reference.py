@@ -123,7 +123,7 @@ async def test_repair_sends_current_page_or_identity_reference_before_cover(wire
         issues=[issue], source_image_url=PAGE,
     ):
         await observe_request()
-    local = issue not in {"identity_swap", "duplicate_character"}
+    local = issue not in {"identity_swap", "duplicate_character", "action_mismatch"}
     expected_primary = PAGE if local else AVATAR
     assert wire.loaded == [expected_primary, COVER]
     refs, text = wire.sent[0]
@@ -153,7 +153,7 @@ async def test_cover_only_preserves_current_cast_identity_and_objects_once(wire,
 @pytest.mark.asyncio
 async def test_page_equal_to_cover_dedupes_without_changing_local_repair_role(wire):
     with image.image_book_reference_scope(COVER), image_correction_scope(
-        page_text="Rain enters the small screened inlet.", issues=["action_mismatch"],
+        page_text="Rain enters the small screened inlet.", issues=["readable_text"],
         source_image_url=COVER,
     ):
         await observe_request()

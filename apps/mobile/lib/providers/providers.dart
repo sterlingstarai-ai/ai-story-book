@@ -10,7 +10,9 @@ import '../core/env_config.dart';
 import '../models/models.dart';
 import '../models/generation_options.dart';
 import '../services/api_client.dart';
+import '../services/job_polling.dart';
 import '../services/account_recovery_service.dart';
+import '../services/local_media_cleanup.dart';
 import '../services/iap_service.dart';
 import '../services/kakao_share_service.dart';
 import '../services/parental_control_service.dart';
@@ -74,11 +76,32 @@ final apiClientProvider = Provider<ApiClient>((ref) {
   return client;
 });
 
+final localMediaCachePurgerProvider = Provider<Future<void> Function()>(
+  (ref) => purgeAppImageCache,
+);
+final localMediaCleanupProvider = Provider<LocalMediaCleanup>((ref) {
+  final preferences = ref.watch(sharedPreferencesProvider);
+  final purgeCache = ref.watch(localMediaCachePurgerProvider);
+  return LocalMediaCleanup(
+    preferences,
+    purge: () async {
+      // Dispose pending detail requests before erasing offline data so a late
+      // response cannot restore a book cache after consent/account deletion.
+      ref.invalidate(bookDetailProvider);
+      ref.invalidate(libraryProvider);
+      ref.invalidate(libraryBrowseProvider);
+      ref.invalidate(charactersProvider);
+      await purgeCache();
+    },
+  );
+});
+
 final accountRecoveryServiceProvider = Provider<AccountRecoveryService>((ref) {
   final baseUrl = ref.watch(apiBaseUrlProvider);
   return AccountRecoveryService(
     userService: ref.watch(userServiceProvider),
     preferences: ref.watch(sharedPreferencesProvider),
+    purgeLocalMedia: ref.watch(localMediaCleanupProvider).run,
     clientForKey: (key) => ApiClient(baseUrl: baseUrl, userKey: key),
   );
 });
@@ -113,8 +136,9 @@ void invalidateAccountScope(ProviderContainer container) {
 }
 
 /// Current account entitlements, refreshed each time the creation screen opens.
-final generationOptionsProvider =
-    FutureProvider.autoDispose<GenerationOptions>((ref) async {
+final generationOptionsProvider = FutureProvider.autoDispose<GenerationOptions>((
+  ref,
+) async {
   // Never infer entitlements locally or retain another account's style choices.
   final api = ref.watch(apiClientProvider);
   return api.getGenerationOptions();
@@ -130,8 +154,9 @@ final capabilitiesProvider = FutureProvider<Map<String, dynamic>>((ref) async {
   }
 });
 
-final appThemeModeProvider =
-    NotifierProvider<AppThemeModeNotifier, ThemeMode>(AppThemeModeNotifier.new);
+final appThemeModeProvider = NotifierProvider<AppThemeModeNotifier, ThemeMode>(
+  AppThemeModeNotifier.new,
+);
 
 class AppThemeModeNotifier extends Notifier<ThemeMode> {
   static const _storageKey = 'app_theme_mode_v1';
@@ -168,8 +193,8 @@ final notificationSchedulerProvider = Provider<NotificationScheduler>((ref) {
 
 final screenTimeStateProvider =
     NotifierProvider<ScreenTimeNotifier, ScreenTimeSnapshot>(
-  ScreenTimeNotifier.new,
-);
+      ScreenTimeNotifier.new,
+    );
 
 class ScreenTimeNotifier extends Notifier<ScreenTimeSnapshot> {
   Timer? _heartbeatTimer;
@@ -240,10 +265,7 @@ class ScreenTimeNotifier extends Notifier<ScreenTimeSnapshot> {
     }
     final prefs = ref.read(sharedPreferencesProvider);
     final service = ref.read(screenTimeServiceProvider);
-    state = await service.addExtensionMinutes(
-      prefs,
-      minutes: minutes,
-    );
+    state = await service.addExtensionMinutes(prefs, minutes: minutes);
 
     if (state.enabled && !state.isLocked) {
       _sessionStartedAt ??= DateTime.now();
@@ -283,10 +305,7 @@ class ScreenTimeNotifier extends Notifier<ScreenTimeSnapshot> {
       _sessionStartedAt = DateTime.now();
       final prefs = ref.read(sharedPreferencesProvider);
       final service = ref.read(screenTimeServiceProvider);
-      state = await service.addUsageSeconds(
-        prefs,
-        seconds: elapsedSeconds,
-      );
+      state = await service.addUsageSeconds(prefs, seconds: elapsedSeconds);
       if (state.isLocked) {
         _sessionStartedAt = null;
         _stopHeartbeat();
@@ -319,8 +338,8 @@ class ScreenTimeNotifier extends Notifier<ScreenTimeSnapshot> {
 /// 서재 책 목록 Provider
 final libraryProvider =
     AsyncNotifierProvider<LibraryNotifier, List<LibraryBook>>(
-  LibraryNotifier.new,
-);
+      LibraryNotifier.new,
+    );
 
 class LibraryNotifier extends AsyncNotifier<List<LibraryBook>> {
   @override
@@ -407,8 +426,8 @@ class LibraryBrowseState {
 
 final libraryBrowseProvider =
     AsyncNotifierProvider<LibraryBrowseNotifier, LibraryBrowseState>(
-  LibraryBrowseNotifier.new,
-);
+      LibraryBrowseNotifier.new,
+    );
 
 class LibraryBrowseNotifier extends AsyncNotifier<LibraryBrowseState> {
   static const int _pageSize = 20;
@@ -486,8 +505,9 @@ class LibraryBrowseNotifier extends AsyncNotifier<LibraryBrowseState> {
 
   Future<void> setTargetAgeFilter(String? targetAge) async {
     final current = state.valueOrNull ?? LibraryBrowseState.initial();
-    final normalized =
-        (targetAge == null || targetAge.isEmpty) ? null : targetAge;
+    final normalized = (targetAge == null || targetAge.isEmpty)
+        ? null
+        : targetAge;
     if (current.targetAge == normalized) {
       return;
     }
@@ -541,7 +561,8 @@ class LibraryBrowseNotifier extends AsyncNotifier<LibraryBrowseState> {
     }
     _loadMoreInFlight = true;
     state = AsyncValue.data(
-        current.copyWith(isLoadingMore: true, isOffline: false));
+      current.copyWith(isLoadingMore: true, isOffline: false),
+    );
 
     try {
       final api = ref.read(apiClientProvider);
@@ -568,7 +589,8 @@ class LibraryBrowseNotifier extends AsyncNotifier<LibraryBrowseState> {
     } catch (error, stackTrace) {
       if (_isOfflineError(error)) {
         state = AsyncValue.data(
-            current.copyWith(isLoadingMore: false, isOffline: true));
+          current.copyWith(isLoadingMore: false, isOffline: true),
+        );
       } else {
         state = AsyncValue.error(error, stackTrace);
       }
@@ -590,14 +612,12 @@ class LibraryBrowseNotifier extends AsyncNotifier<LibraryBrowseState> {
     ref.invalidate(bookDetailProvider(bookId));
     ref.invalidate(libraryProvider);
 
-    final updatedBooks =
-        current.books.where((book) => book.id != bookId).toList();
+    final updatedBooks = current.books
+        .where((book) => book.id != bookId)
+        .toList();
     final nextTotal = current.total > 0 ? current.total - 1 : 0;
     state = AsyncValue.data(
-      current.copyWith(
-        books: updatedBooks,
-        total: nextTotal,
-      ),
+      current.copyWith(books: updatedBooks, total: nextTotal),
     );
   }
 
@@ -759,8 +779,9 @@ final appLocaleCodeProvider = Provider<String>((ref) {
 final growthReportProvider = FutureProvider<GrowthReport>((ref) async {
   final api = ref.read(apiClientProvider);
   // 서버가 레벨 라벨을 사용자 언어로 내려주도록 기기 로캘을 전달한다(S2).
-  final data =
-      await api.getGrowthReport(language: ref.watch(appLocaleCodeProvider));
+  final data = await api.getGrowthReport(
+    language: ref.watch(appLocaleCodeProvider),
+  );
   final level = data['reading_level'];
   final levelMap = level is Map ? level : const <String, dynamic>{};
   return GrowthReport(
@@ -921,17 +942,21 @@ String? _toNullableString(dynamic value) {
 /// 캐릭터 목록 Provider
 final charactersProvider =
     AsyncNotifierProvider<CharactersNotifier, List<Character>>(
-  CharactersNotifier.new,
-);
+      CharactersNotifier.new,
+    );
 
 /// 기본 제공 캐릭터 프리셋 Provider ('우리 아이를 주인공으로' 기본 이미지 선택)
 ///
 /// 언어코드(앱 로케일)를 family 인자로 받아 표시 텍스트를 로케일별로 서빙받는다.
 final characterPresetsProvider =
-    FutureProvider.family<List<Map<String, dynamic>>, String>(
-        (ref, language) async {
-  return ref.read(apiClientProvider).getCharacterPresets(language: language);
-});
+    FutureProvider.family<List<Map<String, dynamic>>, String>((
+      ref,
+      language,
+    ) async {
+      return ref
+          .read(apiClientProvider)
+          .getCharacterPresets(language: language);
+    });
 
 class CharactersNotifier extends AsyncNotifier<List<Character>> {
   @override
@@ -964,34 +989,37 @@ bool jobPollingBudgetExceeded(Duration elapsed) =>
     elapsed > kJobPollingHardTimeout;
 
 /// Job 상태 폴링 Provider
-final jobPollingProvider =
-    StreamProvider.family<JobStatus, String>((ref, jobId) async* {
+final jobPollingProvider = StreamProvider.family<JobStatus, String>((
+  ref,
+  jobId,
+) {
   final api = ref.read(apiClientProvider);
-  final startedAt = DateTime.now();
-
-  while (true) {
-    // H17: 경과시간(SLA 10분) 단일 예산. attempt 카운트 기반 조기 종료 제거.
-    final elapsed = DateTime.now().difference(startedAt);
-    if (jobPollingBudgetExceeded(elapsed)) {
-      throw TimeoutException(
-        'Generation exceeded the ${kJobPollingHardTimeout.inMinutes}-minute budget',
-      );
-    }
-
-    final status = await api.getBookStatus(jobId);
-    yield status;
-
-    if (status.isComplete || status.isFailed) {
-      break;
-    }
-
-    await Future.delayed(const Duration(seconds: 2));
-  }
+  var disposed = false;
+  Timer? timer;
+  Completer<void>? waiting;
+  ref.onDispose(() {
+    disposed = true;
+    timer?.cancel();
+    if (waiting?.isCompleted == false) waiting!.complete();
+  });
+  return pollBookJob(
+    fetch: () => api.getBookStatus(jobId),
+    cancelled: () => disposed,
+    wait: (delay) {
+      if (disposed) return Future<void>.value();
+      final completion = Completer<void>();
+      waiting = completion;
+      timer = Timer(delay, completion.complete);
+      return completion.future;
+    },
+    timeout: kJobPollingHardTimeout,
+  );
 });
 
 /// 책 생성 Notifier
-final bookCreationProvider =
-    AsyncNotifierProvider<BookCreationNotifier, void>(BookCreationNotifier.new);
+final bookCreationProvider = AsyncNotifierProvider<BookCreationNotifier, void>(
+  BookCreationNotifier.new,
+);
 
 // H18: 오늘의 동화 생성 시도-단위 멱등키(HomeScreen이 stateless라 provider로 보유).
 // 재시도 시 재사용, 성공 시 null로 리셋.
@@ -1051,44 +1079,47 @@ class BookCreationNotifier extends AsyncNotifier<void> {
 // ==================== Book Viewer Provider ====================
 
 /// 책 상세 조회 Provider
-final bookDetailProvider =
-    FutureProvider.autoDispose.family<BookResult, String>((ref, bookId) async {
-  final api = ref.watch(apiClientProvider);
-  final prefs = ref.read(sharedPreferencesProvider);
-  final cacheKey = 'book_cache_${bookId}_v1';
-  var active = true;
-  ref.onDispose(() => active = false);
+final bookDetailProvider = FutureProvider.autoDispose
+    .family<BookResult, String>((ref, bookId) async {
+      final api = ref.watch(apiClientProvider);
+      final prefs = ref.read(sharedPreferencesProvider);
+      final cacheKey = 'book_cache_${bookId}_v1';
+      var active = true;
+      ref.onDispose(() => active = false);
 
-  try {
-    final book = await api.getBook(bookId);
-    if (active) await prefs.setString(cacheKey, jsonEncode(book.toJson()));
-    return book;
-  } catch (error) {
-    final apiError = error is ApiError
-        ? error
-        : error is DioException
+      try {
+        final book = await api.getBook(bookId);
+        if (active) await prefs.setString(cacheKey, jsonEncode(book.toJson()));
+        return book;
+      } catch (error) {
+        final apiError = error is ApiError
+            ? error
+            : error is DioException
             ? ApiError.fromDioException(error)
             : null;
-    if (apiError == null ||
-        !{'CONNECTION_ERROR', 'NETWORK_ERROR', 'TIMEOUT'}
-            .contains(apiError.code)) {
-      await prefs.remove(cacheKey);
-      rethrow;
-    }
-    final cached = prefs.getString(cacheKey);
-    if (cached != null && cached.isNotEmpty) {
-      try {
-        final decoded = jsonDecode(cached);
-        if (decoded is Map<String, dynamic>) {
-          return BookResult.fromJson(decoded);
+        if (apiError == null ||
+            !{
+              'CONNECTION_ERROR',
+              'NETWORK_ERROR',
+              'TIMEOUT',
+            }.contains(apiError.code)) {
+          await prefs.remove(cacheKey);
+          rethrow;
         }
-      } catch (_) {
-        // 캐시 파싱 실패 시 원래 에러를 그대로 전파한다.
+        final cached = prefs.getString(cacheKey);
+        if (cached != null && cached.isNotEmpty) {
+          try {
+            final decoded = jsonDecode(cached);
+            if (decoded is Map<String, dynamic>) {
+              return BookResult.fromJson(decoded);
+            }
+          } catch (_) {
+            // 캐시 파싱 실패 시 원래 에러를 그대로 전파한다.
+          }
+        }
+        rethrow;
       }
-    }
-    rethrow;
-  }
-});
+    });
 
 /// 현재 보고 있는 페이지 인덱스
 final currentPageIndexProvider = StateProvider<int>((ref) => 0);
@@ -1098,8 +1129,8 @@ final currentPageIndexProvider = StateProvider<int>((ref) => 0);
 /// 페이지 재생성 Notifier
 final pageRegenerationProvider =
     AsyncNotifierProvider<PageRegenerationNotifier, void>(
-  PageRegenerationNotifier.new,
-);
+      PageRegenerationNotifier.new,
+    );
 
 class PageRegenerationNotifier extends AsyncNotifier<void> {
   @override

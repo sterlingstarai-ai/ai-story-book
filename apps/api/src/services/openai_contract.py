@@ -13,6 +13,7 @@ import structlog
 
 from src.core.errors import ErrorCode, LLMError
 from src.services.structured_output import provider_output_schema
+from src.services.provider_runtime import begin_provider_request, observe_provider_response
 
 logger = structlog.get_logger()
 
@@ -218,6 +219,7 @@ async def request_openai_json(
         image_urls=image_urls,
         response_schema=response_schema,
     )
+    attempt = begin_provider_request("openai", model, "llm", api_key)
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(
@@ -231,6 +233,9 @@ async def request_openai_json(
     except httpx.HTTPError:
         logger.warning("OpenAI transport failed")
         raise LLMError(ErrorCode.UNKNOWN, "OpenAI transport failed") from None
+    permanent_error = await observe_provider_response(attempt, response)
+    if permanent_error:
+        raise LLMError(permanent_error, "AI 제공자 서비스를 현재 사용할 수 없습니다.")
     if response.status_code != 200:
         status = response.status_code
         logger.warning("OpenAI request failed", status=status)

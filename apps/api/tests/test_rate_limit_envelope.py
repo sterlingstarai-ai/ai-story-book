@@ -36,7 +36,7 @@ async def test_429_response_envelope_matches_contract(client, monkeypatch):
     """실제 HTTP 응답 봉투를 확인한다 — 코드/details/헤더가 계약대로인지."""
     from src.core import rate_limit as rate_limit_module
 
-    async def always_limited(_user_key):
+    async def always_limited(_user_key, **kwargs):
         return False, 0
 
     monkeypatch.setattr(rate_limit_module.rate_limiter, "is_allowed", always_limited)

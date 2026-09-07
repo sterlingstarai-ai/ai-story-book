@@ -1,3 +1,4 @@
+import '../providers/active_child_profile.dart';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -130,7 +131,9 @@ class HomeScreen extends ConsumerWidget {
       sigNotifier.state = todaySig;
     }
     try {
-      final jobId = await ref.read(apiClientProvider).generateTodayStory(
+      final jobId = await ref
+          .read(apiClientProvider)
+          .generateTodayStory(
             targetAge: '5-7',
             style: 'watercolor',
             language: language,
@@ -161,8 +164,10 @@ class HomeScreen extends ConsumerWidget {
     final growthAsync = ref.watch(growthReportProvider);
     final growthSubtitle = growthAsync.maybeWhen(
       data: (g) => (g.vocabLearned > 0 || g.quizTotal > 0)
-          ? l.homeGrowthSubtitleStats(g.vocabLearned,
-              g.quizTotal > 0 ? (g.quizAccuracy * 100).round() : 0)
+          ? l.homeGrowthSubtitleStats(
+              g.vocabLearned,
+              g.quizTotal > 0 ? (g.quizAccuracy * 100).round() : 0,
+            )
           : l.readingGrowthEntrySubtitle,
       orElse: () => l.readingGrowthEntrySubtitle,
     );
@@ -178,15 +183,22 @@ class HomeScreen extends ConsumerWidget {
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.lg, AppSpacing.md, AppSpacing.lg, AppSpacing.md),
+                  AppSpacing.lg,
+                  AppSpacing.md,
+                  AppSpacing.lg,
+                  AppSpacing.md,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
                       children: [
                         Expanded(
-                            child: Text(l.homeTitle,
-                                style: AppTextStyles.heading1)),
+                          child: Text(
+                            l.homeTitle,
+                            style: AppTextStyles.heading1,
+                          ),
+                        ),
                         IconButton(
                           constraints: const BoxConstraints(
                             minWidth: AppSizing.minTouchTarget,
@@ -200,8 +212,18 @@ class HomeScreen extends ConsumerWidget {
                       ],
                     ),
                     Text(
-                        hasBooks ? l.homeReadingSubtitle : l.homeHeaderSubtitle,
-                        style: AppTextStyles.bodySmall),
+                      ref.watch(activeChildProfileProvider).valueOrNull == null
+                          ? (hasBooks
+                                ? l.homeReadingSubtitle
+                                : l.homeHeaderSubtitle)
+                          : l.activeChildLabel(
+                              ref
+                                  .watch(activeChildProfileProvider)
+                                  .valueOrNull!
+                                  .name,
+                            ),
+                      style: AppTextStyles.bodySmall,
+                    ),
                   ],
                 ),
               ),
@@ -212,10 +234,16 @@ class HomeScreen extends ConsumerWidget {
               child: libraryAsync.when(
                 data: (books) => books.isEmpty
                     ? Padding(
-                        padding: const EdgeInsets.fromLTRB(AppSpacing.lg,
-                            AppSpacing.sm, AppSpacing.lg, AppSpacing.md),
-                        child: Text(l.homeEmptyTitle,
-                            style: AppTextStyles.heading3),
+                        padding: const EdgeInsets.fromLTRB(
+                          AppSpacing.lg,
+                          AppSpacing.sm,
+                          AppSpacing.lg,
+                          AppSpacing.md,
+                        ),
+                        child: Text(
+                          l.homeEmptyTitle,
+                          style: AppTextStyles.heading3,
+                        ),
                       )
                     : _HomeReadingSection(books: books.take(4).toList()),
                 loading: () => Semantics(
@@ -226,8 +254,12 @@ class HomeScreen extends ConsumerWidget {
                   ),
                 ),
                 error: (_, __) => Padding(
-                  padding: const EdgeInsets.fromLTRB(AppSpacing.lg,
-                      AppSpacing.sm, AppSpacing.lg, AppSpacing.lg),
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.lg,
+                    AppSpacing.sm,
+                    AppSpacing.lg,
+                    AppSpacing.lg,
+                  ),
                   child: _StreakErrorCard(
                     title: l.homeLibraryErrorTitle,
                     message: l.libraryErrorNetwork,
@@ -249,10 +281,17 @@ class HomeScreen extends ConsumerWidget {
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.lg, AppSpacing.md, AppSpacing.lg, 0),
+                  AppSpacing.lg,
+                  AppSpacing.md,
+                  AppSpacing.lg,
+                  0,
+                ),
                 child: _PhotoCharacterCard(
-                  onTap: () => Navigator.pushNamed(context, '/create',
-                      arguments: {'startPhotoCharacter': true}),
+                  onTap: () => Navigator.pushNamed(
+                    context,
+                    '/create',
+                    arguments: {'startPhotoCharacter': true},
+                  ),
                 ),
               ),
             ),
@@ -265,10 +304,12 @@ class HomeScreen extends ConsumerWidget {
                         child: _CharacterQuickStartRow(
                           characters: characters.take(8).toList(),
                           onSelect: (id) => Navigator.pushNamed(
-                              context, '/create',
-                              arguments: {
-                                'characterIds': [id]
-                              }),
+                            context,
+                            '/create',
+                            arguments: {
+                              'characterIds': [id],
+                            },
+                          ),
                         ),
                       ),
                     ),
@@ -297,7 +338,11 @@ class HomeScreen extends ConsumerWidget {
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.xl),
+                  AppSpacing.lg,
+                  0,
+                  AppSpacing.lg,
+                  AppSpacing.xl,
+                ),
                 child: _GrowthEntryCard(
                   subtitle: growthSubtitle,
                   onTap: () => Navigator.pushNamed(context, '/reading-growth'),
@@ -311,15 +356,28 @@ class HomeScreen extends ConsumerWidget {
   }
 }
 
-class _HomeReadingSection extends StatelessWidget {
+class _HomeReadingSection extends ConsumerStatefulWidget {
   const _HomeReadingSection({required this.books});
 
   final List<LibraryBook> books;
 
   @override
+  ConsumerState<_HomeReadingSection> createState() =>
+      _HomeReadingSectionState();
+}
+
+class _HomeReadingSectionState extends ConsumerState<_HomeReadingSection> {
+  @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
+    final books = widget.books;
     final latest = books.first;
+    final hasProgress =
+        (ref
+                .read(sharedPreferencesProvider)
+                .getInt('reading_progress_${latest.id}_v1') ??
+            0) >
+        0;
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.lg),
       child: Column(
@@ -330,13 +388,19 @@ class _HomeReadingSection extends StatelessWidget {
             child: Row(
               children: [
                 Expanded(
-                    child: Text(l.homeRecentBooksTitle,
-                        style: AppTextStyles.heading3)),
+                  child: Text(
+                    l.homeRecentBooksTitle,
+                    style: AppTextStyles.heading3,
+                  ),
+                ),
                 TextButton(
                   key: const Key('home_view_library'),
                   style: TextButton.styleFrom(
-                      minimumSize: const Size(
-                          AppSizing.minTouchTarget, AppSizing.minTouchTarget)),
+                    minimumSize: const Size(
+                      AppSizing.minTouchTarget,
+                      AppSizing.minTouchTarget,
+                    ),
+                  ),
                   onPressed: () => Navigator.pushNamed(context, '/library'),
                   child: Text(l.homeViewAll),
                 ),
@@ -354,38 +418,54 @@ class _HomeReadingSection extends StatelessWidget {
               clipBehavior: Clip.antiAlias,
               child: InkWell(
                 key: const Key('home_featured_book'),
-                onTap: () => Navigator.pushNamed(context, '/viewer',
-                    arguments: latest.id),
+                onTap: () async {
+                  await Navigator.pushNamed(
+                    context,
+                    '/viewer',
+                    arguments: latest.id,
+                  );
+                  if (mounted) setState(() {});
+                },
                 child: Padding(
                   padding: const EdgeInsets.all(AppSpacing.md),
                   child: Row(
                     children: [
                       _HomeBookCover(
-                          imageUrl: latest.coverImageUrl,
-                          width: 80,
-                          height: 108),
+                        imageUrl: latest.coverImageUrl,
+                        width: 80,
+                        height: 108,
+                      ),
                       const SizedBox(width: AppSpacing.md),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(latest.title,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: AppTextStyles.heading3),
+                            Text(
+                              latest.title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTextStyles.heading3,
+                            ),
                             const SizedBox(height: AppSpacing.md),
                             Row(
                               children: [
-                                Icon(Icons.auto_stories_rounded,
-                                    color: AppPalette.of(context).primary,
-                                    size: 20),
+                                Icon(
+                                  Icons.auto_stories_rounded,
+                                  color: AppPalette.of(context).primary,
+                                  size: 20,
+                                ),
                                 const SizedBox(width: AppSpacing.sm),
                                 Expanded(
-                                    child: Text(l.homeReadBook,
-                                        style: AppTextStyles.body.copyWith(
-                                            color:
-                                                AppPalette.of(context).primary,
-                                            fontWeight: FontWeight.w700))),
+                                  child: Text(
+                                    hasProgress
+                                        ? l.homeContinueReading
+                                        : l.homeReadBook,
+                                    style: AppTextStyles.body.copyWith(
+                                      color: AppPalette.of(context).primary,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
                               ],
                             ),
                           ],
@@ -414,29 +494,36 @@ class _HomeReadingSection extends StatelessWidget {
                     child: Material(
                       color: AppPalette.of(context).surface,
                       shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(AppRadius.md),
-                          side: BorderSide(
-                              color: AppPalette.of(context).divider)),
+                        borderRadius: BorderRadius.circular(AppRadius.md),
+                        side: BorderSide(color: AppPalette.of(context).divider),
+                      ),
                       clipBehavior: Clip.antiAlias,
                       child: InkWell(
-                        onTap: () => Navigator.pushNamed(context, '/viewer',
-                            arguments: book.id),
+                        onTap: () => Navigator.pushNamed(
+                          context,
+                          '/viewer',
+                          arguments: book.id,
+                        ),
                         child: Padding(
                           padding: const EdgeInsets.all(AppSpacing.sm),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               _HomeBookCover(
-                                  imageUrl: book.coverImageUrl,
-                                  width: 116,
-                                  height: 116),
+                                imageUrl: book.coverImageUrl,
+                                width: 116,
+                                height: 116,
+                              ),
                               const SizedBox(height: AppSpacing.sm),
-                              Text(book.title,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: AppTextStyles.bodySmall.copyWith(
-                                      color: AppPalette.of(context).textPrimary,
-                                      fontWeight: FontWeight.w600)),
+                              Text(
+                                book.title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppTextStyles.bodySmall.copyWith(
+                                  color: AppPalette.of(context).textPrimary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
                             ],
                           ),
                         ),
@@ -454,8 +541,11 @@ class _HomeReadingSection extends StatelessWidget {
 }
 
 class _HomeBookCover extends StatelessWidget {
-  const _HomeBookCover(
-      {required this.imageUrl, required this.width, required this.height});
+  const _HomeBookCover({
+    required this.imageUrl,
+    required this.width,
+    required this.height,
+  });
   final String imageUrl;
   final double width;
   final double height;
@@ -465,8 +555,11 @@ class _HomeBookCover extends StatelessWidget {
     final placeholder = Container(
       color: AppPalette.of(context).primaryLight,
       alignment: Alignment.center,
-      child: Icon(Icons.auto_stories_outlined,
-          color: AppPalette.of(context).primary, size: 32),
+      child: Icon(
+        Icons.auto_stories_outlined,
+        color: AppPalette.of(context).primary,
+        size: 32,
+      ),
     );
     return ExcludeSemantics(
       child: ClipRRect(
@@ -515,12 +608,18 @@ class _CreateBookCard extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  Icon(Icons.add_rounded,
-                      color: AppPalette.of(context).primary, size: 32),
+                  Icon(
+                    Icons.add_rounded,
+                    color: AppPalette.of(context).primary,
+                    size: 32,
+                  ),
                   const SizedBox(width: AppSpacing.md),
                   Expanded(
-                      child: Text(l.homeCreateCardTitle,
-                          style: AppTextStyles.heading3)),
+                    child: Text(
+                      l.homeCreateCardTitle,
+                      style: AppTextStyles.heading3,
+                    ),
+                  ),
                 ],
               ),
               if (!compact) ...[
@@ -539,10 +638,7 @@ class _StreakSummaryCard extends StatelessWidget {
   final HomeStreakSnapshot data;
   final VoidCallback onTapPrimary;
 
-  const _StreakSummaryCard({
-    required this.data,
-    required this.onTapPrimary,
-  });
+  const _StreakSummaryCard({required this.data, required this.onTapPrimary});
 
   @override
   Widget build(BuildContext context) {
@@ -557,7 +653,7 @@ class _StreakSummaryCard extends StatelessWidget {
           colors: AppPalette.of(context).isDark
               ? [
                   AppPalette.of(context).primaryLight,
-                  AppPalette.of(context).surface
+                  AppPalette.of(context).surface,
                 ]
               : const [Color(0xFFFFEDD5), Color(0xFFFFFBEB)],
           begin: Alignment.topLeft,
@@ -587,10 +683,7 @@ class _StreakSummaryCard extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.sm),
           Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 10,
-              vertical: 6,
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(
               color: data.readToday
                   ? AppColors.successLight
@@ -611,8 +704,11 @@ class _StreakSummaryCard extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.md),
           _TodayStoryPanel(
-            themeName:
-                dailyThemeLabel(l, data.todayThemeId, data.todayThemeName),
+            themeName: dailyThemeLabel(
+              l,
+              data.todayThemeId,
+              data.todayThemeName,
+            ),
             topic: dailyTopicLabel(l, data.todayTopicId, data.todayTopic),
             hasTodayBook: data.todayBookId != null,
             onTap: onTapPrimary,
@@ -628,11 +724,14 @@ class _StreakSummaryCard extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: recentDays
-                .map((entry) => Expanded(
-                        child: _RecentDayDot(
+                .map(
+                  (entry) => Expanded(
+                    child: _RecentDayDot(
                       weekday: entry.label,
                       read: entry.read,
-                    )))
+                    ),
+                  ),
+                )
                 .toList(),
           ),
         ],
@@ -641,7 +740,9 @@ class _StreakSummaryCard extends StatelessWidget {
   }
 
   List<_RecentDayEntry> _recentDays(
-      BuildContext context, Set<String> readDates) {
+    BuildContext context,
+    Set<String> readDates,
+  ) {
     final now = DateTime.now();
     final entries = <_RecentDayEntry>[];
     for (var i = 6; i >= 0; i--) {
@@ -714,10 +815,7 @@ class _TodayStoryPanel extends StatelessWidget {
             ),
           ),
           const SizedBox(height: AppSpacing.xs),
-          Text(
-            topic,
-            style: AppTextStyles.body,
-          ),
+          Text(topic, style: AppTextStyles.body),
           const SizedBox(height: AppSpacing.sm),
           PrimaryButton(
             text: hasTodayBook ? l.homeContinueReading : l.homeMakeTodayStory,
@@ -734,10 +832,7 @@ class _RecentDayDot extends StatelessWidget {
   final String weekday;
   final bool read;
 
-  const _RecentDayDot({
-    required this.weekday,
-    required this.read,
-  });
+  const _RecentDayDot({required this.weekday, required this.read});
 
   @override
   Widget build(BuildContext context) {
@@ -821,8 +916,11 @@ class _StreakErrorCard extends StatelessWidget {
               const Icon(Icons.error_outline, color: AppColors.error),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
-                  child: Text(title ?? l.homeStreakErrorTitle,
-                      style: AppTextStyles.heading3)),
+                child: Text(
+                  title ?? l.homeStreakErrorTitle,
+                  style: AppTextStyles.heading3,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: AppSpacing.sm),
@@ -843,10 +941,7 @@ class _RecentDayEntry {
   final String label;
   final bool read;
 
-  const _RecentDayEntry({
-    required this.label,
-    required this.read,
-  });
+  const _RecentDayEntry({required this.label, required this.read});
 }
 
 /// 홈에서 '읽기 성장' 리포트로 가는 진입 카드.
@@ -885,8 +980,11 @@ class _GrowthEntryCard extends StatelessWidget {
                 color: AppPalette.of(context).primaryLight,
                 borderRadius: BorderRadius.circular(AppRadius.sm),
               ),
-              child: Icon(Icons.trending_up_rounded,
-                  color: AppPalette.of(context).primary, size: 22),
+              child: Icon(
+                Icons.trending_up_rounded,
+                color: AppPalette.of(context).primary,
+                size: 22,
+              ),
             ),
             const SizedBox(width: AppSpacing.md),
             Expanded(
@@ -902,8 +1000,10 @@ class _GrowthEntryCard extends StatelessWidget {
                 ],
               ),
             ),
-            Icon(Icons.chevron_right_rounded,
-                color: AppPalette.of(context).textHint),
+            Icon(
+              Icons.chevron_right_rounded,
+              color: AppPalette.of(context).textHint,
+            ),
           ],
         ),
       ),
@@ -922,7 +1022,11 @@ class _SectionLabel extends StatelessWidget {
     return SliverToBoxAdapter(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(
-            AppSpacing.lg + 2, 0, AppSpacing.lg, AppSpacing.sm + 2),
+          AppSpacing.lg + 2,
+          0,
+          AppSpacing.lg,
+          AppSpacing.sm + 2,
+        ),
         child: Text(
           text,
           style: AppTextStyles.bodySmall.copyWith(
@@ -962,24 +1066,33 @@ class _PhotoCharacterCard extends StatelessWidget {
                 color: AppColors.secondaryLight,
                 borderRadius: BorderRadius.circular(AppRadius.sm),
               ),
-              child: const Icon(Icons.face_retouching_natural,
-                  color: AppColors.secondary, size: 22),
+              child: const Icon(
+                Icons.face_retouching_natural,
+                color: AppColors.secondary,
+                size: 22,
+              ),
             ),
             const SizedBox(width: AppSpacing.md),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(l.homePhotoCharacterTitle,
-                      style: AppTextStyles.heading3),
+                  Text(
+                    l.homePhotoCharacterTitle,
+                    style: AppTextStyles.heading3,
+                  ),
                   const SizedBox(height: 2),
-                  Text(l.homePhotoCharacterSubtitle,
-                      style: AppTextStyles.bodySmall),
+                  Text(
+                    l.homePhotoCharacterSubtitle,
+                    style: AppTextStyles.bodySmall,
+                  ),
                 ],
               ),
             ),
-            Icon(Icons.chevron_right_rounded,
-                color: AppPalette.of(context).textHint),
+            Icon(
+              Icons.chevron_right_rounded,
+              color: AppPalette.of(context).textHint,
+            ),
           ],
         ),
       ),
@@ -1006,7 +1119,11 @@ class _CharacterQuickStartRow extends StatelessWidget {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(
-              AppSpacing.lg + 2, 0, AppSpacing.lg, AppSpacing.sm),
+            AppSpacing.lg + 2,
+            0,
+            AppSpacing.lg,
+            AppSpacing.sm,
+          ),
           child: Text(
             l.homeQuickStartTitle,
             style: AppTextStyles.bodySmall.copyWith(
@@ -1041,10 +1158,7 @@ class _CharacterQuickStartChip extends StatelessWidget {
   final String name;
   final VoidCallback onTap;
 
-  const _CharacterQuickStartChip({
-    required this.name,
-    required this.onTap,
-  });
+  const _CharacterQuickStartChip({required this.name, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -1066,8 +1180,9 @@ class _CharacterQuickStartChip extends StatelessWidget {
               ),
               child: Text(
                 initial,
-                style: AppTextStyles.heading3
-                    .copyWith(color: AppPalette.of(context).primary),
+                style: AppTextStyles.heading3.copyWith(
+                  color: AppPalette.of(context).primary,
+                ),
               ),
             ),
             const SizedBox(height: 4),

@@ -223,7 +223,7 @@ abstract class AppLocalizations {
   /// No description provided for @onboardingSlide4Subtitle.
   ///
   /// In en, this message translates to:
-  /// **'Make your first storybook with 3 starter credits.'**
+  /// **'Create up to two storybooks each month for free.'**
   String get onboardingSlide4Subtitle;
 
   /// Accessibility label for the onboarding page indicator
@@ -1143,6 +1143,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Something went wrong'**
   String get loadingErrorTitle;
+
+  /// No description provided for @loadingGenericFailure.
+  ///
+  /// In en, this message translates to:
+  /// **'We couldn\'t complete this request. Please try again in a moment.'**
+  String get loadingGenericFailure;
 
   /// No description provided for @loadingUnknownError.
   ///
@@ -3127,7 +3133,7 @@ abstract class AppLocalizations {
   /// No description provided for @planFeaturesFree.
   ///
   /// In en, this message translates to:
-  /// **'2 books / month|Watercolor & cartoon styles|No audio/PDF'**
+  /// **'2 books each month|Watercolor & cartoon illustrations|Read stories in the app'**
   String get planFeaturesFree;
 
   /// No description provided for @planFeaturesBasic.
@@ -4233,6 +4239,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Regenerate'**
   String get viewerRegenerateConfirm;
+
+  /// No description provided for @viewerRegenerateCompleted.
+  ///
+  /// In en, this message translates to:
+  /// **'This page has been remade.'**
+  String get viewerRegenerateCompleted;
 
   /// No description provided for @viewerRegenerateFailed.
   ///
@@ -5423,7 +5435,7 @@ abstract class AppLocalizations {
   /// No description provided for @loadingStatusUnavailable.
   ///
   /// In en, this message translates to:
-  /// **'We could not check the progress of your story. It may still be creating. Check your connection, then check this story\'s status again.'**
+  /// **'We could not check your story’s progress. It may still be creating. Check this story’s status again shortly.'**
   String get loadingStatusUnavailable;
 
   /// No description provided for @voiceProfilesUnavailable.
@@ -6001,6 +6013,138 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Try creating again or choose another photo.'**
   String get characterAvatarFailedDescription;
+
+  /// No description provided for @errorMonthlyBookLimit.
+  ///
+  /// In en, this message translates to:
+  /// **'The free plan allows {limit} books each month. Your limit resets on the first day of next month, Korea time. Remaining credits are kept.'**
+  String errorMonthlyBookLimit(String limit);
+
+  /// No description provided for @errorInsufficientCredits.
+  ///
+  /// In en, this message translates to:
+  /// **'You do not have enough credits to create this story.'**
+  String get errorInsufficientCredits;
+
+  /// No description provided for @errorPlanFeature.
+  ///
+  /// In en, this message translates to:
+  /// **'This feature is not included in your current plan.'**
+  String get errorPlanFeature;
+
+  /// No description provided for @errorRateLimitWait.
+  ///
+  /// In en, this message translates to:
+  /// **'Please wait {seconds} seconds before trying again.'**
+  String errorRateLimitWait(String seconds);
+
+  /// No description provided for @settingsDeleteUncertain.
+  ///
+  /// In en, this message translates to:
+  /// **'We could not confirm the deletion result yet. Retry deletion for this account. If you reopen the app, we will continue checking before opening your library.'**
+  String get settingsDeleteUncertain;
+
+  /// No description provided for @recoveryFinishBackupFirst.
+  ///
+  /// In en, this message translates to:
+  /// **'Save the code and complete the backup confirmation below before leaving.'**
+  String get recoveryFinishBackupFirst;
+
+  /// No description provided for @charactersRename.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename'**
+  String get charactersRename;
+
+  /// No description provided for @charactersNameSaved.
+  ///
+  /// In en, this message translates to:
+  /// **'Character renamed. The approved appearance is unchanged.'**
+  String get charactersNameSaved;
+
+  /// No description provided for @charactersManage.
+  ///
+  /// In en, this message translates to:
+  /// **'Manage character'**
+  String get charactersManage;
+
+  /// No description provided for @activeChildLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Current child: {name}'**
+  String activeChildLabel(String name);
+
+  /// No description provided for @legalReadFull.
+  ///
+  /// In en, this message translates to:
+  /// **'Read full text'**
+  String get legalReadFull;
+
+  /// No description provided for @legalOpenWebsite.
+  ///
+  /// In en, this message translates to:
+  /// **'Open public page'**
+  String get legalOpenWebsite;
+
+  /// No description provided for @legalKoreanOriginal.
+  ///
+  /// In en, this message translates to:
+  /// **'This document is provided in Korean.'**
+  String get legalKoreanOriginal;
+
+  /// No description provided for @legalDraftNotice.
+  ///
+  /// In en, this message translates to:
+  /// **'Pre-release review copy. The effective date and external processing details will be finalized before publication.'**
+  String get legalDraftNotice;
+
+  /// No description provided for @consentRequiredOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'Agree to required items'**
+  String get consentRequiredOnly;
+
+  /// No description provided for @consentOptionalSeparate.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose photo consent separately below.'**
+  String get consentOptionalSeparate;
+
+  /// No description provided for @consentScrollHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Scroll down to read all details.'**
+  String get consentScrollHint;
+
+  /// No description provided for @loadingCreditRefunded.
+  ///
+  /// In en, this message translates to:
+  /// **'The credits used for this generation have been returned.'**
+  String get loadingCreditRefunded;
+
+  /// No description provided for @loadingCreditRefundPending.
+  ///
+  /// In en, this message translates to:
+  /// **'Your credits are being returned. Check the status again shortly.'**
+  String get loadingCreditRefundPending;
+
+  /// No description provided for @loadingCreditNotCharged.
+  ///
+  /// In en, this message translates to:
+  /// **'No credits were charged for this generation.'**
+  String get loadingCreditNotCharged;
+
+  /// No description provided for @errorParentalConsentRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Complete parental consent first. You can review consent in Settings.'**
+  String get errorParentalConsentRequired;
+
+  /// No description provided for @localMediaCleanupFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'We could not confirm removal of cached images on this device. Retry on this screen to continue cleanup.'**
+  String get localMediaCleanupFailed;
 }
 
 class _AppLocalizationsDelegate

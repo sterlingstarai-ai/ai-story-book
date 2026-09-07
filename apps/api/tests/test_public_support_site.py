@@ -66,6 +66,19 @@ def test_policy_change_after_approval_cannot_be_published(tmp_path):
         site.build(config_path, tmp_path / "production")
 
 
+def test_review_document_cannot_publish_even_with_approval_flag_and_matching_hash(tmp_path):
+    config_path, config, policy = fixture_config(tmp_path)
+    policy.write_text('<!doctype html><html><head><meta name="legal-status" content="review"></head>'
+                      '<body>검토본</body></html>')
+    for name in ("privacy_policy", "terms_of_service"):
+        config[name + "_sha256"] = hashlib.sha256(policy.read_bytes()).hexdigest()
+    config_path.write_text(json.dumps(config))
+    output = tmp_path / "production"
+    with pytest.raises(ValueError, match="POLICY_STILL_IN_REVIEW"):
+        site.build(config_path, output)
+    assert not output.exists()
+
+
 def test_preview_omits_contacts_and_policies_and_cannot_claim_publication(tmp_path, monkeypatch):
     config_path, _, _ = fixture_config(tmp_path)
     monkeypatch.setattr(site, "ROOT", tmp_path)

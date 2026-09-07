@@ -1,3 +1,4 @@
+import 'account_deletion_screen.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -6,8 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../l10n/app_localizations.dart';
 import '../providers/providers.dart';
-import '../services/api_client.dart';
-import '../services/public_links.dart';
+import 'legal_document_screen.dart';
 import '../utils/constants.dart';
 import '../widgets/age_gate_dialog.dart';
 
@@ -246,7 +246,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
     // 서버에 철회를 먼저 반영해야 사진 게이트가 실제로 닫히고 아동 사진·파생
     // 캐릭터가 파기된다(성공해야 로컬 철회 진행 — grant 배선과 대칭).
+    final cleanup = ref.read(localMediaCleanupProvider);
     try {
+      await cleanup.markPending();
       await apiClient.revokeConsent();
     } catch (e) {
       if (!mounted) {
@@ -262,14 +264,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
 
     await parental.setConsent(prefs, false);
+    if (mounted) {
+      invalidateAccountScope(ProviderScope.containerOf(context, listen: false));
+    }
+    var localCleanupComplete = true;
+    try {
+      await cleanup.run();
+    } catch (_) {
+      localCleanupComplete = false;
+    }
 
     if (!mounted) {
       return;
     }
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-          content: Text(AppLocalizations.of(context).settingsConsentRevoked)),
+      SnackBar(content: Text(localCleanupComplete
+          ? l.settingsConsentRevoked : l.localMediaCleanupFailed)),
     );
     Navigator.pushNamedAndRemoveUntil(context, '/consent', (_) => false);
   }
@@ -360,20 +371,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     try {
       final api = ref.read(apiClientProvider);
       final prefs = ref.read(sharedPreferencesProvider);
-      final userService = ref.read(userServiceProvider);
       final screenTime = ref.read(screenTimeStateProvider.notifier);
       final parental = ref.read(parentalControlServiceProvider);
       final container = ProviderScope.containerOf(context, listen: false);
-      var purgePending = false;
-      try {
-        await api.deleteMyData();
-      } on StoragePurgePending {
-        purgePending = true;
-      }
+      final purgePending = await ref
+          .read(accountRecoveryServiceProvider)
+          .deleteAccount(client: api);
       // Complete committed account deletion even if the parent left Settings
       // while the HTTP request was in flight. UI lifetime is not transaction lifetime.
       await screenTime.syncSettings(enabled: false, dailyLimitMinutes: 60);
-      await userService.completeAccountDeletion();
       await parental.setConsent(prefs, false);
       invalidateAccountScope(container);
       if (!mounted) return;
@@ -387,10 +393,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text(AppLocalizations.of(context).settingsDeleteError)),
-      );
+      if (ref.read(userServiceProvider).deletionRequested) {
+        Navigator.pushAndRemoveUntil(context,
+          MaterialPageRoute(builder: (_) => const AccountDeletionScreen()),
+          (_) => false);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(AppLocalizations.of(context).settingsDeleteError)),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() => _isDeleting = false);
@@ -404,24 +415,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     return '$hour:$minute';
   }
 
-  Future<void> _openPublicLink(String url) async {
-    final l = AppLocalizations.of(context);
-    final links = ref.read(publicLinksProvider);
-    if (PublicLinks.publicUri(url) == null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(l.settingsPagePreparing)));
-      return;
-    }
-    final opened = await links.open(url);
-    if (!mounted || opened) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(l.settingsPageOpenError)));
+  void _openLegalDocument(LegalDocument document) {
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => LegalDocumentScreen(document: document),
+    ));
   }
 
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
-    final publicLinks = ref.watch(publicLinksProvider);
     final audioSupported = ref.watch(capabilitiesProvider).maybeWhen(
           data: (value) => value['audio_supported'] == true,
           orElse: () => false,
@@ -675,22 +677,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ListTile(
               leading: const Icon(Icons.privacy_tip_outlined),
               title: Text(l.settingsPrivacyPolicy),
-              subtitle:
-                  PublicLinks.publicUri(publicLinks.privacyPolicyUrl) == null
-                      ? Text(l.settingsPagePreparing)
-                      : null,
-              trailing: const Icon(Icons.open_in_new),
-              onTap: () => _openPublicLink(publicLinks.privacyPolicyUrl),
+              subtitle: Text(l.legalReadFull),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _openLegalDocument(LegalDocument.privacy),
             ),
             ListTile(
               leading: const Icon(Icons.description_outlined),
               title: Text(l.settingsTermsOfService),
-              subtitle:
-                  PublicLinks.publicUri(publicLinks.termsOfServiceUrl) == null
-                      ? Text(l.settingsPagePreparing)
-                      : null,
-              trailing: const Icon(Icons.open_in_new),
-              onTap: () => _openPublicLink(publicLinks.termsOfServiceUrl),
+              subtitle: Text(l.legalReadFull),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _openLegalDocument(LegalDocument.terms),
             ),
             const Divider(height: 1),
             _SectionHeader(l.settingsSectionPrivacy),

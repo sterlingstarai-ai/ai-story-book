@@ -5,6 +5,8 @@
 
 This document defines the production deployment contract after the P5 hardening sweep.
 
+모바일 정책 전문은 앱에 포함되며, 공개본은 `scripts/render_legal_documents.py`로 같은 JSON 원본에서 생성한다. `final-external-preflight.sh`는 원본의 검토 상태·시행일까지 확인한다. 검토본을 승인본으로 표시하거나 빌드 URL만 넣어서 우회하지 않는다. `PRIVACY_POLICY_URL`·`TERMS_OF_SERVICE_URL`이 없는 모바일 release는 컴파일 단계에서 차단되고 공개 HTTPS 주소의 형식도 검사한다. [문서 생성과 공개 절차](../apps/public-site/README.md)를 함께 따른다.
+
 출시 후보의 API와 worker는 `ILLUSTRATION_QUALITY_ENABLED=true` 및 검토를 지원하는 OpenAI 모델·키를 함께 설정해야 한다. 설정이 빠지거나 지원하지 않는 모델이면 사전 검사/readiness와 실제 생성 경로가 완성을 차단한다. 동작·횟수·검증 범위는 [삽화 검사와 부분 재생성](ILLUSTRATION_QUALITY_GATE.md)을 따른다.
 
 외부 PostgreSQL·비공개 S3와 상주 API/워커/Redis 구성은 [외부 호스팅 배포 준비](EXTERNAL_HOSTING_DEPLOYMENT.md)를 따릅니다. 기존 자체 호스팅 Compose를 대체하지 않으며, 실제 연결·배포를 실행했다는 뜻은 아닙니다.
@@ -129,6 +131,18 @@ writes must be treated as unavailable capacity rather than permission to generat
 
 ## Deploy script
 
+Before promoting the selected candidate image, establish its provider observations
+with the [explicit provider preflight](PROVIDER_RUNTIME_AND_REPAIR.md). Run
+`python scripts/provider_preflight.py --allow-billable-requests` from `/app` in that
+candidate image using the API/worker's exact configuration, Redis and storage. This
+operator-approved command incurs generic text/image API usage and needs no running
+HTTP server. A candidate with new credentials/models, expired observations, or no
+previous observations returns **503** from `/health/ready` until all required
+providers have recent successful responses. `--check-only` reads observations and
+does not establish them. Neither the deploy health loop nor health GETs call paid
+models automatically. After a billing top-up, the same explicit preflight can
+replace a cached quota rejection with verified successful responses.
+
 Usage:
 
 ```bash
@@ -220,7 +234,8 @@ readiness. The `smoke` command uses the same origin and creates synthetic test s
 
 Health semantics:
 - `/health/live`: process alive
-- `/health/ready`: dependency readiness, returns `503` when degraded/unhealthy
+- `/health/ready`: infrastructure/configuration and recent provider-response readiness;
+  returns `503` when degraded, unavailable, or provider access is unverified
 - `/health`: compatibility endpoint for simple monitoring
 
 ## Rollback
@@ -273,3 +288,10 @@ Check:
 - nginx route to `/health/live` and `/health/ready`
 - API dependency readiness (DB/Redis)
 - external provider configuration unexpectedly required in strict mode
+
+
+생성 상태 조회는 `RATE_LIMIT_READ_REQUESTS=120`, 생성·수정 요청은
+`RATE_LIMIT_REQUESTS=10`의 독립된 60초 한도를 사용합니다. 거부된 재시도는 창을
+연장하지 않으며 응답의 `Retry-After` 이후 다시 시도합니다. `RATE_LIMIT`은 지원하지
+않는 이름입니다. `scripts/check-env.sh --mode ci`는 이 기본값이 API, 환경 예시,
+Compose, Render, CI와 일치하는지 검사합니다.
