@@ -213,7 +213,9 @@ class _AccountRecoveryScreenState extends ConsumerState<AccountRecoveryScreen> {
               code == null && !_busy && !_uncertain && !_recovered,
         ),
         body: SafeArea(
-          child: Center(
+          // Keep the submit target stable while the keyboard animates away.
+          child: Align(
+            alignment: Alignment.topCenter,
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 600),
               child: SingleChildScrollView(

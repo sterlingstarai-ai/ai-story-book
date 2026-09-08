@@ -99,10 +99,12 @@ Future<_Api> _pump(
           ? const Size(320, 480)
           : const Size(402, 874));
   tester.view.devicePixelRatio = 1;
-  if (iPhone16e) {
-    tester.view.padding = const FakeViewPadding(top: 47, bottom: 34);
-    addTearDown(tester.view.resetPadding);
-  }
+  // Physical size and DPR are overridden together; normalize the system bars
+  // too, rather than treating the real device's 63 physical pixels as 63dp.
+  tester.view.padding = iPhone16e
+      ? const FakeViewPadding(top: 47, bottom: 34)
+      : const FakeViewPadding(top: 24, bottom: 24);
+  addTearDown(tester.view.resetPadding);
   tester.platformDispatcher.textScaleFactorTestValue = textScale;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
@@ -160,9 +162,10 @@ Future<void> _dispose(WidgetTester tester) async {
 
 Future<void> _bodyAction(WidgetTester tester, Finder action) async {
   for (var i = 0; i < 16 && action.hitTestable().evaluate().isEmpty; i++) {
-    await tester.drag(
+    await tester.timedDrag(
       find.byKey(const ValueKey('reader-content-1')),
       const Offset(0, -150),
+      const Duration(milliseconds: 400),
     );
     await _settle(tester);
   }
@@ -279,11 +282,19 @@ void main() {
           find.descendant(of: reader, matching: find.byType(Scrollable)),
         );
         final initial = state.position.pixels;
-        await tester.drag(reader, const Offset(0, -120));
+        await tester.timedDrag(
+          reader,
+          const Offset(0, -120),
+          const Duration(milliseconds: 500),
+        );
         await _settle(tester);
         expect(state.position.pixels, greaterThan(initial));
         for (var i = 0; i < 30 && state.position.extentAfter > 0; i++) {
-          await tester.drag(reader, const Offset(0, -160));
+          await tester.timedDrag(
+            reader,
+            const Offset(0, -160),
+            const Duration(milliseconds: 400),
+          );
           await _settle(tester);
         }
         expect(state.position.extentAfter, lessThan(1));
@@ -345,6 +356,7 @@ void main() {
           .last;
       final option = find.text(_option);
       await tester.scrollUntilVisible(option, 100, scrollable: list);
+      await Scrollable.ensureVisible(tester.element(option), alignment: 0.5);
       await _settle(tester);
       final optionInk = find
           .ancestor(of: option, matching: find.byType(InkWell))
@@ -370,6 +382,7 @@ void main() {
       await tester.tap(find.text(l.viewerTabQuiz));
       await _settle(tester);
       await tester.scrollUntilVisible(option, 100, scrollable: list);
+      await Scrollable.ensureVisible(tester.element(option), alignment: 0.5);
       await _settle(tester);
       await tester.tap(option);
       await _settle(tester);

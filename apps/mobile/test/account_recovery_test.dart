@@ -9,6 +9,7 @@ import 'package:ai_story_book/services/api_client.dart';
 import 'package:ai_story_book/services/user_service.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -442,23 +443,65 @@ void main() {
     },
   );
 
-  testWidgets('valid recovery submits exactly once on the first tap', (tester) async {
-    await tester.pumpWidget(ProviderScope(
-      overrides: [
-        sharedPreferencesProvider.overrideWithValue(prefs),
-        accountRecoveryServiceProvider.overrideWithValue(service),
-        userServiceProvider.overrideWithValue(user),
-      ],
-      child: const MaterialApp(
-        locale: Locale('en'),
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        home: AccountRecoveryScreen(restoreOnly: true),
+  testWidgets('restore button stays in place when keyboard closes', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(430, 932);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetViewInsets);
+    tester.view.viewInsets = const FakeViewPadding(bottom: 200);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sharedPreferencesProvider.overrideWithValue(prefs),
+          accountRecoveryServiceProvider.overrideWithValue(service),
+        ],
+        child: const MaterialApp(
+          locale: Locale('en'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: AccountRecoveryScreen(restoreOnly: true),
+        ),
       ),
-    ));
+    );
     await tester.pumpAndSettle();
-    await tester.enterText(find.byKey(const ValueKey('recovery-code-input')), _code);
-    tester.testTextInput.hide();
+    final button = find.widgetWithText(FilledButton, 'Restore this account');
+    final before = tester.getCenter(button);
+    tester.view.viewInsets = FakeViewPadding.zero;
+    await tester.pumpAndSettle();
+    expect(tester.getCenter(button).dy, closeTo(before.dy, 1));
+  });
+
+  testWidgets('valid recovery submits exactly once on the first tap', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sharedPreferencesProvider.overrideWithValue(prefs),
+          accountRecoveryServiceProvider.overrideWithValue(service),
+          userServiceProvider.overrideWithValue(user),
+        ],
+        child: const MaterialApp(
+          locale: Locale('en'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: AccountRecoveryScreen(restoreOnly: true),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('recovery-code-input')),
+      _code,
+    );
+    if (tester.testTextInput.isRegistered) {
+      tester.testTextInput.hide();
+    } else {
+      await SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+    }
     await tester.pumpAndSettle();
     await tester.tap(find.text('Restore this account'));
     await tester.pumpAndSettle();
@@ -493,7 +536,11 @@ void main() {
       expect(input.enableIMEPersonalizedLearning, false);
       await tester.enterText(find.byType(TextField), 'wrong');
       // Android Back dismisses the keyboard before the first submit tap.
-      tester.testTextInput.hide();
+      if (tester.testTextInput.isRegistered) {
+        tester.testTextInput.hide();
+      } else {
+        await SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+      }
       await tester.pumpAndSettle();
       await tester.tap(find.text('Restore this account'));
       await tester.pumpAndSettle();
