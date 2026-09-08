@@ -14,6 +14,7 @@ import '../services/job_polling.dart';
 import '../services/account_recovery_service.dart';
 import '../services/local_media_cleanup.dart';
 import '../services/iap_service.dart';
+import '../services/iap_purchase_recovery.dart';
 import '../services/kakao_share_service.dart';
 import '../services/parental_control_service.dart';
 import '../services/review_service.dart';
@@ -43,6 +44,16 @@ final parentalControlServiceProvider = Provider<ParentalControlService>((ref) {
 /// IAP Service Provider
 final iapServiceProvider = Provider<IapService>((ref) {
   return IapService();
+});
+
+final iapPurchaseRecoveryProvider = Provider<IapPurchaseRecovery>((ref) {
+  final recovery = IapPurchaseRecovery(
+    iap: ref.watch(iapServiceProvider),
+    verify: (payload) => ref.read(apiClientProvider).verifyIap(payload),
+  );
+  recovery.start();
+  ref.onDispose(recovery.dispose);
+  return recovery;
 });
 
 /// In-App Review Service Provider

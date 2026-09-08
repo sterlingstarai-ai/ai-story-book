@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from src.core.audio_feature import audio_supported
+from src.core.audio_feature import audio_supported, voice_profiles_supported
 from src.core.pod_feature import pod_ordering_supported
 from src.core.billing_feature import purchase_capabilities
 from src.services.image import supports_inpaint
@@ -19,6 +19,7 @@ async def get_capabilities() -> dict:
         # H1/G9: 오디오 기능 플래그 + TTS/STT 라이브 구성일 때만 낭독·발음 제공.
         # 클라이언트는 이 값으로 낭독 버튼/발음 메뉴를 숨긴다(비활성 구성 500 방지).
         "audio_supported": audio_supported(),
+        "voice_profiles_supported": voice_profiles_supported(),
         "pod_ordering_supported": pod_ordering_supported(),
         **purchase_capabilities(),
     }

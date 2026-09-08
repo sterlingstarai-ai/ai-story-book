@@ -324,9 +324,15 @@ validate_provider_settings() {
     fi
   fi
   if { [ "$MODE" = production ] || [ "$MODE" = external ]; } && flag_enabled "${PURCHASES_ENABLED:-false}"; then
-    for var_name in APPLE_IAP_SHARED_SECRET APPLE_BUNDLE_ID GOOGLE_PLAY_PACKAGE_NAME IAP_WEBHOOK_SECRET; do
+    for var_name in APPLE_BUNDLE_ID GOOGLE_PLAY_PACKAGE_NAME GOOGLE_RTDN_AUDIENCE GOOGLE_RTDN_SERVICE_ACCOUNT_EMAIL; do
       check_var "$var_name" true || failed=true
     done
+    if [[ ! "${APPLE_APP_ID:-0}" =~ ^[1-9][0-9]{0,17}$ ]]; then
+      log_fail "APPLE_APP_ID requires a positive App Store ID"; failed=true
+    fi
+    if [ "${APPLE_NOTIFICATION_ENVIRONMENT:-Production}" != Production ]; then
+      log_fail "Release purchases require APPLE_NOTIFICATION_ENVIRONMENT=Production"; failed=true
+    fi
     if [ -z "${GOOGLE_PLAY_ACCESS_TOKEN:-}" ] && [ -z "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON:-}" ] &&
        { [ -z "${GOOGLE_PLAY_SERVICE_ACCOUNT_FILE:-}" ] || [ ! -f "${GOOGLE_PLAY_SERVICE_ACCOUNT_FILE:-}" ]; }; then
       log_fail "Enabled purchases require Google Play authentication"; failed=true
@@ -342,11 +348,7 @@ validate_provider_settings() {
     log_fail "IMAGE_MODEL must be an explicitly selected Gemini image model"; failed=true
   fi
   if { [ "$MODE" = production ] || [ "$MODE" = external ]; } && flag_enabled "${POD_ORDERING_ENABLED:-false}"; then
-    if [ "${POD_MODE:-local}" != strict ]; then
-      log_fail "POD_ORDERING_ENABLED requires POD_MODE=strict"; failed=true
-    fi
-    check_var PRINTFUL_API_KEY true || failed=true
-    check_var PRINTFUL_SYNC_VARIANT_ID true || failed=true
+    log_fail "POD_ORDERING_ENABLED is outside this release scope and must remain false"; failed=true
   fi
   [ "$failed" = false ]
 }

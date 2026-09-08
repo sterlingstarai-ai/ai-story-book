@@ -11,7 +11,7 @@
 기존 Docker 이미지 `postgres:15-alpine`, `minio/minio:latest`와 API Python 의존성을 사용합니다. 프로젝트 `.env`, 기존 DB·볼륨, 실서비스 계정, 실제 아동 콘텐츠를 읽지 않습니다. 원격 Docker 소켓은 거절하며 이미지를 내려받지 않습니다.
 
 1. 임시 PostgreSQL·MinIO 두 벌을 무작위 localhost 포트에 생성합니다.
-2. 현재 Alembic head로 마이그레이션하고 합성 동화·동의·파기 대기 행·미디어를 넣습니다.
+2. Docker 내부 health 외에 호스트에서 PostgreSQL `SELECT 1`이 응답하는지 확인한 뒤 현재 Alembic head로 마이그레이션하고 합성 동화·동의·파기 대기 행·미디어를 넣습니다.
 3. PostgreSQL custom-format 덤프와 미디어 백업을 만들고 빈 환경에 복원합니다.
 4. 모든 public 테이블의 행 수와 정렬된 행 체크섬, 모든 오브젝트의 SHA-256·크기·Content-Type·메타데이터를 비교합니다.
 5. 복원된 sequence, 외래 키, 중복 페이지 방지 제약, 삭제 outbox를 검증합니다. 각 오브젝트의 익명 접근은 차단되고 서명 다운로드는 성공해야 합니다.
@@ -68,3 +68,11 @@ CI의 API 작업에도 같은 리허설이 들어 있으며, 합성 데이터의
 - `BACKUP_CREATED_NOT_RESTORE_VERIFIED`는 백업 파일 생성만 뜻합니다. 결과 JSON에는 콘텐츠나 원래 오브젝트 key가 나오지 않지만, 백업 자체에는 개인정보가 있으므로 공개 산출물로 옮기지 않습니다. 그 이후의 삭제·동의 철회·인증폐기 기록을 재적용하지 않은 복원본은 공개하면 안 됩니다.
 
 `deploy.sh backup`은 내부 PostgreSQL 서비스가 없는 외부 Compose를 명시 거절합니다. 외부 백업 도구의 mock 회귀는 실제 Supabase 덤프·미디어 복원·운영 RTO/RPO나 백업 장소의 암호화를 검증하지 않습니다.
+
+## 복구 전 오프라인 무결성 확인
+
+```bash
+./apps/api/venv/bin/python scripts/verify_backup_set.py --backup-set /approved-private-backup/external-set
+```
+
+이 명령은 선택한 로컬 세트만 읽고 DB 덤프와 모든 미디어의 SHA-256·크기, 누락·추가·중복 항목, 경로 이탈·심볼릭 링크를 검사합니다. 외부 서비스에 접속하거나 복원·삭제하지 않습니다. 결과에는 원본 미디어 키·본문·파일 경로가 나오지 않습니다. `CHECKSUMS_VERIFIED_NOT_RESTORED`는 파일 무결성 검사이며, 덤프와 manifest를 함께 바꿀 권한을 가진 공격자에 대한 진위 보증은 아닙니다. 최신 삭제·인증 폐기 기록 적용과 격리 복구 리허설은 그대로 필요합니다.

@@ -47,29 +47,19 @@ def delete_spy(monkeypatch):
     return state
 
 
-async def _create_profile(client, name: str) -> str:
-    res = await client.post(
-        "/v1/voice-profiles",
-        json={
-            "label": "엄마 목소리",
-            "relationship": "mother",
-            "sample_audio_url": _sample_url(name),
-            "consented": True,
-        },
-        headers=HEADERS,
-    )
-    assert res.status_code == 200, res.text
-    return res.json()["id"]
+async def _create_profile(db_session, name: str) -> str:
+    from tests.voice_fixtures import seed_voice_profile
+    return await seed_voice_profile(db_session, USER, sample_audio_url=_sample_url(name))
 
 
 # ───────────────────────── 단건 삭제 ─────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_delete_voice_profile_purges_audio_sample(client, delete_spy):
+async def test_delete_voice_profile_purges_audio_sample(client, delete_spy, db_session):
     """DELETE는 DB 행뿐 아니라 녹음 오디오까지 파기해야 한다."""
     name = f"del-{uuid.uuid4().hex[:6]}"
-    profile_id = await _create_profile(client, name)
+    profile_id = await _create_profile(db_session, name)
 
     res = await client.delete(f"/v1/voice-profiles/{profile_id}", headers=HEADERS)
     assert res.status_code == 200, res.text
@@ -80,10 +70,10 @@ async def test_delete_voice_profile_purges_audio_sample(client, delete_spy):
 
 
 @pytest.mark.asyncio
-async def test_delete_surfaces_storage_failure_as_partial(client, delete_spy):
+async def test_delete_surfaces_storage_failure_as_partial(client, delete_spy, db_session):
     """파기 실패를 조용히 삼키지 않고 status=partial + 실패키로 표면화(H8 계약)."""
     name = f"fail-{uuid.uuid4().hex[:6]}"
-    profile_id = await _create_profile(client, name)
+    profile_id = await _create_profile(db_session, name)
     delete_spy["fail"] = [_expected_key(name)]
 
     res = await client.delete(f"/v1/voice-profiles/{profile_id}", headers=HEADERS)
@@ -95,19 +85,11 @@ async def test_delete_surfaces_storage_failure_as_partial(client, delete_spy):
 
 
 @pytest.mark.asyncio
-async def test_delete_without_our_bucket_url_does_not_crash(client, delete_spy):
+async def test_delete_without_our_bucket_url_does_not_crash(client, delete_spy, db_session):
     """외부(우리 버킷 아님) URL이면 역산 불가 — 파기 시도 없이 정상 삭제."""
-    res = await client.post(
-        "/v1/voice-profiles",
-        json={
-            "label": "외부 링크",
-            "sample_audio_url": "https://other.example.com/x.m4a",
-            "consented": True,
-        },
-        headers=HEADERS,
-    )
-    assert res.status_code == 200, res.text
-    profile_id = res.json()["id"]
+    from tests.voice_fixtures import seed_voice_profile
+    profile_id = await seed_voice_profile(db_session, USER,
+        sample_audio_url="https://other.example.com/x.m4a")
 
     res = await client.delete(f"/v1/voice-profiles/{profile_id}", headers=HEADERS)
     assert res.status_code == 200, res.text
@@ -119,10 +101,10 @@ async def test_delete_without_our_bucket_url_does_not_crash(client, delete_spy):
 
 
 @pytest.mark.asyncio
-async def test_revoke_consent_purges_audio_sample(client, delete_spy):
+async def test_revoke_consent_purges_audio_sample(client, delete_spy, db_session):
     """동의 철회는 삭제보다 강한 파기 트리거 — 원본 오디오를 남기면 안 된다."""
     name = f"rev-{uuid.uuid4().hex[:6]}"
-    profile_id = await _create_profile(client, name)
+    profile_id = await _create_profile(db_session, name)
 
     res = await client.post(
         f"/v1/voice-profiles/{profile_id}/revoke-consent", headers=HEADERS
@@ -135,10 +117,10 @@ async def test_revoke_consent_purges_audio_sample(client, delete_spy):
 
 
 @pytest.mark.asyncio
-async def test_patch_consented_false_purges_audio_sample(client, delete_spy):
+async def test_patch_consented_false_purges_audio_sample(client, delete_spy, db_session):
     """PATCH consented=false도 동일한 철회 의미 — 같은 파기 계약."""
     name = f"patch-{uuid.uuid4().hex[:6]}"
-    profile_id = await _create_profile(client, name)
+    profile_id = await _create_profile(db_session, name)
 
     res = await client.patch(
         f"/v1/voice-profiles/{profile_id}",
@@ -151,10 +133,10 @@ async def test_patch_consented_false_purges_audio_sample(client, delete_spy):
 
 
 @pytest.mark.asyncio
-async def test_patch_unrelated_field_does_not_purge(client, delete_spy):
+async def test_patch_unrelated_field_does_not_purge(client, delete_spy, db_session):
     """라벨 변경 같은 무관한 수정이 오디오를 지우면 안 된다(과잉 파기 방지)."""
     name = f"keep-{uuid.uuid4().hex[:6]}"
-    profile_id = await _create_profile(client, name)
+    profile_id = await _create_profile(db_session, name)
 
     res = await client.patch(
         f"/v1/voice-profiles/{profile_id}",

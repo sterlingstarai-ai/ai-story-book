@@ -6,8 +6,11 @@ Apple/Google 스토어 영수증 검증
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timezone
+import asyncio
 import json
 from typing import Optional
+from urllib.parse import quote
 
 import httpx
 import structlog
@@ -78,6 +81,30 @@ class IAPVerifierService:
         if not receipt_data:
             raise ValidationError("Apple 영수증(receipt_data)이 필요합니다.")
 
+        # StoreKit 2 delivers a signed transaction JWS, not the legacy base64
+        # app receipt accepted by verifyReceipt. Never send JWS to that endpoint.
+        if receipt_data.count(".") == 2 and mode != "local":
+            from src.services.store_notifications import verify_apple_transaction
+
+            transaction = await verify_apple_transaction(receipt_data)
+            if transaction.transactionId != transaction_id or transaction.productId != product_id:
+                raise ValidationError("Apple 서명 거래가 요청과 일치하지 않습니다.")
+            if transaction.revocationDate is not None:
+                raise ValidationError("취소 또는 환불된 Apple 구매입니다.")
+            return IAPVerificationResult(
+                verified=True,
+                source="apple_signed_transaction",
+                environment=getattr(transaction.environment, "value", transaction.environment),
+                store_transaction_id=transaction.transactionId,
+                store_product_id=transaction.productId,
+                expires_date_ms=transaction.expiresDate,
+                raw={
+                    "original_transaction_id": transaction.originalTransactionId,
+                    "purchase_date_ms": transaction.purchaseDate,
+                    "bundle_id": transaction.bundleId,
+                },
+            )
+
         has_secret = bool(settings.apple_iap_shared_secret)
         if mode == "strict" and not has_secret:
             raise ValidationError(
@@ -140,6 +167,9 @@ class IAPVerifierService:
                 },
             )
 
+        if matched.get("cancellation_date_ms") or matched.get("cancellation_date"):
+            raise ValidationError("취소 또는 환불된 Apple 구매입니다.")
+
         return IAPVerificationResult(
             verified=True,
             source="apple_store",
@@ -152,11 +182,12 @@ class IAPVerifierService:
             # 소비성 크레딧팩 항목엔 이 필드가 없어 None이며, 가드는 구독(plan)에서만 참조된다.
             expires_date_ms=_parse_int(matched.get("expires_date_ms")),
             raw={
+                "original_transaction_id": matched.get("original_transaction_id"),
+                "purchase_date_ms": _parse_int(matched.get("purchase_date_ms")),
                 "status": apple_data.get("status"),
                 "environment": environment,
                 "bundle_id": (
-                    matched.get("bid")
-                    or (apple_data.get("receipt") or {}).get("bundle_id")
+                    matched.get("bid") or (apple_data.get("receipt") or {}).get("bundle_id")
                 ),
             },
         )
@@ -197,7 +228,7 @@ class IAPVerifierService:
             raise ValidationError("Google purchase_token이 필요합니다.")
 
         package_name = settings.google_play_package_name
-        access_token = self._resolve_google_access_token()
+        access_token = await asyncio.to_thread(self._resolve_google_access_token)
         has_config = bool(package_name and access_token)
 
         if mode == "strict" and not has_config:
@@ -232,6 +263,7 @@ class IAPVerifierService:
                 google_data=google_data,
                 expected_transaction_id=transaction_id,
                 is_subscription=is_subscription,
+                expected_product_id=product_id,
             )
         except ValidationError:
             if mode == "hybrid":
@@ -252,13 +284,16 @@ class IAPVerifierService:
         return IAPVerificationResult(
             verified=True,
             source="google_play",
-            environment="production",
+            environment="Sandbox" if google_data.get("purchaseType") == 0 else "Production",
             store_transaction_id=_coerce_str(google_data.get("orderId")),
             store_product_id=product_id,
             # Apple과 동일 필드로 일관화(C1/MA1). Google은 _assert_google_purchase_valid에서
             # 만료를 이미 raise로 막지만, 라우터 가드가 플랫폼과 무관하게 동작하도록 싣는다.
             expires_date_ms=_parse_int(google_data.get("expiryTimeMillis")),
             raw={
+                "purchase_date_ms": _parse_int(
+                    google_data.get("startTimeMillis") or google_data.get("purchaseTimeMillis")
+                ),
                 "kind": google_data.get("kind"),
                 "purchase_state": google_data.get("purchaseState"),
                 "payment_state": google_data.get("paymentState"),
@@ -315,7 +350,7 @@ class IAPVerifierService:
         except httpx.HTTPError as exc:
             raise ValidationError(
                 "스토어 검증 서버 통신에 실패했습니다.",
-                details={"provider": "apple", "error": str(exc)},
+                details={"provider": "apple"},
             ) from exc
         except ValueError as exc:
             raise ValidationError(
@@ -349,9 +384,7 @@ class IAPVerifierService:
             return None
 
         by_product = [
-            item
-            for item in receipts
-            if _coerce_str(item.get("product_id")) == expected_product_id
+            item for item in receipts if _coerce_str(item.get("product_id")) == expected_product_id
         ]
         if not by_product:
             return None
@@ -377,6 +410,9 @@ class IAPVerifierService:
         is_subscription: bool,
     ) -> dict:
         base = settings.google_play_verify_base_url.rstrip("/")
+        package_name = quote(package_name, safe="")
+        product_id = quote(product_id, safe="")
+        purchase_token = quote(purchase_token, safe="")
         if is_subscription:
             endpoint = (
                 f"{base}/androidpublisher/v3/applications/{package_name}/"
@@ -409,7 +445,7 @@ class IAPVerifierService:
         except httpx.HTTPError as exc:
             raise ValidationError(
                 "Google 스토어 검증 서버 통신에 실패했습니다.",
-                details={"error": str(exc)},
+                details={"provider": "google"},
             ) from exc
         except ValueError as exc:
             raise ValidationError("Google 검증 응답 파싱에 실패했습니다.") from exc
@@ -424,6 +460,7 @@ class IAPVerifierService:
         google_data: dict,
         expected_transaction_id: str,
         is_subscription: bool,
+        expected_product_id: Optional[str] = None,
     ) -> None:
         order_id = _coerce_str(google_data.get("orderId"))
         if order_id is None:
@@ -449,8 +486,14 @@ class IAPVerifierService:
         # 라이선스 테스터 계정 하나로 크레딧·구독을 무한 발급할 수 있다.
         # (1 = 프로모 코드, 2 = 리워드 — 이들도 무결제이므로 함께 막는다.)
         purchase_type = google_data.get("purchaseType")
+        review_products = {
+            value.strip()
+            for value in (settings.review_sandbox_allowlist or "").split(",")
+            if value.strip()
+        }
+        permitted_review = purchase_type == 0 and expected_product_id in review_products
         if purchase_type is not None and not (
-            settings.testing or settings.enable_test_hooks
+            settings.testing or settings.enable_test_hooks or permitted_review
         ):
             raise ValidationError(
                 "무결제(테스트/프로모) 구매는 운영에서 지급되지 않습니다.",
@@ -467,13 +510,13 @@ class IAPVerifierService:
 
             expiry_ms = _parse_int(google_data.get("expiryTimeMillis"))
             if expiry_ms is not None:
-                now_ms = int(utcnow().timestamp() * 1000)
+                now_ms = int(utcnow().replace(tzinfo=timezone.utc).timestamp() * 1000)
                 if expiry_ms < now_ms:
                     raise ValidationError("Google 구독이 만료되었습니다.")
             return
 
         purchase_state = google_data.get("purchaseState")
-        if purchase_state is not None and purchase_state != 0:
+        if purchase_state != 0:
             raise ValidationError(
                 "Google 구매 상태가 완료가 아닙니다.",
                 details={"purchase_state": purchase_state},
@@ -514,7 +557,9 @@ class IAPVerifierService:
         if is_subscription:
             from datetime import timedelta
 
-            expires_date_ms = int((utcnow() + timedelta(days=30)).timestamp() * 1000)
+            expires_date_ms = int(
+                (utcnow() + timedelta(days=30)).replace(tzinfo=timezone.utc).timestamp() * 1000
+            )
         return IAPVerificationResult(
             verified=True,
             source=source,

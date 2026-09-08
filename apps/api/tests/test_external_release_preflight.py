@@ -42,8 +42,8 @@ def test_free_beta_does_not_require_disabled_features_or_store_credentials(confi
 def test_enabled_purchases_require_both_stores_without_relaxing_receipts(configured):
     result = preflight.assess({**configured, "PURCHASES_ENABLED": "true"})
     assert result["status"] == "BLOCKED"
-    assert {"APPLE_IAP_SHARED_SECRET", "APPLE_BUNDLE_ID", "GOOGLE_PLAY_AUTH",
-            "GOOGLE_PLAY_PACKAGE_NAME", "IAP_WEBHOOK_SECRET"} <= set(result["missing_or_placeholder"])
+    assert {"APPLE_BUNDLE_ID", "GOOGLE_PLAY_AUTH", "GOOGLE_PLAY_PACKAGE_NAME",
+            "GOOGLE_RTDN_AUDIENCE", "GOOGLE_RTDN_SERVICE_ACCOUNT_EMAIL"} <= set(result["missing_or_placeholder"])
     result = preflight.assess({**configured, "IAP_VERIFICATION_MODE": "hybrid"})
     assert "IAP_VERIFICATION_MODE" in result["invalid_configuration"]
 
@@ -67,8 +67,8 @@ def test_invalid_release_settings_block(configured, overrides, invalid):
 def test_enabled_optional_integrations_are_checked(configured):
     result = preflight.assess({**configured, "POD_ORDERING_ENABLED": "true", "POD_MODE": "local",
                               "AUDIO_FEATURE_ENABLED": "true", "TTS_PROVIDER": "google", "STT_PROVIDER": "openai"})
-    assert "POD_MODE" in result["invalid_configuration"]
-    assert {"PRINTFUL_API_KEY", "GOOGLE_TTS_API_KEY", "STT_API_KEY"} <= set(result["missing_or_placeholder"])
+    assert "POD_ORDERING_ENABLED (physical fulfillment is outside this release)" in result["invalid_configuration"]
+    assert {"GOOGLE_TTS_API_KEY", "STT_API_KEY"} <= set(result["missing_or_placeholder"])
 
 
 def test_json_report_never_exposes_keys_or_executes_dotenv_content(tmp_path, configured):
@@ -174,8 +174,8 @@ def test_compose_preflight_cannot_skip_store_requirements_using_boolean_aliases(
                              "--env-file", str(env_file)], capture_output=True, text=True,
                             env={"PATH": "/usr/bin:/bin"})
     assert result.returncode == 1
-    assert "APPLE_IAP_SHARED_SECRET is required" in result.stdout
-    assert "IAP_WEBHOOK_SECRET is required" in result.stdout
+    assert "APPLE_BUNDLE_ID is required" in result.stdout
+    assert "GOOGLE_RTDN_AUDIENCE is required" in result.stdout
 
 
 def test_compose_preflight_accepts_free_beta_without_store_credentials(tmp_path, configured):
@@ -236,5 +236,37 @@ def test_planned_feature_check_does_not_rewrite_env(tmp_path):
     payload = json.loads(result.stdout)
     assert payload['planned_features_only'] is True
     assert payload['features']['new_purchases'] is True
-    assert 'APPLE_IAP_SHARED_SECRET' in payload['missing_or_placeholder']
+    assert payload['features']['audio'] is True
+    assert payload['features']['physical_orders'] is False
+    assert 'PRINTFUL_API_KEY' not in payload['missing_or_placeholder']
+    assert 'APPLE_BUNDLE_ID' in payload['missing_or_placeholder']
     assert env_file.read_text() == original
+
+
+def test_native_store_notifications_require_verified_audience_and_app_identity(configured):
+    result = preflight.assess({**configured, "PURCHASES_ENABLED": "true", "APPLE_APP_ID": "0",
+                              "APPLE_NOTIFICATION_ENVIRONMENT": "Sandbox", "GOOGLE_RTDN_AUDIENCE": "http://localhost",
+                              "GOOGLE_RTDN_SERVICE_ACCOUNT_EMAIL": "ordinary@gmail.com"})
+    assert "APPLE_APP_ID (positive App Store ID required)" in result["invalid_configuration"]
+    assert "APPLE_NOTIFICATION_ENVIRONMENT (Production required for release)" in result["invalid_configuration"]
+    assert "GOOGLE_RTDN_AUDIENCE (public HTTPS push audience required)" in result["invalid_configuration"]
+    assert "GOOGLE_RTDN_SERVICE_ACCOUNT_EMAIL" in result["invalid_configuration"]
+
+
+def test_native_store_configuration_does_not_require_legacy_adapter_secrets(configured):
+    result = preflight.assess({**configured, 'PURCHASES_ENABLED': 'true', 'APPLE_BUNDLE_ID': 'com.storybook.app',
+        'APPLE_APP_ID': '1234567890', 'GOOGLE_PLAY_PACKAGE_NAME': 'com.storybook.app',
+        'GOOGLE_PLAY_SERVICE_ACCOUNT_JSON': 'synthetic-credential-present',
+        'GOOGLE_RTDN_AUDIENCE': 'https://storybook.onrender.com/v1/iap/notifications/google',
+        'GOOGLE_RTDN_SERVICE_ACCOUNT_EMAIL': 'push@storybook.iam.gserviceaccount.com'})
+    assert result['status'] == 'CONFIGURED_NOT_VERIFIED'
+    assert result['launch_ready'] is False
+    assert 'APPLE_IAP_SHARED_SECRET' not in result['missing_or_placeholder']
+    assert 'IAP_WEBHOOK_SECRET' not in result['missing_or_placeholder']
+
+
+def test_physical_fulfillment_cannot_be_mistaken_for_current_release_scope(configured):
+    result = preflight.assess({**configured, 'POD_ORDERING_ENABLED': 'true', 'POD_MODE': 'strict',
+        'POD_PROVIDER': 'printful', 'PRINTFUL_API_KEY': 'synthetic-print-credential', 'PRINTFUL_SYNC_VARIANT_ID': '1234'})
+    assert result['status'] == 'BLOCKED'
+    assert 'POD_ORDERING_ENABLED (physical fulfillment is outside this release)' in result['invalid_configuration']

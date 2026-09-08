@@ -168,17 +168,29 @@ async def observe_provider_response(request: ProviderRequest, response) -> Error
     return canonical
 
 
-def _configured_providers(*, include_photo: bool) -> list[tuple[str, str, str, str | None]]:
+def _configured_providers(*, include_photo: bool, include_audio: bool = False) -> list[tuple[str, str, str, str | None]]:
     providers = [(settings.llm_provider, settings.llm_model, "llm", settings.llm_api_key),
                  (settings.image_provider, settings.image_model, "image", settings.image_api_key)]
     if include_photo and settings.photo_processing_enabled:
         providers.append((settings.photo_analysis_provider, settings.photo_analysis_model, "llm", settings.photo_analysis_api_key))
+    if include_audio and settings.audio_feature_enabled:
+        tts_keys = {"openai": settings.openai_tts_api_key, "google": settings.google_tts_api_key,
+                    "elevenlabs": settings.elevenlabs_api_key}
+        providers.append((settings.tts_provider,
+            settings.openai_tts_model if settings.tts_provider == "openai" else settings.tts_provider + "-tts",
+            "tts", tts_keys.get(settings.tts_provider)))
+        stt_key = (settings.stt_api_key or (
+            settings.llm_api_key if settings.llm_provider == "openai" else None
+        )) if settings.stt_provider == "openai" else settings.google_stt_api_key
+        providers.append((settings.stt_provider,
+            settings.stt_model if settings.stt_provider == "openai" else settings.stt_provider + "-stt",
+            "stt", stt_key))
     return list(dict.fromkeys(item for item in providers if item[0] != "mock"))
 
 
-async def provider_runtime_status(*, include_photo: bool = True) -> dict:
+async def provider_runtime_status(*, include_photo: bool = True, include_audio: bool = False) -> dict:
     observations = []
-    configured = _configured_providers(include_photo=include_photo)
+    configured = _configured_providers(include_photo=include_photo, include_audio=include_audio)
     client = None
     if not settings.testing and configured:
         try:

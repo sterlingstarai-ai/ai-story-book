@@ -24,9 +24,10 @@ from sqlalchemy import select, update
 from src.core.errors import ErrorCode, StoryBookError, client_safe_message
 from src.core.config import settings
 from src.core.utils import utcnow
-from src.models.db import Job, Page
+from src.models.db import Book, Job, Page
 from src.services.orchestrator import inpaint_page, regenerate_page
-from src.services.storage import storage_service
+# Historical adapter patch seam shared with audio_assets.
+from src.services.storage import storage_service as storage_service
 from src.services.tts import tts_service
 
 logger = structlog.get_logger()
@@ -255,59 +256,39 @@ async def generate_audio_pages(
     async with AsyncSessionLocal() as db:
         for page_data in pages:
             try:
-                # H3: 책 언어 기반 오디오 생성. ko/en 이중 텍스트는 각 슬롯에, 그 외
-                # 스토리 언어(ja/zh/es)는 책 언어 보이스로 1건 생성해 기본 슬롯(audio_url)에
-                # 저장한다(MA5: 한국어 슬롯 교차 오염·매 요청 재합성 방지).
-                generated_urls = {}
-                base_lang = (default_language or "ko").lower().strip()
-                if base_lang in ("ko", "en"):
-                    text_by_language = {
-                        "ko": page_data.get("text_ko") or page_data.get("text"),
-                        "en": page_data.get("text_en"),
-                    }
-                    languages = ("ko", "en")
-                else:
-                    text_by_language = {
-                        base_lang: page_data.get("text") or page_data.get("text_ko"),
-                    }
-                    languages = (base_lang,)
-
-                for language in languages:
-                    source_text = text_by_language.get(language)
-                    if not source_text:
-                        continue
-                    audio_bytes = await tts_service.synthesize_page(
-                        source_text,
-                        target_age=target_age,
-                        language=language,
-                    )
-                    audio_key = (
-                        f"books/{book_id}/audio/page_{page_data['page_number']}_{language}.mp3"
-                    )
-                    generated_urls[language] = await storage_service.upload_bytes(
-                        audio_bytes,
-                        audio_key,
-                        content_type="audio/mpeg",
-                    )
-
-                page_result = await db.execute(
-                    select(Page).where(Page.id == page_data["page_id"])
+                from src.core.consent import require_parental_consent
+                from src.services.audio_assets import (
+                    NarrationSource, narration_url, publish_narration, store_narration,
                 )
-                page = page_result.scalar_one_or_none()
-                if page:
-                    if "ko" in generated_urls:
-                        page.audio_url_ko = generated_urls["ko"]
-                    if "en" in generated_urls:
-                        page.audio_url_en = generated_urls["en"]
-                    # 기본 슬롯: 책 언어 오디오 우선(비 ko/en 언어는 여기에만 저장됨).
-                    if base_lang in generated_urls:
-                        page.audio_url = generated_urls[base_lang]
-                    elif "ko" in generated_urls:
-                        page.audio_url = generated_urls["ko"]
-                    elif generated_urls:
-                        page.audio_url = next(iter(generated_urls.values()))
-                    await db.commit()
-                    succeeded += 1
+
+                # Queue payloads identify work, never authorize it or freeze its
+                # text. Re-read the owner's current book/page before sending text.
+                book = (await db.execute(select(Book).where(Book.id == book_id)
+                    .execution_options(populate_existing=True))).scalar_one_or_none()
+                if book is None:
+                    raise ValueError("Narration book is no longer available")
+                await require_parental_consent(db, book.user_key)
+                page = (await db.execute(select(Page).where(
+                    Page.id == page_data["page_id"], Page.book_id == book_id,
+                    Page.page_number == page_data["page_number"])
+                    .execution_options(populate_existing=True))).scalar_one_or_none()
+                if page is None:
+                    raise ValueError("Narration page is no longer available")
+                source = NarrationSource.from_page(book, page)
+                if not source.texts:
+                    raise ValueError("Page contains no narration text")
+                for language, source_text in source.texts.items():
+                    if narration_url(page, language, source.book_language):
+                        continue
+                    # A previous language may have taken a while to synthesize.
+                    await require_parental_consent(db, source.user_key)
+                    audio_bytes = await tts_service.synthesize_page(
+                        source_text, target_age=source.target_age, language=language)
+                    url, guard = await store_narration(
+                        db, book_id, source.page_number, language, audio_bytes,
+                        user_key=source.user_key)
+                    await publish_narration(db, source, language, url, guard)
+                succeeded += 1
 
             except Exception as e:
                 try:

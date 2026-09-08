@@ -1433,7 +1433,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get settingsPoliciesTitle => '정책 안내';
 
   @override
-  String get settingsPoliciesSubtitle => '크레딧 이월·해지 후 보관·인쇄 환불';
+  String get settingsPoliciesSubtitle => '크레딧 이월, 구독 취소와 환불';
 
   @override
   String get policyCreditRolloverTitle => '크레딧 이월';
@@ -1449,10 +1449,11 @@ class AppLocalizationsKo extends AppLocalizations {
   String get policyBookAccessBody => '구독을 해지해도 이미 만든 책은 계속 열람하고 내려받을 수 있습니다.';
 
   @override
-  String get policyRefundTitle => '인쇄 환불·재인쇄';
+  String get policyRefundTitle => '결제 취소·환불';
 
   @override
-  String get policyRefundBody => '인쇄본이 불량이거나 배송 중 손상된 경우 무료로 재인쇄하거나 환불해 드립니다.';
+  String get policyRefundBody =>
+      '앱스토어 또는 구글 플레이에서 결제한 구매는 해당 스토어의 환불 절차를 이용해 주세요. 동화 생성이 실패하면 사용한 동화 크레딧은 자동으로 복구됩니다.';
 
   @override
   String get settingsSectionApp => '앱 설정';
@@ -1617,10 +1618,18 @@ class AppLocalizationsKo extends AppLocalizations {
   String get planFeaturesFree => '매월 동화 2권|수채화·만화 그림체|앱에서 동화 읽기';
 
   @override
-  String get planFeaturesBasic => '월 10권 생성|모든 스타일|PDF|기본 TTS';
+  String get planFeaturesBasic => '월 5권 생성|모든 스타일|PDF|기본 TTS';
 
   @override
-  String get planFeaturesPremium => '월 30권 생성|모든 기능|프리미엄 TTS|우선 처리';
+  String get planFeaturesPremium => '월 10권 생성|모든 기능|프리미엄 TTS|우선 처리';
+
+  @override
+  String get creditsStorePriceNotice => '결제창에서 스토어 가격을 확인해 주세요';
+
+  @override
+  String creditsStoreMonthlyPrice(String price) {
+    return '$price/월';
+  }
 
   @override
   String get creditsCurrentPlan => '현재 플랜';

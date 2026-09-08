@@ -2,9 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, "codex/**"]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -20,6 +21,11 @@ env:
   RATE_LIMIT_WINDOW: '60'
   PROVIDER_OBSERVATION_TTL_SECONDS: '86400'
   PROVIDER_USAGE_PRICES_JSON: '{}'
+  APPLE_APP_ID: '0'
+  APPLE_NOTIFICATION_ENVIRONMENT: 'Sandbox'
+  APPLE_ROOT_CA_PATHS: ''
+  GOOGLE_RTDN_AUDIENCE: ''
+  GOOGLE_RTDN_SERVICE_ACCOUNT_EMAIL: ''
 
 permissions:
   contents: read
@@ -503,10 +509,11 @@ jobs:
     name: Build Docker Images
     runs-on: ubuntu-latest
     needs: [api-test, flutter-test, phase-gate, security-scan]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Every checked branch validates its container image before merging.
+    # Registry publication remains restricted to main push.
     # M1: 이미지 빌드/푸시는 취소되어 반쪽 태그를 남기면 안 됨 — 직렬화, 취소 금지.
     concurrency:
-      group: build-production
+      group: build-images-${{ github.ref }}
       cancel-in-progress: false
 
     steps:
@@ -516,6 +523,7 @@ jobs:
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Login to Container Registry
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
@@ -595,20 +603,21 @@ jobs:
       # abort — 이전 런들에선 워커 업로드가 파일 부재로 먼저 죽어 이 규칙에 도달한 적이 없었음).
       - name: Upload Trivy API scan results
         uses: github/codeql-action/upload-sarif@4187e74d05793876e9989daffde9c3e66b4acd07 # v3
-        if: always() && hashFiles('trivy-api-results.sarif') != ''
+        if: always() && hashFiles('trivy-api-results.sarif') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         with:
           sarif_file: 'trivy-api-results.sarif'
           category: trivy-image-api
 
       - name: Upload Trivy Worker scan results
         uses: github/codeql-action/upload-sarif@4187e74d05793876e9989daffde9c3e66b4acd07 # v3
-        if: always() && hashFiles('trivy-worker-results.sarif') != ''
+        if: always() && hashFiles('trivy-worker-results.sarif') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         with:
           sarif_file: 'trivy-worker-results.sarif'
           category: trivy-image-worker
 
       # 스캔을 통과한 경우에만 도달 — 스캔이 exit-code 1로 red면 이 스텝은 건너뛴다.
       - name: Push images to registry
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           docker push ghcr.io/${{ github.repository }}/api:latest
           docker push ghcr.io/${{ github.repository }}/api:${{ github.sha }}

@@ -18,6 +18,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT_DIR/scripts/mobile-toolchain.sh"
+setup_mobile_toolchain
 DEVICE="${1:-macos}"
 
 cd "$ROOT_DIR/apps/mobile"

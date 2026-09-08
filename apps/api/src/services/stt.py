@@ -12,6 +12,7 @@ import httpx
 import structlog
 
 from src.core.config import settings
+from src.services.provider_runtime import begin_provider_request, observe_provider_response
 
 # H3: STT 지원 언어 → 코드 매핑. OpenAI Whisper는 ISO-639-1(ko/en/ja/zh/es)을,
 # Google STT는 BCP-47을 사용한다. 이전엔 ko/en만 매핑돼 ja/zh/es가 한국어로 오전사됐다.
@@ -46,7 +47,9 @@ class OpenAISTTProvider(BaseSTTProvider):
     """OpenAI Audio Transcription Provider"""
 
     def __init__(self):
-        self.api_key = settings.stt_api_key or settings.llm_api_key
+        self.api_key = settings.stt_api_key or (
+            settings.llm_api_key if settings.llm_provider == "openai" else None
+        )
         self.model = settings.stt_model
         self.endpoint = "https://api.openai.com/v1/audio/transcriptions"
 
@@ -59,6 +62,8 @@ class OpenAISTTProvider(BaseSTTProvider):
     ) -> str:
         if not self.api_key:
             raise ValueError("STT API key is not configured for OpenAI provider")
+        if language not in SUPPORTED_STT_LANGUAGES:
+            raise ValueError("Unsupported STT language")
 
         filename = "speech.m4a"
         if mime_type == "audio/mpeg":
@@ -74,6 +79,7 @@ class OpenAISTTProvider(BaseSTTProvider):
         if language in SUPPORTED_STT_LANGUAGES:
             form["language"] = language  # OpenAI Whisper는 ISO-639-1 코드 수용
 
+        observation = begin_provider_request("openai", self.model, "stt", self.api_key)
         async with httpx.AsyncClient(timeout=60) as client:
             response = await client.post(
                 self.endpoint,
@@ -87,6 +93,7 @@ class OpenAISTTProvider(BaseSTTProvider):
                     )
                 },
             )
+            await observe_provider_response(observation, response)
             try:
                 response.raise_for_status()
             except httpx.HTTPStatusError as exc:
@@ -138,11 +145,13 @@ class GoogleSTTProvider(BaseSTTProvider):
             },
         }
 
+        observation = begin_provider_request("google", "google-stt", "stt", self.api_key)
         async with httpx.AsyncClient(timeout=60) as client:
             response = await client.post(
                 f"{self.endpoint}?key={self.api_key}",
                 json=payload,
             )
+            await observe_provider_response(observation, response)
             try:
                 response.raise_for_status()
             except httpx.HTTPStatusError as exc:
@@ -158,14 +167,16 @@ class GoogleSTTProvider(BaseSTTProvider):
         results = data.get("results")
         if not isinstance(results, list) or not results:
             return ""
-        first = results[0]
-        alternatives = first.get("alternatives")
-        if not isinstance(alternatives, list) or not alternatives:
-            return ""
-        transcript = alternatives[0].get("transcript")
-        if isinstance(transcript, str):
-            return transcript.strip()
-        return ""
+        transcripts = []
+        for result in results:
+            alternatives = result.get("alternatives") if isinstance(result, dict) else None
+            if not isinstance(alternatives, list) or not alternatives:
+                continue
+            first = alternatives[0]
+            transcript = first.get("transcript") if isinstance(first, dict) else None
+            if isinstance(transcript, str) and transcript.strip():
+                transcripts.append(transcript.strip())
+        return " ".join(transcripts)
 
 
 class MockSTTProvider(BaseSTTProvider):
@@ -229,4 +240,3 @@ class STTService:
 
 
 stt_service = STTService()
-

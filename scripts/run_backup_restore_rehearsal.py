@@ -55,6 +55,26 @@ def object_inventory(client):
     return inventory
 
 
+async def wait_for_host_database(port):
+    """Container health does not prove Docker Desktop's published port is ready."""
+    import asyncpg
+    deadline = time.monotonic() + 45
+    while time.monotonic() < deadline:
+        connection = None
+        try:
+            connection = await asyncpg.connect(host="127.0.0.1", port=port, user="runtime_test",
+                password=CREDENTIAL, database="runtime_test", timeout=2)
+            require(await connection.fetchval("SELECT 1", timeout=2) == 1,
+                    "Disposable PostgreSQL host probe returned an unexpected result")
+            return
+        except (OSError, asyncio.TimeoutError, asyncpg.PostgresError):
+            await asyncio.sleep(0.5)
+        finally:
+            if connection is not None:
+                await connection.close(timeout=2)
+    raise GateFailure("Disposable PostgreSQL published port did not become ready on this host")
+
+
 async def database_snapshot(port):
     import asyncpg
     connection = await asyncpg.connect(host="127.0.0.1", port=port, user="runtime_test",
@@ -210,6 +230,7 @@ def main():
                 run(compose + ["up", "-d", "--pull", "never", "--wait", "--wait-timeout", "90", "postgres", "minio"],
                     env=env, log=report_dir / f"{label}-dependencies.log")
                 pg = port_for(compose, "postgres", 5432, env)
+                asyncio.run(wait_for_host_database(pg))
                 endpoint = f"http://127.0.0.1:{port_for(compose, 'minio', 9000, env)}"
                 dependencies.append((compose, pg, endpoint, storage(endpoint)))
             source_compose, source_pg, _, source_s3 = dependencies[0]

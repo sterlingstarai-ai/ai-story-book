@@ -2797,7 +2797,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsPoliciesSubtitle.
   ///
   /// In en, this message translates to:
-  /// **'Credit rollover, access after cancel, print refunds'**
+  /// **'Credit rollover, subscription cancellation and refunds'**
   String get settingsPoliciesSubtitle;
 
   /// No description provided for @policyCreditRolloverTitle.
@@ -2827,13 +2827,13 @@ abstract class AppLocalizations {
   /// No description provided for @policyRefundTitle.
   ///
   /// In en, this message translates to:
-  /// **'Print refund & reprint'**
+  /// **'Cancellations and refunds'**
   String get policyRefundTitle;
 
   /// No description provided for @policyRefundBody.
   ///
   /// In en, this message translates to:
-  /// **'If a printed book is defective or damaged in transit, we\'ll reprint it free or refund you.'**
+  /// **'For purchases made through the App Store or Google Play, use the store’s refund process. If book generation fails, the used story credit is restored automatically.'**
   String get policyRefundBody;
 
   /// No description provided for @settingsSectionApp.
@@ -3139,14 +3139,26 @@ abstract class AppLocalizations {
   /// No description provided for @planFeaturesBasic.
   ///
   /// In en, this message translates to:
-  /// **'10 books / month|All styles|PDF|Basic TTS'**
+  /// **'5 books / month|All styles|PDF|Basic TTS'**
   String get planFeaturesBasic;
 
   /// No description provided for @planFeaturesPremium.
   ///
   /// In en, this message translates to:
-  /// **'30 books / month|All features|Premium TTS|Priority processing'**
+  /// **'10 books / month|All features|Premium TTS|Priority processing'**
   String get planFeaturesPremium;
+
+  /// No description provided for @creditsStorePriceNotice.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm your store price at checkout'**
+  String get creditsStorePriceNotice;
+
+  /// No description provided for @creditsStoreMonthlyPrice.
+  ///
+  /// In en, this message translates to:
+  /// **'{price}/month'**
+  String creditsStoreMonthlyPrice(String price);
 
   /// No description provided for @creditsCurrentPlan.
   ///

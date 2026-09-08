@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import AsyncSessionLocal
 from src.core.utils import utcnow
-from src.models.db import Subscription
+from src.models.db import IAPReceipt, Subscription
 from src.services.credits import SUBSCRIPTION_PLANS, credits_service
 
 logger = structlog.get_logger()
@@ -85,6 +85,11 @@ class PeriodicCredits:
                 Subscription.status == "active",
                 Subscription.plan != "free",
                 Subscription.current_period_end <= now,
+                # A calendar tick is not evidence of a store renewal. Store-backed
+                # subscriptions are extended only by verified transactions.
+                ~select(IAPReceipt.id)
+                .where(IAPReceipt.subscription_id == Subscription.id)
+                .exists(),
             )
         )
         due = list(result.scalars().all())

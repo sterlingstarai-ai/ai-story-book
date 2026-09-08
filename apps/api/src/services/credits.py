@@ -23,15 +23,15 @@ SUBSCRIPTION_PLANS = {
     },
     "basic": {
         "name": "베이직",
-        "price": 6900,  # 원
-        "credits_per_month": 10,
-        "features": ["월 10권 생성", "모든 스타일", "PDF", "기본 TTS"],
+        "price": 24900,  # KRW reference; storefront price is authoritative.
+        "credits_per_month": 5,
+        "features": ["월 5권 생성", "모든 스타일", "PDF", "기본 TTS"],
     },
     "premium": {
         "name": "프리미엄",
-        "price": 14900,  # 원
-        "credits_per_month": 30,
-        "features": ["월 30권 생성", "모든 기능", "프리미엄 TTS", "우선 처리"],
+        "price": 44900,
+        "credits_per_month": 10,
+        "features": ["월 10권 생성", "모든 기능", "프리미엄 TTS", "우선 처리"],
     },
 }
 

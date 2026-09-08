@@ -79,6 +79,7 @@ dependencies:
   kakao_flutter_sdk_template: ^1.10.0
 
 dev_dependencies:
+  file: ^7.0.1
   flutter_test:
     sdk: flutter
   integration_test:

@@ -15,11 +15,7 @@ import '../widgets/common_widgets.dart';
 
 /// M15: 구독 플랜명을 안정 키(plan id)로 로컬라이즈한다. 서버는 한국어 name을
 /// 내려주지만(하위호환) en/ja 사용자에게 '베이직' 등을 노출하지 않도록 id→l10n.
-String localizedPlanName(
-  AppLocalizations l,
-  String planId,
-  String fallback,
-) {
+String localizedPlanName(AppLocalizations l, String planId, String fallback) {
   switch (planId) {
     case 'free':
       return l.planFree;
@@ -89,10 +85,17 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
   final Set<String> _verifyingTransactions = <String>{};
   bool _purchaseInFlight = false;
   bool _restoreInFlight = false;
+  bool _loadingStorePrices = false;
+  final Map<String, String> _storePrices = {};
 
-  bool get _purchasesSupported => ref.read(capabilitiesProvider).maybeWhen(
-        data: (capabilities) => purchasesSupportedForPlatform(capabilities,
-            platform: defaultTargetPlatform, isWeb: kIsWeb),
+  bool get _purchasesSupported => ref
+      .read(capabilitiesProvider)
+      .maybeWhen(
+        data: (capabilities) => purchasesSupportedForPlatform(
+          capabilities,
+          platform: defaultTargetPlatform,
+          isWeb: kIsWeb,
+        ),
         orElse: () => false,
       );
 
@@ -114,13 +117,11 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
   void _attachPurchaseListener() {
     try {
       final iapService = ref.read(iapServiceProvider);
-      _purchaseSubscription = iapService.purchaseStream.listen(
-        (purchases) {
-          for (final purchase in purchases) {
-            _handlePurchaseUpdate(purchase);
-          }
-        },
-      );
+      _purchaseSubscription = iapService.purchaseStream.listen((purchases) {
+        for (final purchase in purchases) {
+          _handlePurchaseUpdate(purchase);
+        }
+      });
     } catch (_) {
       // 테스트/미지원 플랫폼에서는 IAP 리스너를 생략한다.
     }
@@ -160,6 +161,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
           _transactions = transactions;
           _isLoading = false;
         });
+        unawaited(_loadStorePrices());
       }
     } catch (e) {
       if (mounted) {
@@ -168,10 +170,31 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
           _isLoading = false;
           _loadFailed = true;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l.creditsLoadError)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(l.creditsLoadError)));
       }
+    }
+  }
+
+  Future<void> _loadStorePrices() async {
+    if (!_purchasesSupported || _loadingStorePrices || !mounted) return;
+    _loadingStorePrices = true;
+    try {
+      final products = await ref.read(iapServiceProvider).loadProducts({
+        ..._creditPackProducts.keys,
+        ..._subscriptionProductMap.values,
+      });
+      if (!mounted) return;
+      setState(() {
+        for (final product in products) {
+          _storePrices[product.id] = product.price;
+        }
+      });
+    } catch (_) {
+      // The OS checkout still displays the authoritative localized store price.
+    } finally {
+      _loadingStorePrices = false;
     }
   }
 
@@ -179,6 +202,9 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
     ref.watch(capabilitiesProvider);
+    ref.listen(capabilitiesProvider, (_, next) {
+      if (next.hasValue) unawaited(_loadStorePrices());
+    });
     final purchasesSupported = _purchasesSupported;
     return Scaffold(
       appBar: AppBar(
@@ -197,57 +223,68 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _loadFailed && _creditsStatus == null
-              ? Center(
-                  child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(AppSpacing.lg),
-                      child: Column(mainAxisSize: MainAxisSize.min, children: [
-                        Icon(Icons.cloud_off_outlined,
-                            size: 48,
-                            color: AppPalette.of(context).textSecondary),
-                        const SizedBox(height: AppSpacing.md),
-                        Text(l.creditsLoadError, textAlign: TextAlign.center),
-                        const SizedBox(height: AppSpacing.md),
-                        FilledButton(
-                            onPressed: _loadCreditsStatus,
-                            style: FilledButton.styleFrom(
-                                minimumSize: const Size(64, 64)),
-                            child: Text(l.retry)),
-                      ])))
-              : RefreshIndicator(
-                  onRefresh: _loadCreditsStatus,
-                  child: SingleChildScrollView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.all(AppSpacing.md),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _buildCreditsCard(purchasesSupported),
-                        const SizedBox(height: AppSpacing.lg),
-                        if (!purchasesSupported) ...[
-                          Container(
-                            padding: const EdgeInsets.all(AppSpacing.md),
-                            decoration: BoxDecoration(
-                              color: AppPalette.of(context).primaryLight,
-                              borderRadius: BorderRadius.circular(AppRadius.md),
-                            ),
-                            child: Text(l.creditsBetaNotice,
-                                style: AppTextStyles.bodySmall),
-                          ),
-                          const SizedBox(height: AppSpacing.md),
-                        ],
-                        _buildSubscriptionCard(purchasesSupported),
-                        if (purchasesSupported) ...[
-                          const SizedBox(height: AppSpacing.lg),
-                          _buildPlansSection(),
-                          const SizedBox(height: AppSpacing.lg),
-                          _buildCreditPackSection(),
-                        ],
-                        const SizedBox(height: AppSpacing.lg),
-                        _buildTransactionsSection(),
-                      ],
+          ? Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(AppSpacing.lg),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.cloud_off_outlined,
+                      size: 48,
+                      color: AppPalette.of(context).textSecondary,
                     ),
-                  ),
+                    const SizedBox(height: AppSpacing.md),
+                    Text(l.creditsLoadError, textAlign: TextAlign.center),
+                    const SizedBox(height: AppSpacing.md),
+                    FilledButton(
+                      onPressed: _loadCreditsStatus,
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size(64, 64),
+                      ),
+                      child: Text(l.retry),
+                    ),
+                  ],
                 ),
+              ),
+            )
+          : RefreshIndicator(
+              onRefresh: _loadCreditsStatus,
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(AppSpacing.md),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildCreditsCard(purchasesSupported),
+                    const SizedBox(height: AppSpacing.lg),
+                    if (!purchasesSupported) ...[
+                      Container(
+                        padding: const EdgeInsets.all(AppSpacing.md),
+                        decoration: BoxDecoration(
+                          color: AppPalette.of(context).primaryLight,
+                          borderRadius: BorderRadius.circular(AppRadius.md),
+                        ),
+                        child: Text(
+                          l.creditsBetaNotice,
+                          style: AppTextStyles.bodySmall,
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                    ],
+                    _buildSubscriptionCard(purchasesSupported),
+                    if (purchasesSupported) ...[
+                      const SizedBox(height: AppSpacing.lg),
+                      _buildPlansSection(),
+                      const SizedBox(height: AppSpacing.lg),
+                      _buildCreditPackSection(),
+                    ],
+                    const SizedBox(height: AppSpacing.lg),
+                    _buildTransactionsSection(),
+                  ],
+                ),
+              ),
+            ),
     );
   }
 
@@ -277,10 +314,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
             children: [
               Text(
                 l.creditsMyCredits,
-                style: const TextStyle(
-                  color: Colors.white70,
-                  fontSize: 14,
-                ),
+                style: const TextStyle(color: Colors.white70, fontSize: 14),
               ),
               Container(
                 padding: const EdgeInsets.symmetric(
@@ -293,10 +327,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
                 ),
                 child: Text(
                   l.creditsTotalCreated(totalUsed),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                  ),
+                  style: const TextStyle(color: Colors.white, fontSize: 12),
                 ),
               ),
             ],
@@ -317,10 +348,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
                 padding: const EdgeInsets.only(bottom: 8, left: 4),
                 child: Text(
                   l.creditsUnit,
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 16,
-                  ),
+                  style: const TextStyle(color: Colors.white70, fontSize: 16),
                 ),
               ),
             ],
@@ -349,14 +377,16 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
   Widget _buildSubscriptionCard(bool purchasesSupported) {
     final l = AppLocalizations.of(context);
     final subscription = _asMap(_creditsStatus?['subscription']);
-    final subscriptionStatus =
-        (_coerceText(subscription['status']) ?? 'active').toLowerCase();
+    final subscriptionStatus = (_coerceText(subscription['status']) ?? 'active')
+        .toLowerCase();
     final isCancelled = subscriptionStatus == 'cancelled';
     final badgeColor = isCancelled ? AppColors.warning : AppColors.success;
-    final badgeBackground =
-        isCancelled ? AppColors.warningLight : AppColors.successLight;
-    final badgeText =
-        isCancelled ? l.creditsBadgeCancelScheduled : l.creditsBadgeActive;
+    final badgeBackground = isCancelled
+        ? AppColors.warningLight
+        : AppColors.successLight;
+    final badgeText = isCancelled
+        ? l.creditsBadgeCancelScheduled
+        : l.creditsBadgeActive;
 
     if (subscription.isEmpty) {
       return Container(
@@ -371,14 +401,17 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
           children: [
             Row(
               children: [
-                Icon(Icons.card_membership,
-                    color: AppPalette.of(context).textSecondary),
+                Icon(
+                  Icons.card_membership,
+                  color: AppPalette.of(context).textSecondary,
+                ),
                 const SizedBox(width: AppSpacing.sm),
                 Expanded(
-                    child: Text(
-                  l.creditsSubscriptionInfo,
-                  style: AppTextStyles.heading3,
-                )),
+                  child: Text(
+                    l.creditsSubscriptionInfo,
+                    style: AppTextStyles.heading3,
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: AppSpacing.md),
@@ -417,12 +450,14 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
                   const Icon(Icons.card_membership, color: AppColors.primary),
                   const SizedBox(width: AppSpacing.sm),
                   Flexible(
-                      child: Text(
-                    l.creditsPlanSubscriptionLabel(
+                    child: Text(
+                      l.creditsPlanSubscriptionLabel(
                         _coerceText(subscription['plan_name']) ??
-                            l.creditsDefaultPlanName),
-                    style: AppTextStyles.heading3,
-                  )),
+                            l.creditsDefaultPlanName,
+                      ),
+                      style: AppTextStyles.heading3,
+                    ),
+                  ),
                 ],
               ),
               Container(
@@ -450,7 +485,8 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
               _buildSubscriptionInfo(
                 l.creditsMonthlyCredits,
                 l.creditsCreditCount(
-                    _parseAmount(subscription['credits_per_month'])),
+                  _parseAmount(subscription['credits_per_month']),
+                ),
               ),
               _buildSubscriptionInfo(
                 l.creditsNextRenewal,
@@ -463,19 +499,20 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
             spacing: 8,
             runSpacing: 4,
             children: _asList(subscription['features'])
-                .map((f) => Chip(
-                      label: Text(f.toString(),
-                          style: const TextStyle(fontSize: 12)),
-                      backgroundColor: AppPalette.of(context).primaryLight,
-                    ))
+                .map(
+                  (f) => Chip(
+                    label: Text(
+                      f.toString(),
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    backgroundColor: AppPalette.of(context).primaryLight,
+                  ),
+                )
                 .toList(),
           ),
           if (isCancelled) ...[
             const SizedBox(height: AppSpacing.md),
-            Text(
-              l.creditsCancelNotice,
-              style: AppTextStyles.caption,
-            ),
+            Text(l.creditsCancelNotice, style: AppTextStyles.caption),
           ] else ...[
             const SizedBox(height: AppSpacing.md),
             TextButton(
@@ -505,10 +542,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
         const SizedBox(height: 2),
         Text(
           value,
-          style: const TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 16,
-          ),
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
         ),
       ],
     );
@@ -517,17 +551,16 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
   Widget _buildPlansSection() {
     final l = AppLocalizations.of(context);
     final plans = _asList(_creditsStatus?['available_plans']);
-    final planMaps =
-        plans.map(_asMap).where((plan) => plan.isNotEmpty).toList();
+    final planMaps = plans
+        .map(_asMap)
+        .where((plan) => plan.isNotEmpty)
+        .toList();
 
     return Column(
       key: _plansSectionKey,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          l.creditsPlansTitle,
-          style: AppTextStyles.heading2,
-        ),
+        Text(l.creditsPlansTitle, style: AppTextStyles.heading2),
         const SizedBox(height: AppSpacing.md),
         if (planMaps.isEmpty)
           Text(
@@ -549,6 +582,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
       _coerceText(plan['name']) ?? l.creditsPlanFallbackName,
     );
     final price = _parseAmount(plan['price']);
+    final storePrice = _storePrices[_subscriptionProductMap[planId]];
     final creditsPerMonth = _parseAmount(plan['credits_per_month']);
     final features = localizedPlanFeatures(
       l,
@@ -578,24 +612,20 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
             spacing: AppSpacing.sm,
             runSpacing: AppSpacing.sm,
             children: [
-              Text(
-                planName,
-                style: AppTextStyles.heading3,
-              ),
+              Text(planName, style: AppTextStyles.heading3),
               if (isCurrentPlan)
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     color: AppColors.primary,
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
                     l.creditsCurrentPlan,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                    ),
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
                   ),
                 ),
             ],
@@ -604,7 +634,9 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
           Text(
             price == 0
                 ? l.creditsFree
-                : l.creditsPricePerMonth(_formatNumber(price)),
+                : storePrice == null
+                ? l.creditsStorePriceNotice
+                : l.creditsStoreMonthlyPrice(storePrice),
             style: const TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.bold,
@@ -621,20 +653,25 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
             spacing: 8,
             runSpacing: 4,
             children: features
-                .map((f) => Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(
-                          Icons.check_circle,
-                          size: 16,
-                          color: AppColors.success,
+                .map(
+                  (f) => Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.check_circle,
+                        size: 16,
+                        color: AppColors.success,
+                      ),
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: Text(
+                          f.toString(),
+                          style: const TextStyle(fontSize: 13),
                         ),
-                        const SizedBox(width: 4),
-                        Flexible(
-                            child: Text(f.toString(),
-                                style: const TextStyle(fontSize: 13))),
-                      ],
-                    ))
+                      ),
+                    ],
+                  ),
+                )
                 .toList(),
           ),
           if (!isCurrentPlan && planId != 'free' && planId.isNotEmpty) ...[
@@ -654,10 +691,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          l.creditsPackTitle,
-          style: AppTextStyles.heading2,
-        ),
+        Text(l.creditsPackTitle, style: AppTextStyles.heading2),
         const SizedBox(height: AppSpacing.md),
         ..._creditPackProducts.entries.map((entry) {
           return _buildCreditPackCard(
@@ -685,31 +719,47 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(children: [
-            Container(
+          Row(
+            children: [
+              Container(
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                    color: AppPalette.of(context).primaryLight,
-                    borderRadius: BorderRadius.circular(22)),
-                child: const Icon(Icons.stars, color: AppColors.primary)),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(
+                  color: AppPalette.of(context).primaryLight,
+                  borderRadius: BorderRadius.circular(22),
+                ),
+                child: const Icon(Icons.stars, color: AppColors.primary),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
                 child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                  Text(l.creditsPackName(credits),
-                      style: AppTextStyles.heading3),
-                  Text(l.creditsPackSubtitle,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      l.creditsPackName(credits),
+                      style: AppTextStyles.heading3,
+                    ),
+                    Text(
+                      l.creditsPackSubtitle,
                       style: AppTextStyles.caption.copyWith(
-                          color: AppPalette.of(context).textSecondary)),
-                ])),
-          ]),
+                        color: AppPalette.of(context).textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: AppSpacing.md),
           OutlinedButton(
-              style: OutlinedButton.styleFrom(minimumSize: const Size(64, 64)),
-              onPressed: () => _buyCreditPack(productId),
-              child: Text(l.creditsBuy)),
+            style: OutlinedButton.styleFrom(minimumSize: const Size(64, 64)),
+            onPressed: () => _buyCreditPack(productId),
+            child: Text(
+              _storePrices[productId] == null
+                  ? l.creditsBuy
+                  : '${l.creditsBuy} · ${_storePrices[productId]}',
+            ),
+          ),
         ],
       ),
     );
@@ -724,10 +774,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          l.creditsTransactionsTitle,
-          style: AppTextStyles.heading2,
-        ),
+        Text(l.creditsTransactionsTitle, style: AppTextStyles.heading2),
         const SizedBox(height: AppSpacing.md),
         Container(
           decoration: BoxDecoration(
@@ -744,7 +791,8 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
               final tx = _transactions[index];
               final amount = _parseAmount(tx['amount']);
               final isPositive = amount > 0;
-              final description = _coerceText(tx['description']) ??
+              final description =
+                  _coerceText(tx['description']) ??
                   _coerceText(tx['transaction_type']) ??
                   l.creditsTransactionFallback;
 
@@ -791,18 +839,18 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
     final iapService = ref.read(iapServiceProvider);
     if (mounted) {
       final l = AppLocalizations.of(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l.creditsRestoring)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.creditsRestoring)));
     }
     try {
       await iapService.restorePurchases();
     } catch (_) {
       if (mounted) {
         final l = AppLocalizations.of(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l.creditsRestoreFailed)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(l.creditsRestoreFailed)));
       }
     } finally {
       if (mounted) setState(() => _restoreInFlight = false);
@@ -827,7 +875,8 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
       return;
     }
 
-    final purchased = purchase.status == PurchaseStatus.purchased ||
+    final purchased =
+        purchase.status == PurchaseStatus.purchased ||
         purchase.status == PurchaseStatus.restored;
     if (!purchased) {
       await iapService.completePurchase(purchase);
@@ -851,39 +900,29 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
       return;
     }
 
-    final isSubscription =
-        _subscriptionProductMap.containsValue(purchase.productID);
-    final consumable = !isSubscription;
+    final isSubscription = _subscriptionProductMap.containsValue(
+      purchase.productID,
+    );
 
     _verifyingTransactions.add(transactionId);
     try {
       final apiClient = ref.read(apiClientProvider);
-      final platform =
-          defaultTargetPlatform == TargetPlatform.iOS ? 'apple' : 'google';
-      final payload = <String, dynamic>{
-        'platform': platform,
-        'product_id': purchase.productID,
-        'transaction_id': transactionId,
-        'is_subscription': isSubscription,
-      };
-      final serverData = purchase.verificationData.serverVerificationData;
-      if (platform == 'apple') {
-        payload['receipt_data'] = serverData;
-      } else {
-        payload['purchase_token'] = serverData;
-      }
-
-      final result = await apiClient.verifyIap(payload);
+      final result = await iapService.verifyAndFinish(
+        purchase,
+        verify: apiClient.verifyIap,
+      );
+      if (result == null) return;
       if (isSubscription) {
-        ref.read(analyticsProvider).logEvent(
-          AnalyticsEvents.subscriptionStarted,
-          params: {'product_id': purchase.productID},
-        );
+        ref
+            .read(analyticsProvider)
+            .logEvent(
+              AnalyticsEvents.subscriptionStarted,
+              params: {'product_id': purchase.productID},
+            );
       }
       // 서버 검증 성공 후에만 스토어 트랜잭션을 마무리(Android 소모성은 consume). 검증
       // 전에 마무리하면 미지급 상태로 대금이 영구 유실된다(C3). 실패 시(catch) 마무리하지
       // 않아 pending으로 남기고 다음 실행 purchaseStream 재전달로 재검증되게 한다.
-      await iapService.finishPurchase(purchase, consumable: consumable);
       await _loadCreditsStatus();
 
       if (mounted) {
@@ -894,18 +933,18 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
           'already_subscribed' => l.creditsAlreadySubscribed,
           _ => l.creditsVerifiedReflected,
         };
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(message)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(message)));
       }
     } catch (_) {
       // 검증 실패: completePurchase/consume를 호출하지 않아 트랜잭션을 pending 유지 →
       // 다음 앱 실행 시 재검증. 기존 문구가 '잠시 후 다시 시도' 취지라 그대로 재사용.
       if (mounted) {
         final l = AppLocalizations.of(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l.creditsVerifyFailed)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(l.creditsVerifyFailed)));
       }
     } finally {
       _verifyingTransactions.remove(transactionId);
@@ -952,9 +991,9 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
       await iapService.buyProduct(target, consumable: consumable);
       if (mounted) {
         final l = AppLocalizations.of(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l.creditsProceedStorePayment)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(l.creditsProceedStorePayment)));
       }
       return true;
     } catch (_) {
@@ -1010,8 +1049,10 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
               Navigator.pop(context);
               _cancelSubscription();
             },
-            child: Text(l.creditsConfirmCancel,
-                style: const TextStyle(color: AppColors.error)),
+            child: Text(
+              l.creditsConfirmCancel,
+              style: const TextStyle(color: AppColors.error),
+            ),
           ),
         ],
       ),
@@ -1026,25 +1067,18 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
 
       if (mounted) {
         final l = AppLocalizations.of(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l.creditsSubscriptionCancelled)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(l.creditsSubscriptionCancelled)));
       }
     } catch (e) {
       if (mounted) {
         final l = AppLocalizations.of(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l.creditsCancelFailed)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(l.creditsCancelFailed)));
       }
     }
-  }
-
-  String _formatNumber(int number) {
-    return number.toString().replaceAllMapped(
-          RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
-          (m) => '${m[1]},',
-        );
   }
 
   String _formatDate(String? isoDate) {

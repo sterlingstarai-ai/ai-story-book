@@ -39,6 +39,8 @@
 - `deploy.sh cleanup` prunes Docker resources across the host, not only this Compose project.
 - Preserve SHA-tagged API and worker selection. An env-file image override must not silently defeat `--image-tag`.
 - Do not validate deployment changes by touching a real host. Prefer syntax/config inspection and documented dry checks.
+- `build_mobile_release.py` accepts an explicit JSON allowlist of public mobile defines only. Default validates without building; `--execute` performs a local signed Android bundle or unsigned iOS release build, never store registration/upload. Backend `.env` is not a mobile build input.
+- `mobile-toolchain.sh` discovers already installed Android SDK/Android Studio JDK for the calling process only; it never installs, accepts licenses, or edits shell/Flutter settings.
 - `prepare_android_signing.py` creates private, Git-ignored local upload material only when none exists. Never print passwords, pass them on argv, overwrite an existing key, or treat local generation as Play Console registration.
 - `deploy.sh health` requires the public HTTPS `PROD_API_URL` origin and exact HTTP 200. `deploy.sh smoke` runs the stateful smoke script against the same explicit origin.
 - `smoke.sh` is stateful: it attempts book creation. Confirm the target URL before running it outside disposable environments.

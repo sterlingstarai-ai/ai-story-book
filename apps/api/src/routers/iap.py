@@ -3,7 +3,7 @@ IAP Router
 Apple/Google 영수증 검증 및 웹훅 처리
 """
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 import hmac
 from typing import Optional, Literal
 
@@ -20,8 +20,14 @@ from src.core.dependencies import get_user_key
 from src.core.exceptions import AuthorizationError, ValidationError
 from src.core.utils import utcnow
 from src.models.db import CreditTransaction, IAPReceipt, IapWebhookEvent, Subscription
-from src.services.credits import credits_service
+from src.services.credits import SUBSCRIPTION_PLANS, credits_service
 from src.services.iap_verifier import _strip_google_order_suffix, iap_verifier
+from src.services.store_notifications import (
+    StoreEvent,
+    decode_apple_notification,
+    decode_google_notification,
+    verify_google_push_identity,
+)
 
 router = APIRouter()
 logger = structlog.get_logger()
@@ -32,7 +38,7 @@ class IAPVerifyRequest(BaseModel):
     product_id: str = Field(min_length=1, max_length=120)
     transaction_id: str = Field(min_length=1, max_length=200)
     purchase_token: Optional[str] = Field(default=None, max_length=500)
-    receipt_data: Optional[str] = Field(default=None, max_length=10000)
+    receipt_data: Optional[str] = Field(default=None, max_length=32768)
     is_subscription: bool = False
 
 
@@ -81,7 +87,7 @@ def _subscription_expired(verification, *, is_subscription: bool = True) -> bool
     expires_ms = getattr(verification, "expires_date_ms", None)
     if not expires_ms:
         return bool(is_subscription)
-    return expires_ms < int(utcnow().timestamp() * 1000)
+    return expires_ms < int(utcnow().replace(tzinfo=timezone.utc).timestamp() * 1000)
 
 
 def _validate_verify_payload(
@@ -108,6 +114,51 @@ def _resolve_reward(product_id: str) -> tuple[int, Optional[str]]:
             "supported": [*CREDIT_PACK_PRODUCTS.keys(), *SUBSCRIPTION_PRODUCTS.keys()],
         },
     )
+
+
+def _store_period(subscription: Subscription, verification) -> None:
+    """Store timestamps are authoritative, never a new 30 days on restoration."""
+    end = getattr(verification, "expires_date_ms", None)
+    if end:
+        subscription.current_period_end = datetime.fromtimestamp(end / 1000, timezone.utc).replace(
+            tzinfo=None
+        )
+    start = (getattr(verification, "raw", None) or {}).get("purchase_date_ms")
+    if isinstance(start, int) and start > 0:
+        subscription.current_period_start = datetime.fromtimestamp(
+            start / 1000, timezone.utc
+        ).replace(tzinfo=None)
+
+
+async def _plan_change_credit_grant(
+    db: AsyncSession, plan: str, previous: Optional[Subscription], purchase_ms: Optional[int]
+) -> tuple[int, int]:
+    """An in-period tier change grants the increase, never a second full month."""
+    amount = SUBSCRIPTION_PLANS[plan]["credits_per_month"]
+    allocation = amount
+    if (
+        previous
+        and isinstance(purchase_ms, int)
+        and previous.current_period_end > utcnow().replace(tzinfo=None)
+    ):
+        previous_end = int(
+            previous.current_period_end.replace(tzinfo=timezone.utc).timestamp() * 1000
+        )
+        if purchase_ms < previous_end:
+            previous_allocation = previous.credits_per_month
+            payloads = (
+                await db.scalars(
+                    select(IAPReceipt.payload).where(IAPReceipt.subscription_id == previous.id)
+                )
+            ).all()
+            for payload in payloads:
+                if (payload or {}).get("expires_date_ms") == previous_end:
+                    previous_allocation = max(
+                        previous_allocation, int((payload or {}).get("cycle_allocated_credits", 0))
+                    )
+            amount = max(0, amount - previous_allocation)
+            allocation = max(allocation, previous_allocation)
+    return amount, allocation
 
 
 @router.post("/verify", response_model=IAPVerifyResponse)
@@ -147,7 +198,11 @@ async def verify_iap(
             )
         )
     ).scalar_one_or_none()
-    if existing_by_client and existing_by_client.user_key == user_key:
+    if (
+        existing_by_client
+        and existing_by_client.user_key == user_key
+        and not resolved_is_subscription
+    ):
         return IAPVerifyResponse(
             status="already_processed",
             transaction_id=existing_by_client.transaction_id,
@@ -180,10 +235,7 @@ async def verify_iap(
             details={"code": "sandbox_not_allowed"},
         )
 
-    if (
-        verification.store_product_id
-        and verification.store_product_id != product_id
-    ):
+    if verification.store_product_id and verification.store_product_id != product_id:
         raise ValidationError(
             "검증된 상품 ID가 요청과 일치하지 않습니다.",
             details={
@@ -195,6 +247,10 @@ async def verify_iap(
     # 리플레이 방지의 정본 키: 스토어가 검증해 돌려준 식별자. 클라이언트가 transaction_id를
     # 바꿔가며 같은 영수증을 재제출해도 store_transaction_id는 동일하므로 차단된다.
     store_txn = verification.store_transaction_id or transaction_id
+    if existing_by_client and existing_by_client.store_transaction_id != store_txn:
+        # Google restore can reuse the initial client order ID after renewal.
+        # Persist the newly verified store order as its own transaction claim.
+        transaction_id = store_txn
 
     def _build_payload(extra: Optional[dict] = None) -> dict:
         base = {
@@ -205,6 +261,11 @@ async def verify_iap(
             "verification_environment": verification.environment,
             "verification": verification.raw,
             "client_transaction_id": transaction_id,
+            "original_transaction_id": verification.raw.get("original_transaction_id")
+            or (
+                _strip_google_order_suffix(store_txn) if request.platform == "google" else store_txn
+            ),
+            "expires_date_ms": verification.expires_date_ms,
         }
         if extra:
             base.update(extra)
@@ -231,10 +292,23 @@ async def verify_iap(
                 credits_added=0,
                 plan=None,
             )
+        if plan is None:
+            # Consumables are not restorable entitlements. Keep the receipt with
+            # the account that received its credits so a later refund targets the
+            # original grant instead of an unrelated reinstallation account.
+            return IAPVerifyResponse(
+                status="already_processed",
+                transaction_id=transaction_id,
+                product_id=product_id,
+                credits_added=0,
+                verification_source=verification.source,
+            )
         # F4 복원: 재설치/기기 변경으로 user_key가 새로 발급된 경우. 스토어가 이 영수증의
         # 소유를 방금 검증했으므로(verified=True) 권한을 호출자에게 이전한다. 소비성
         # 크레딧팩은 스토어가 복원해주지 않으므로 재지급하지 않는다(구독만 재활성).
         previous_user_key = existing.user_key
+        if existing.status in {"refunded", "expired"}:
+            raise ValidationError("종료 또는 환불된 결제는 복원할 수 없습니다.")
         existing.user_key = user_key
         existing.status = "restored"
         existing.payload = _build_payload({"restored_from_user_key": previous_user_key})
@@ -258,6 +332,7 @@ async def verify_iap(
                     restored_sub = await credits_service.create_subscription(
                         db, user_key, plan, commit=False, grant_credits=False
                     )
+                    _store_period(restored_sub, verification)
                     existing.subscription_id = restored_sub.id  # H5
             await db.commit()
         except IntegrityError:
@@ -303,6 +378,41 @@ async def verify_iap(
             and active_subscription.plan == plan
             and active_subscription.status == "active"
         ):
+            # A verified later billing cycle is a renewal, even if the preceding
+            # cycle is still active. The unique store transaction claim and grant
+            # are committed together, so client replay cannot refill credits.
+            new_expiry = verification.expires_date_ms or 0
+            old_expiry = int(
+                active_subscription.current_period_end.replace(tzinfo=timezone.utc).timestamp()
+                * 1000
+            )
+            renewal_credits = 0
+            purchase_ms = verification.raw.get("purchase_date_ms")
+            start_ms = int(
+                active_subscription.current_period_start.replace(tzinfo=timezone.utc).timestamp()
+                * 1000
+            )
+            if (
+                isinstance(purchase_ms, int)
+                and purchase_ms > start_ms
+                and new_expiry > old_expiry
+                and not _subscription_expired(verification)
+                and not verification.source.startswith("local_")
+            ):
+                _store_period(active_subscription, verification)
+                renewal_credits = (
+                    active_subscription.credits_per_month
+                    or SUBSCRIPTION_PLANS[plan]["credits_per_month"]
+                )
+                await credits_service.add_credits(
+                    db,
+                    user_key,
+                    amount=renewal_credits,
+                    transaction_type="subscription",
+                    description="스토어에서 확인한 구독 갱신 크레딧",
+                    reference_id=f"iap:{request.platform}:{store_txn}",
+                    commit=False,
+                )
             receipt = IAPReceipt(
                 user_key=user_key,
                 platform=request.platform,
@@ -312,7 +422,7 @@ async def verify_iap(
                 purchase_token=purchase_token,
                 status="already_subscribed",
                 subscription_id=active_subscription.id,  # H5
-                payload=_build_payload(),
+                payload=_build_payload({"granted_credits": renewal_credits}),
             )
             db.add(receipt)
             committed = True
@@ -327,7 +437,7 @@ async def verify_iap(
                 status="already_subscribed",
                 transaction_id=transaction_id,
                 product_id=product_id,
-                credits_added=0,
+                credits_added=renewal_credits if committed else 0,
                 plan=plan,
                 verification_source=verification.source,
             )
@@ -337,16 +447,30 @@ async def verify_iap(
     # 롤백되어 보상도 함께 취소된다.
     try:
         new_sub = None
+        subscription_grant = 0
+        cycle_allocation = 0
         if plan:
             # 만료 영수증(MA1)은 active 구독을 만들지 않는다(무한 리필 차단). 영수증만 기록.
             if not _subscription_expired(verification):
+                subscription_grant, cycle_allocation = await _plan_change_credit_grant(
+                    db, plan, active_subscription, verification.raw.get("purchase_date_ms")
+                )
                 # H3/R2-1: 취소 후 재결제 — 잔여 cancelled 행은 이 결제로 대체(종료)한다.
-                await credits_service.supersede_cancelled_subscription_for_plan(
-                    db, user_key, plan
-                )
+                await credits_service.supersede_cancelled_subscription_for_plan(db, user_key, plan)
                 new_sub = await credits_service.create_subscription(
-                    db, user_key, plan, commit=False
+                    db, user_key, plan, commit=False, grant_credits=False
                 )
+                _store_period(new_sub, verification)
+                if subscription_grant:
+                    await credits_service.add_credits(
+                        db,
+                        user_key,
+                        amount=subscription_grant,
+                        transaction_type="subscription",
+                        description="스토어에서 확인한 구독 크레딧",
+                        reference_id=str(new_sub.id),
+                        commit=False,
+                    )
         elif credits_to_add > 0:
             await credits_service.add_credits(
                 db=db,
@@ -368,7 +492,12 @@ async def verify_iap(
             status="verified",
             # H5: 웹훅이 이 영수증의 구독만 갱신하도록 연결.
             subscription_id=new_sub.id if new_sub else None,
-            payload=_build_payload(),
+            payload=_build_payload(
+                {
+                    "granted_credits": subscription_grant if new_sub and plan else credits_to_add,
+                    "cycle_allocated_credits": cycle_allocation,
+                }
+            ),
         )
         db.add(receipt)
         await db.commit()
@@ -435,6 +564,9 @@ async def _granted_subscription_credits(db: AsyncSession, receipt: IAPReceipt) -
       무고한 차감보다 미회수가 낫다(회수 실패는 로그로 관측 가능).
     - restored / already_subscribed 영수증: 애초에 지급이 없어 합계가 0이다.
     """
+    exact_grant = (receipt.payload or {}).get("granted_credits")
+    if isinstance(exact_grant, int):
+        return max(0, exact_grant)
     if receipt.subscription_id is None:
         return 0
     total = await db.scalar(
@@ -453,6 +585,7 @@ async def _apply_status_to_receipt(
     status: str,
     payload: Optional[dict],
     db: AsyncSession,
+    sync_subscription: bool = True,
 ) -> None:
     """웹훅/재적용 상태를 영수증·구독·크레딧에 반영(sticky). 커밋은 호출자 책임."""
     # sticky: 이미 더 높은 우선순위(터미널) 상태면 낮은 상태로 되돌리지 않는다.
@@ -469,12 +602,17 @@ async def _apply_status_to_receipt(
 
     # 구독 취소/만료/환불 동기화. 'refunded'를 누락하면 환불된 구독이 active로 남아
     # periodic_credits가 매월 영구 리필 → buy→consume→refund 무한 무료 크레딧.
-    if receipt.product_id in SUBSCRIPTION_PRODUCTS and status in {
-        "active",
-        "cancelled",
-        "expired",
-        "refunded",
-    }:
+    if (
+        sync_subscription
+        and receipt.product_id in SUBSCRIPTION_PRODUCTS
+        and status
+        in {
+            "active",
+            "cancelled",
+            "expired",
+            "refunded",
+        }
+    ):
         # H5: 이 영수증이 개설한 구독만 갱신한다. subscription_id가 없는 레거시 영수증은
         # '최신 구독' 임의 매칭 대신 product_id의 plan과 일치하는 구독으로 한정한다 —
         # 업그레이드 후 옛 영수증 통지가 방금 결제한 다른 plan 구독을 죽이지 않게.
@@ -556,6 +694,12 @@ async def _reapply_orphan_events(db: AsyncSession, receipt: IAPReceipt) -> None:
         IapWebhookEvent.transaction_id == receipt.transaction_id,
         IapWebhookEvent.transaction_id == receipt.store_transaction_id,
     ]
+    original = (receipt.payload or {}).get("original_transaction_id")
+    if original:
+        match_clauses.append(
+            IapWebhookEvent.payload["native_store_event"]["original_transaction_id"].as_string()
+            == original
+        )
     if receipt.platform == "google":
         # H4/#6: Google 갱신 주문 orderId는 base에 '..N' 접미가 붙는다. 접미사가 붙은
         # orderId로 선도착한 환불/취소 웹훅은 base로 verify된 영수증과 원문 등호로는
@@ -567,27 +711,33 @@ async def _reapply_orphan_events(db: AsyncSession, receipt: IAPReceipt) -> None:
             base = _strip_google_order_suffix(ident)
             escaped = base.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             match_clauses.append(IapWebhookEvent.transaction_id == base)
-            match_clauses.append(
-                IapWebhookEvent.transaction_id.like(f"{escaped}..%", escape="\\")
-            )
+            match_clauses.append(IapWebhookEvent.transaction_id.like(f"{escaped}..%", escape="\\"))
 
     events = (
-        await db.execute(
-            select(IapWebhookEvent)
-            .where(
-                IapWebhookEvent.platform == receipt.platform,
-                IapWebhookEvent.applied.is_(False),
-                or_(*match_clauses),
+        (
+            await db.execute(
+                select(IapWebhookEvent)
+                .where(
+                    IapWebhookEvent.platform == receipt.platform,
+                    IapWebhookEvent.applied.is_(False),
+                    or_(*match_clauses),
+                )
+                .order_by(IapWebhookEvent.created_at.asc(), IapWebhookEvent.id.asc())
             )
-            .order_by(IapWebhookEvent.created_at.asc(), IapWebhookEvent.id.asc())
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     if not events:
         return
     for event in events:
-        await _apply_status_to_receipt(
-            receipt=receipt, status=event.status, payload=event.payload, db=db
-        )
+        native = (event.payload or {}).get("native_store_event")
+        if isinstance(native, dict):
+            await _apply_native_event(StoreEvent(**native), db, commit=False)
+        else:
+            await _apply_status_to_receipt(
+                receipt=receipt, status=event.status, payload=event.payload, db=db
+            )
         event.applied = True
     await db.commit()
 
@@ -698,3 +848,242 @@ async def google_webhook(
     _: None = Depends(_require_webhook_secret),
 ):
     return await _apply_webhook_status(request=request, platform="google", db=db)
+
+
+async def _apply_native_event(event: StoreEvent, db: AsyncSession, *, commit: bool = True) -> dict:
+    """Reconcile authenticated native events, with transaction-scoped grants.
+
+    Lock the known subscription receipt before creating renewal receipts. Different
+    notifications for one cycle serialize; database uniqueness is the final guard.
+    Older refunds may claw back only their own grant, never expire a newer cycle.
+    """
+    if (
+        event.environment == "Sandbox"
+        and not settings.testing
+        and event.product_id not in _review_sandbox_allowlist()
+    ):
+        raise ValidationError("허용되지 않은 샌드박스 알림입니다.")
+    exact = await db.scalar(
+        select(IAPReceipt)
+        .where(
+            IAPReceipt.platform == event.platform,
+            IAPReceipt.store_transaction_id == event.transaction_id,
+        )
+        .with_for_update()
+    )
+    anchor = exact
+    if anchor is None:
+        matches = []
+        if event.original_transaction_id:
+            matches.extend(
+                [
+                    IAPReceipt.store_transaction_id == event.original_transaction_id,
+                    IAPReceipt.payload["original_transaction_id"].as_string()
+                    == event.original_transaction_id,
+                ]
+            )
+        if event.purchase_token:
+            matches.append(IAPReceipt.purchase_token == event.purchase_token)
+        if event.linked_purchase_token:
+            matches.append(IAPReceipt.purchase_token == event.linked_purchase_token)
+        if matches:
+            anchor = await db.scalar(
+                select(IAPReceipt)
+                .where(
+                    IAPReceipt.platform == event.platform,
+                    or_(*matches),
+                )
+                .order_by(IAPReceipt.created_at.desc(), IAPReceipt.id.desc())
+                .with_for_update()
+            )
+    if anchor is None:
+        # Persist before ack so notification-before-client-verification is safe.
+        db.add(
+            IapWebhookEvent(
+                platform=event.platform,
+                transaction_id=event.transaction_id,
+                status=event.status,
+                payload=event.persisted_payload(),
+                applied=False,
+            )
+        )
+        if commit:
+            try:
+                await db.commit()
+            except IntegrityError:
+                await db.rollback()
+        return {"status": "accepted_orphan"}
+    product = event.product_id or anchor.product_id
+    plan = SUBSCRIPTION_PRODUCTS.get(product)
+    subscription = (
+        await db.get(Subscription, anchor.subscription_id) if anchor.subscription_id else None
+    )
+    if subscription:
+        await db.refresh(subscription, with_for_update=True)
+    now_ms = int(utcnow().replace(tzinfo=timezone.utc).timestamp() * 1000)
+    expiry = event.expires_date_ms or (
+        int((exact.payload or {}).get("expires_date_ms", 0)) if exact else 0
+    )
+    current_end = (
+        int(subscription.current_period_end.replace(tzinfo=timezone.utc).timestamp() * 1000)
+        if subscription
+        else 0
+    )
+    replacement_grant = None
+    replacement_allocation = None
+    if product != anchor.product_id:
+        if (
+            exact is not None
+            or not subscription
+            or not plan
+            or anchor.product_id not in SUBSCRIPTION_PRODUCTS
+            or not event.grants_cycle
+            or event.status != "active"
+            or expiry <= now_ms
+        ):
+            raise ValidationError("알림 상품이 등록된 결제 상품과 다릅니다.")
+        replacement_grant, replacement_allocation = await _plan_change_credit_grant(
+            db, plan, subscription, event.purchased_at_ms
+        )
+        # The signed store transaction proves a paid tier replacement. Preserve
+        # the old receipt history; create a new entitlement for the new product.
+        subscription = await credits_service.create_subscription(
+            db, anchor.user_key, plan, commit=False, grant_credits=False
+        )
+        subscription.current_period_end = datetime.fromtimestamp(
+            expiry / 1000, timezone.utc
+        ).replace(tzinfo=None)
+        current_end = expiry
+    receipt = exact
+    if receipt is None:
+        receipt = IAPReceipt(
+            user_key=anchor.user_key,
+            platform=event.platform,
+            product_id=product,
+            transaction_id=event.transaction_id,
+            store_transaction_id=event.transaction_id,
+            purchase_token=event.purchase_token or anchor.purchase_token,
+            subscription_id=subscription.id if subscription else None,
+            status="verified",
+            payload={
+                "original_transaction_id": event.original_transaction_id,
+                "granted_credits": 0,
+            },
+        )
+        db.add(receipt)
+        await db.flush()
+    previous_signed = (receipt.payload or {}).get("native_signed_at_ms", 0) or 0
+    if event.signed_at_ms and event.signed_at_ms < previous_signed:
+        return {"status": "ignored_older_event"}
+    terminal = receipt.status in {"refunded", "expired"}
+    # Recover a temporarily held/expired same Google transaction when the current
+    # Publisher state says active. A revoked/refunded transaction stays terminal.
+    if event.platform == "google" and receipt.status == "expired" and expiry > now_ms:
+        terminal = False
+        receipt.status = "verified"
+    granted = int((receipt.payload or {}).get("granted_credits", 0))
+    if (
+        subscription
+        and plan
+        and event.status in {"active", "cancelled"}
+        and expiry > now_ms
+        and not terminal
+    ):
+        if replacement_grant is not None or (
+            event.grants_cycle and expiry > current_end and exact is None
+        ):
+            granted = (
+                replacement_grant
+                if replacement_grant is not None
+                else subscription.credits_per_month or SUBSCRIPTION_PLANS[plan]["credits_per_month"]
+            )
+            if granted:
+                await credits_service.add_credits(
+                    db,
+                    anchor.user_key,
+                    amount=granted,
+                    transaction_type="subscription",
+                    description="스토어에서 확인한 구독 갱신 크레딧",
+                    reference_id=f"iap:{event.platform}:{event.transaction_id}",
+                    commit=False,
+                )
+        if expiry >= current_end:
+            subscription.current_period_end = datetime.fromtimestamp(
+                expiry / 1000, timezone.utc
+            ).replace(tzinfo=None)
+            subscription.status = event.status
+    receipt.payload = {
+        **(receipt.payload or {}),
+        **event.persisted_payload(),
+        "granted_credits": granted,
+        "cycle_allocated_credits": replacement_allocation
+        if replacement_allocation is not None
+        else (receipt.payload or {}).get(
+            "cycle_allocated_credits", subscription.credits_per_month if subscription else granted
+        ),
+        "native_signed_at_ms": event.signed_at_ms or previous_signed,
+        "expires_date_ms": expiry,
+    }
+    # Receipt refunds still claw back that cycle's grant. Historical events must
+    # not overwrite a newer cycle's expiry/cancellation or resurrect its access.
+    sync_subscription = bool(expiry and expiry >= current_end)
+    if not terminal or event.status == "refunded":
+        await _apply_status_to_receipt(
+            receipt=receipt,
+            status=event.status,
+            payload=None,
+            db=db,
+            sync_subscription=sync_subscription,
+        )
+    if commit:
+        await db.commit()
+    return {"status": "ok"}
+
+
+class AppleNotificationRequest(BaseModel):
+    signedPayload: str = Field(min_length=10, max_length=65536)
+
+
+class GooglePubSubMessage(BaseModel):
+    data: str = Field(min_length=1, max_length=32000)
+    messageId: str = Field(min_length=1, max_length=200)
+    publishTime: Optional[str] = Field(default=None, max_length=100)
+    attributes: Optional[dict[str, str]] = None
+
+
+class GoogleNotificationRequest(BaseModel):
+    message: GooglePubSubMessage
+    subscription: str = Field(min_length=1, max_length=500)
+
+
+@router.post("/notifications/apple")
+async def apple_native_notification(
+    request: AppleNotificationRequest, db: AsyncSession = Depends(get_db)
+):
+    event = await decode_apple_notification(request.signedPayload)
+    if event is None:
+        return {"status": "acknowledged"}
+    try:
+        return await _apply_native_event(event, db)
+    except IntegrityError:
+        await db.rollback()
+        # A concurrent worker may have committed the exact transaction. Replay
+        # reconciliation once to preserve a refund that raced with a renewal.
+        return await _apply_native_event(event, db)
+
+
+@router.post("/notifications/google")
+async def google_native_notification(
+    request: GoogleNotificationRequest,
+    db: AsyncSession = Depends(get_db),
+    authorization: Optional[str] = Header(default=None),
+):
+    await verify_google_push_identity(authorization)
+    event = await decode_google_notification(request.model_dump())
+    if event is None:
+        return {"status": "acknowledged"}
+    try:
+        return await _apply_native_event(event, db)
+    except IntegrityError:
+        await db.rollback()
+        return await _apply_native_event(event, db)

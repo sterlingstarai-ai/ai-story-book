@@ -24,8 +24,8 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
   String? _errorMessage;
   List<Map<String, dynamic>> _profiles = const [];
 
-  bool get _audioSupported => ref.read(capabilitiesProvider).maybeWhen(
-        data: (value) => value['audio_supported'] == true,
+  bool get _voiceProfilesSupported => ref.read(capabilitiesProvider).maybeWhen(
+        data: (value) => value['voice_profiles_supported'] == true,
         orElse: () => false,
       );
 
@@ -81,9 +81,9 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
   }
 
   Future<void> _createProfile() async {
-    if (_isSubmitting || !_audioSupported) return;
+    if (_isSubmitting || !_voiceProfilesSupported) return;
     final draft = await _showProfileDialog();
-    if (draft == null || !mounted || !_audioSupported) {
+    if (draft == null || !mounted || !_voiceProfilesSupported) {
       return;
     }
     setState(() => _isSubmitting = true);
@@ -113,9 +113,9 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
   }
 
   Future<void> _editProfile(Map<String, dynamic> profile) async {
-    if (_isSubmitting || !_audioSupported) return;
+    if (_isSubmitting || !_voiceProfilesSupported) return;
     final draft = await _showProfileDialog(initial: profile);
-    if (draft == null || !mounted || !_audioSupported) {
+    if (draft == null || !mounted || !_voiceProfilesSupported) {
       return;
     }
     setState(() => _isSubmitting = true);
@@ -239,16 +239,17 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
-    final audioSupported = ref.watch(capabilitiesProvider).maybeWhen(
-          data: (value) => value['audio_supported'] == true,
+    final voiceProfilesSupported = ref.watch(capabilitiesProvider).maybeWhen(
+          data: (value) => value['voice_profiles_supported'] == true,
           orElse: () => false,
         );
     return Scaffold(
       appBar: AppBar(
-        title:
-            Text(audioSupported ? l.voiceProfilesTitle : l.settingsSavedVoices),
+        title: Text(voiceProfilesSupported
+            ? l.voiceProfilesTitle
+            : l.settingsSavedVoices),
         actions: [
-          if (audioSupported)
+          if (voiceProfilesSupported)
             IconButton(
               onPressed: _isSubmitting ? null : _createProfile,
               icon: const Icon(Icons.add),
@@ -264,17 +265,17 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
                       ? Icons.cloud_off_outlined
                       : Icons.record_voice_over_outlined,
                   title: _errorMessage ??
-                      (audioSupported
+                      (voiceProfilesSupported
                           ? l.voiceProfilesEmpty
                           : l.voiceProfilesUnavailable),
                   buttonText: _errorMessage != null
                       ? l.retry
-                      : audioSupported
+                      : voiceProfilesSupported
                           ? l.voiceProfilesAdd
                           : null,
                   onButtonPressed: _errorMessage != null
                       ? _load
-                      : audioSupported && !_isSubmitting
+                      : voiceProfilesSupported && !_isSubmitting
                           ? _createProfile
                           : null,
                 )
@@ -318,7 +319,8 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
                                       const BoxConstraints(minWidth: 200),
                                   tooltip: l.voiceProfilesMenuTooltip,
                                   onSelected: (value) {
-                                    if (value == 'edit' && audioSupported) {
+                                    if (value == 'edit' &&
+                                        voiceProfilesSupported) {
                                       _editProfile(profile);
                                       return;
                                     }
@@ -331,7 +333,7 @@ class _VoiceProfilesScreenState extends ConsumerState<VoiceProfilesScreen> {
                                     }
                                   },
                                   itemBuilder: (context) => [
-                                    if (audioSupported)
+                                    if (voiceProfilesSupported)
                                       PopupMenuItem(
                                         height: AppSizing.minTouchTarget,
                                         value: 'edit',

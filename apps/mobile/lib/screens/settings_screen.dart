@@ -428,6 +428,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           data: (value) => value['audio_supported'] == true,
           orElse: () => false,
         );
+    final voiceProfilesSupported = ref.watch(capabilitiesProvider).maybeWhen(
+          data: (value) => value['voice_profiles_supported'] == true,
+          orElse: () => false,
+        );
     if (_isLoading) {
       return Scaffold(
         appBar: AppBar(title: Text(l.settingsTitle)),
@@ -519,7 +523,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               trailing: const Icon(Icons.chevron_right),
               onTap: () => Navigator.pushNamed(context, '/parent-dashboard'),
             ),
-            if (audioSupported)
+            if (voiceProfilesSupported)
               ListTile(
                 leading: const Icon(Icons.mic_outlined),
                 title: Text(l.settingsFamilyVoice),
@@ -702,7 +706,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     context, '/startup', (_) => false);
               },
             ),
-            if (!audioSupported)
+            if (!voiceProfilesSupported)
               ListTile(
                 leading: const Icon(Icons.manage_accounts_outlined),
                 title: Text(l.settingsSavedVoices),

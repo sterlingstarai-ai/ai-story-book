@@ -131,6 +131,11 @@ class Settings(BaseSettings):
     apple_iap_shared_secret: Optional[str] = None
     apple_iap_verify_url: str = "https://buy.itunes.apple.com/verifyReceipt"
     apple_iap_sandbox_verify_url: str = "https://sandbox.itunes.apple.com/verifyReceipt"
+    apple_app_id: Optional[int] = None
+    apple_notification_environment: str = "Production"
+    apple_root_ca_paths: str = ""
+    google_rtdn_audience: str = ""
+    google_rtdn_service_account_email: str = ""
     google_play_package_name: Optional[str] = None
     google_play_access_token: Optional[str] = None
     google_play_service_account_json: Optional[str] = None

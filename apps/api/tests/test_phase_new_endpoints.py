@@ -499,17 +499,9 @@ async def test_delete_me_removes_profiles_and_characters(
     )
     assert character_res.status_code in (200, 201)
 
-    voice_profile_res = await client.post(
-        "/v1/voice-profiles",
-        json={
-            "label": "엄마 목소리",
-            "relationship": "mother",
-            "sample_audio_url": "https://example.com/sample.m4a",
-            "consented": True,
-        },
-        headers=headers,
-    )
-    assert voice_profile_res.status_code == 200
+    from tests.voice_fixtures import seed_voice_profile
+    await seed_voice_profile(db_session, headers["X-User-Key"],
+        sample_audio_url="https://example.com/sample.m4a")
 
     delete_res = await client.delete("/v1/users/me", headers=headers)
     assert delete_res.status_code == 200
@@ -837,11 +829,12 @@ async def test_subscribe_same_plan_returns_already_subscribed_without_extra_cred
     )
     assert first.status_code == 200
     assert first.json()["status"] == "success"
+    assert first.json()["subscription"]["credits_per_month"] == 5
 
     after_first_balance = await client.get("/v1/credits/balance", headers=headers)
     assert after_first_balance.status_code == 200
     after_first = after_first_balance.json()["credits"]
-    assert after_first == initial + 10
+    assert after_first == initial + 5
 
     second = await client.post(
         "/v1/credits/subscribe",
@@ -851,6 +844,10 @@ async def test_subscribe_same_plan_returns_already_subscribed_without_extra_cred
     assert second.status_code == 200
     second_body = second.json()
     assert second_body["status"] == "already_subscribed"
+    assert second_body["subscription"]["credits_per_month"] == 5
+    assert second_body["subscription"]["current_period_end"] == (
+        first.json()["subscription"]["current_period_end"]
+    )
 
     after_second_balance = await client.get("/v1/credits/balance", headers=headers)
     assert after_second_balance.status_code == 200
@@ -1911,165 +1908,58 @@ async def test_streak_report_weekly(
 
 
 @pytest.mark.asyncio
-async def test_voice_profiles_crud_and_revoke(
-    client: AsyncClient,
-    headers: dict,
-):
-    create_res = await client.post(
-        "/v1/voice-profiles",
-        json={
-            "label": "할머니",
-            "relationship": "grandmother",
-            "sample_audio_url": "https://example.com/grandma.m4a",
-            "provider_voice_id": "voice_abc",
-            "consented": True,
-        },
-        headers=headers,
-    )
-    assert create_res.status_code == 200
-    profile = create_res.json()
-    assert profile["label"] == "할머니"
-    assert profile["consented"] is True
-    assert profile["active"] is True
-
-    profile_id = profile["id"]
-
-    list_res = await client.get("/v1/voice-profiles", headers=headers)
-    assert list_res.status_code == 200
-    assert len(list_res.json()["profiles"]) == 1
-
-    patch_res = await client.patch(
-        f"/v1/voice-profiles/{profile_id}",
-        json={
-            "label": "할머니 목소리",
-            "consented": False,
-        },
-        headers=headers,
-    )
-    assert patch_res.status_code == 200
-    patched = patch_res.json()
-    assert patched["label"] == "할머니 목소리"
-    assert patched["consented"] is False
-    assert patched["active"] is False
-    assert patched["provider_voice_id"] is None
-
-    revoke_res = await client.post(
-        f"/v1/voice-profiles/{profile_id}/revoke-consent",
-        headers=headers,
-    )
-    assert revoke_res.status_code == 200
-    assert revoke_res.json()["status"] == "success"
-
-    delete_res = await client.delete(
-        f"/v1/voice-profiles/{profile_id}",
-        headers=headers,
-    )
-    assert delete_res.status_code == 200
-
-    final_list_res = await client.get("/v1/voice-profiles", headers=headers)
-    assert final_list_res.status_code == 200
-    assert final_list_res.json()["profiles"] == []
+async def test_voice_profiles_crud_and_revoke(client: AsyncClient, headers: dict, db_session):
+    from tests.voice_fixtures import seed_voice_profile
+    profile_id = await seed_voice_profile(db_session, headers["X-User-Key"],
+        sample_audio_url="https://example.com/grandma.m4a", label="할머니",
+        relationship="grandmother", provider_voice_id="voice_abc")
+    listed = await client.get("/v1/voice-profiles", headers=headers)
+    assert listed.status_code == 200 and len(listed.json()["profiles"]) == 1
+    patched = await client.patch(f"/v1/voice-profiles/{profile_id}", headers=headers,
+                                json={"label": "할머니 목소리", "consented": False})
+    assert patched.status_code == 200
+    assert patched.json()["label"] == "할머니 목소리"
+    assert patched.json()["active"] is False and patched.json()["provider_voice_id"] is None
+    revoked = await client.post(f"/v1/voice-profiles/{profile_id}/revoke-consent", headers=headers)
+    assert revoked.status_code == 200
+    assert (await client.delete(f"/v1/voice-profiles/{profile_id}", headers=headers)).status_code == 200
+    assert (await client.get("/v1/voice-profiles", headers=headers)).json()["profiles"] == []
 
 
 @pytest.mark.asyncio
 async def test_voice_profiles_reject_whitespace_label_and_require_consent_for_activation(
-    client: AsyncClient,
-    headers: dict,
+    client: AsyncClient, headers: dict, db_session,
 ):
-    invalid_create = await client.post(
-        "/v1/voice-profiles",
-        json={
-            "label": "   ",
-            "relationship": "mother",
-            "sample_audio_url": "https://example.com/sample.m4a",
-            "consented": True,
-        },
-        headers=headers,
-    )
-    assert invalid_create.status_code == 400
-    invalid_body = invalid_create.json()
-    assert invalid_body["error"]["code"] == "VALIDATION_ERROR"
-    assert invalid_body["detail"] == "라벨은 공백일 수 없습니다."
+    from tests.voice_fixtures import seed_voice_profile
+    profile_id = await seed_voice_profile(db_session, headers["X-User-Key"],
+        sample_audio_url="https://example.com/sample.m4a")
+    invalid = await client.patch(f"/v1/voice-profiles/{profile_id}", headers=headers, json={"label": "   "})
+    assert invalid.status_code == 400 and invalid.json()["error"]["code"] == "VALIDATION_ERROR"
+    revoked = await client.patch(f"/v1/voice-profiles/{profile_id}", headers=headers, json={"consented": False})
+    assert revoked.status_code == 200
+    activated = await client.patch(f"/v1/voice-profiles/{profile_id}", headers=headers, json={"active": True})
+    assert activated.status_code == 409
+    assert activated.json()["error"]["code"] == "VOICE_PROFILE_NOT_SUPPORTED"
 
-    create_res = await client.post(
-        "/v1/voice-profiles",
-        json={
-            "label": "엄마",
-            "relationship": "mother",
-            "sample_audio_url": "https://example.com/sample.m4a",
-            "consented": True,
-        },
-        headers=headers,
-    )
-    assert create_res.status_code == 200
-    profile_id = create_res.json()["id"]
 
-    revoke_res = await client.patch(
-        f"/v1/voice-profiles/{profile_id}",
-        json={"consented": False},
-        headers=headers,
-    )
-    assert revoke_res.status_code == 200
-
-    activate_without_consent = await client.patch(
-        f"/v1/voice-profiles/{profile_id}",
-        json={"active": True},
-        headers=headers,
-    )
-    assert activate_without_consent.status_code == 400
-    activate_body = activate_without_consent.json()
-    assert activate_body["error"]["code"] == "VALIDATION_ERROR"
-    assert activate_body["detail"] == "동의가 없는 음성 프로필은 활성화할 수 없습니다."
+def test_voice_profiles_reject_invalid_sample_audio_url():
+    from src.core.exceptions import ValidationError
+    from src.routers.voice_profiles import _normalize_required_url
+    with pytest.raises(ValidationError):
+        _normalize_required_url("invalid-url", user_key="owner")
 
 
 @pytest.mark.asyncio
-async def test_voice_profiles_reject_invalid_sample_audio_url(
-    client: AsyncClient,
-    headers: dict,
-):
-    response = await client.post(
-        "/v1/voice-profiles",
-        json={
-            "label": "엄마",
-            "relationship": "mother",
-            "sample_audio_url": "invalid-url",
-            "consented": True,
-        },
-        headers=headers,
-    )
-    assert response.status_code == 400
-    body = response.json()
-    assert body["error"]["code"] == "VALIDATION_ERROR"
-    assert body["detail"] == "유효한 샘플 오디오 URL이 필요합니다."
-
-
-@pytest.mark.asyncio
-async def test_voice_sample_upload_returns_url(
-    client: AsyncClient,
-    headers: dict,
-    monkeypatch: pytest.MonkeyPatch,
-):
-    from src.routers import voice_profiles as voice_profiles_router
-
-    async def _mock_upload_bytes(*args, **kwargs):
-        return "https://cdn.example.com/voice-samples/sample-1.m4a"
-
-    monkeypatch.setattr(
-        voice_profiles_router.storage_service,
-        "upload_bytes",
-        _mock_upload_bytes,
-    )
-
-    upload_res = await client.post(
-        "/v1/voice-profiles/upload-sample",
-        files={"sample": ("sample.m4a", b"audio-bytes", "audio/mp4")},
-        headers=headers,
-    )
-    assert upload_res.status_code == 200
-    payload = upload_res.json()
-    assert payload["sample_audio_url"] == "https://cdn.example.com/voice-samples/sample-1.m4a"
-    assert payload["content_type"] == "audio/mp4"
-    assert payload["size_bytes"] == len(b"audio-bytes")
+async def test_voice_sample_upload_is_unavailable_without_storing_audio(client: AsyncClient, headers: dict, monkeypatch):
+    from unittest.mock import AsyncMock
+    from src.services.storage import storage_service
+    upload = AsyncMock()
+    monkeypatch.setattr(storage_service, "upload_bytes", upload)
+    response = await client.post("/v1/voice-profiles/upload-sample", headers=headers,
+        files={"sample": ("sample.m4a", b"audio-bytes", "audio/mp4")})
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "VOICE_PROFILE_NOT_SUPPORTED"
+    upload.assert_not_awaited()
 
 
 @pytest.mark.asyncio

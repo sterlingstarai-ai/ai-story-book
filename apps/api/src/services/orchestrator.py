@@ -1551,6 +1551,23 @@ async def regenerate_page(
                     message="재생성된 내용이 안전 기준을 통과하지 못했습니다",
                     is_input=False,
                 )
+            # Lock the current row only after provider work: concurrent narration
+            # may have completed since the initial read. Retire those actual URLs
+            # atomically with the rewritten text, rather than losing an audio file.
+            await session.refresh(page, with_for_update=True)
+            from src.services.purge_queue import enqueue_purge_keys
+            from src.services.storage import key_from_public_url
+
+            enqueue_purge_keys(
+                session,
+                user_key=book.user_key,
+                reason="replaced_page_audio",
+                keys=[key for key in (
+                    key_from_public_url(page.audio_url),
+                    key_from_public_url(page.audio_url_ko),
+                    key_from_public_url(page.audio_url_en),
+                ) if key],
+            )
             page.text = revised
 
             # H23/G18: 이중언어 컬럼·오디오를 본문과 정합 유지. 책 언어 컬럼은 갱신하고,

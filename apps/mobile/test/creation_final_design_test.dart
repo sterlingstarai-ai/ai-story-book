@@ -219,34 +219,19 @@ void main() {
     await tester.tap(retry);
     await tester.pumpAndSettle();
     expect(api.voiceCalls, 2);
-    expect(find.byIcon(Icons.add), findsOneWidget);
+    expect(find.byIcon(Icons.add), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets(
-      'voice dialog keeps file upload first and closes cleanly with keyboard open',
+  testWidgets('saved voice management hides unsupported collection on small screens',
       (tester) async {
     _smallScreen(tester);
     await tester.pumpWidget(
         await _app(const VoiceProfilesScreen(), brightness: Brightness.dark));
     await tester.pumpAndSettle();
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pumpAndSettle();
-    final label = find.widgetWithText(TextFormField, '이름/라벨');
-    await tester.ensureVisible(label);
-    await tester.enterText(label, '부모님 목소리');
-    await tester.pumpAndSettle();
-    expect(find.widgetWithText(TextFormField, '샘플 오디오 URL').hitTestable(),
-        findsNothing);
-    await captureDesign(tester, 'creation-voice-dialog-dark');
-    final cancel = find.widgetWithText(TextButton, '취소');
-    await tester.ensureVisible(cancel);
-    await tester.tap(cancel);
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 75));
-    expect(tester.takeException(), isNull);
-    await tester.pumpAndSettle();
-    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.byIcon(Icons.add), findsNothing);
+    expect(find.byType(TextFormField), findsNothing);
+    expect(find.text('저장된 음성 관리'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

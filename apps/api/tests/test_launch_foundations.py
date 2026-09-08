@@ -94,21 +94,17 @@ async def test_branch_cannot_mint_download_for_another_book(
 
 
 @pytest.mark.asyncio
-async def test_voice_upload_url_can_be_saved_and_deleted_as_canonical_key(
-    client, headers, private_storage, _block_real_s3,
+async def test_legacy_voice_signed_url_can_be_deleted_as_canonical_key(
+    client, headers, private_storage, _block_real_s3, db_session,
 ):
-    uploaded = await client.post("/v1/voice-profiles/upload-sample", headers=headers,
-                                 files={"sample": ("voice.wav", b"audio", "audio/wav")})
-    assert uploaded.status_code == 200
-    signed = uploaded.json()["sample_audio_url"]
+    from tests.voice_fixtures import seed_voice_profile
+    key = storage.voice_sample_prefix(headers["X-User-Key"]) + "legacy.wav"
+    url = await storage.storage_service.upload_bytes(b"legacy", key, content_type="audio/wav")
+    signed = storage.media_url(url)
     assert "X-Amz-Signature" in signed
-    key = storage.key_from_public_url(signed)
-    created = await client.post("/v1/voice-profiles", headers=headers, json={
-        "label": "Parent", "sample_audio_url": signed, "consented": True,
-    })
-    assert created.status_code == 200
+    profile_id = await seed_voice_profile(db_session, headers["X-User-Key"],
+        sample_audio_url=storage.canonical_media_url(storage.key_from_public_url(signed)))
     assert key in _block_real_s3.objects
-    profile_id = created.json()["id"]
     deleted = await client.delete(f"/v1/voice-profiles/{profile_id}", headers=headers)
     assert deleted.status_code == 200
     assert key not in _block_real_s3.objects

@@ -676,41 +676,19 @@ void main() {
       expect(find.textContaining('7-9'), findsWidgets);
     });
 
-    testWidgets('VoiceProfilesScreen creates a profile through the dialog',
+    testWidgets('narration support does not expose family voice collection',
         (tester) async {
       final prefs = await _createPrefs();
       final api = _InteractiveMockApiClient(voiceProfiles: const []);
-
       await tester.pumpWidget(_buildHarness(
         const VoiceProfilesScreen(),
         prefs: prefs,
         overrides: [apiClientProvider.overrideWithValue(api)],
       ));
       await tester.pumpAndSettle();
-
-      await tester.tap(find.byIcon(Icons.add));
-      await tester.pumpAndSettle();
-      await tester.enterText(
-        find.widgetWithText(TextFormField, '이름/라벨'),
-        '엄마 목소리',
-      );
-      await tester.tap(find.widgetWithText(ExpansionTile, '오디오 링크로 직접 연결'));
-      await tester.pumpAndSettle();
-      await tester
-          .ensureVisible(find.widgetWithText(TextFormField, '샘플 오디오 URL'));
-      await tester.enterText(
-        find.widgetWithText(TextFormField, '샘플 오디오 URL'),
-        'https://example.com/sample.m4a',
-      );
-      await tester
-          .ensureVisible(find.widgetWithText(SwitchListTile, '보호자 동의 완료'));
-      await tester.tap(find.widgetWithText(SwitchListTile, '보호자 동의 완료'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(FilledButton, '추가'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('엄마 목소리'), findsOneWidget);
-      expect(find.text('동의 완료'), findsOneWidget);
+      expect(find.byIcon(Icons.add), findsNothing);
+      expect(find.byType(TextFormField), findsNothing);
+      expect(find.text('저장된 음성 관리'), findsOneWidget);
     });
 
     testWidgets('BranchStoryScreen restores saved progress and can restart',

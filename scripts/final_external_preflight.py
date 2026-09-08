@@ -160,9 +160,20 @@ def assess(values):
     }:
         invalid.append("ILLUSTRATION_QUALITY_MODEL")
     if purchases:
-        for name in ("APPLE_IAP_SHARED_SECRET", "APPLE_BUNDLE_ID", "GOOGLE_PLAY_PACKAGE_NAME",
-                     "IAP_WEBHOOK_SECRET"):
+        for name in ("APPLE_BUNDLE_ID", "GOOGLE_PLAY_PACKAGE_NAME",
+                     "GOOGLE_RTDN_AUDIENCE", "GOOGLE_RTDN_SERVICE_ACCOUNT_EMAIL"):
             need(name)
+        try:
+            if int(values.get("APPLE_APP_ID", "0")) <= 0:
+                invalid.append("APPLE_APP_ID (positive App Store ID required)")
+        except ValueError:
+            invalid.append("APPLE_APP_ID")
+        if values.get("APPLE_NOTIFICATION_ENVIRONMENT", "Production") != "Production":
+            invalid.append("APPLE_NOTIFICATION_ENVIRONMENT (Production required for release)")
+        if not public_https_endpoint(values.get("GOOGLE_RTDN_AUDIENCE", "")):
+            invalid.append("GOOGLE_RTDN_AUDIENCE (public HTTPS push audience required)")
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.iam\.gserviceaccount\.com", values.get("GOOGLE_RTDN_SERVICE_ACCOUNT_EMAIL", "")):
+            invalid.append("GOOGLE_RTDN_SERVICE_ACCOUNT_EMAIL")
         google_file = values.get("GOOGLE_PLAY_SERVICE_ACCOUNT_FILE", "")
         if not (present(values.get("GOOGLE_PLAY_ACCESS_TOKEN"))
                 or present(values.get("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON"))
@@ -177,10 +188,7 @@ def assess(values):
             if name:
                 need(name)
     if pod:
-        choice("POD_MODE", {"strict"})
-        choice("POD_PROVIDER", {"printful"})
-        need("PRINTFUL_API_KEY")
-        need("PRINTFUL_SYNC_VARIANT_ID")
+        invalid.append("POD_ORDERING_ENABLED (physical fulfillment is outside this release)")
     return {
         "status": "BLOCKED" if missing or invalid else "CONFIGURED_NOT_VERIFIED",
         "launch_ready": False,
@@ -233,7 +241,7 @@ def main():
     parser.add_argument("--env-file", action="append", type=Path, default=[],
                         help="Explicit dotenv file; repeat to overlay files. Never executes shell content.")
     parser.add_argument("--check-planned-features", action="store_true",
-                        help="Check purchase/audio/print prerequisites without enabling or deploying them")
+                        help="Check digital purchase/audio prerequisites without enabling or deploying them")
     args = parser.parse_args()
     values = dict(os.environ)
     for path in args.env_file:
@@ -244,7 +252,7 @@ def main():
     if args.check_planned_features:
         # In-memory assessment only. Never mutate runtime configuration or charge anything.
         values.update({name: "true" for name in
-                       ("PURCHASES_ENABLED", "AUDIO_FEATURE_ENABLED", "POD_ORDERING_ENABLED")})
+                       ("PURCHASES_ENABLED", "AUDIO_FEATURE_ENABLED")})
     result = assess(values)
     result["planned_features_only"] = args.check_planned_features
     result["bundled_policy_documents"] = assess_bundled_policies()

@@ -49,11 +49,9 @@ void main() async {
     ),
   );
 
-  // R0(🔴C1): iOS StoreKit1 강제. **반드시 InAppPurchase.instance 첫 접근 전에** —
-  // 플러그인 등록이 그 접근에서 일어나고, 등록 시점 플래그로 SK1/SK2 옵저버가 정해진다.
-  // 늦게 호출하면 이미 SK2로 등록돼 serverVerificationData가 JWS로 나가고, 백엔드
-  // legacy verifyReceipt가 21002로 전량 실패한다(과금됐는데 미지급).
-  await IapPlatformInit.ensureStoreKit1();
+  // The server now verifies signed StoreKit 2 transactions with Apple's library.
+  // Keep the maintained plugin default; legacy receipt restoration stays supported.
+  IapPlatformInit.useStoreKitDefault();
 
   // SharedPreferences 초기화
   final prefs = await SharedPreferences.getInstance();
@@ -108,12 +106,14 @@ class _AIStoryBookAppState extends ConsumerState<AIStoryBookApp>
       }),
     );
     unawaited(ref.read(notificationSchedulerProvider).initialize());
+    ref.read(iapPurchaseRecoveryProvider);
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _screenTimeNotifier = ref.read(screenTimeStateProvider.notifier);
     if (state == AppLifecycleState.resumed) {
+      ref.read(iapPurchaseRecoveryProvider).retryPending();
       _screenTimeNotifier.onAppResumed();
       return;
     }
@@ -281,17 +281,6 @@ Route<dynamic> buildAppRoute(RouteSettings settings) {
               ? pronunciationLanguage
               : 'ko',
         ),
-      );
-
-    case '/pod-order':
-      final args = _readRouteMapArg(settings.arguments);
-      final bookId = args?['bookId']?.toString();
-      final title = args?['bookTitle']?.toString() ?? '';
-      if (bookId == null || bookId.isEmpty) {
-        return _homeRoute();
-      }
-      return MaterialPageRoute(
-        builder: (_) => PodOrderScreen(bookId: bookId, bookTitle: title),
       );
 
     case '/consent':

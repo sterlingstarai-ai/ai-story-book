@@ -93,6 +93,8 @@ services:
     value: openai
   - key: STT_API_KEY
     value: ''
+  - key: STT_MODEL
+    value: whisper-1
   - key: GOOGLE_STT_API_KEY
     value: ''
   - key: S3_ENDPOINT
@@ -128,7 +130,7 @@ services:
   - key: PRINTFUL_STORE_ID
     value: ''
   - key: PRINTFUL_SYNC_VARIANT_ID
-    value: ''
+    value: '0'
   - key: PRINTFUL_BASE_URL
     value: https://api.printful.com
   - key: CORS_ORIGINS
@@ -155,6 +157,16 @@ services:
     value: strict
   - key: PURCHASES_ENABLED
     value: 'false'
+  - key: APPLE_APP_ID
+    value: '0'
+  - key: APPLE_NOTIFICATION_ENVIRONMENT
+    value: 'Production'
+  - key: APPLE_ROOT_CA_PATHS
+    value: ''
+  - key: GOOGLE_RTDN_AUDIENCE
+    value: ''
+  - key: GOOGLE_RTDN_SERVICE_ACCOUNT_EMAIL
+    value: ''
   - key: APPLE_IAP_SHARED_SECRET
     value: ''
   - key: APPLE_BUNDLE_ID
@@ -360,6 +372,11 @@ services:
       name: __PREFIX__-api
       type: web
       envVarKey: STT_API_KEY
+  - key: STT_MODEL
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: STT_MODEL
   - key: GOOGLE_STT_API_KEY
     fromService:
       name: __PREFIX__-api
@@ -510,6 +527,31 @@ services:
       name: __PREFIX__-api
       type: web
       envVarKey: IAP_VERIFICATION_MODE
+  - key: APPLE_APP_ID
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: APPLE_APP_ID
+  - key: APPLE_NOTIFICATION_ENVIRONMENT
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: APPLE_NOTIFICATION_ENVIRONMENT
+  - key: APPLE_ROOT_CA_PATHS
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: APPLE_ROOT_CA_PATHS
+  - key: GOOGLE_RTDN_AUDIENCE
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: GOOGLE_RTDN_AUDIENCE
+  - key: GOOGLE_RTDN_SERVICE_ACCOUNT_EMAIL
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: GOOGLE_RTDN_SERVICE_ACCOUNT_EMAIL
   - key: PURCHASES_ENABLED
     fromService:
       name: __PREFIX__-api

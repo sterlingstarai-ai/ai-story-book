@@ -219,12 +219,12 @@ void main() {
     await _teardownViewer(tester);
   });
 
-  testWidgets('검증 후 활성화한 실물책 주문 메뉴를 표시한다', (tester) async {
+  testWidgets('이전 서버가 주문 가능으로 응답해도 실물 배송 메뉴를 제공하지 않는다', (tester) async {
     await _pumpViewer(tester, audioSupported: false, podSupported: true);
     await tester.tap(find.byIcon(Icons.more_vert));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
-    expect(find.byIcon(Icons.local_shipping_outlined), findsOneWidget);
+    expect(find.byIcon(Icons.local_shipping_outlined), findsNothing);
     await _teardownViewer(tester);
   });
 

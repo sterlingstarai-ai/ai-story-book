@@ -11,13 +11,73 @@ class IapService {
   IapService({
     InAppPurchase? inAppPurchase,
     Future<void> Function(PurchaseDetails)? androidConsume,
-  })  : _iap = inAppPurchase ?? InAppPurchase.instance,
-        _androidConsume = androidConsume;
+  }) : _iap = inAppPurchase ?? InAppPurchase.instance,
+       _androidConsume = androidConsume;
 
   final InAppPurchase _iap;
 
   // Android 소모성 소비(consume)의 테스트 시임 — 미주입 시 실제 플랫폼 애드온을 사용.
   final Future<void> Function(PurchaseDetails)? _androidConsume;
+  final Map<String, Future<Map<String, dynamic>?>> _processing = {};
+  final Map<String, Map<String, dynamic>> _finished = {};
+
+  /// The application recovery listener and the visible purchase screen share one
+  /// transaction claim, so neither can finish a purchase before backend delivery.
+  Future<Map<String, dynamic>?> verifyAndFinish(
+    PurchaseDetails purchase, {
+    required Future<Map<String, dynamic>> Function(Map<String, dynamic>) verify,
+  }) async {
+    final id = purchase.purchaseID;
+    if (id == null ||
+        id.isEmpty ||
+        (purchase.status != PurchaseStatus.purchased &&
+            purchase.status != PurchaseStatus.restored)) {
+      return null;
+    }
+    final key = '${defaultTargetPlatform.name}:$id';
+    final pending = _processing[key];
+    if (pending != null) return pending;
+    final future = _verifyAndFinish(purchase, verify);
+    _processing[key] = future;
+    try {
+      final result = await future;
+      _finished[key] = result;
+      if (_finished.length > 100) _finished.remove(_finished.keys.first);
+      return result;
+    } finally {
+      _processing.remove(key);
+    }
+  }
+
+  Future<Map<String, dynamic>> _verifyAndFinish(
+    PurchaseDetails purchase,
+    Future<Map<String, dynamic>> Function(Map<String, dynamic>) verify,
+  ) async {
+    final apple = defaultTargetPlatform == TargetPlatform.iOS;
+    final subscription = purchase.productID.startsWith('subscription_');
+    final result = await verify({
+      'platform': apple ? 'apple' : 'google',
+      'product_id': purchase.productID,
+      'transaction_id': purchase.purchaseID!,
+      'is_subscription': subscription,
+      apple ? 'receipt_data' : 'purchase_token':
+          purchase.verificationData.serverVerificationData,
+    });
+    const terminal = {
+      'verified',
+      'restored',
+      'already_processed',
+      'already_subscribed',
+    };
+    if (!terminal.contains(result['status'])) {
+      throw StateError('Store verification did not confirm delivery');
+    }
+    final key = '${defaultTargetPlatform.name}:${purchase.purchaseID}';
+    if (!_finished.containsKey(key)) {
+      await finishPurchase(purchase, consumable: !subscription);
+    }
+    return result;
+  }
 
   Stream<List<PurchaseDetails>> get purchaseStream => _iap.purchaseStream;
 
@@ -37,9 +97,7 @@ class IapService {
     }
     final available = await _iap.isAvailable();
     if (!available) {
-      return const ServiceAvailability.unavailable(
-        '스토어 결제를 현재 사용할 수 없습니다.',
-      );
+      return const ServiceAvailability.unavailable('스토어 결제를 현재 사용할 수 없습니다.');
     }
     return const ServiceAvailability.available();
   }
@@ -99,8 +157,8 @@ class IapService {
   }
 
   Future<void> _defaultAndroidConsume(PurchaseDetails purchase) async {
-    final android =
-        _iap.getPlatformAddition<InAppPurchaseAndroidPlatformAddition>();
+    final android = _iap
+        .getPlatformAddition<InAppPurchaseAndroidPlatformAddition>();
     await android.consumePurchase(purchase);
   }
 }

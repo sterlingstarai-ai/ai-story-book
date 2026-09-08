@@ -732,6 +732,13 @@ class _RegenSession:
         self.committed = False
         self.fence_rowcount = fence_rowcount
         self.fenced_updates = 0
+        self.added = []
+
+    def add(self, row):
+        self.added.append(row)
+
+    async def refresh(self, row, **kwargs):
+        return None
 
     async def execute(self, q):
         if q.__class__.__name__ == "Update":
@@ -867,9 +874,13 @@ async def test_regenerate_page_syncs_and_invalidates_bilingual(monkeypatch, non_
     )
     page = SimpleNamespace(
         id="p1", text="en old", text_ko="ko stale", text_en="en old",
-        audio_url="a", audio_url_ko="ak", audio_url_en="ae",
+        audio_url="https://fixture-audio.example/books/b1/a.mp3",
+        audio_url_ko="https://fixture-audio.example/books/b1/ak.mp3",
+        audio_url_en="https://fixture-audio.example/books/b1/ae.mp3",
         page_number=1, image_prompt=None,
     )
+    from src.core.config import settings
+    monkeypatch.setattr(settings, "s3_public_url", "https://fixture-audio.example")
     draft = TestModerateOutput()._make_story(language=Language.en)
     draft_db = SimpleNamespace(draft=draft.model_dump())
     session = _RegenSession([book, page, draft_db])
@@ -889,6 +900,10 @@ async def test_regenerate_page_syncs_and_invalidates_bilingual(monkeypatch, non_
     assert page.audio_url is None
     assert page.audio_url_ko is None
     assert page.audio_url_en is None
+    assert {task.target for task in session.added} == {
+        "books/b1/a.mp3", "books/b1/ak.mp3", "books/b1/ae.mp3"
+    }
+    assert all(task.status == "pending" and task.reason == "replaced_page_audio" for task in session.added)
 
 
 # ==================== M32: current_step 안정 키 ====================

@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
 from src.core.database import get_db
-from src.core.audio_feature import require_audio_supported
+from src.core.audio_feature import require_voice_profiles_supported
 from src.core.dependencies import get_user_key
 from src.core.exceptions import InternalServerError, NotFoundError, ValidationError
 from src.core.utils import utcnow
@@ -133,7 +133,7 @@ async def upload_voice_sample(
     sample: UploadFile = File(..., description="음성 샘플 파일"),
     user_key: str = Depends(get_user_key),
 ):
-    require_audio_supported()
+    require_voice_profiles_supported()
     if not sample.content_type or not sample.content_type.startswith("audio/"):
         raise ValidationError("오디오 파일만 업로드 가능합니다.")
 
@@ -186,7 +186,7 @@ async def create_voice_profile(
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
 ):
-    require_audio_supported()
+    require_voice_profiles_supported()
     count_result = await db.execute(
         select(VoiceProfile.id).where(VoiceProfile.user_key == user_key)
     )
@@ -244,7 +244,7 @@ async def update_voice_profile(
 
     if (request.sample_audio_url is not None or request.provider_voice_id is not None
             or request.active is True or request.consented is True):
-        require_audio_supported()
+        require_voice_profiles_supported()
 
     # R1-7: 파기 대상은 **변경 적용 전**의 원본이다. 예전에는 setattr 루프 뒤에
     # `profile.sample_audio_url`을 읽어 purge_url을 잡았다 — sample_audio_url 교체와

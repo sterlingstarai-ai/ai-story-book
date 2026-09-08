@@ -31,6 +31,7 @@ httpx==0.28.1
 # 상향해도 수정본 없는 CVE가 남았다. 안 쓰는 의존을 지워 현재 CVE + 향후 aiohttp CVE를
 # 영구 제거하고 공격 표면·이미지 크기도 줄인다. HTTP 클라이언트 정본은 httpx.
 google-auth==2.40.0
+app-store-server-library==3.1.2
 
 # Templating
 # CVE 수정본 존재(<3.1.6 취약: 샌드박스 우회 계열 3건) — 실제 상향 가능해 즉시 적용.

@@ -19,14 +19,22 @@ class _FakeDbSession:
         self.commit_calls = 0
         self.rollback_calls = 0
 
+    def add(self, _row):
+        pass
+
     async def execute(self, _query):
+        if getattr(_query, "is_update", False):
+            page = self._pages[self._index - 1]
+            for column, value in _query._values.items():
+                setattr(page, column.key, value.value)
+            return SimpleNamespace(rowcount=1)
         page = self._pages[self._index]
         self._index += 1
         return _FakeScalarResult(page)
 
     async def commit(self):
         self.commit_calls += 1
-        if self.commit_calls == 1:
+        if self.commit_calls == 2:
             raise RuntimeError("commit failed")
 
     async def rollback(self):
@@ -55,9 +63,10 @@ def _session_local_factory(db):
 async def test_generate_audio_pages_rolls_back_and_continues_after_commit_failure():
     from src.services.job_runners import generate_audio_pages
 
-    page_one = SimpleNamespace(id="page-1", audio_url=None)
-    page_two = SimpleNamespace(id="page-2", audio_url=None)
-    fake_db = _FakeDbSession([page_one, page_two])
+    page_one = SimpleNamespace(id="page-1", page_number=1, text="one", audio_url=None)
+    page_two = SimpleNamespace(id="page-2", page_number=2, text="two", audio_url=None)
+    book = SimpleNamespace(id="book-123", user_key="user-123", language="ko", target_age="5-7")
+    fake_db = _FakeDbSession([book, page_one, book, page_two])
 
     pages = [
         {"page_number": 1, "text": "one", "page_id": "page-1"},
@@ -76,7 +85,7 @@ async def test_generate_audio_pages_rolls_back_and_continues_after_commit_failur
             with patch("src.services.job_runners.storage_service.upload_bytes", new=upload_mock):
                 await generate_audio_pages("book-123", pages)
 
-    assert fake_db.commit_calls == 2
+    assert fake_db.commit_calls == 4
     assert fake_db.rollback_calls == 1
     assert synthesize_mock.await_count == 2
     assert upload_mock.await_count == 2
@@ -84,12 +93,30 @@ async def test_generate_audio_pages_rolls_back_and_continues_after_commit_failur
 
 
 @pytest.mark.asyncio
+async def test_batch_audio_reuses_cached_language_assets_without_provider_cost():
+    from src.services.job_runners import generate_audio_pages
+
+    page = SimpleNamespace(id="cached-page", page_number=1, text="Hello", audio_url="https://cdn.example.com/en.mp3",
+                           audio_url_en="https://cdn.example.com/en.mp3")
+    book = SimpleNamespace(id="book-english", user_key="user-123", language="en", target_age="5-7")
+    fake_db = _FakeDbSessionOK([book, page])
+    synthesize = AsyncMock(side_effect=AssertionError("must reuse existing narration"))
+    with patch("src.core.database.AsyncSessionLocal", new=_session_local_factory(fake_db)), \
+         patch("src.services.job_runners.tts_service.synthesize_page", new=synthesize):
+        succeeded, failed = await generate_audio_pages("book-english", [
+            {"page_number": 1, "page_id": "cached-page", "text": "Hello"}
+        ], default_language="en")
+    assert (succeeded, failed) == (1, [])
+    synthesize.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_get_page_audio_rolls_back_when_commit_fails():
     from src.core.exceptions import InternalServerError
     from src.routers.books import get_page_audio
 
-    book = SimpleNamespace(id="book-123", user_key="user-123")
-    page = SimpleNamespace(id="page-1", text="hello", audio_url=None)
+    book = SimpleNamespace(id="book-123", user_key="user-123", language="ko", target_age="5-7")
+    page = SimpleNamespace(id="page-1", page_number=1, text="hello", audio_url=None)
     fake_db = _FakeDbSession([book, page])
 
     synthesize_mock = AsyncMock(return_value=b"audio-1")
@@ -100,7 +127,7 @@ async def test_get_page_audio_rolls_back_when_commit_fails():
             with pytest.raises(InternalServerError):
                 await get_page_audio("book-123", 1, db=fake_db, user_key="user-123")
 
-    assert fake_db.commit_calls == 1
+    assert fake_db.commit_calls == 2
     assert fake_db.rollback_calls == 1
 
 
@@ -115,7 +142,15 @@ class _FakeDbSessionOK:
         self._index = 0
         self.commit_calls = 0
 
+    def add(self, _row):
+        pass
+
     async def execute(self, _query):
+        if getattr(_query, "is_update", False):
+            page = self._rows[self._index - 1]
+            for column, value in _query._values.items():
+                setattr(page, column.key, value.value)
+            return SimpleNamespace(rowcount=1)
         row = self._rows[self._index]
         self._index += 1
         return _FakeScalarResult(row)
@@ -133,9 +168,10 @@ async def test_ja_book_audio_uses_ja_voice_not_ko():
     from src.services.job_runners import generate_audio_pages
 
     page = SimpleNamespace(
-        id="p1", audio_url=None, audio_url_ko=None, audio_url_en=None
+        id="p1", page_number=1, text="ねこがいます", audio_url=None, audio_url_ko=None, audio_url_en=None
     )
-    fake_db = _FakeDbSessionOK([page])
+    book = SimpleNamespace(id="book-ja", user_key="user-123", language="ja", target_age="5-7")
+    fake_db = _FakeDbSessionOK([book, page])
     pages = [{"page_number": 1, "text": "ねこがいます", "page_id": "p1"}]
 
     synth = AsyncMock(return_value=b"ja-audio")
@@ -162,7 +198,7 @@ async def test_get_page_audio_ja_uses_base_slot_and_ja_voice():
         id="b1", user_key="u1", language="ja", target_age="3-5"
     )
     page = SimpleNamespace(
-        id="p1", text="ねこ", audio_url=None, audio_url_ko=None, audio_url_en=None
+        id="p1", page_number=1, text="ねこ", audio_url=None, audio_url_ko=None, audio_url_en=None
     )
     fake_db = _FakeDbSessionOK([book, page])
 

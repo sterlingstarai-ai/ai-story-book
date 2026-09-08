@@ -113,6 +113,21 @@
         "title": "AnswerRequest",
         "type": "object"
       },
+      "AppleNotificationRequest": {
+        "properties": {
+          "signedPayload": {
+            "maxLength": 65536,
+            "minLength": 10,
+            "title": "Signedpayload",
+            "type": "string"
+          }
+        },
+        "required": [
+          "signedPayload"
+        ],
+        "title": "AppleNotificationRequest",
+        "type": "object"
+      },
       "AssetStatusDetail": {
         "additionalProperties": false,
         "properties": {
@@ -1698,6 +1713,73 @@
         "title": "GenerationWarningInfo",
         "type": "object"
       },
+      "GoogleNotificationRequest": {
+        "properties": {
+          "message": {
+            "$ref": "#/components/schemas/GooglePubSubMessage"
+          },
+          "subscription": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Subscription",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "subscription"
+        ],
+        "title": "GoogleNotificationRequest",
+        "type": "object"
+      },
+      "GooglePubSubMessage": {
+        "properties": {
+          "attributes": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attributes"
+          },
+          "data": {
+            "maxLength": 32000,
+            "minLength": 1,
+            "title": "Data",
+            "type": "string"
+          },
+          "messageId": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Messageid",
+            "type": "string"
+          },
+          "publishTime": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publishtime"
+          }
+        },
+        "required": [
+          "data",
+          "messageId"
+        ],
+        "title": "GooglePubSubMessage",
+        "type": "object"
+      },
       "GrantSubscriptionRequest": {
         "description": "[비프로덕션 전용] 테스트 훅 요청 (M4).",
         "properties": {
@@ -1761,7 +1843,7 @@
           "receipt_data": {
             "anyOf": [
               {
-                "maxLength": 10000,
+                "maxLength": 32768,
                 "type": "string"
               },
               {
@@ -7011,6 +7093,102 @@
         "summary": "Get Peer Comparison",
         "tags": [
           "Growth"
+        ]
+      }
+    },
+    "/v1/iap/notifications/apple": {
+      "post": {
+        "operationId": "apple_native_notification_v1_iap_notifications_apple_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppleNotificationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Apple Native Notification",
+        "tags": [
+          "IAP"
+        ]
+      }
+    },
+    "/v1/iap/notifications/google": {
+      "post": {
+        "operationId": "google_native_notification_v1_iap_notifications_google_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoogleNotificationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Google Native Notification",
+        "tags": [
+          "IAP"
         ]
       }
     },

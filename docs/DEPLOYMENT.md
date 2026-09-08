@@ -13,6 +13,14 @@ This document defines the production deployment contract after the P5 hardening 
 
 Render 대상은 [불변 이미지 기반 실행 패키지](RENDER_DEPLOYMENT_PACKAGE.md)에 별도로 정의합니다. Blueprint 준비는 실서비스 활성화를 뜻하지 않습니다.
 
+## Local release preparation without account activation
+
+`codex/**` branch pushes and manual CI runs validate API/mobile tests and build/scan both container images. Registry login, image publication and deployment remain restricted to `main` push and the existing deployment switch; a branch test run creates no hosted services.
+
+For mobile release compilation, copy `infra/mobile-release.example.json` to a private local configuration and replace its three public URL placeholders. `scripts/build_mobile_release.py --config /path/mobile-release.json --platform android` validates only; add `--execute` for the existing signed AAB, or choose `--platform ios --execute` for a release build without codesigning. The tool refuses backend secret fields and placeholder/private URLs. URL validation does not prove hosted content, production E2E or store approval.
+
+The optional `phase-gate.sh --with-ios-build` and acceptance bundle now compile **debug/no-codesign** iOS as a local compatibility check. They are not substitutes for the explicit release configuration above. Existing SDK/JDK installations are discovered within script processes, without global configuration changes.
+
 ## Source of truth
 
 Production is deployed from version-tagged container images.

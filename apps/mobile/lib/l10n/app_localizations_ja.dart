@@ -1435,7 +1435,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get settingsPoliciesTitle => 'ポリシー';
 
   @override
-  String get settingsPoliciesSubtitle => 'クレジット繰り越し・解約後の保管・印刷返金';
+  String get settingsPoliciesSubtitle => 'クレジットの繰越、解約と返金';
 
   @override
   String get policyCreditRolloverTitle => 'クレジットの繰り越し';
@@ -1450,10 +1450,11 @@ class AppLocalizationsJa extends AppLocalizations {
   String get policyBookAccessBody => '解約しても、すでに作成した絵本はそのまま閲覧・ダウンロードできます。';
 
   @override
-  String get policyRefundTitle => '印刷の返金・再印刷';
+  String get policyRefundTitle => 'キャンセルと返金';
 
   @override
-  String get policyRefundBody => '印刷物に不良や配送中の破損があった場合、無料で再印刷または返金します。';
+  String get policyRefundBody =>
+      'App StoreまたはGoogle Playでのお支払いは、各ストアの返金手続きをご利用ください。物語の生成に失敗した場合、使用したクレジットは自動で戻ります。';
 
   @override
   String get settingsSectionApp => 'アプリ設定';
@@ -1618,10 +1619,18 @@ class AppLocalizationsJa extends AppLocalizations {
   String get planFeaturesFree => '毎月2冊の物語|水彩・漫画のイラスト|アプリで物語を読む';
 
   @override
-  String get planFeaturesBasic => '月10冊作成|すべてのスタイル|PDF|基本TTS';
+  String get planFeaturesBasic => '月5冊作成|すべてのスタイル|PDF|基本TTS';
 
   @override
-  String get planFeaturesPremium => '月30冊作成|すべての機能|プレミアムTTS|優先処理';
+  String get planFeaturesPremium => '月10冊作成|すべての機能|プレミアムTTS|優先処理';
+
+  @override
+  String get creditsStorePriceNotice => '購入画面でストアの価格をご確認ください';
+
+  @override
+  String creditsStoreMonthlyPrice(String price) {
+    return '$price/月';
+  }
 
   @override
   String get creditsCurrentPlan => '現在のプラン';

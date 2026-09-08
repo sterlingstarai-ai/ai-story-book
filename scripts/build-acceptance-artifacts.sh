@@ -7,6 +7,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT_DIR/scripts/mobile-toolchain.sh"
+setup_mobile_toolchain
 STAMP="$(date +%Y%m%d-%H%M%S)"
 OUT_DIR="$ROOT_DIR/docs/acceptance/$STAMP"
 API_PYTHON="$ROOT_DIR/apps/api/venv/bin/python"
@@ -50,8 +52,8 @@ echo "[1/7] Snapshot git status"
 
 echo "[2/7] API tests"
 (
-  cd "$ROOT_DIR"
-  "$API_PYTHON" -m pytest apps/api/tests -q > "$OUT_DIR/api-tests.log" 2>&1
+  cd "$ROOT_DIR/apps/api"
+  "$API_PYTHON" -m pytest tests -q > "$OUT_DIR/api-tests.log" 2>&1
 )
 
 echo "[3/7] Flutter analyze"
@@ -79,13 +81,13 @@ else
 fi
 
 if [ "$SKIP_IOS_BUILD" = false ]; then
-  echo "[6/7] iOS no-codesign build"
+  echo "[6/7] iOS debug no-codesign build"
   (
     cd "$ROOT_DIR/apps/mobile"
-    flutter build ios --no-codesign > "$OUT_DIR/ios-build.log" 2>&1
+    flutter build ios --debug --no-codesign > "$OUT_DIR/ios-build.log" 2>&1
   )
 else
-  echo "[6/7] iOS no-codesign build skipped"
+  echo "[6/7] iOS debug no-codesign build skipped"
   echo "skipped by option --skip-ios-build" > "$OUT_DIR/ios-build.log"
 fi
 

@@ -18,6 +18,7 @@ async def test_beta_does_not_advertise_new_purchases_even_with_store_keys(client
 
 @pytest.mark.asyncio
 async def test_purchase_availability_is_store_specific_and_requires_strict_verification(client, monkeypatch):
+    monkeypatch.setattr(settings, 'apple_app_id', 123456)
     monkeypatch.setattr(settings, 'purchases_enabled', True)
     monkeypatch.setattr(settings, 'iap_verification_mode', 'strict')
     monkeypatch.setattr(settings, 'apple_iap_shared_secret', 'test-secret')

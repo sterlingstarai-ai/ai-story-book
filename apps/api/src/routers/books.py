@@ -1873,21 +1873,24 @@ async def get_page_audio(
             f"(지원: {', '.join(SUPPORTED_AUDIO_LANGUAGES)})"
         )
 
-    audio_url_en = getattr(page, "audio_url_en", None)
-    audio_url_ko = getattr(page, "audio_url_ko", None)
-    audio_url_default = getattr(page, "audio_url", None)
+    from src.services.audio_text import audio_texts
 
-    # 이미 생성된 오디오는 무료 플랜도 반환 — 글 못 읽는 아동에게 낭독은 유일한 소비
-    # 경로라, 기존 오디오까지 결제벽으로 막지 않는다(비독자 접근성).
-    if language == "en" and audio_url_en:
-        return {"audio_url": media_url(audio_url_en)}
-    if language == "ko" and audio_url_ko:
-        return {"audio_url": media_url(audio_url_ko)}
-    if language == "ko" and audio_url_default and book_language == "ko":
-        return {"audio_url": media_url(audio_url_default)}
-    # H3/MA5: ja/zh/es는 책 언어와 일치할 때 기본 슬롯(audio_url)에서 캐시 반환.
-    if language not in ("ko", "en") and language == book_language and audio_url_default:
-        return {"audio_url": media_url(audio_url_default)}
+    text_by_language = audio_texts(page.text, getattr(page, "text_ko", None),
+                                   getattr(page, "text_en", None), book_language)
+    if language not in text_by_language:
+        raise ValidationError("요청한 언어의 본문이 아직 준비되지 않았습니다.")
+    await require_parental_consent(db, user_key)
+
+    # Existing narration remains readable without another synthesis charge.
+    audio_url = None
+    if language == "en":
+        audio_url = getattr(page, "audio_url_en", None)
+    elif language == "ko":
+        audio_url = getattr(page, "audio_url_ko", None)
+    if language == book_language:
+        audio_url = audio_url or getattr(page, "audio_url", None)
+    if audio_url:
+        return {"audio_url": media_url(audio_url)}
 
     # 신규 합성(비용 발생)은 유료 기능. 단, 비독자 저연령(3-5)은 오디오가 책을 소비하는
     # 유일한 수단이므로 무료 플랜에서도 허용한다. 그 외 연령은 결제 게이트.
@@ -1897,36 +1900,19 @@ async def get_page_audio(
 
     # 없으면 즉시 생성
     try:
-        if language == "en":
-            source_text = getattr(page, "text_en", None) or page.text
-        elif language == "ko":
-            source_text = getattr(page, "text_ko", None) or page.text
-        else:
-            # H3: ja/zh/es는 책 본문(page.text)을 책 언어 보이스로 합성.
-            source_text = page.text
+        from src.services.audio_assets import NarrationSource
+        source = NarrationSource.from_page(book, page)
+        source_text = text_by_language[language]
         audio_bytes = await tts_service.synthesize_page(
             source_text,
             target_age=getattr(book, "target_age", None),
             language=language,
         )
 
-        # S3에 업로드
-        audio_key = f"books/{book_id}/audio/page_{page_number}_{language}.mp3"
-        audio_url = await storage_service.upload_bytes(
-            audio_bytes, audio_key, content_type="audio/mpeg"
-        )
-
-        # DB 업데이트 — H3/MA5: 언어별 슬롯. 비 ko/en 책 언어는 기본 슬롯(audio_url)에만
-        # 저장하고, ko companion은 책 언어가 ko일 때만 기본 슬롯을 덮어쓴다(교차 오염 방지).
-        if language == "en":
-            page.audio_url_en = audio_url
-        elif language == "ko":
-            page.audio_url_ko = audio_url
-            if book_language == "ko":
-                page.audio_url = audio_url
-        else:
-            page.audio_url = audio_url
-        await db.commit()
+        from src.services.audio_assets import publish_narration, store_narration
+        audio_url, audio_guard = await store_narration(
+            db, book_id, page_number, language, audio_bytes, user_key=user_key)
+        audio_url = await publish_narration(db, source, language, audio_url, audio_guard)
 
         return {"audio_url": media_url(audio_url)}
 
@@ -1940,6 +1926,8 @@ async def get_page_audio(
                 page_number=page_number,
                 error=str(rollback_error),
             )
+        if isinstance(e, APIError):
+            raise
         logger.error(
             "Audio generation failed", book_id=book_id, page_number=page_number, error=str(e)
         )

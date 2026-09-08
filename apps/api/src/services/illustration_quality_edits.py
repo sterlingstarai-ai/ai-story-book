@@ -288,6 +288,14 @@ async def edit_verified_page(
             page.image_url = verified.image_urls[page_number]
             page.image_prompt = verified.image_prompts[page_number].positive_prompt
             if revised is not None:
+                enqueue_purge_keys(
+                    db, user_key=snapshot.book["user_key"], reason="replaced_page_audio",
+                    keys=[key for key in (
+                        key_from_public_url(page.audio_url),
+                        key_from_public_url(page.audio_url_ko),
+                        key_from_public_url(page.audio_url_en),
+                    ) if key],
+                )
                 page.text = revised
                 page.text_ko = revised if snapshot.book["language"] == "ko" else None
                 page.text_en = revised if snapshot.book["language"] == "en" else None

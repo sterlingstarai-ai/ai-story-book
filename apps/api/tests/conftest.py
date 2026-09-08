@@ -32,6 +32,7 @@ os.environ["AUDIO_FEATURE_ENABLED"] = "true"
 os.environ["TTS_PROVIDER"] = "google"
 os.environ["GOOGLE_TTS_API_KEY"] = "test-tts-key"
 os.environ["STT_PROVIDER"] = "openai"
+os.environ["STT_API_KEY"] = "test-stt-key"
 # S3 credentials for testing (mock values)
 os.environ["S3_ACCESS_KEY"] = "test-access-key"
 os.environ["S3_SECRET_KEY"] = "test-secret-key"

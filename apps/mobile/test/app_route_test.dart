@@ -162,7 +162,7 @@ void main() {
       expect(builtWidget, isA<HomeScreen>());
     });
 
-    testWidgets('builds PodOrderScreen for valid /pod-order arguments',
+    testWidgets('retired physical shipping route falls back to HomeScreen',
         (tester) async {
       final route = buildAppRoute(
         const RouteSettings(
@@ -175,10 +175,7 @@ void main() {
       );
       final builtWidget = await _buildWidgetFromRoute(tester, route);
 
-      expect(builtWidget, isA<PodOrderScreen>());
-      final screen = builtWidget as PodOrderScreen;
-      expect(screen.bookId, 'book-pod-1');
-      expect(screen.bookTitle, '테스트 동화');
+      expect(builtWidget, isA<HomeScreen>());
     });
 
     testWidgets('falls back to HomeScreen for malformed /pod-order arguments',

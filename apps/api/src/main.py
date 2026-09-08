@@ -386,7 +386,9 @@ def _iap_readiness_issues() -> list[str]:
     if (settings.iap_verification_mode or "local").strip().lower() != "strict":
         issues.append("iap_mode_not_strict")
 
-    has_apple = bool(settings.apple_iap_shared_secret)
+    has_apple = bool(settings.apple_iap_shared_secret or settings.apple_app_id or (
+        settings.apple_bundle_id and settings.apple_notification_environment == "Sandbox"
+    ))
     has_google = bool(
         settings.google_play_package_name
         and (
@@ -398,7 +400,16 @@ def _iap_readiness_issues() -> list[str]:
     if not (has_apple or has_google):
         issues.append("iap_store_credentials_missing")
 
-    if not settings.iap_webhook_secret:
+    native_apple_ready = bool(settings.apple_bundle_id and (
+        settings.apple_notification_environment == "Sandbox" or (
+            settings.apple_notification_environment == "Production" and (settings.apple_app_id or 0) > 0
+        )
+    ))
+    native_google_ready = bool(settings.google_rtdn_audience and settings.google_rtdn_service_account_email)
+    if not settings.iap_webhook_secret and not (
+        (not has_apple or native_apple_ready) and (not has_google or native_google_ready)
+        and (has_apple or has_google)
+    ):
         issues.append("iap_webhook_secret_missing")
 
     # M5/R2-5: Apple 검증을 쓰면서 기대 bundle_id가 없으면 cross-app 영수증 리플레이가
@@ -406,6 +417,17 @@ def _iap_readiness_issues() -> list[str]:
     # 여기서 배포를 막는다 — '조용히 검증 안 함'을 남기지 않는다.
     if has_apple and not settings.apple_bundle_id:
         issues.append("apple_bundle_id_missing")
+
+    if settings.purchases_enabled:
+        if has_apple and (
+            settings.apple_notification_environment not in {"Production", "Sandbox"}
+            or (settings.apple_notification_environment == "Production" and (settings.apple_app_id or 0) <= 0)
+        ):
+            issues.append("apple_native_notifications_not_configured")
+        if has_google and not (
+            settings.google_rtdn_audience and settings.google_rtdn_service_account_email
+        ):
+            issues.append("google_native_notifications_not_configured")
 
     return issues
 
@@ -524,7 +546,7 @@ async def _build_readiness_payload(
         )
 
     from src.services.provider_runtime import provider_runtime_status
-    provider_runtime = await provider_runtime_status()
+    provider_runtime = await provider_runtime_status(include_audio=True)
     if provider_runtime["status"] == "unverified":
         warnings.append("provider_runtime_unverified")
     # A configured key without a recent successful response is not evidence that

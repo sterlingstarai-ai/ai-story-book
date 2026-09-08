@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
 from src.core.audio_feature import require_audio_supported
+from src.core.consent import require_parental_consent
 from src.core.database import get_db
 from src.core.dependencies import get_user_key
 from src.core.exceptions import ValidationError
@@ -36,7 +37,9 @@ class PronunciationEvaluateRequest(BaseModel):
 
 
 def _score_pronunciation(transcript: str, expected: str) -> tuple[float, str]:
-    token_pattern = re.compile(r"[0-9A-Za-z가-힣']+")
+    # Unicode letters preserve Japanese/Chinese/Spanish instead of scoring
+    # perfectly recognized speech as empty. Apostrophes stay within words.
+    token_pattern = re.compile(r"[^\W_]+(?:'[^\W_]+)*", re.UNICODE)
     expected_tokens = token_pattern.findall(expected.lower())
     transcript_tokens = token_pattern.findall(transcript.lower())
     if not expected_tokens:
@@ -93,6 +96,7 @@ async def evaluate_pronunciation(
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
 ):
+    await require_parental_consent(db, user_key)
     # R4/IDOR: book_id 소유권 미검증이면 남의 책 id로 로그를 남겨 타인의 성장 지표를
     # 오염시킬 수 있고, 존재하지 않는 id는 운영(PG)에서 FK 위반 500이 된다. 형제 write
     # 경로(streak /read, quiz)가 이미 쓰는 공용 불변식을 여기서도 적용한다.
@@ -139,6 +143,7 @@ async def evaluate_pronunciation_audio(
 ):
     # H1/G9: STT 비활성 배포에서는 provider 해석 실패 500 대신 명시적 미지원으로 차단.
     require_audio_supported()
+    await require_parental_consent(db, user_key)
 
     if page_number is not None and not (1 <= page_number <= 12):
         raise ValidationError("page_number는 1~12 범위여야 합니다.")
@@ -155,7 +160,7 @@ async def evaluate_pronunciation_audio(
     if not audio_file.content_type or not audio_file.content_type.startswith("audio/"):
         raise ValidationError("오디오 파일만 업로드 가능합니다.")
 
-    audio_bytes = await audio_file.read()
+    audio_bytes = await audio_file.read(_MAX_PRONUNCIATION_AUDIO_BYTES + 1)
     if not audio_bytes:
         raise ValidationError("빈 오디오 파일은 평가할 수 없습니다.")
     if len(audio_bytes) > _MAX_PRONUNCIATION_AUDIO_BYTES:

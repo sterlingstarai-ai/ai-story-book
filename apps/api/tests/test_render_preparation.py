@@ -143,3 +143,30 @@ def test_missing_ca_secret_file_prevents_start(runtime, monkeypatch):
     monkeypatch.setattr(launcher, 'Path', lambda _: SimpleNamespace(is_file=lambda: False))
     with pytest.raises(ValueError, match='Secret File is missing'):
         launcher.launch_environment(config, {})
+
+
+def test_new_paid_feature_settings_reach_api_and_worker_in_all_topologies(release):
+    required = {'APPLE_APP_ID', 'APPLE_BUNDLE_ID', 'APPLE_NOTIFICATION_ENVIRONMENT', 'APPLE_ROOT_CA_PATHS',
+                'GOOGLE_RTDN_AUDIENCE', 'GOOGLE_RTDN_SERVICE_ACCOUNT_EMAIL', 'STT_MODEL'}
+    for name in ['docker-compose.yml', 'docker-compose.prod.yml', 'docker-compose.external.yml']:
+        services = yaml.safe_load((ROOT / 'infra' / name).read_text())['services']
+        for role in ['api', 'worker']:
+            env = services[role]['environment']
+            keys = set(env) if isinstance(env, dict) else {item.split('=', 1)[0] for item in env}
+            assert required <= keys, (name, role, required - keys)
+    api, worker, _ = yaml.safe_load(prepare.prepare(release, registry_credential='storybook-ghcr-read'))['services']
+    for service in [api, worker]:
+        assert required <= {item['key'] for item in service['envVars']}
+
+
+def test_disabled_optional_integrations_do_not_break_render_settings_startup(release):
+    from src.core.config import Settings
+
+    api = yaml.safe_load(prepare.prepare(release, registry_credential='storybook-ghcr-read'))['services'][0]
+    values = {item['key'].lower(): item['value'] for item in api['envVars'] if 'value' in item}
+    values.update(database_url='sqlite+aiosqlite:///:memory:', redis_url='redis://localhost:6379/0')
+    config = Settings(_env_file=None, **values)
+    assert config.printful_sync_variant_id == 0
+    assert config.apple_app_id == 0
+    assert config.purchases_enabled is False
+    assert config.pod_ordering_enabled is False

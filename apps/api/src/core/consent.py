@@ -30,7 +30,8 @@ async def latest_active_consent(
 ) -> Optional[UserConsent]:
     """Return only the latest decision when mandatory consent is still active."""
     latest = (await db.execute(select(UserConsent).where(UserConsent.user_key == user_key)
-        .order_by(UserConsent.created_at.desc(), UserConsent.id.desc()))).scalars().first()
+        .order_by(UserConsent.created_at.desc(), UserConsent.id.desc())
+        .execution_options(populate_existing=True))).scalars().first()
     return latest if (latest and latest.revoked_at is None and latest.granted
                       and latest.privacy and latest.data_processing) else None
 

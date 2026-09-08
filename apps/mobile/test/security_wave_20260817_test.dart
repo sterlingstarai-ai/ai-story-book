@@ -192,18 +192,13 @@ void main() {
     });
   });
 
-  // ════════ R0-1: iOS StoreKit1 강제 ════════
+  // ════════ R0-1: iOS StoreKit 초기화 ════════
 
-  group('R0-1 — iOS StoreKit1 강제', () {
+  group('R0-1 — iOS StoreKit 초기화', () {
     setUp(IapPlatformInit.resetForTest);
 
-    test('iOS에서 enableStoreKit1을 호출한다', () async {
-      // 이 호출이 없으면 storekit 0.4.8 기본값(StoreKit2) 때문에
-      // serverVerificationData 가 legacy 앱 영수증이 아니라 JWS 로 나가고, 백엔드의
-      // legacy /verifyReceipt 가 21002(malformed)로 **전량 실패**한다(과금됐는데 미지급).
-      //
-      // red-proof: main.dart 의 `await IapPlatformInit.ensureStoreKit1()` 을 지우거나
-      // 이 클래스의 호출을 no-op으로 바꾸면 calls == 0 이 되어 FAIL.
+    test('레거시 진단 모드는 iOS에서 enableStoreKit1을 호출한다', () async {
+      // 레거시 진단용 opt-in 경로는 실제로 SK1을 선택해야 한다.
       var calls = 0;
       await IapPlatformInit.ensureStoreKit1(
         isIOS: true,
@@ -237,9 +232,13 @@ void main() {
       }
 
       await IapPlatformInit.ensureStoreKit1(
-          isIOS: true, enableStoreKit1: enable);
+        isIOS: true,
+        enableStoreKit1: enable,
+      );
       await IapPlatformInit.ensureStoreKit1(
-          isIOS: true, enableStoreKit1: enable);
+        isIOS: true,
+        enableStoreKit1: enable,
+      );
       expect(calls, 1);
     });
 
@@ -251,14 +250,31 @@ void main() {
       expect(IapPlatformInit.lastStoreKit1Applied, isNull);
     });
 
-    test('main.dart 가 SharedPreferences/IAP 접근 전에 강제한다', () {
-      // 순서가 load-bearing 이다: 플러그인 등록은 `InAppPurchase.instance` **첫 접근**에서
-      // 일어나고, 그 시점의 플래그로 SK1/SK2 옵저버가 정해진다. 늦게 부르면 무효다.
+    test('main.dart가 부팅 전에 StoreKit 기본값을 선택하고 이후 SK1 전환을 막는다', () async {
+      // 서버가 SK2 서명 거래를 검증하므로 유지 관리되는 플러그인 기본값을 사용한다.
+      // 결제 서비스가 생성되기 전에 모드를 확정해야 한다는 부팅 순서 계약은 유지한다.
       final source = File('lib/main.dart').readAsStringSync();
-      final storeKitAt = source.indexOf('IapPlatformInit.ensureStoreKit1');
+      final storeKitAt = source.indexOf(
+        'IapPlatformInit.useStoreKitDefault();',
+      );
+      final preferencesAt = source.indexOf('SharedPreferences.getInstance()');
       final runAppAt = source.indexOf('runApp(');
-      expect(storeKitAt, greaterThan(0), reason: 'SK1 강제 호출이 없다');
+      expect(storeKitAt, greaterThan(0), reason: 'StoreKit 기본값 선택이 없다');
+      expect(preferencesAt, greaterThan(storeKitAt));
       expect(storeKitAt, lessThan(runAppAt));
+      expect(source, isNot(contains('IapPlatformInit.ensureStoreKit1(')));
+
+      IapPlatformInit.useStoreKitDefault();
+      var legacyCalls = 0;
+      await IapPlatformInit.ensureStoreKit1(
+        isIOS: true,
+        enableStoreKit1: () async {
+          legacyCalls++;
+          return false;
+        },
+      );
+      expect(legacyCalls, 0, reason: '부팅 후 레거시 옵저버로 전환하면 안 된다');
+      expect(IapPlatformInit.lastStoreKit1Applied, isFalse);
     });
   });
 

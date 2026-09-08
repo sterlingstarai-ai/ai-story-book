@@ -326,3 +326,15 @@ def test_real_pg_fk_gate_runs_before_create_all_gate(ci_data):
     fk_at = next(i for i, n in enumerate(names) if "test_pg_fk_erasure.py" in n)
     c1_at = next(i for i, n in enumerate(names) if "test_celery_worker_pg.py" in n)
     assert fk_at < c1_at, "실PG FK 게이트는 C1(create_all) 게이트보다 먼저 돌아야 한다"
+
+
+def test_development_push_runs_checks_and_images_without_registry_publication(ci_data):
+    triggers = ci_data.get('on', ci_data.get(True))
+    assert 'codex/**' in triggers['push']['branches']
+    assert 'workflow_dispatch' in triggers
+    assert 'if' not in ci_data['jobs']['build']
+    assert set(ci_data['jobs']['build']['needs']) == {'api-test', 'flutter-test', 'phase-gate', 'security-scan'}
+    for step in _steps(ci_data, 'build'):
+        if step.get('name') in {'Login to Container Registry', 'Push images to registry'}:
+            assert "github.event_name == 'push'" in step['if']
+            assert "github.ref == 'refs/heads/main'" in step['if']

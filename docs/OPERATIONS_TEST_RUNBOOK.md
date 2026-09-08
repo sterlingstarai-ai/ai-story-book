@@ -53,6 +53,8 @@ Key regression coverage includes:
 - pronunciation/POD/branch story interactions
 - API request correlation and degraded asset parsing
 
+The integration/build wrappers source `scripts/mobile-toolchain.sh` to find existing Android SDK and Android Studio JDK installations when they are absent from PATH. They do not install tools or edit shell configuration. Android native storage/device tests remain separate from headless tests. The optional iOS quality build is debug/no-codesign; use `scripts/build_mobile_release.py` with explicit public URLs for release compilation.
+
 ## 4. Runtime health checks
 
 Against a live API host:

@@ -12,6 +12,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../services/page_audio_playback.dart';
 import 'package:printing/printing.dart';
 import '../core/api_error.dart';
 import '../core/media_urls.dart';
@@ -47,6 +49,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   late PageController _pageController;
   late final ConfettiController _completionConfettiController;
   final AudioPlayer _audioPlayer = AudioPlayer();
+  late final PageAudioPlayback _pageAudio;
+  late final SharedPreferences _audioPreferences;
+  int _lastSavedAudioSecond = -1;
   StreamSubscription<PlayerState>? _playerStateSubscription;
   StreamSubscription<Duration>? _positionSubscription;
   Timer? _sleepModeTimer;
@@ -88,7 +93,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     // 구성. UIBackgroundModes(audio)와 함께 동작. 플러그인 실패 시 조용히 폴백하되 로그.
     try {
       final session = await AudioSession.instance;
-      await session.configure(const AudioSessionConfiguration.music());
+      await session.configure(const AudioSessionConfiguration.speech());
     } catch (e, st) {
       debugPrint('AudioSession configure failed: $e\n$st');
     }
@@ -98,6 +103,12 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   void initState() {
     super.initState();
     _readingSessionApi = ref.read(apiClientProvider);
+    _audioPreferences = ref.read(sharedPreferencesProvider);
+    _pageAudio = PageAudioPlayback(JustAudioPagePlayer(_audioPlayer),
+        onError: (error) => unawaited(_showAudioError(error)));
+    _pageAudio.addListener(() {
+      if (mounted) setState(() => _isLoadingAudio = _pageAudio.loading);
+    });
     _readingSessionScope = ProviderScope.containerOf(context, listen: false);
     WidgetsBinding.instance.addObserver(this);
     _mediaRefreshTimer = Timer.periodic(
@@ -117,7 +128,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     _playerStateSubscription = _audioPlayer.playerStateStream.listen((state) {
       if (mounted) {
         setState(() {
-          _isPlaying = state.playing;
+          _isPlaying = state.playing &&
+              state.processingState != ProcessingState.completed;
           if (state.processingState == ProcessingState.completed) {
             _audioProgress = 1;
           }
@@ -129,11 +141,16 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
       }
     });
     _positionSubscription = _audioPlayer.positionStream.listen((position) {
-      if (!mounted || !_isPlaying) {
+      if (!mounted || !_isPlaying || !_pageAudio.hasLoadedSource) {
         return;
       }
       if (_audioProgressPage != _currentPage) {
         return;
+      }
+      final second = position.inSeconds;
+      if (second != _lastSavedAudioSecond && second % 2 == 0) {
+        _lastSavedAudioSecond = second;
+        unawaited(_saveAudioPosition(position));
       }
       final duration = _audioPlayer.duration;
       if (duration == null || duration.inMilliseconds <= 0) {
@@ -173,7 +190,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     _sleepModeTimer?.cancel();
     _completionConfettiController.dispose();
     _pageController.dispose();
-    _audioPlayer.dispose();
+    _pageAudio.dispose();
+    unawaited(_audioPlayer.dispose());
     super.dispose();
   }
 
@@ -283,10 +301,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
             controller: _pageController,
             itemCount: totalPages,
             onPageChanged: (index) async {
-              await _audioPlayer.stop();
-              if (!mounted) {
-                return;
-              }
+              final stopped = _pageAudio.stop();
               setState(() {
                 _currentPage = index;
                 _audioProgress = 0;
@@ -296,7 +311,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                 _maxPageReached = index;
               }
               unawaited(_saveReadingProgress(index, totalPages));
-              if (_sleepModeEnabled && index > 0) {
+              await stopped;
+              if (mounted && _currentPage == index &&
+                  _sleepModeEnabled && index > 0) {
                 await _playPageAudio(book, restart: true);
               }
             },
@@ -758,7 +775,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                 hasTranslation: book.titleKo != null || book.titleEn != null,
                 onToggle: () async {
                   final wasPlaying = _isPlaying;
-                  await _audioPlayer.stop();
+                  await _pageAudio.stop();
                   if (!mounted) {
                     return;
                   }
@@ -948,17 +965,28 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
 
   Future<void> _toggleAudio(BookResult book) async {
     if (_isPlaying) {
-      await _audioPlayer.pause();
+      await _pageAudio.pause();
+      await _saveAudioPosition(_audioPlayer.position);
       return;
     }
-    if (mounted) {
-      setState(() {
-        _audioProgressPage = _currentPage;
-      });
-    } else {
-      _audioProgressPage = _currentPage;
+    await _playPageAudio(book);
+  }
+
+  String get _audioPositionKey => 'reading_progress_audio_${widget.bookId}_v1';
+
+  Future<void> _saveAudioPosition(Duration position) async {
+    if (_currentPage < 1 || _completionHandled) return;
+    await _audioPreferences.setString(_audioPositionKey,
+        '$_currentPage|$_selectedLanguage|${position.inMilliseconds}');
+  }
+
+  Duration _savedAudioPosition(int page, String language) {
+    final saved = _audioPreferences.getString(_audioPositionKey)?.split('|');
+    if (saved == null || saved.length != 3 ||
+        saved[0] != '$page' || saved[1] != language) {
+      return Duration.zero;
     }
-    await _playPageAudio(book, restart: true);
+    return Duration(milliseconds: (int.tryParse(saved[2]) ?? 0).clamp(0, 3600000));
   }
 
   ApiError? _extractApiError(Object error) {
@@ -994,58 +1022,38 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     return true;
   }
 
+  Future<void> _showAudioError(Object error) async {
+    if (await _handlePaymentRequired(error) || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(AppLocalizations.of(context).viewerAudioPlayFailed),
+        backgroundColor: AppColors.error,
+      ),
+    );
+  }
+
   Future<void> _playPageAudio(BookResult book, {bool restart = false}) async {
-    if (_currentPage == 0) {
-      return; // 표지는 오디오 없음
-    }
-
-    setState(() {
-      _isLoadingAudio = true;
-      _audioProgress = 0;
-      _audioProgressPage = _currentPage;
-    });
-
-    try {
-      if (restart) {
-        await _audioPlayer.stop();
+    if (!mounted || _currentPage == 0 || _pageAudio.loading) return;
+    final pageIndex = _currentPage;
+    final language = _selectedLanguage;
+    final page = book.pages[pageIndex - 1];
+    final key = pageAudioCacheKey(book.bookId, pageIndex, language,
+        page.getText(language));
+    setState(() { _audioProgressPage = pageIndex; });
+    await _pageAudio.play(key, () => cachedPageAudio(key, () async {
+      // The base audio slot belongs to the book language, never a translation.
+      String? url = language == 'ko' ? page.audioUrlKo :
+          language == 'en' ? page.audioUrlEn : null;
+      if (language == (book.language ?? 'ko')) url ??= page.audioUrl;
+      if (url == null || url.isEmpty || mediaUrlNeedsRefresh(url)) {
+        return _readingSessionApi.getPageAudioUrl(book.bookId, pageIndex,
+            language: language);
       }
-      final apiClient = ref.read(apiClientProvider);
-      final page = book.pages[_currentPage - 1];
-
-      // 이미 오디오 URL이 있으면 바로 재생
-      String? audioUrl = page.getAudioUrl(_selectedLanguage);
-
-      // 없으면 API에서 가져오기 (자동 생성)
-      if (audioUrl == null ||
-          audioUrl.isEmpty ||
-          mediaUrlNeedsRefresh(audioUrl)) {
-        audioUrl = await apiClient.getPageAudioUrl(
-          book.bookId,
-          _currentPage,
-          language: _selectedLanguage,
-        );
-      }
-
-      // 오디오 재생
-      await _audioPlayer.setUrl(audioUrl);
-      await _audioPlayer.play();
-    } catch (e) {
-      if (await _handlePaymentRequired(e)) {
-        return;
-      }
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(AppLocalizations.of(context).viewerAudioPlayFailed),
-            backgroundColor: AppColors.error,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isLoadingAudio = false);
-      }
-    }
+      return url;
+    }, isCurrent: () => mounted && _currentPage == pageIndex &&
+        _selectedLanguage == language), restart: restart,
+        initialPosition: restart ? Duration.zero :
+            _savedAudioPosition(pageIndex, language));
   }
 
   Future<void> _handleSleepPlaybackCompleted() async {
@@ -1139,7 +1147,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
       _sleepModeEnabled = false;
     }
 
-    await _audioPlayer.stop();
+    await _pageAudio.stop();
     if (byTimer && wasEnabled && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1194,6 +1202,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   Future<void> _clearReadingProgress() async {
     final prefs = ref.read(sharedPreferencesProvider);
     await prefs.remove(_progressKey);
+    await prefs.remove(_audioPositionKey);
   }
 
   /// 다른 연령대로 본문만 다시 써서 새 책으로 연다(삽화 재사용, 크레딧 0).
@@ -1421,26 +1430,6 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                 _downloadPdf(book);
               },
             ),
-            if (ref
-                    .read(capabilitiesProvider)
-                    .valueOrNull?['pod_ordering_supported'] ==
-                true)
-              ListTile(
-                leading: const Icon(Icons.local_shipping_outlined),
-                title: Text(l.viewerOrderPhysicalBook),
-                subtitle: Text(l.viewerOrderPhysicalBookSubtitle),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.pushNamed(
-                    context,
-                    '/pod-order',
-                    arguments: {
-                      'bookId': book.bookId,
-                      'bookTitle': book.title,
-                    },
-                  );
-                },
-              ),
             if (audioOk || _sleepModeEnabled)
               ListTile(
                 leading: Icon(

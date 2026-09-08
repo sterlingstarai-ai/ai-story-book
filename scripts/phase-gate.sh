@@ -10,6 +10,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT_DIR/scripts/mobile-toolchain.sh"
+setup_mobile_toolchain
 MOBILE_DIR="$ROOT_DIR/apps/mobile"
 API_DIR="$ROOT_DIR/apps/api"
 API_PYTHON="$API_DIR/venv/bin/python"
@@ -80,7 +82,7 @@ if [ "$WITH_IOS_BUILD" = true ]; then
   echo "==> [6/6] Mobile iOS build (no codesign)"
   (
     cd "$MOBILE_DIR"
-    flutter build ios --no-codesign
+    flutter build ios --debug --no-codesign
   )
 else
   echo "==> [6/6] Mobile iOS build skipped (use --with-ios-build)"

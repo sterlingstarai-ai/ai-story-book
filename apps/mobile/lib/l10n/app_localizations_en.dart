@@ -1498,7 +1498,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsPoliciesSubtitle =>
-      'Credit rollover, access after cancel, print refunds';
+      'Credit rollover, subscription cancellation and refunds';
 
   @override
   String get policyCreditRolloverTitle => 'Credit rollover';
@@ -1515,11 +1515,11 @@ class AppLocalizationsEn extends AppLocalizations {
       'Even if you cancel, the books you\'ve already made stay readable and downloadable.';
 
   @override
-  String get policyRefundTitle => 'Print refund & reprint';
+  String get policyRefundTitle => 'Cancellations and refunds';
 
   @override
   String get policyRefundBody =>
-      'If a printed book is defective or damaged in transit, we\'ll reprint it free or refund you.';
+      'For purchases made through the App Store or Google Play, use the store’s refund process. If book generation fails, the used story credit is restored automatically.';
 
   @override
   String get settingsSectionApp => 'App settings';
@@ -1691,11 +1691,19 @@ class AppLocalizationsEn extends AppLocalizations {
       '2 books each month|Watercolor & cartoon illustrations|Read stories in the app';
 
   @override
-  String get planFeaturesBasic => '10 books / month|All styles|PDF|Basic TTS';
+  String get planFeaturesBasic => '5 books / month|All styles|PDF|Basic TTS';
 
   @override
   String get planFeaturesPremium =>
-      '30 books / month|All features|Premium TTS|Priority processing';
+      '10 books / month|All features|Premium TTS|Priority processing';
+
+  @override
+  String get creditsStorePriceNotice => 'Confirm your store price at checkout';
+
+  @override
+  String creditsStoreMonthlyPrice(String price) {
+    return '$price/month';
+  }
 
   @override
   String get creditsCurrentPlan => 'Current Plan';

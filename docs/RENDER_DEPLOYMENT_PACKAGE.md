@@ -1,5 +1,7 @@
 # Render 실행 준비 패키지
 
+> 2026-09-08: [운영·릴리스 배선 보완](DEPLOYMENT_WIRING_2026-09-08.md)을 함께 확인합니다. 아래는 최초 준비 시점의 기록이며, 신규 결제와 서비스 활성화는 계속 보류 중입니다. Apple 기본 공개 root CA는 앱에 번들되고 `APPLE_ROOT_CA_PATHS`는 선택 override입니다. override 인증서·Google 서비스 계정 파일을 쓰면 API와 worker 둘 모두에 읽기 전용으로 공급합니다.
+
 2026-09-06. 현재 산출물은 **유료 서비스 활성화 전 검토용 구성**입니다. 개발용 무료 Render 작업공간만 준비했고 유료 서비스 활성화·commit/push·이미지 배포를 실행하지 않았습니다. 대상 저장소는 `https://github.com/sterlingstarai-ai/ai-story-book`이며 공개 저장소이므로 개인 자료·계정 정보·키를 제외한 출시 소스만 전송 대상으로 검토합니다.
 
 ## 파일과 초기 월 구성

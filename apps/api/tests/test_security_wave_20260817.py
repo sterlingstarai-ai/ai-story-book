@@ -337,42 +337,19 @@ async def test_pronunciation_rejects_foreign_book(client, db_session):
     assert r.status_code == 403, r.text
 
 
-@pytest.mark.asyncio
-async def test_voice_profile_rejects_foreign_storage_url(client):
-    """R4: 샘플 오디오 URL이 내 prefix 밖이면 거부한다(임의 객체 삭제 프리미티브 차단).
-
-    이 URL은 나중에 `key_from_public_url`로 역산돼 그대로 삭제 대상이 된다 — 검증이 없으면
-    타인의 아동 사진 키를 지정한 뒤 프로필을 지워 임의 객체를 파기할 수 있다.
-
-    red-proof: `_normalize_required_url` 의 prefix 검사를 지우면 200이 되어 FAIL.
-    """
+def test_voice_profile_rejects_foreign_storage_url():
+    """Retain the legacy URL ownership invariant independently of collection availability."""
+    from src.core.exceptions import ValidationError
+    from src.routers.voice_profiles import _normalize_required_url
     base = settings.s3_public_url.rstrip("/")
-    r = await client.post(
-        "/v1/voice-profiles",
-        headers=H,
-        json={
-            "label": "엄마",
-            "sample_audio_url": f"{base}/characters/char_victim/photo.jpg",
-            "consented": True,
-        },
-    )
-    assert r.status_code == 400, r.text
-
-    # 내 prefix 안의 URL은 정상 통과 — 반대 방향 봉인.
-    ok = await client.post(
-        "/v1/voice-profiles",
-        headers=H,
-        json={
-            "label": "엄마",
-            "sample_audio_url": f"{base}/voice-samples/{H['X-User-Key']}/s.m4a",
-            "consented": True,
-        },
-    )
-    assert ok.status_code == 200, ok.text
+    with pytest.raises(ValidationError):
+        _normalize_required_url(f"{base}/characters/char_victim/photo.jpg", user_key=H["X-User-Key"])
+    assert _normalize_required_url(f"{base}/voice-samples/{H['X-User-Key']}/s.m4a",
+                                   user_key=H["X-User-Key"])
 
 
 @pytest.mark.asyncio
-async def test_voice_profile_patch_purges_old_sample_not_new(client, monkeypatch):
+async def test_voice_profile_patch_purges_old_sample_not_new(client, monkeypatch, db_session):
     """R4: PATCH 파기 순서 — 교체된 **옛** 샘플을 지우고 새 파일은 남긴다.
 
     수정 전에는 setattr 루프 뒤에 purge_url을 읽어, sample_audio_url 교체 + consented=false가
@@ -396,23 +373,21 @@ async def test_voice_profile_patch_purges_old_sample_not_new(client, monkeypatch
     old_url = f"{base}/voice-samples/{uk}/old.m4a"
     new_url = f"{base}/voice-samples/{uk}/new.m4a"
 
-    created = await client.post(
-        "/v1/voice-profiles",
-        headers=H,
-        json={"label": "아빠", "sample_audio_url": old_url, "consented": True},
-    )
-    assert created.status_code == 200, created.text
-    profile_id = created.json()["id"]
+    from tests.voice_fixtures import seed_voice_profile
+    profile_id = await seed_voice_profile(db_session, uk, sample_audio_url=old_url)
 
     patched = await client.patch(
         f"/v1/voice-profiles/{profile_id}",
         headers=H,
         json={"sample_audio_url": new_url, "consented": False},
     )
-    assert patched.status_code == 200, patched.text
-
-    assert f"voice-samples/{uk}/old.m4a" in deleted, deleted
-    assert f"voice-samples/{uk}/new.m4a" not in deleted, deleted
+    assert patched.status_code == 409, patched.text
+    assert deleted == []  # Unsupported replacement cannot delete either file.
+    revoked = await client.patch(f"/v1/voice-profiles/{profile_id}", headers=H,
+                                  json={"consented": False})
+    assert revoked.status_code == 200
+    assert f"voice-samples/{uk}/old.m4a" in deleted
+    assert f"voice-samples/{uk}/new.m4a" not in deleted
 
 
 def test_key_from_public_url_recognizes_legacy_bases(monkeypatch):

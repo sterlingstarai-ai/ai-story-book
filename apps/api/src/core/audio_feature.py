@@ -35,7 +35,15 @@ def audio_readiness_issues() -> list[str]:
         issues.append("tts_provider_not_live")
 
     stt = (settings.stt_provider or "").strip().lower()
-    if stt not in {"openai", "google"}:
+    if stt == "openai":
+        if not (settings.stt_api_key or (
+            settings.llm_api_key if settings.llm_provider == "openai" else None
+        )):
+            issues.append("stt_key")
+    elif stt == "google":
+        if not settings.google_stt_api_key:
+            issues.append("stt_key")
+    else:
         issues.append("stt_provider_not_live")
 
     return issues
@@ -63,3 +71,17 @@ def require_audio_supported() -> None:
             "message": "이 배포에서는 오디오 기능을 사용할 수 없습니다.",
         },
     )
+
+
+def voice_profiles_supported() -> bool:
+    """Narration providers do not consume family-voice samples in this release."""
+    return False
+
+
+def require_voice_profiles_supported() -> None:
+    if voice_profiles_supported():
+        return
+    raise HTTPException(status_code=409, detail={
+        "code": "VOICE_PROFILE_NOT_SUPPORTED",
+        "message": "가족 목소리 등록은 지원하지 않습니다. 저장된 음성 삭제와 동의 철회는 이용할 수 있습니다.",
+    })

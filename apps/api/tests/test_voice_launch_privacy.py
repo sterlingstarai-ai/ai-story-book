@@ -15,21 +15,23 @@ from src.services.purge_queue import run_purge_tasks
 async def test_voice_upload_never_exposes_account_credential(client, headers):
     response = await client.post('/v1/voice-profiles/upload-sample', headers=headers,
                                  files={'sample': ('parent.wav', b'sample', 'audio/wav')})
-    assert response.status_code == 200
+    assert response.status_code == 409
+    assert response.json()['error']['code'] == 'VOICE_PROFILE_NOT_SUPPORTED'
     assert headers['X-User-Key'] not in response.text
-    key = storage.key_from_public_url(response.json()['sample_audio_url'])
-    assert key.startswith(storage.voice_sample_prefix(headers['X-User-Key']))
-    assert 'X-Amz-Signature' in response.json()['sample_audio_url']
+    capabilities = (await client.get('/v1/config/capabilities')).json()
+    assert capabilities['audio_supported'] is True
+    assert capabilities['voice_profiles_supported'] is False
 
 
 @pytest.mark.asyncio
-async def test_disabled_voice_blocks_collection_but_preserves_erasure(client, headers, db_session, monkeypatch):
+@pytest.mark.parametrize("audio_enabled", [False, True])
+async def test_disabled_voice_blocks_collection_but_preserves_erasure(client, headers, db_session, monkeypatch, audio_enabled):
     profile = VoiceProfile(id='old-voice', user_key=headers['X-User-Key'], label='Parent',
                            sample_audio_url=storage.canonical_media_url('voice-samples/' + headers['X-User-Key'] + '/old.wav'),
                            consented=True, active=True)
     db_session.add(profile)
     await db_session.commit()
-    monkeypatch.setattr(settings, 'audio_feature_enabled', False)
+    monkeypatch.setattr(settings, 'audio_feature_enabled', audio_enabled)
     listed = await client.get('/v1/voice-profiles', headers=headers)
     assert listed.status_code == 200
     assert headers['X-User-Key'] not in listed.text

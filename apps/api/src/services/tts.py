@@ -9,6 +9,7 @@ from typing import Optional
 from abc import ABC, abstractmethod
 
 from ..core.config import settings
+from src.services.provider_runtime import begin_provider_request, observe_provider_response
 
 logger = structlog.get_logger()
 
@@ -112,6 +113,7 @@ class OpenAITTSProvider(BaseTTSProvider):
                 "Use a warm, calm storytelling voice with natural pauses. "
                 "Do not add introductions, sound effects, or additional words."
             )
+        observation = begin_provider_request("openai", settings.openai_tts_model, "tts", key)
         async with httpx.AsyncClient(timeout=60) as client:
             response = await client.post(
                 "https://api.openai.com/v1/audio/speech",
@@ -119,12 +121,14 @@ class OpenAITTSProvider(BaseTTSProvider):
                 headers={"Authorization": f"Bearer {key}"},
             )
         if response.is_error:
+            await observe_provider_response(observation, response)
             # Provider response bodies may echo the story or credentials.
             raise ValueError(f"OpenAI TTS API error: {response.status_code}")
         if not response.content or not response.headers.get("content-type", "").startswith(
             "audio/"
         ):
             raise ValueError("OpenAI TTS returned no audio")
+        await observe_provider_response(observation, response)
         return response.content
 
 
@@ -166,11 +170,13 @@ class GoogleTTSProvider(BaseTTSProvider):
             },
         }
 
+        observation = begin_provider_request("google", "google-tts", "tts", self.api_key)
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(
                 f"{self.base_url}?key={self.api_key}",
                 json=payload,
             )
+            await observe_provider_response(observation, response)
             try:
                 response.raise_for_status()
             except httpx.HTTPStatusError as e:
@@ -224,6 +230,7 @@ class ElevenLabsProvider(BaseTTSProvider):
             },
         }
 
+        observation = begin_provider_request("elevenlabs", "elevenlabs-tts", "tts", self.api_key)
         async with httpx.AsyncClient(timeout=60) as client:
             response = await client.post(
                 f"{self.base_url}/{voice_id}",
@@ -233,6 +240,7 @@ class ElevenLabsProvider(BaseTTSProvider):
                     "Content-Type": "application/json",
                 },
             )
+            await observe_provider_response(observation, response)
             try:
                 response.raise_for_status()
             except httpx.HTTPStatusError as e:

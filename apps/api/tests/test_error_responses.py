@@ -274,10 +274,9 @@ class TestErrorResponseFormat:
             headers=headers,
         )
 
-        assert response.status_code == 400
+        assert response.status_code == 409
         body = response.json()
-        assert body["error"]["code"] == "VALIDATION_ERROR"
-        assert body["detail"] == "오디오 파일만 업로드 가능합니다."
+        assert body["error"]["code"] == "VOICE_PROFILE_NOT_SUPPORTED"
         assert body["error"]["message"] == body["detail"]
 
     @pytest.mark.asyncio
@@ -293,10 +292,9 @@ class TestErrorResponseFormat:
             headers=headers,
         )
 
-        assert response.status_code == 400
+        assert response.status_code == 409
         body = response.json()
-        assert body["error"]["code"] == "VALIDATION_ERROR"
-        assert body["detail"] == "샘플 오디오는 15MB 이하여야 합니다."
+        assert body["error"]["code"] == "VOICE_PROFILE_NOT_SUPPORTED"
         assert body["error"]["message"] == body["detail"]
 
     @pytest.mark.asyncio

@@ -21,6 +21,7 @@ Current launch decisions, remaining owner actions, and verification boundaries: 
 - Backend API: implemented in `apps/api`
 - Deployment model: GHCR image tag -> production compose pull -> up
 - Quality gate: repository-root `./scripts/phase-gate.sh`
+- Public-only mobile release build preparation: `scripts/build_mobile_release.py` ([deployment guide](docs/DEPLOYMENT.md)); validation by default, no store upload.
 - Health contract:
   - `/health/live`
   - `/health/ready`
