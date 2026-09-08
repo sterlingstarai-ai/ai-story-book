@@ -1171,7 +1171,7 @@ abstract class AppLocalizations {
   /// No description provided for @errorUnauthorized.
   ///
   /// In en, this message translates to:
-  /// **'Please sign in.'**
+  /// **'This device’s account connection has expired. Use your recovery code in Settings to reconnect.'**
   String get errorUnauthorized;
 
   /// No description provided for @errorForbidden.
@@ -6163,6 +6163,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'AI voice'**
   String get viewerAiNarration;
+
+  /// No description provided for @createRequestPending.
+  ///
+  /// In en, this message translates to:
+  /// **'Submitting your story request. A delayed response will not cause a duplicate charge.'**
+  String get createRequestPending;
+
+  /// No description provided for @viewerLearningUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Learning activities are unavailable for this book. You can still read the complete story.'**
+  String get viewerLearningUnavailable;
 }
 
 class _AppLocalizationsDelegate

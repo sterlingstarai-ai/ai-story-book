@@ -31,8 +31,8 @@
 
 ```json
 {
-  "source_language": "{{ source_language }}",
-  "target_language": "{{ target_language }}",
+  "source_language": "{{ source_language_code }}",
+  "target_language": "{{ target_language_code }}",
   "title_translation": "번역된 제목",
   "pages": [
     {
@@ -64,3 +64,7 @@
 - quiz: 전체 책에서 2-3개 (마지막 페이지들에 배치). **정답은 본문에 근거**해야 하며 보기는 서로 중복되지 않게 한다(채점 신뢰).
 - 번역은 자연스럽고 아이들이 이해하기 쉽게
 - JSON 외의 다른 텍스트를 출력하지 마세요
+
+- 언어 코드 필드는 위 예시의 코드를 그대로 사용하세요. 언어 표시명으로 바꾸지 마세요.
+- title_translation은 100자 이내, translated_text는 페이지당 800자 이내, parent_guide.summary는 500자 이내입니다.
+- 각 페이지 quiz는 최대 2개이며 parent_guide의 discussion_prompts와 activities는 각각 최대 5개입니다.

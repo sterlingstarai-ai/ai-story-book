@@ -951,6 +951,9 @@ async def call_learning_assets(
 
     system_prompt = render_prompt(
         "generate_learning_assets.system.jinja2",
+        source_language=source_lang_name,
+        source_language_code=source_language.value,
+        target_language_code=target_language.value,
         target_language=target_lang_name,
         target_age=story.target_age.value,
     )

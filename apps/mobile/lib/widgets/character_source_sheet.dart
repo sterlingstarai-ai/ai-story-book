@@ -83,8 +83,10 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
   String? _attemptSig;
   final ImagePicker _picker = ImagePicker();
 
+  String? _enteredName;
+
   String? get _childName {
-    final name = widget.childName?.trim();
+    final name = (_enteredName ?? widget.childName)?.trim();
     return name == null || name.isEmpty ? null : name;
   }
 
@@ -222,6 +224,14 @@ class _CharacterSourceSheetState extends ConsumerState<CharacterSourceSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          TextFormField(
+            initialValue: widget.childName,
+            enabled: !_busy && !_choosingPhoto,
+            maxLength: 40,
+            onChanged: (value) => _enteredName = value,
+            decoration: InputDecoration(labelText: l.createChildNameLabel),
+          ),
+          const SizedBox(height: AppSpacing.md),
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(

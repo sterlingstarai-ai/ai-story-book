@@ -475,7 +475,15 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
     if (!mounted) {
       return;
     }
-    setState(() => _activeProfileId = normalized);
+    setState(() {
+      _activeProfileId = normalized;
+      if (syncServerDefault) {
+        _profiles = _profiles.map((profile) => {
+          ...profile,
+          'is_default': profile['id']?.toString() == normalized,
+        }).toList();
+      }
+    });
   }
 
   @override

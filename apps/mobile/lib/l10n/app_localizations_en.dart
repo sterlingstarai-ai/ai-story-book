@@ -596,7 +596,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get errorValidation => 'Please check your input.';
 
   @override
-  String get errorUnauthorized => 'Please sign in.';
+  String get errorUnauthorized =>
+      'This device’s account connection has expired. Use your recovery code in Settings to reconnect.';
 
   @override
   String get errorForbidden => 'You don\'t have permission for this.';
@@ -3463,4 +3464,12 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get viewerAiNarration => 'AI voice';
+
+  @override
+  String get createRequestPending =>
+      'Submitting your story request. A delayed response will not cause a duplicate charge.';
+
+  @override
+  String get viewerLearningUnavailable =>
+      'Learning activities are unavailable for this book. You can still read the complete story.';
 }

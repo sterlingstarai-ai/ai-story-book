@@ -401,17 +401,23 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
     if (!await ensureAgeGate(context, ref) || !mounted) return;
     final l = AppLocalizations.of(context);
     var name = character.name;
+    final renameForm = GlobalKey<FormState>();
     final next = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
         scrollable: true,
         title: Text(l.charactersRename),
-        content: TextFormField(
-          initialValue: name,
-          maxLength: 40,
-          autofocus: true,
-          onChanged: (value) => name = value,
-          decoration: InputDecoration(labelText: l.charactersRename),
+        content: Form(
+          key: renameForm,
+          child: TextFormField(
+            validator: (value) =>
+                (value?.trim().isEmpty ?? true) ? l.profilesNameRequired : null,
+            initialValue: name,
+            maxLength: 40,
+            autofocus: true,
+            onChanged: (value) => name = value,
+            decoration: InputDecoration(labelText: l.charactersRename),
+          ),
         ),
         actions: [
           TextButton(
@@ -420,7 +426,9 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
           ),
           TextButton(
             onPressed: () {
-              if (name.trim().isNotEmpty) Navigator.pop(context, name.trim());
+              if (renameForm.currentState!.validate()) {
+                Navigator.pop(context, name.trim());
+              }
             },
             child: Text(l.settingsSave),
           ),

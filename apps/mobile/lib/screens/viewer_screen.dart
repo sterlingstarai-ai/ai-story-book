@@ -1009,7 +1009,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     }
 
     final l = AppLocalizations.of(context);
-    final message = apiError.message.trim();
+    final message = apiError.localizedMessage(l);
     // M5: 안정 키 기반 분기(서버 error.details.reason). 한국어 문자열 매칭 금지.
     final title = apiError.isPlanUpgradeRequired
         ? l.viewerPlanUpgradeNeeded
@@ -1269,10 +1269,16 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
       ),
+      isScrollControlled: true,
       builder: (context) => AdaptiveModalSheet(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (book.learningAssets == null)
+              Padding(
+                padding: const EdgeInsets.all(AppSpacing.md),
+                child: Text(l.viewerLearningUnavailable),
+              ),
             const SizedBox(height: AppSpacing.lg),
             ListTile(
               minTileHeight: 64,

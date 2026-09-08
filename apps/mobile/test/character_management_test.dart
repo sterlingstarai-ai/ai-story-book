@@ -61,6 +61,11 @@ void main() {
       expect(find.text('캐릭터 삭제'), findsOneWidget);
       await tester.tap(find.text('이름 바꾸기'));
       await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextFormField), '   ');
+      await tester.tap(find.widgetWithText(TextButton, '저장'));
+      await tester.pumpAndSettle();
+      expect(api.renames, 0);
+      expect(find.byType(AlertDialog), findsOneWidget);
       await tester.enterText(find.byType(TextFormField), '토리');
       await tester.tap(find.widgetWithText(TextButton, '저장'));
       await tester.pumpAndSettle();

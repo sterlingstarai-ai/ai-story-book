@@ -442,6 +442,31 @@ void main() {
     },
   );
 
+  testWidgets('valid recovery submits exactly once on the first tap', (tester) async {
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(prefs),
+        accountRecoveryServiceProvider.overrideWithValue(service),
+        userServiceProvider.overrideWithValue(user),
+      ],
+      child: const MaterialApp(
+        locale: Locale('en'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: AccountRecoveryScreen(restoreOnly: true),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const ValueKey('recovery-code-input')), _code);
+    tester.testTextInput.hide();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Restore this account'));
+    await tester.pumpAndSettle();
+    expect(api.calls, 1);
+    expect(api.active, true);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'malformed recovery code does not submit; input disables suggestions and learning',
     (tester) async {
@@ -467,6 +492,9 @@ void main() {
       expect(input.enableSuggestions, false);
       expect(input.enableIMEPersonalizedLearning, false);
       await tester.enterText(find.byType(TextField), 'wrong');
+      // Android Back dismisses the keyboard before the first submit tap.
+      tester.testTextInput.hide();
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Restore this account'));
       await tester.pumpAndSettle();
       expect(api.calls, 0);

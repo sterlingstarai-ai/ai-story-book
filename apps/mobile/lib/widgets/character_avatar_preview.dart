@@ -410,7 +410,6 @@ class _CharacterAvatarPreviewScreenState
                     style: AppTextStyles.bodySmall,
                   ),
                   const SizedBox(height: AppSpacing.sm),
-                  Text(l.consentScrollHint, style: AppTextStyles.caption),
                   const SizedBox(height: AppSpacing.lg),
                   if (url?.isNotEmpty == true && !isGenerating) ...[
                     ClipRRect(

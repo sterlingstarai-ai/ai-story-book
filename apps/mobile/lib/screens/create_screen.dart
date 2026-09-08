@@ -544,6 +544,8 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                         label: Text(t.label),
                         onPressed: () => setState(() {
                           _topicController.text = t.topic;
+                          _topicFieldKey.currentState?.didChange(t.topic);
+                          _topicFieldKey.currentState?.validate();
                           _selectedTheme = t.theme;
                         }),
                         backgroundColor: AppPalette.of(context).surface,
@@ -1142,6 +1144,14 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                   ),
                 const SizedBox(height: AppSpacing.sm),
               ],
+              if (_isLoading)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                  child: Semantics(
+                    liveRegion: true,
+                    child: Text(l.createRequestPending),
+                  ),
+                ),
               PrimaryButton(
                 text: l.createMakeButton,
                 isLoading: _isLoading,

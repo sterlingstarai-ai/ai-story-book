@@ -565,7 +565,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get errorValidation => '入力内容をご確認ください。';
 
   @override
-  String get errorUnauthorized => 'ログインが必要です。';
+  String get errorUnauthorized => 'この端末のアカウント接続が期限切れです。設定で復元コードを使って再接続してください。';
 
   @override
   String get errorForbidden => 'アクセス権限がありません。';
@@ -3287,4 +3287,11 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get viewerAiNarration => 'AI朗読';
+
+  @override
+  String get createRequestPending => '物語の作成をリクエスト中です。応答が遅れても重複して消費されません。';
+
+  @override
+  String get viewerLearningUnavailable =>
+      'この本の学習教材を用意できませんでした。物語は最後まで読むことができます。';
 }

@@ -158,6 +158,10 @@ class _AIStoryBookAppState extends ConsumerState<AIStoryBookApp>
       darkTheme: buildAppTheme(Brightness.dark),
       themeMode: themeMode,
       initialRoute: '/startup',
+      // Do not let Navigator synthesize '/' underneath the consent gate.
+      onGenerateInitialRoutes: (_) => [
+        buildAppRoute(const RouteSettings(name: '/startup')),
+      ],
       onGenerateRoute: buildAppRoute,
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,

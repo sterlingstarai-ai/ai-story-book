@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:uuid/uuid.dart';
 import '../core/api_error.dart';
+import 'account_recovery_screen.dart';
 import '../l10n/app_localizations.dart';
 import '../models/models.dart';
 import '../providers/providers.dart';
@@ -342,11 +343,34 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
           icon: Icons.wifi_off_rounded,
           title: l.libraryLoadError,
           subtitle: _friendlyErrorMessage(error),
-          buttonText: l.libraryRetry,
-          onButtonPressed: () => ref.invalidate(libraryBrowseProvider),
+          buttonText: _isExpiredAccount(error)
+              ? l.recoveryTitle
+              : l.libraryRetry,
+          onButtonPressed: () {
+            if (_isExpiredAccount(error)) {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) =>
+                      const AccountRecoveryScreen(restoreOnly: true),
+                ),
+              );
+            } else {
+              ref.invalidate(libraryBrowseProvider);
+            }
+          },
         ),
       ),
     );
+  }
+
+  bool _isExpiredAccount(Object error) {
+    final apiError = error is ApiError
+        ? error
+        : error is DioException && error.error is ApiError
+        ? error.error as ApiError
+        : null;
+    return apiError?.statusCode == 401;
   }
 
   String _formatDate(DateTime date) {

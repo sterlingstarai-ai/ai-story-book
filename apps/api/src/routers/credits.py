@@ -6,9 +6,9 @@ Credits Router
 from fastapi import APIRouter, Depends, Header, Query
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 import structlog
 
@@ -46,6 +46,10 @@ class SubscriptionResponse(BaseModel):
     current_period_end: datetime
     features: list[str]
 
+    @field_serializer("current_period_end")
+    def serialize_period_end(self, value: datetime) -> datetime:
+        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+
 
 class SubscriptionPlan(BaseModel):
     id: str
@@ -62,6 +66,11 @@ class TransactionResponse(BaseModel):
     transaction_type: str
     description: Optional[str]
     created_at: datetime
+
+    @field_serializer("created_at")
+    def serialize_created_at(self, value: datetime) -> datetime:
+        # Database timestamps are UTC without tzinfo; make that explicit on wire.
+        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
 
 
 class CreditsStatusResponse(BaseModel):

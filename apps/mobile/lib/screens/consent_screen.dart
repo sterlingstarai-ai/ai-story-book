@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../l10n/app_localizations.dart';
 import '../providers/providers.dart';
 import '../utils/constants.dart';
+import '../widgets/scroll_more_hint.dart';
 import 'account_recovery_screen.dart';
 import 'legal_document_screen.dart';
 
@@ -305,10 +306,7 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
                   ),
                 ),
               ),
-              Text(
-                l.consentScrollHint,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
+              ScrollMoreHint(controller: _scrollController),
               const SizedBox(height: AppSpacing.sm),
               SizedBox(
                 width: double.infinity,

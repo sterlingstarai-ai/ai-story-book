@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:ai_story_book/main.dart';
+import 'package:ai_story_book/screens/home_screen.dart';
+import 'package:ai_story_book/screens/consent_screen.dart';
 import 'package:ai_story_book/providers/providers.dart';
 import 'package:ai_story_book/services/notification_scheduler.dart';
 import 'package:ai_story_book/services/screen_time_service.dart';
@@ -59,6 +61,8 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
+        expect(find.byType(ConsentScreen), findsOneWidget);
+        expect(find.byType(HomeScreen, skipOffstage: false), findsNothing);
         if (completesBeforeDispose) {
           screenTime.initialized.complete();
           await tester.pump();

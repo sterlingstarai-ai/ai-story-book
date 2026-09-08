@@ -222,7 +222,7 @@
   "loadingUnknownError": "Unknown error",
   "loadingTimeoutMessage": "Generation is taking longer than expected. Please check the status again.",
   "errorValidation": "Please check your input.",
-  "errorUnauthorized": "Please sign in.",
+  "errorUnauthorized": "This device’s account connection has expired. Use your recovery code in Settings to reconnect.",
   "errorForbidden": "You don't have permission for this.",
   "errorInternal": "A server error occurred. Please try again in a moment.",
   "errorRateLimit": "Too many requests. Please try again in a moment.",
@@ -1980,5 +1980,7 @@
   "loadingCreditNotCharged": "No credits were charged for this generation.",
   "errorParentalConsentRequired": "Complete parental consent first. You can review consent in Settings.",
   "localMediaCleanupFailed": "We could not confirm removal of cached images on this device. Retry on this screen to continue cleanup.",
-  "viewerAiNarration": "AI voice"
+  "viewerAiNarration": "AI voice",
+  "createRequestPending": "Submitting your story request. A delayed response will not cause a duplicate charge.",
+  "viewerLearningUnavailable": "Learning activities are unavailable for this book. You can still read the complete story."
 }

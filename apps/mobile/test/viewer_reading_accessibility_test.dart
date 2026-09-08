@@ -87,14 +87,17 @@ Future<_Api> _pump(
   bool small = true,
   bool cover = false,
   bool iPhone16e = false,
+  Size? androidSize,
   double textScale = 1.4,
   BookResult? book,
 }) async {
-  tester.view.physicalSize = iPhone16e
-      ? const Size(390, 844)
-      : small
-      ? const Size(320, 480)
-      : const Size(402, 874);
+  tester.view.physicalSize =
+      androidSize ??
+      (iPhone16e
+          ? const Size(390, 844)
+          : small
+          ? const Size(320, 480)
+          : const Size(402, 874));
   tester.view.devicePixelRatio = 1;
   if (iPhone16e) {
     tester.view.padding = const FakeViewPadding(top: 47, bottom: 34);
@@ -238,7 +241,7 @@ void main() {
     await _dispose(tester);
   });
 
-  for (final scale in [1.65, 2.35]) {
+  for (final scale in [1.0, 2.0, 1.65, 2.35]) {
     testWidgets(
       'natural body drag reaches last line above learning bar at $scale',
       (tester) async {
@@ -249,7 +252,12 @@ void main() {
         await _pump(
           tester,
           small: false,
-          iPhone16e: true,
+          iPhone16e: scale != 1.0 && scale != 2.0,
+          androidSize: scale == 1.0
+              ? const Size(360, 640)
+              : scale == 2.0
+              ? const Size(393, 873)
+              : null,
           textScale: scale,
           book: BookResult(
             bookId: 'book-1',

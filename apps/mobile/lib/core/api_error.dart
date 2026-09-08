@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 
 import '../l10n/app_localizations.dart';
@@ -27,7 +29,7 @@ class ApiError implements Exception {
 
     if (response != null) {
       final statusCode = response.statusCode ?? 500;
-      final data = response.data;
+      final data = _decodeErrorBody(response.data);
       if (data is Map<String, dynamic> && data.containsKey('error')) {
         final error = data['error'];
         if (error is Map<String, dynamic>) {
@@ -64,7 +66,7 @@ class ApiError implements Exception {
       return ApiError(
         retryAfter: retryAfter,
         code: _codeFromStatus(statusCode),
-        message: data?.toString() ?? '서버 오류가 발생했습니다.',
+        message: '서버 오류가 발생했습니다.',
         statusCode: statusCode,
         details: data is Map<String, dynamic> ? data : null,
         requestId: data is Map<String, dynamic>
@@ -102,6 +104,26 @@ class ApiError implements Exception {
           statusCode: 0,
         );
     }
+  }
+
+  // Downloads request bytes, including when the server returns a JSON error.
+  // Only structured, bounded JSON is eligible for display; never expose a binary
+  // payload or an upstream HTML error page to a reader.
+  static dynamic _decodeErrorBody(dynamic data) {
+    if (data is Map<String, dynamic>) return data;
+    try {
+      if (data is List<int>) {
+        if (data.length > 65536) return null;
+        data = utf8.decode(data);
+      }
+      if (data is String && data.length <= 65536) {
+        final decoded = jsonDecode(data);
+        if (decoded is Map<String, dynamic>) return decoded;
+      }
+    } on FormatException {
+      return null;
+    }
+    return null;
   }
 
   static Duration? _parseRetryAfter(String? value) {

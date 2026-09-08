@@ -565,7 +565,8 @@ class AppLocalizationsKo extends AppLocalizations {
   String get errorValidation => '입력 정보를 확인해주세요.';
 
   @override
-  String get errorUnauthorized => '로그인이 필요합니다.';
+  String get errorUnauthorized =>
+      '이 기기의 계정 연결이 만료됐어요. 설정에서 복구 코드로 계정을 다시 연결해 주세요.';
 
   @override
   String get errorForbidden => '접근 권한이 없습니다.';
@@ -3289,4 +3290,12 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get viewerAiNarration => 'AI 낭독';
+
+  @override
+  String get createRequestPending =>
+      '동화 만들기를 요청하고 있어요. 응답이 늦어져도 중복으로 차감하지 않아요.';
+
+  @override
+  String get viewerLearningUnavailable =>
+      '이 동화의 학습 자료를 준비하지 못했어요. 동화는 정상적으로 읽을 수 있어요.';
 }

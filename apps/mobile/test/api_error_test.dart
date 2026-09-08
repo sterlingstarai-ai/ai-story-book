@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ai_story_book/l10n/app_localizations.dart';
@@ -7,6 +9,54 @@ import 'package:ai_story_book/core/api_error.dart';
 
 void main() {
   group('ApiError.fromDioException', () {
+    test('PDF byte errors preserve the payment reason and request id', () {
+      final options = RequestOptions(path: '/v1/books/book/pdf');
+      final error = ApiError.fromDioException(
+        DioException(
+          requestOptions: options,
+          response: Response(
+            requestOptions: options,
+            statusCode: 402,
+            data: utf8.encode(
+              jsonEncode({
+                'error': {
+                  'code': 'PAYMENT_REQUIRED',
+                  'message': '유료 플랜이 필요합니다.',
+                  'details': {'reason': 'plan_upgrade_required'},
+                },
+                'request_id': 'pdf-error',
+              }),
+            ),
+          ),
+        ),
+      );
+      expect(error.message, '유료 플랜이 필요합니다.');
+      expect(error.details, {'reason': 'plan_upgrade_required'});
+      expect(error.requestId, 'pdf-error');
+    });
+
+    test('malformed download errors never display bytes or HTML', () {
+      for (final data in [
+        <int>[255, 0, 1],
+        '<html>upstream failure</html>',
+        List<int>.filled(65537, 65),
+      ]) {
+        final options = RequestOptions(path: '/pdf');
+        final error = ApiError.fromDioException(
+          DioException(
+            requestOptions: options,
+            response: Response(
+              requestOptions: options,
+              statusCode: 502,
+              data: data,
+            ),
+          ),
+        );
+        expect(error.message, '서버 오류가 발생했습니다.');
+        expect(error.code, 'BAD_GATEWAY');
+      }
+    });
+
     test('parses standardized error envelope', () {
       final requestOptions = RequestOptions(path: '/v1/books/abc');
       final response = Response(
