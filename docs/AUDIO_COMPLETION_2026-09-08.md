@@ -1,5 +1,7 @@
 # Audio implementation and verification — 2026-09-08
 
+Follow-up, 2026-09-08: the owner explicitly approved adding Text-to-speech Request to the existing project key. That one permission was saved and re-opened in the platform UI to confirm persistence. One generic Korean sentence through the actual `OpenAITTSProvider` returned HTTP 200 and an 88,704-byte MP3 (5.544 seconds, mono, 24 kHz). No raw child data, STT request, new key, top-up, or persistent application-setting change was involved. The earlier key-permission blocker below is resolved; full app narration and STT verification remain separate. Private evidence: `docs/acceptance/2026-09-08-tts-permission/result.json`.
+
 Implemented:
 
 - The viewer clears its loading indicator when playback starts. `just_audio.play()` is a playback-lifetime future, so awaiting it previously prevented the normal pause control from becoming available.
@@ -20,6 +22,6 @@ Verification recorded by the audio task:
 - `integration_test/native_audio_test.dart` passed on a dedicated iPhone 16e simulator running iOS 26.2 (1/1). The generated, disposable silent WAV exercised the real native plugin: load with saved position, playback advancement, pause, resume without a second load, and stop. The test fixture and dedicated simulator were removed afterward. This does not establish voice quality or actual STT accuracy.
 - The Korean privacy review source and matching static HTML now describe actual TTS/STT inputs, generated-audio storage/cache/deletion, and transcription/evaluation records. Pronunciation practice currently uploads a user-selected audio file; it does not record through the microphone. The English page continues to point to the Korean review document without claiming an approved translation or provider-processing approval.
 
-The feature remains disabled until the actual speech credentials and endpoint permissions pass a short generic-text TTS/STT probe. Real child voice uploads and any required processing-policy approval remain distinct from the generic adapter test.
+The feature remains disabled pending deployment credential wiring and the remaining STT/application checks. The generic TTS adapter probe now passes as recorded above. Real child voice uploads and any required processing-policy approval remain distinct from that probe.
 
 Sources: [OpenAI speech API](https://developers.openai.com/api/reference/cli/resources/audio/subresources/speech/methods/create), [OpenAI file transcription](https://developers.openai.com/api/docs/guides/speech-to-text). No custom child voice cloning is implemented.
