@@ -145,7 +145,10 @@ def test_portrait_rendering_is_an_illustration_even_for_incompatible_style(style
     assert style not in built.positive_prompt
 
 
-@pytest.mark.parametrize("data", [b"", b"not an image", b"\x89PNG\r\n\x1a\n", b"x" * (10 * 1024 * 1024 + 1)])
+@pytest.mark.parametrize(
+    "data", [b"", b"not an image", b"\x89PNG\r\n\x1a\n", b"x" * (10 * 1024 * 1024 + 1)],
+    ids=["empty", "non-image", "truncated-png", "over-10mb-limit"],
+)
 def test_normalize_rejects_invalid_input(data):
     with pytest.raises(ValidationError):
         avatars.normalize_character_image(data)
