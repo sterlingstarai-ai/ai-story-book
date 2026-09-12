@@ -594,7 +594,7 @@ async def enforce_book_spec_access(
     return char_ids
 
 
-async def consume_generation_budget(*, endpoint: str) -> None:
+async def consume_generation_budget(*, endpoint: str, user_key: str | None = None) -> None:
     """실비용(LLM/이미지) 발생 **직전**에 전역 일일 예산을 1 소비한다 (H4/H5/M10).
 
     두 가지 계약이 여기 있다.
@@ -609,6 +609,8 @@ async def consume_generation_budget(*, endpoint: str) -> None:
 
     호출부는 실제 비용이 나가는 지점에 최대한 가깝게 배치한다.
     """
+    from src.core.generation_access import require_generation_access
+    require_generation_access(user_key)
     if endpoint.startswith("books.") or endpoint == "streak.today_generate":
         from src.services.illustration_quality_pipeline import quality_enabled_for_operation
 
@@ -806,7 +808,7 @@ async def create_book(
     await enforce_book_spec_access(db, user_key, spec)
 
     # M10/R3-3: 모든 선검증(멱등·무료한도·소유권·동의)을 통과한 뒤에만 전역 예산을 소비한다.
-    await consume_generation_budget(endpoint="books.create")
+    await consume_generation_budget(endpoint="books.create", user_key=user_key)
 
     # Create new job
     job_id = f"job_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
@@ -998,7 +1000,7 @@ async def regenerate_book_page(
     if photo_derived:
         await reference_for_existing_book(job_id, user_key)
     await require_parental_consent(db, user_key)
-    await consume_generation_budget(endpoint="books.regenerate")
+    await consume_generation_budget(endpoint="books.regenerate", user_key=user_key)
 
     # Create regeneration task
     regen_job_id = f"regen_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
@@ -1138,7 +1140,7 @@ async def inpaint_book_page(
     if photo_derived:
         await reference_for_existing_book(job_id, user_key)
     await require_parental_consent(db, user_key)
-    await consume_generation_budget(endpoint="books.inpaint")
+    await consume_generation_budget(endpoint="books.inpaint", user_key=user_key)
 
     # 마스크 업로드 → S3
     mask_key = f"masks/{book.id}/{page_number}/{uuid.uuid4().hex}.png"
@@ -1276,7 +1278,7 @@ async def create_series_next(
     await _enforce_free_plan_create_limits(db, user_key, effective_style)
 
     # H5/R3-2 + M10/R3-3: 실비용 직전, 선검증 통과 후 예산 소비.
-    await consume_generation_budget(endpoint="books.series")
+    await consume_generation_budget(endpoint="books.series", user_key=user_key)
 
     # Create new job for series
     job_id = f"series_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
@@ -1462,7 +1464,7 @@ async def retell_book(
     character_reference = await reference_for_existing_book(source.job_id, user_key) if photo_derived else None
     source_job = await db.get(Job, source.job_id)
     await require_parental_consent(db, user_key)
-    await consume_generation_budget(endpoint="books.retell")
+    await consume_generation_budget(endpoint="books.retell", user_key=user_key)
 
     # 본문만 새 연령대로 다시 쓰기 (텍스트 전용 LLM 호출)
     from src.services.llm import call_story_retext
@@ -1751,6 +1753,8 @@ async def generate_book_audio(
     await require_parental_consent(db, user_key)
     # L5: fire-and-forget였던 배치 오디오를 audio_ Job 행으로 관측 가능하게 한다. 실패/타임아웃이
     # 잡 상태(done/failed)로 표면화되고 GET /v1/books/{job_id}로 폴링 가능(형제 regen/inpaint와 대칭).
+    from src.core.generation_access import require_generation_access
+    require_generation_access(user_key)
     audio_job_id = f"audio_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
     audio_job = Job(
         id=audio_job_id,
@@ -1903,6 +1907,8 @@ async def get_page_audio(
         from src.services.audio_assets import NarrationSource
         source = NarrationSource.from_page(book, page)
         source_text = text_by_language[language]
+        from src.core.generation_access import require_generation_access
+        require_generation_access(user_key)
         audio_bytes = await tts_service.synthesize_page(
             source_text,
             target_age=getattr(book, "target_age", None),

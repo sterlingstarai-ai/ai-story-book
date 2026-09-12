@@ -174,6 +174,9 @@ class Settings(BaseSettings):
     # 모두 우회되므로, 개별 식별자와 무관한 상한으로 LLM/이미지 청구서 폭증을 막는다.
     # 0 이하 = 비활성. 운영은 실측 트래픽 기준으로 넉넉히 잡고 알림으로 조기 인지한다.
     daily_generation_budget: int = 0
+    generation_access_mode: Literal["open", "invite_only", "paused"] = "open"
+    # Domain-separated SHA-256 of stable account ownership keys; never raw credentials.
+    generation_allowed_user_hashes: str = ""
     # 전역(전 사용자 합산) 큐 상한 — 워커 용량을 넘어선 '시스템 과부하' 신호(503).
     # M11/R3-4로 per-user 상한과 분리되면서 의미가 바뀌었다: 한 사용자가 혼자 도달할 수
     # 없도록 per-user 상한보다 훨씬 크게 잡는다(운영이 워커 수에 맞춰 조정).

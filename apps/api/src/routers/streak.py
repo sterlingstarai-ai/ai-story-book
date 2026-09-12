@@ -273,7 +273,7 @@ async def generate_today_story(
     # 실비용 경로인데 전역 예산·일일 한도 어느 쪽도 통과하지 않았다 — 예산 우회 채널.
     # M10/R3-3: 멱등·무료한도 검증을 통과한 뒤 소비.
     await check_guardrails(db, user_key)
-    await consume_generation_budget(endpoint="streak.today_generate")
+    await consume_generation_budget(endpoint="streak.today_generate", user_key=user_key)
 
     job_id = f"job_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
     existing = await _create_job_with_credit(

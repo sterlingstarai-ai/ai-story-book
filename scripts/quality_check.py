@@ -246,7 +246,7 @@ def check_character_consistency(image_prompts: list) -> CheckResult:
         passed=passed,
         score=consistency_ratio,
         details=f"Character consistency: {consistency_ratio:.2%}",
-        warnings=[f"Inconsistent character attributes"] if not passed else [],
+        warnings=["Inconsistent character attributes"] if not passed else [],
     )
 
 
@@ -323,7 +323,6 @@ def get_book_from_db(book_id: str) -> Optional[dict]:
     """Fetch book data from database"""
     try:
         import os
-        import asyncio
         from sqlalchemy import create_engine, text
         from sqlalchemy.orm import sessionmaker
 
@@ -482,7 +481,7 @@ def main():
         print(json.dumps(output, indent=2, ensure_ascii=False))
     else:
         print(f"\n{'=' * 60}")
-        print(f"Quality Check Results")
+        print("Quality Check Results")
         print(f"{'=' * 60}\n")
 
         for report in results:
@@ -490,18 +489,18 @@ def main():
             print(f"Book: {report.book_id}")
             print(f"Status: {status}")
             print(f"Score: {report.score:.2%}")
-            print(f"\nChecks:")
+            print("\nChecks:")
             for name, check in report.checks.items():
                 check_status = "✓" if check.passed else "✗"
                 print(f"  {check_status} {name}: {check.score:.2%} - {check.details}")
 
             if report.warnings:
-                print(f"\nWarnings:")
+                print("\nWarnings:")
                 for warning in report.warnings:
                     print(f"  ⚠️  {warning}")
 
             if report.errors:
-                print(f"\nErrors:")
+                print("\nErrors:")
                 for error in report.errors:
                     print(f"  ❌ {error}")
 

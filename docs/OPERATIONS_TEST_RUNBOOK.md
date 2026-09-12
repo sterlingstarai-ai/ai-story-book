@@ -309,3 +309,7 @@ Render 선택 시 [실행 패키지](RENDER_DEPLOYMENT_PACKAGE.md)의 CA Secret 
 이전 잔액이나 구매분을 줄이지 않습니다. 사진 동의 철회로 콘텐츠를 지워도 과금 기록의
 생성 식별자로 당월 사용량을 유지합니다. 전체 삭제 후 이전 인증키는 `ACCOUNT_DELETED`로
 거부되어 삭제 응답을 놓친 앱도 완료를 확인할 수 있습니다.
+
+## 2026-09-12 제한 베타 운영 제어
+
+운영 템플릿은 새 AI 생성을 초대 계정으로 제한합니다. `GENERATION_ACCESS_MODE`와 `GENERATION_ALLOWED_USER_HASHES`, 읽기 전용 운영 점검 `scripts/check_operations.py`, 중단·최종 승인 절차는 [출시 후보 기록](LAUNCH_CANDIDATE_2026-09-12.md)을 따릅니다.

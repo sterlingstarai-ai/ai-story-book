@@ -145,6 +145,10 @@ services:
     value: '120'
   - key: RATE_LIMIT_WINDOW
     value: '60'
+  - key: GENERATION_ACCESS_MODE
+    value: invite_only
+  - key: GENERATION_ALLOWED_USER_HASHES
+    sync: false
   - key: DAILY_GENERATION_BUDGET
     value: '20'
   - key: DAILY_JOB_LIMIT_PER_USER
@@ -502,6 +506,16 @@ services:
       name: __PREFIX__-api
       type: web
       envVarKey: RATE_LIMIT_WINDOW
+  - key: GENERATION_ACCESS_MODE
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: GENERATION_ACCESS_MODE
+  - key: GENERATION_ALLOWED_USER_HASHES
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: GENERATION_ALLOWED_USER_HASHES
   - key: DAILY_GENERATION_BUDGET
     fromService:
       name: __PREFIX__-api

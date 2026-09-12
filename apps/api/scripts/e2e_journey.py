@@ -2,7 +2,7 @@
 """라이브 E2E 여정 드라이버 — 실행 중인 API 서버 대상.
 
 단위테스트(in-process·TESTING=true)가 놓치는 *통합* 동작을 실제 HTTP로 검증한다:
-프로필(DOB→연령대 파생) → 동의 → 책 생성 → 폴링 done(실제 오케스트레이터+mock providers)
+동의 전 프로필 차단 → 동의 → 프로필(DOB→연령대 파생) → 책 생성 → 폴링 done(실제 오케스트레이터+mock providers)
 → 읽기/퀴즈 기록 → 성장 리포트 → 또래 비교 → 무료 오디오 게이트 → 스트릭 → 동의 철회
 → IDOR(타 유저 차단).
 
@@ -15,6 +15,7 @@
 """
 
 import os
+from datetime import date
 import sys
 import time
 import uuid
@@ -50,25 +51,25 @@ def main():
         r = c.get("/health/live")
         check("health/live 200", r.status_code == 200, r.text[:120])
 
-        # 1. 프로필 생성 — 생년월 → 연령대 자동 파생(부모가 보낸 age_band 무시)
-        r = c.post(
-            "/v1/profiles",
-            headers=h(A),
-            json={"name": "민지", "age_band": "3-5", "birth_year": 2019, "birth_month": 3},
-        )
-        check("프로필 생성 200", r.status_code == 200, r.text[:160])
-        prof = r.json() if r.status_code == 200 else {}
-        check("DOB→age_band 파생(2019-03생→7-9)", prof.get("age_band") == "7-9",
-              f"got {prof.get('age_band')}")
-        profile_id = prof.get("id")
+        profile_spec = {"name": "민지", "age_band": "3-5",
+                        "birth_year": date.today().year - 7, "birth_month": 1}
+        # Verify the production consent boundary before following the valid journey.
+        r = c.post("/v1/profiles", headers=h(A), json=profile_spec)
+        check("동의 전 프로필 생성 차단", r.status_code == 403, r.text[:160])
 
-        # 2. 보호자 동의 grant
         r = c.post("/v1/consent", headers=h(A),
                    json={"privacy": True, "photos": True, "data_processing": True})
         check("동의 grant 200", r.status_code == 200, r.text[:160])
         r = c.get("/v1/consent", headers=h(A))
         check("동의 조회 photos=true", r.status_code == 200 and r.json().get("photos") is True,
               r.text[:160])
+
+        r = c.post("/v1/profiles", headers=h(A), json=profile_spec)
+        check("프로필 생성 200", r.status_code == 200, r.text[:160])
+        prof = r.json() if r.status_code == 200 else {}
+        check("DOB→age_band 파생(7세→7-9)", prof.get("age_band") == "7-9",
+              f"got {prof.get('age_band')}")
+        profile_id = prof.get("id")
 
         # 3. 책 생성(무료 플랜: watercolor, 3-5) — 신규 유저 기본 3크레딧
         r = c.post(

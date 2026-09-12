@@ -18,9 +18,7 @@ import asyncio
 import json
 import random
 import time
-import os
-import sys
-from datetime import datetime, timedelta
+from datetime import datetime
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 from pathlib import Path
@@ -424,7 +422,7 @@ class LongRunningTest:
         self.start_time = datetime.utcnow()
 
         print(f"\n{'#' * 60}")
-        print(f"# Long Running Load Test")
+        print("# Long Running Load Test")
         print(f"# Test ID: {self.test_id}")
         print(f"# Duration: {self.hours} hours")
         print(f"# Jobs/Hour: {self.jobs_per_hour}")
@@ -624,7 +622,7 @@ async def main():
     print(f"Avg Duration: {metrics.avg_duration:.1f}s")
     print(f"Total Retries: {metrics.total_retries}")
     print(f"Stuck Jobs Recovered: {metrics.stuck_jobs_recovered}/{metrics.stuck_jobs_created}")
-    print(f"\n--- Cost Analysis ---")
+    print("\n--- Cost Analysis ---")
     print(f"LLM Calls: {metrics.total_llm_calls} (${metrics.total_llm_cost:.4f})")
     print(f"Image Calls: {metrics.total_image_calls} (${metrics.total_image_cost:.2f})")
     print(f"Total Cost: ${metrics.total_cost:.2f}")

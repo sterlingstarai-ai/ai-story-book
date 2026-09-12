@@ -2,6 +2,7 @@ import structlog
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import load_only
 from sqlalchemy import select, func, and_, or_
 from typing import Literal, Optional
 
@@ -41,7 +42,7 @@ async def _validate_profile_ownership(
     if not normalized:
         return None
     result = await db.execute(
-        select(ChildProfile).where(
+        select(ChildProfile.id).where(
             ChildProfile.id == normalized,
             ChildProfile.user_key == user_key,
         )
@@ -90,23 +91,25 @@ async def get_library(
         filters.append(Book.target_age == target_age)
 
     # Get total count efficiently using COUNT
-    count_query = select(func.count()).select_from(Book)
-    for f in filters:
-        count_query = count_query.where(f)
+    count_query = select(func.count()).select_from(Book).where(*filters)
     count_result = await db.execute(count_query)
     total = count_result.scalar() or 0
 
     # Build query with sort
-    query = select(Book)
-    for f in filters:
-        query = query.where(f)
+    query = select(Book).options(load_only(
+        Book.id, Book.title, Book.cover_image_url, Book.target_age, Book.style,
+        Book.created_at, Book.series_id, Book.series_index, Book.character_id,
+        raiseload=True,
+    )).where(*filters)
 
     cursor_book = None
     if cursor:
         cursor_result = await db.execute(
-            select(Book).where(Book.id == cursor, Book.user_key == user_key)
+            select(Book.id, Book.created_at, Book.title).where(
+                Book.id == cursor, *filters
+            )
         )
-        cursor_book = cursor_result.scalar_one_or_none()
+        cursor_book = cursor_result.one_or_none()
 
     if sort == "oldest":
         if cursor_book:
@@ -116,9 +119,14 @@ async def get_library(
                     and_(Book.created_at == cursor_book.created_at, Book.id > cursor_book.id),
                 )
             )
-        query = query.order_by(Book.created_at.asc())
+        query = query.order_by(Book.created_at.asc(), Book.id.asc())
     elif sort == "title":
-        query = query.order_by(Book.title.asc())
+        if cursor_book:
+            query = query.where(or_(
+                Book.title > cursor_book.title,
+                and_(Book.title == cursor_book.title, Book.id > cursor_book.id),
+            ))
+        query = query.order_by(Book.title.asc(), Book.id.asc())
     else:  # newest (default)
         if cursor_book:
             query = query.where(
@@ -127,7 +135,7 @@ async def get_library(
                     and_(Book.created_at == cursor_book.created_at, Book.id < cursor_book.id),
                 )
             )
-        query = query.order_by(Book.created_at.desc())
+        query = query.order_by(Book.created_at.desc(), Book.id.desc())
 
     if not cursor:
         query = query.offset(offset)

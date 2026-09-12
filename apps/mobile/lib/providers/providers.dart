@@ -443,9 +443,18 @@ final libraryBrowseProvider =
 class LibraryBrowseNotifier extends AsyncNotifier<LibraryBrowseState> {
   static const int _pageSize = 20;
   bool _loadMoreInFlight = false;
+  int _requestVersion = 0;
+  LibraryBrowseState? _requestedState;
+
+  LibraryBrowseState get _filterState =>
+      _requestedState ?? state.valueOrNull ?? LibraryBrowseState.initial();
 
   @override
   Future<LibraryBrowseState> build() async {
+    _requestVersion++;
+    _requestedState = null;
+    _loadMoreInFlight = false;
+    ref.onDispose(() => _requestVersion++);
     return _fetchFirstPage(
       const LibraryBrowseState(
         books: [],
@@ -479,22 +488,10 @@ class LibraryBrowseNotifier extends AsyncNotifier<LibraryBrowseState> {
     );
   }
 
-  Future<void> refresh() async {
-    final current = state.valueOrNull ?? LibraryBrowseState.initial();
-    try {
-      final next = await _fetchFirstPage(current);
-      state = AsyncValue.data(next);
-    } catch (error, stackTrace) {
-      if (_isOfflineError(error) && current.books.isNotEmpty) {
-        state = AsyncValue.data(current.copyWith(isOffline: true));
-        return;
-      }
-      state = AsyncValue.error(error, stackTrace);
-    }
-  }
+  Future<void> refresh() => _reload(_filterState);
 
   Future<void> setSort(String sort) async {
-    final current = state.valueOrNull ?? LibraryBrowseState.initial();
+    final current = _filterState;
     if (current.sort == sort) {
       return;
     }
@@ -503,7 +500,7 @@ class LibraryBrowseNotifier extends AsyncNotifier<LibraryBrowseState> {
   }
 
   Future<void> setStyleFilter(String? style) async {
-    final current = state.valueOrNull ?? LibraryBrowseState.initial();
+    final current = _filterState;
     final normalized = (style == null || style.isEmpty) ? null : style;
     if (current.style == normalized) {
       return;
@@ -515,7 +512,7 @@ class LibraryBrowseNotifier extends AsyncNotifier<LibraryBrowseState> {
   }
 
   Future<void> setTargetAgeFilter(String? targetAge) async {
-    final current = state.valueOrNull ?? LibraryBrowseState.initial();
+    final current = _filterState;
     final normalized = (targetAge == null || targetAge.isEmpty)
         ? null
         : targetAge;
@@ -529,7 +526,7 @@ class LibraryBrowseNotifier extends AsyncNotifier<LibraryBrowseState> {
   }
 
   Future<void> clearFilters() async {
-    final current = state.valueOrNull ?? LibraryBrowseState.initial();
+    final current = _filterState;
     if (current.style == null && current.targetAge == null) {
       return;
     }
@@ -538,6 +535,9 @@ class LibraryBrowseNotifier extends AsyncNotifier<LibraryBrowseState> {
   }
 
   Future<void> _reload(LibraryBrowseState nextState) async {
+    final version = ++_requestVersion;
+    _requestedState = nextState;
+    _loadMoreInFlight = false;
     try {
       final loaded = await _fetchFirstPage(
         nextState.copyWith(
@@ -549,16 +549,22 @@ class LibraryBrowseNotifier extends AsyncNotifier<LibraryBrowseState> {
           isOffline: false,
         ),
       );
+      if (version != _requestVersion) return;
       state = AsyncValue.data(loaded);
     } catch (error, stackTrace) {
+      if (version != _requestVersion) return;
       final current = state.valueOrNull;
       if (current != null &&
           _isOfflineError(error) &&
           current.books.isNotEmpty) {
-        state = AsyncValue.data(current.copyWith(isOffline: true));
+        state = AsyncValue.data(
+          current.copyWith(isOffline: true, isLoadingMore: false),
+        );
         return;
       }
       state = AsyncValue.error(error, stackTrace);
+    } finally {
+      if (version == _requestVersion) _requestedState = null;
     }
   }
 
@@ -567,9 +573,11 @@ class LibraryBrowseNotifier extends AsyncNotifier<LibraryBrowseState> {
     if (current == null ||
         !current.hasMore ||
         current.isLoadingMore ||
-        _loadMoreInFlight) {
+        _loadMoreInFlight ||
+        _requestedState != null) {
       return;
     }
+    final version = _requestVersion;
     _loadMoreInFlight = true;
     state = AsyncValue.data(
       current.copyWith(isLoadingMore: true, isOffline: false),
@@ -584,20 +592,26 @@ class LibraryBrowseNotifier extends AsyncNotifier<LibraryBrowseState> {
         style: current.style,
         targetAge: current.targetAge,
       );
-      final mergedBooks = List<LibraryBook>.from(current.books)
-        ..addAll(response.books);
+      if (version != _requestVersion) return;
+      final seen = current.books.map((book) => book.id).toSet();
+      final mergedBooks = [
+        ...current.books,
+        ...response.books.where((book) => seen.add(book.id)),
+      ];
 
       state = AsyncValue.data(
         current.copyWith(
           books: mergedBooks,
           total: response.total,
           nextCursor: response.nextCursor,
+          clearNextCursor: response.nextCursor == null,
           hasMore: response.hasMore,
           isLoadingMore: false,
           isOffline: false,
         ),
       );
     } catch (error, stackTrace) {
+      if (version != _requestVersion) return;
       if (_isOfflineError(error)) {
         state = AsyncValue.data(
           current.copyWith(isLoadingMore: false, isOffline: true),
@@ -606,7 +620,7 @@ class LibraryBrowseNotifier extends AsyncNotifier<LibraryBrowseState> {
         state = AsyncValue.error(error, stackTrace);
       }
     } finally {
-      _loadMoreInFlight = false;
+      if (version == _requestVersion) _loadMoreInFlight = false;
     }
   }
 

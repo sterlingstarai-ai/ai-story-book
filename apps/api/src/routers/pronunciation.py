@@ -166,6 +166,8 @@ async def evaluate_pronunciation_audio(
     if len(audio_bytes) > _MAX_PRONUNCIATION_AUDIO_BYTES:
         raise ValidationError("발음 평가 오디오는 15MB 이하여야 합니다.")
 
+    from src.core.generation_access import require_generation_access
+    require_generation_access(user_key)
     transcript = await stt_service.transcribe_audio(
         audio_bytes,
         mime_type=audio_file.content_type or "audio/mp4",

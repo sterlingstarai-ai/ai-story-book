@@ -1,6 +1,7 @@
 """읽기 성장 측정(growth) — 복합점수·tiered 어휘·또래 비교 테스트."""
 
 from datetime import date
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -18,6 +19,29 @@ from src.services.growth import (
 
 H = {"X-User-Key": "11111111-1111-4111-8111-111111111111"}
 FRESH = {"X-User-Key": "22222222-2222-4222-8222-222222222222"}
+
+
+@pytest.mark.asyncio
+async def test_bulk_metrics_uses_three_queries_and_preserves_missing_axes(db_session, monkeypatch):
+    db_session.add_all(
+        _reads("reader", 2, completed=True)
+        + _vocab("vocab-only", "apple", 2)
+    )
+    await db_session.commit()
+    execute = AsyncMock(wraps=db_session.execute)
+    monkeypatch.setattr(db_session, "execute", execute)
+    result = await growth_service._bulk_metrics(db_session, ["reader", "vocab-only", "idle"])
+    assert execute.await_count == 3
+    assert result["active"] == {"reader", "vocab-only"}
+    assert result["metrics"]["reader"] == {
+        "books": 2, "vocab": 0, "accuracy": None, "completion": 1.0,
+    }
+    assert result["metrics"]["vocab-only"] == {
+        "books": 0, "vocab": 1, "accuracy": None, "completion": None,
+    }
+    assert result["metrics"]["idle"] == {
+        "books": 0, "vocab": 0, "accuracy": None, "completion": None,
+    }
 
 
 def _profile(user_key: str, age_band: str, idx: int) -> ChildProfile:

@@ -23,6 +23,10 @@ class FakeRedis:
     async def ping(self):
         return True
 
+    async def get(self, key):
+        value = self.counters.get(key)
+        return str(value).encode() if value is not None else None
+
     async def incr(self, key):
         self.counters[key] = self.counters.get(key, 0) + 1
         return self.counters[key]

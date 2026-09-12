@@ -277,23 +277,16 @@ class GrowthService:
         rl_where = [ReadingLog.user_key == user_key]
         if profile_id:
             rl_where.append(ReadingLog.profile_id == profile_id)
-        books_read = (
+        # Aggregate the same scoped reading rows in one database round trip.
+        books_read, rl_total, rl_completed = (
             await db.execute(
-                select(func.count(distinct(ReadingLog.book_id))).where(*rl_where)
+                select(
+                    func.count(distinct(ReadingLog.book_id)),
+                    func.count(ReadingLog.id),
+                    func.count(case((ReadingLog.completed.is_(True), 1))),
+                ).where(*rl_where)
             )
-        ).scalar() or 0
-
-        # 완독률 = 완독 로그 / 전체 로그
-        rl_total = (
-            await db.execute(select(func.count(ReadingLog.id)).where(*rl_where))
-        ).scalar() or 0
-        rl_completed = (
-            await db.execute(
-                select(func.count(ReadingLog.id)).where(
-                    *rl_where, ReadingLog.completed.is_(True)
-                )
-            )
-        ).scalar() or 0
+        ).one()
         completion = round(rl_completed / rl_total, 3) if rl_total else 0.0
 
         # 스트릭: ReadingLog 기반 재계산으로 통일(L9). 프로필 지정 시 그 프로필만, 계정
@@ -313,16 +306,14 @@ class GrowthService:
         # 정확도(quiz_accuracy)는 '독해' 신호만 — 4지선다 어휘게임(vocab)은 소거가 쉬워
         # 추측 정답이 정확도를 부풀린다. vocab은 vocab_learned로만 집계하고 정확도에서 분리.
         qa_quiz_where = [*qa_where, QuizAnswer.quiz_type != "vocab"]
-        quiz_total = (
-            await db.execute(select(func.count(QuizAnswer.id)).where(*qa_quiz_where))
-        ).scalar() or 0
-        quiz_correct = (
+        quiz_total, quiz_correct = (
             await db.execute(
-                select(func.count(QuizAnswer.id)).where(
-                    *qa_quiz_where, QuizAnswer.correct.is_(True)
-                )
+                select(
+                    func.count(QuizAnswer.id),
+                    func.count(case((QuizAnswer.correct.is_(True), 1))),
+                ).where(*qa_quiz_where)
             )
-        ).scalar() or 0
+        ).one()
         quiz_accuracy = round(quiz_correct / quiz_total, 3) if quiz_total else 0.0
 
         # 학습 어휘 = 정답 ≥ VOCAB_MASTERY_MIN_CORRECT 인 distinct term
@@ -375,62 +366,37 @@ class GrowthService:
         if not user_keys:
             return {"metrics": {}, "active": set()}
 
-        book_rows = (
-            await db.execute(
-                select(ReadingLog.user_key, func.count(distinct(ReadingLog.book_id)))
-                .where(ReadingLog.user_key.in_(user_keys))
-                .group_by(ReadingLog.user_key)
-            )
-        ).all()
-        books = {k: int(c) for k, c in book_rows}
-
-        comp_rows = (
+        reading_rows = (
             await db.execute(
                 select(
                     ReadingLog.user_key,
+                    func.count(distinct(ReadingLog.book_id)),
                     func.count(ReadingLog.id),
-                    func.sum(case((ReadingLog.completed.is_(True), 1), else_=0)),
+                    func.count(case((ReadingLog.completed.is_(True), 1))),
                 )
                 .where(ReadingLog.user_key.in_(user_keys))
                 .group_by(ReadingLog.user_key)
             )
         ).all()
-        completion = {
-            k: (int(c or 0) / int(t)) if int(t or 0) > 0 else 0.0
-            for k, t, c in comp_rows
-        }
+        books = {k: int(b) for k, b, _, _ in reading_rows}
+        completion = {k: int(c) / int(t) for k, _, t, c in reading_rows}
 
-        # 정확도는 vocab 제외(독해 신호만) — 어휘게임 추측 정답의 정확도 오염 방지.
-        acc_rows = (
+        # Keep vocabulary-only users active without counting vocabulary answers
+        # toward comprehension accuracy. Missing comprehension remains None.
+        comprehension = QuizAnswer.quiz_type != "vocab"
+        quiz_rows = (
             await db.execute(
                 select(
                     QuizAnswer.user_key,
-                    func.count(QuizAnswer.id),
-                    func.sum(case((QuizAnswer.correct.is_(True), 1), else_=0)),
+                    func.count(case((comprehension, 1))),
+                    func.count(case((comprehension & QuizAnswer.correct.is_(True), 1))),
                 )
-                .where(
-                    QuizAnswer.user_key.in_(user_keys),
-                    QuizAnswer.quiz_type != "vocab",
-                )
+                .where(QuizAnswer.user_key.in_(user_keys))
                 .group_by(QuizAnswer.user_key)
             )
         ).all()
-        # 데이터 없는 user_key는 dict에 없음 → 점수 계산에서 None(축 제외)로 처리.
-        accuracy = {
-            k: (int(c or 0) / int(t))
-            for k, t, c in acc_rows
-            if int(t or 0) > 0
-        }
-        # '활성'은 읽기/모든 퀴즈(vocab 포함) 활동 — 코호트 포함 판정용.
-        quiz_users = set(
-            (
-                await db.execute(
-                    select(distinct(QuizAnswer.user_key)).where(
-                        QuizAnswer.user_key.in_(user_keys)
-                    )
-                )
-            ).scalars().all()
-        )
+        accuracy = {k: int(c) / int(t) for k, t, c in quiz_rows if t}
+        quiz_users = {k for k, _, _ in quiz_rows}
 
         vsub = (
             select(QuizAnswer.user_key.label("uk"))

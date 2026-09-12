@@ -205,7 +205,7 @@ async def create_image_character(
         raise ValidationError("캐릭터 그림 설정을 확인해주세요.")
     clean = await asyncio.to_thread(normalize_character_image, image_data)
     ensure_photo_processing_ready()
-    await consume_generation_budget(endpoint=f"characters.from_{source_kind}")
+    await consume_generation_budget(endpoint=f"characters.from_{source_kind}", user_key=user_key)
     character_id = f"char_{utcnow().strftime('%Y%m%d')}_{uuid.uuid4().hex[:8]}"
     source_key = f"characters/{character_id}/{source_kind}.jpg"
     guard = enqueue_purge_prefix(db, user_key=user_key, reason="character_source_upload_guard",
@@ -321,7 +321,7 @@ async def regenerate_character_avatar(db, character_id: str, version: int, user_
     if not can_retry_avatar(character):
         raise avatar_conflict("AVATAR_RETRY_UNAVAILABLE")
     ensure_photo_processing_ready()
-    await consume_generation_budget(endpoint="characters.avatar_regenerate")
+    await consume_generation_budget(endpoint="characters.avatar_regenerate", user_key=user_key)
     previous_key = key_from_public_url(character.avatar_url)
     result = await db.execute(update(Character).where(
         Character.id == character_id, Character.user_key == user_key,

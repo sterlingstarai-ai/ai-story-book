@@ -33,6 +33,22 @@ def daily_budget_key() -> str:
     return f"cost_budget:generation:{to_local_date(utcnow()).strftime('%Y%m%d')}"
 
 
+async def generation_budget_snapshot() -> dict:
+    """Read the Korea-day admission counter without consuming a request."""
+    limit = int(settings.daily_generation_budget or 0)
+    result = {"limit": limit, "used": None, "unit": "generation_requests"}
+    if limit <= 0:
+        return {**result, "status": "disabled"}
+    try:
+        client = await rate_limiter.get_redis()
+        used = int(await client.get(daily_budget_key()) or 0)
+        if used < 0:
+            raise ValueError("Invalid counter")
+    except (redis.RedisError, ValueError, TypeError):
+        return {**result, "status": "unavailable"}
+    return {**result, "used": used, "status": "exhausted" if used >= limit else "available"}
+
+
 async def consume_daily_generation_budget() -> Tuple[bool, int]:
     """전역 일일 생성 예산을 1 소비하고 (허용여부, 사용량)을 반환한다.
 

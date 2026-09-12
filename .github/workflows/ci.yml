@@ -19,6 +19,8 @@ env:
   RATE_LIMIT_REQUESTS: '10'
   RATE_LIMIT_READ_REQUESTS: '120'
   RATE_LIMIT_WINDOW: '60'
+  GENERATION_ACCESS_MODE: 'open'
+  GENERATION_ALLOWED_USER_HASHES: ''
   PROVIDER_OBSERVATION_TTL_SECONDS: '86400'
   PROVIDER_USAGE_PRICES_JSON: '{}'
   APPLE_APP_ID: '0'
@@ -114,6 +116,7 @@ jobs:
         run: alembic upgrade head
 
       - name: Run tests with coverage
+        timeout-minutes: 15
         working-directory: apps/api
         env:
           DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/test_db
@@ -130,7 +133,7 @@ jobs:
           TTS_PROVIDER: mock
         run: |
           set -o pipefail
-          pytest tests/ -v --cov=src --cov-report=xml 2>&1 | tee test-output.log
+          pytest tests/ -v -o faulthandler_timeout=120 --cov=src --cov-report=xml 2>&1 | tee test-output.log
           coverage report --fail-under=40
 
       - name: Money-path coverage gate
@@ -288,15 +291,27 @@ jobs:
           set -o pipefail
           flutter test --coverage 2>&1 | tee test-output.log
 
-      - name: Run integration tests (headless flutter_tester)
-        # 멀티화면 라우팅 여정(StartupGate→동의→온보딩→홈, 홈→읽기성장)을 디바이스 없이 구동.
-        # CI-3: `flutter test integration_test/`는 디바이스를 자동 선택하지 않아 러너에서
-        # "No devices are connected"로 실패한다(로컬에서도 동일 재현). 헤드리스 디바이스를
-        # 명시해야 한다 — 조용한 스킵 대신 실제로 실행되는 게이트로 유지.
-        working-directory: apps/mobile
+      - name: Set up Java for Android integration tests
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Enable Android KVM
         run: |
-          set -o pipefail
-          flutter test integration_test/ -d flutter-tester 2>&1 | tee integration-output.log
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run integration tests on Android
+        timeout-minutes: 30
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: 35
+          arch: x86_64
+          disable-animations: true
+          working-directory: apps/mobile
+          script: bash -o pipefail -c 'flutter test integration_test/ -d emulator-5554 2>&1 | tee integration-output.log'
 
       - name: Check Flutter coverage threshold
         run: |
@@ -326,6 +341,7 @@ jobs:
           path: |
             apps/mobile/analyze-output.log
             apps/mobile/test-output.log
+            apps/mobile/integration-output.log
           retention-days: 7
 
       - name: Upload Flutter coverage
@@ -470,6 +486,7 @@ jobs:
             ${{ runner.temp }}/api-smoke.log
             apps/api/test-output.log
             apps/mobile/test-output.log
+            apps/mobile/integration-output.log
           retention-days: 7
 
       - name: Stop API server

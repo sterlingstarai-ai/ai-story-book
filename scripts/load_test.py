@@ -16,7 +16,6 @@ import asyncio
 import json
 import random
 import time
-import os
 import sys
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field, asdict
@@ -537,25 +536,25 @@ class LoadTestRunner:
         print(f"\n{'=' * 60}")
         print(f"Load Test Summary: {m.test_id}")
         print(f"{'=' * 60}")
-        print(f"\nJob Statistics:")
+        print("\nJob Statistics:")
         print(f"  Total Jobs:     {m.total_jobs}")
         print(f"  Completed:      {m.completed_jobs} ({m.success_rate:.1f}%)")
         print(f"  Failed:         {m.failed_jobs}")
         print(f"  Stuck:          {m.stuck_jobs}")
-        print(f"\nDuration (seconds):")
+        print("\nDuration (seconds):")
         print(f"  Average:        {m.avg_duration_seconds:.1f}s")
         print(f"  Min:            {m.min_duration_seconds:.1f}s")
         print(f"  Max:            {m.max_duration_seconds:.1f}s")
         print(f"  P50:            {m.p50_duration_seconds:.1f}s")
         print(f"  P95:            {m.p95_duration_seconds:.1f}s")
         print(f"  P99:            {m.p99_duration_seconds:.1f}s")
-        print(f"\nRetry Statistics:")
+        print("\nRetry Statistics:")
         print(f"  Total Retries:  {m.total_retries}")
         print(f"  Avg Retries:    {m.avg_retries:.2f}")
-        print(f"\nAPI Calls:")
+        print("\nAPI Calls:")
         print(f"  LLM Calls:      {m.total_llm_calls}")
         print(f"  Image Calls:    {m.total_image_calls}")
-        print(f"\nEstimated Costs:")
+        print("\nEstimated Costs:")
         print(f"  LLM Cost:       ${m.estimated_llm_cost:.4f}")
         print(f"  Image Cost:     ${m.estimated_image_cost:.2f}")
         print(f"  Total Cost:     ${m.estimated_total_cost:.2f}")
@@ -726,7 +725,7 @@ async def main():
 
         # Print summary
         print(f"\n{'=' * 60}")
-        print(f"Simulation Summary")
+        print("Simulation Summary")
         print(f"{'=' * 60}")
         print(f"Success Rate: {metrics.success_rate:.1f}%")
         print(f"Avg Duration: {metrics.avg_duration_seconds:.1f}s")

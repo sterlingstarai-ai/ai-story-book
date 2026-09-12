@@ -175,3 +175,7 @@ Until then, local, mock, or hybrid paths are used for non-production verificatio
 
 `./scripts/check-env.sh --mode ci`는 생성·수정 및 조회 요청 한도의 기본값을
 API·배포 설정·CI 사이에서 대조합니다. 실제 생성 검증에는 운영 기본 한도를 적용합니다.
+
+## 2026-09-12 제한 베타 운영 제어
+
+운영 템플릿은 새 AI 생성을 초대 계정으로 제한합니다. `GENERATION_ACCESS_MODE`와 `GENERATION_ALLOWED_USER_HASHES`, 읽기 전용 운영 점검 `scripts/check_operations.py`, 중단·최종 승인 절차는 [출시 후보 기록](docs/LAUNCH_CANDIDATE_2026-09-12.md)을 따릅니다.

@@ -447,8 +447,8 @@ async def _build_readiness_payload(
     try:
         job_metrics = await get_job_metrics()
     except Exception as e:
-        logger.error("Failed to get job metrics", error=str(e))
-        job_metrics = {"error": str(e)}
+        logger.error("Failed to get job metrics", error_type=type(e).__name__)
+        job_metrics = {"error": "unavailable"}
         jobs_status = "unhealthy"
 
     # Check Redis connectivity
@@ -597,6 +597,8 @@ async def _build_readiness_payload(
     if expose_missing_keys:
         payload["provider_observations"] = provider_runtime["observations"]
     if include_metrics:
+        from src.core.cost_budget import generation_budget_snapshot
+        payload["generation_budget"] = await generation_budget_snapshot()
         payload["jobs"] = job_metrics
         payload["config"] = {
             "rate_limit_requests": settings.rate_limit_requests,
@@ -604,6 +606,7 @@ async def _build_readiness_payload(
             "rate_limit_window": settings.rate_limit_window,
             "job_sla_seconds": settings.job_sla_seconds,
             "image_max_concurrent": settings.image_max_concurrent,
+            "generation_access_mode": settings.generation_access_mode,
         }
     return payload
 

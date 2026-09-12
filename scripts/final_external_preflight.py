@@ -96,6 +96,13 @@ def assess(values):
         invalid.extend(external_infrastructure_errors(values))
     if values.get("S3_ADDRESSING_STYLE", "path") not in {"path", "virtual", "auto"}:
         invalid.append("S3_ADDRESSING_STYLE")
+    access_mode = values.get("GENERATION_ACCESS_MODE", "open")
+    if access_mode not in {"open", "invite_only", "paused"}:
+        invalid.append("GENERATION_ACCESS_MODE")
+    if access_mode == "invite_only":
+        hashes = [item.strip() for item in values.get("GENERATION_ALLOWED_USER_HASHES", "").split(",") if item.strip()]
+        if not hashes or any(not re.fullmatch(r"[a-f0-9]{64}", item) for item in hashes):
+            invalid.append("GENERATION_ALLOWED_USER_HASHES (valid invited account hashes required)")
 
     def need(name):
         if not present(values.get(name)):
@@ -193,6 +200,7 @@ def assess(values):
         "status": "BLOCKED" if missing or invalid else "CONFIGURED_NOT_VERIFIED",
         "launch_ready": False,
         "configuration_only": True,
+        "generation_access_mode": access_mode,
         "missing_or_placeholder": sorted(set(missing)),
         "invalid_configuration": sorted(set(invalid)),
         "features": {"audio": audio, "physical_orders": pod, "new_purchases": purchases,

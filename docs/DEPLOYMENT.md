@@ -303,3 +303,7 @@ Check:
 연장하지 않으며 응답의 `Retry-After` 이후 다시 시도합니다. `RATE_LIMIT`은 지원하지
 않는 이름입니다. `scripts/check-env.sh --mode ci`는 이 기본값이 API, 환경 예시,
 Compose, Render, CI와 일치하는지 검사합니다.
+
+## 2026-09-12 제한 베타 운영 제어
+
+운영 템플릿은 새 AI 생성을 초대 계정으로 제한합니다. `GENERATION_ACCESS_MODE`와 `GENERATION_ALLOWED_USER_HASHES`, 읽기 전용 운영 점검 `scripts/check_operations.py`, 중단·최종 승인 절차는 [출시 후보 기록](LAUNCH_CANDIDATE_2026-09-12.md)을 따릅니다.

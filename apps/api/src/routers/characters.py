@@ -599,7 +599,7 @@ async def create_character_from_text(
     if not name.strip() or not age.strip() or not traits.strip():
         raise ValidationError("이름, 나이, 특징을 입력해주세요.")
     await require_parental_consent(db, user_key)
-    await consume_generation_budget(endpoint="characters.from_text")
+    await consume_generation_budget(endpoint="characters.from_text", user_key=user_key)
     try:
         # 성격 특성 파싱
         personality_traits = [t.strip() for t in traits.split(",") if t.strip()]
