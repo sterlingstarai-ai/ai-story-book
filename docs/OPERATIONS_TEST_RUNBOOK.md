@@ -313,3 +313,5 @@ Render 선택 시 [실행 패키지](RENDER_DEPLOYMENT_PACKAGE.md)의 CA Secret 
 ## 2026-09-12 제한 베타 운영 제어
 
 운영 템플릿은 새 AI 생성을 초대 계정으로 제한합니다. `GENERATION_ACCESS_MODE`와 `GENERATION_ALLOWED_USER_HASHES`, 읽기 전용 운영 점검 `scripts/check_operations.py`, 중단·최종 승인 절차는 [출시 후보 기록](LAUNCH_CANDIDATE_2026-09-12.md)을 따릅니다.
+
+검증용 MinIO 이미지는 공식 Quay의 `RELEASE.2025-09-07T16-13-09Z`와 다중 아키텍처 digest `sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`로 고정한다. 원격 Docker Hub pull이 거부되어 출처를 변경했으며, 9월 12일 로컬 실행에서 검증한 이미지와 digest가 동일함을 확인했다. 실제 운영의 외부 저장소 선택이나 활성화를 변경하지 않는다.

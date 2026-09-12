@@ -210,7 +210,7 @@ def main():
             docker_host = run(["docker", "context", "inspect", "--format", '{{.Endpoints.docker.Host}}'], env=env).strip()
         require(docker_host.startswith(("unix://", "npipe://")), "Only a local Docker socket is allowed")
         report["images"] = {name: run(["docker", "image", "inspect", name, "--format", "{{.Id}}"], env=env).strip()
-                            for name in ("postgres:15-alpine", "minio/minio:latest")}
+                            for name in ("postgres:15-alpine", "quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e")}
         report["docker_version"] = run(["docker", "info", "--format", "{{.ServerVersion}}"], env=env).strip()
         with tempfile.TemporaryDirectory(prefix="storybook-restore-private-") as temporary:
             workspace = Path(temporary)

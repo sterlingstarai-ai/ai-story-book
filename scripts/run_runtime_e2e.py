@@ -23,7 +23,7 @@ import xml.etree.ElementTree as ET
 from mock_illustration_review import MARKER_NAME, MARKER_VALUE, write_startup_loader
 
 ROOT = Path(__file__).resolve().parents[1]
-IMAGES = ("postgres:15-alpine", "redis:7-alpine", "minio/minio:latest")
+IMAGES = ("postgres:15-alpine", "redis:7-alpine", "quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e")
 
 
 class GateFailure(RuntimeError):
