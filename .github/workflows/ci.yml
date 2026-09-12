@@ -311,7 +311,7 @@ jobs:
           arch: x86_64
           disable-animations: true
           working-directory: apps/mobile
-          script: bash -c 'set -o pipefail; flutter test integration_test/ -d emulator-5554 2>&1 | tee integration-output.log'
+          script: bash -c 'set -o pipefail; flutter test integration_test/ --no-dds -d emulator-5554 2>&1 | tee integration-output.log'
 
       - name: Check Flutter coverage threshold
         run: |
