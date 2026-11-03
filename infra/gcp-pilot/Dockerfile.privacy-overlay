@@ -1,0 +1,9 @@
+# Pilot-only overlay: BASE_IMAGE must be a local tag verified against the intended image ID.
+# The base supplies the already-running dependencies and bundled fonts.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+USER root
+COPY --chown=appuser:appuser src/ /app/src/
+COPY --chown=appuser:appuser alembic/ /app/alembic/
+COPY --chown=appuser:appuser alembic.ini /app/alembic.ini
+USER appuser

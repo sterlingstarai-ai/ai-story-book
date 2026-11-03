@@ -58,6 +58,7 @@ class UserService {
   static Future<String> bootstrapUserKey(
     SharedPreferences prefs, {
     FlutterSecureStorage? secureStorage,
+    bool allowCreate = true,
   }) async {
     final secure = secureStorage ?? _defaultSecureStorage;
 
@@ -93,7 +94,7 @@ class UserService {
     }
 
     if (!_isValidKey(key)) {
-      if (prefs.getBool(_initializedKey) == true) {
+      if (!allowCreate || prefs.getBool(_initializedKey) == true) {
         throw const UserKeyUnavailable();
       }
       key = const Uuid().v4();
@@ -188,6 +189,12 @@ class UserService {
   Future<void> activatePendingRecoveryKey() async {
     final key = await pendingRecoveryKey();
     if (key == null) throw const UserKeyUnavailable();
+    if (_prefs.getBool(deletionRequestedKey) == true ||
+        _prefs.getBool(deletionCommittedKey) == true ||
+        _prefs.getBool('local_media_cleanup_pending_v1') == true ||
+        _prefs.containsKey('book_media_cleanup_plan_v1')) {
+      throw const UserKeyUnavailable();
+    }
     _credentialUnavailable = true;
     try {
       await _secureStorage.write(
@@ -198,8 +205,21 @@ class UserService {
       if (await _secureStorage.read(key: _userKeyKey) != key) {
         throw const UserKeyUnavailable();
       }
-      if (!await _prefs.clear() ||
-          !await _prefs.setBool(_initializedKey, true) ||
+      // Preserve account-scoped offline journals and aliases across a key
+      // rotation; deleting all preferences would orphan other accounts' data.
+      for (final preference in _prefs.getKeys().toList()) {
+        if (preference.startsWith('book_media_state_v1_') ||
+            preference.startsWith('book_cache_') ||
+            preference.startsWith('reading_progress_') ||
+            preference.startsWith('branch_story_progress_') ||
+            preference.startsWith('book_media_scope_binding_v1_') ||
+            preference.startsWith('book_media_storage_scope_v1_') ||
+            preference.startsWith('book_media_profile_scope_v2_')) {
+          continue;
+        }
+        if (!await _prefs.remove(preference)) throw const UserKeyUnavailable();
+      }
+      if (!await _prefs.setBool(_initializedKey, true) ||
           !await _prefs.setBool(recoveryBackupNeededKey, true)) {
         throw const UserKeyUnavailable();
       }
@@ -222,12 +242,18 @@ class UserService {
   }
 
   Future<void> resumeKeyForDeletion() async {
-    await bootstrapUserKey(_prefs, secureStorage: _secureStorage);
+    await bootstrapUserKey(
+      _prefs,
+      secureStorage: _secureStorage,
+      allowCreate: false,
+    );
   }
 
   /// Called only after the server confirms account deletion, including a durable
   /// media purge retry. The marker makes storage failure retryable at bootstrap.
-  Future<void> completeAccountDeletion() async {
+  Future<void> completeAccountDeletion({
+    Future<void> Function()? beforeFinalize,
+  }) async {
     _credentialUnavailable = true;
     try {
       if (!await _prefs.setBool(deletionCommittedKey, true)) {
@@ -243,8 +269,29 @@ class UserService {
         throw const UserKeyUnavailable();
       }
       await discardPendingRecoveryKey();
-      if (!await _prefs.clear() ||
-          !await _prefs.setBool(_initializedKey, true)) {
+      // Other accounts' scoped media and deletion markers must survive an
+      // account switch. Keep the committed marker until all other removal
+      // work finishes so a crash cannot turn an incomplete wipe into success.
+      for (final preference in _prefs.getKeys().toList()) {
+        if (preference == deletionCommittedKey ||
+            preference == 'book_media_cleanup_plan_v1' ||
+            preference.startsWith('book_media_state_v1_') ||
+            preference.startsWith('book_cache_') ||
+            preference.startsWith('reading_progress_') ||
+            preference.startsWith('branch_story_progress_') ||
+            preference.startsWith('book_media_scope_binding_v1_') ||
+            preference.startsWith('book_media_storage_scope_v1_') ||
+            preference.startsWith('book_media_profile_scope_v2_')) {
+          continue;
+        }
+        if (!await _prefs.remove(preference)) throw const UserKeyUnavailable();
+      }
+      if (!await _prefs.setBool(_initializedKey, true)) {
+        throw const UserKeyUnavailable();
+      }
+      await beforeFinalize?.call();
+      if (!await _prefs.remove('book_media_cleanup_plan_v1') ||
+          !await _prefs.remove(deletionCommittedKey)) {
         throw const UserKeyUnavailable();
       }
       _cachedUserKey = key;

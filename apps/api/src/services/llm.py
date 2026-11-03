@@ -24,7 +24,9 @@ from src.services.structured_output import (
     provider_output_schema,
 )
 from src.services.openai_contract import request_openai_json
-from src.services.provider_runtime import begin_provider_request, observe_provider_response
+from src.services.provider_runtime import (
+    begin_provider_request, observe_invalid_provider_response, observe_json_output, observe_provider_response,
+)
 from src.models.dto import (
     BookSpec,
     StoryDraft,
@@ -360,11 +362,11 @@ async def _call_mock(
                 "pages": [
                     {
                         "page": i,
-                        "text": f"페이지 {i}: 토끼는 숲속을 걸으며 새로운 모험을 시작했어요. "
+                        "text": "토끼는 숲속을 걸으며 새로운 모험을 시작했어요. "
                         + (
                             "두근두근 설레는 마음이에요."
                             if i == 1
-                            else f"장면 {i}의 이야기입니다."
+                            else "나무 사이로 따뜻한 햇살이 반짝였어요."
                         ),
                         "scene": f"숲속 장면 {i}: 토끼가 나무들 사이를 걸어가고 있습니다.",
                         "mood": "평화로운",
@@ -432,7 +434,7 @@ async def _call_anthropic(
             },
         )
 
-        permanent_error = await observe_provider_response(attempt, response)
+        permanent_error = await observe_provider_response(attempt, response, defer_success=True)
         if permanent_error:
             raise LLMError(permanent_error, "AI 제공자 서비스를 현재 사용할 수 없습니다.")
         if response.status_code != 200:
@@ -454,6 +456,7 @@ async def _call_anthropic(
         try:
             data = response.json()
         except Exception as e:
+            await observe_invalid_provider_response(attempt)
             logger.error(
                 "Anthropic response JSON parse error",
                 body_length=len(response.text or ""),
@@ -462,7 +465,13 @@ async def _call_anthropic(
                 ErrorCode.LLM_JSON_INVALID,
                 "Anthropic 응답 JSON 파싱 실패",
             ) from e
-        return anthropic_response_text(data)
+        try:
+            text = anthropic_response_text(data)
+        except LLMError:
+            await observe_invalid_provider_response(attempt)
+            raise
+        await observe_json_output(attempt, text)
+        return text
 
 
 # Gemini 텍스트(LLM) 엔드포인트. 이미지(image.py)와 같은 Generative Language API지만
@@ -511,7 +520,7 @@ async def _call_gemini(
             },
         )
 
-        permanent_error = await observe_provider_response(attempt, response)
+        permanent_error = await observe_provider_response(attempt, response, defer_success=True)
         if permanent_error:
             raise LLMError(permanent_error, "AI 제공자 서비스를 현재 사용할 수 없습니다.")
         if response.status_code != 200:
@@ -531,6 +540,7 @@ async def _call_gemini(
         try:
             data = response.json()
         except Exception as e:
+            await observe_invalid_provider_response(attempt)
             logger.error(
                 "Gemini response JSON parse error",
                 body_length=len(response.text or ""),
@@ -541,8 +551,11 @@ async def _call_gemini(
             ) from e
 
         try:
-            return data["candidates"][0]["content"]["parts"][0]["text"]
+            text = data["candidates"][0]["content"]["parts"][0]["text"]
+            await observe_json_output(attempt, text)
+            return text
         except (KeyError, IndexError, TypeError) as e:
+            await observe_invalid_provider_response(attempt)
             # 안전 차단·빈 candidate 등 예상 외 형식 — 재시도 가능한 에러로.
             finish = None
             try:

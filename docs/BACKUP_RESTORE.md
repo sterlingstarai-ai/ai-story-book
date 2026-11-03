@@ -5,10 +5,11 @@
 ## 실행 가능한 로컬 리허설
 
 ```bash
+docker build -f infra/Dockerfile.minio-test -t storybook-minio-test:2025-09-07 infra
 ./scripts/run_backup_restore_rehearsal.sh --report-dir /tmp/storybook-restore-report
 ```
 
-기존 Docker 이미지 `postgres:15-alpine`, `minio/minio:latest`와 API Python 의존성을 사용합니다. 프로젝트 `.env`, 기존 DB·볼륨, 실서비스 계정, 실제 아동 콘텐츠를 읽지 않습니다. 원격 Docker 소켓은 거절하며 이미지를 내려받지 않습니다.
+로컬 Docker 이미지 `postgres:15-alpine`, `storybook-minio-test:2025-09-07`와 API Python 의존성을 사용합니다. 위 빌드는 공식 MinIO 릴리스 바이너리를 받고 아키텍처별 SHA-256을 확인하며 테스트에만 사용합니다. 리허설 자체는 프로젝트 `.env`, 기존 DB·볼륨, 실서비스 계정, 실제 아동 콘텐츠를 읽지 않습니다. 원격 Docker 소켓은 거절하며 이미지를 내려받지 않습니다.
 
 1. 임시 PostgreSQL·MinIO 두 벌을 무작위 localhost 포트에 생성합니다.
 2. Docker 내부 health 외에 호스트에서 PostgreSQL `SELECT 1`이 응답하는지 확인한 뒤 현재 Alembic head로 마이그레이션하고 합성 동화·동의·파기 대기 행·미디어를 넣습니다.
@@ -41,7 +42,7 @@ CI의 API 작업에도 같은 리허설이 들어 있으며, 합성 데이터의
 ## 복구 순서와 공개 조건
 
 1. 트래픽을 차단하고 API·Celery 워커를 정지합니다. 장애 원본을 덮어쓰지 말고 새 DB와 비공개 버킷을 준비합니다.
-2. 백업 체크섬을 확인하고 `pg_restore --exit-on-error --single-transaction --no-owner --no-privileges`로 빈 DB에 복원합니다. 원래 미디어 키·오브젝트 버전·메타데이터를 복원하고 행·미디어 체크섬을 비교합니다.
+2. 백업 체크섬을 확인하고 `pg_restore --exit-on-error --single-transaction --no-owner --no-privileges`로 빈 DB에 복원합니다. 일부 Neon 덤프는 `public` 스키마 생성문을 포함하므로, **새로 만든 격리 대상 DB에서만** 기본 빈 `public` 스키마를 먼저 제거해야 충돌하지 않습니다. 기존 DB의 스키마를 제거해서는 안 됩니다. 원래 미디어 키·오브젝트 버전·메타데이터를 복원하고 행·미디어 체크섬을 비교합니다.
 3. **백업 이후 삭제·동의 철회·계정 키 폐기/회전 기록을 반드시 다시 적용합니다.** `storage_purge_tasks`의 대기·실패 지시를 처리하고, 이미 삭제된 계정/책/사진이 다시 보이지 않는지 확인합니다. 오래된 DB의 `account_identities`는 폐기된 기기키·복구코드를 다시 유효하게 만들 수 있습니다. 최신 인증 상태를 안전하게 보존·재적용할 수 없으면 해당 복구 환경을 공개하지 않습니다. 운영자가 본인 확인 없이 복구코드를 임의 발급해서 해결하지 않습니다. 자세한 인증 복구 제약은 [ACCOUNT_RECOVERY.md](ACCOUNT_RECOVERY.md)를 참조합니다.
 4. Redis를 이전 큐 스냅샷으로 무조건 되돌리지 않습니다. 외부 AI 생성이 중복 청구될 수 있습니다. DB의 queued/running 작업을 먼저 대조하고, 불확실한 실행 중 작업은 SLA 실패·환불 정책으로 정리한 뒤 승인된 대기 작업만 재개합니다. Korea-local 비용 카운터를 보수적으로 복원하기 전에는 새 생성을 열지 않습니다.
 5. 복원에 맞는 이미지 digest와 Alembic revision을 확인합니다. API 내부 읽기 검증 → 부모 계정 소유권 → 실제 미디어 서명 다운로드/익명 차단 → 공유 철회 → 삭제 검증 → `/health/ready`와 TLS를 확인합니다.
@@ -59,15 +60,18 @@ CI의 API 작업에도 같은 리허설이 들어 있으며, 합성 데이터의
   --env-file infra/.env.external --output-dir /approved-encrypted-backups/storybook
 ```
 
-실제 백업은 운영자가 대상·백업 창·암호화 장소를 확정한 뒤 `--execute --quiesced --destination-encrypted --ca-file /path/on/backup-host/provider-ca.crt`를 추가합니다. 이 세 확인은 운영자의 사실 확인이며 도구가 호스트 암호화나 API 중지를 자동으로 증명하지 않습니다. `pg_dump`, `pg_restore`, `psql`과 API Python 의존성이 백업 호스트에 있어야 합니다. PostgreSQL 클라이언트는 대상 서버 major 버전과 호환되는 버전을 사용합니다.
+실제 백업은 운영자가 대상·백업 창·암호화 장소를 확정한 뒤 `--execute --quiesced --destination-encrypted --ca-file /path/on/backup-host/provider-ca.crt`를 추가합니다. 이 세 확인은 운영자의 사실 확인이며 도구가 호스트 암호화나 API 중지를 자동으로 증명하지 않습니다. `pg_dump`, `pg_restore`, `psql`과 API Python 의존성이 백업 호스트에 있어야 합니다. 실행 시 서버 버전과 `pg_dump`·`pg_restore`의 major 버전이 모두 같은지 확인하고 다르면 백업 전에 중단합니다. URL에 `channel_binding=require`가 있으면 libpq 자식 프로세스에도 동일하게 강제합니다.
 
-- 작업은 외부 DB와 S3에 **읽기만** 수행합니다. API 쓰기·워커가 중지되어 있어야 하고 DB에 queued/running 작업이 남아 있으면 차단합니다. 자동 배포·중지·복구·백업 삭제는 하지 않습니다.
+- 작업은 외부 DB와 S3에 **읽기만** 수행합니다. API 쓰기·워커가 중지되어 있어야 하고, 백업 시작과 끝에 queued/running 작업, 완료·취소되지 않은 저장소 파기 지시 또는 외부에 게시되지 않은 개인정보 변경 기록이 있으면 차단합니다. 개인정보 기록 테이블이 없는 구형 DB에서도 안전하게 실패합니다. 이 점검은 실제 쓰기 중지를 증명하거나 백업 이후 발생한 삭제를 복구 시 재적용하지 않습니다. 자동 배포·중지·복구·백업 삭제는 하지 않습니다.
+- 백업 앞뒤의 PostgreSQL 트랜잭션 스냅샷이 다르면 완료 세트를 폐기한다. 이는 작업·삭제가 백업 중 빠르게 완료돼 대기열에서 사라진 경우를 일부 감지하지만, 실제 쓰기 중지를 입증하지 않고 백업 완료 이후 삭제를 재적용하지 않는다. 무관한 쓰기나 DB 내부 변화로도 안전하게 실패할 수 있다.
 - `public` 앱 스키마의 custom-format 덤프를 생성해 `pg_restore --list`를 검사합니다. Supabase가 관리하는 `auth`·`storage` 스키마를 앱 DB로 덮어쓰기 위한 덤프를 만들지 않습니다.
 - 전용 버킷의 오브젝트를 ETag 조건으로 읽고, 전후 목록이 같으며 크기가 맞을 때만 새 완성 세트를 등록합니다. 원래 key는 비공개 manifest에 저장하고 로컬 파일 이름은 SHA-256을 사용해 경로 이탈을 막습니다.
 - 0700 세트에 0600 덤프·오브젝트·manifest를 저장합니다. manifest에는 SHA-256·크기·Content-Type·메타데이터·이미지 SHA/digest·Alembic revision이 들어갑니다. 실패·중단 시 이번 임시 세트만 삭제하고 이전 백업을 보존합니다.
 - `BACKUP_CREATED_NOT_RESTORE_VERIFIED`는 백업 파일 생성만 뜻합니다. 결과 JSON에는 콘텐츠나 원래 오브젝트 key가 나오지 않지만, 백업 자체에는 개인정보가 있으므로 공개 산출물로 옮기지 않습니다. 그 이후의 삭제·동의 철회·인증폐기 기록을 재적용하지 않은 복원본은 공개하면 안 됩니다.
 
 `deploy.sh backup`은 내부 PostgreSQL 서비스가 없는 외부 Compose를 명시 거절합니다. 외부 백업 도구의 mock 회귀는 실제 Supabase 덤프·미디어 복원·운영 RTO/RPO나 백업 장소의 암호화를 검증하지 않습니다.
+
+격리 재적용기의 완료된 파기 검증은 목록 페이지의 버킷·접두사·KeyCount와 중복 항목, 예기치 않은 CommonPrefixes 및 마지막 이어가기 토큰을 확인합니다. 한 파기 대상의 목록은 10,000페이지와 100,000키를 넘으면 검증 불가로 처리해 격리를 유지합니다. 실제 운영 버킷 호환성이나 복원 후 최신 삭제 기록의 완전성을 입증하는 검사는 아닙니다.
 
 ## 복구 전 오프라인 무결성 확인
 

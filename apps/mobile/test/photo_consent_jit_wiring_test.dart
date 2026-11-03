@@ -58,19 +58,21 @@ class _FakePickerPlatform extends ImagePickerPlatform
 }
 
 class _SpyApiClient extends ApiClient {
-  _SpyApiClient({required this.photosGranted})
+  _SpyApiClient({required this.photosGranted, this.requiredGranted = true})
       : super(baseUrl: 'http://test', userKey: 'u', enableLogging: false);
 
   final bool photosGranted;
+  final bool requiredGranted;
   int uploadCalls = 0;
   int grantCalls = 0;
 
   @override
   Future<Map<String, dynamic>> getConsent() async => <String, dynamic>{
-        'granted': true,
-        'privacy': true,
+        'granted': requiredGranted,
+        'privacy': requiredGranted,
         'photos': photosGranted,
         'data_processing': true,
+        'revoked': false,
       };
 
   @override
@@ -81,7 +83,13 @@ class _SpyApiClient extends ApiClient {
     String? consentVersion,
   }) async {
     grantCalls++;
-    return <String, dynamic>{'photos': photos};
+    return <String, dynamic>{
+      'granted': privacy && dataProcessing,
+      'privacy': privacy,
+      'photos': photos,
+      'data_processing': dataProcessing,
+      'revoked': false,
+    };
   }
 
   @override
@@ -156,9 +164,13 @@ void main() {
   Future<_SpyApiClient> openPhotoPicker(
     WidgetTester tester, {
     required bool photosGranted,
+    bool requiredGranted = true,
   }) async {
     ImagePickerPlatform.instance = _FakePickerPlatform(XFile(photoFile.path));
-    final api = _SpyApiClient(photosGranted: photosGranted);
+    final api = _SpyApiClient(
+      photosGranted: photosGranted,
+      requiredGranted: requiredGranted,
+    );
     await tester.pumpWidget(_harness(prefs: await _verifiedPrefs(), api: api));
     await tester.pumpAndSettle();
 
@@ -172,6 +184,18 @@ void main() {
     await tester.pumpAndSettle();
     return api;
   }
+
+  testWidgets('필수 동의가 빠졌으면 사진 항목이 켜져 있어도 업로드하지 않는다', (tester) async {
+    final api = await openPhotoPicker(
+      tester,
+      photosGranted: true,
+      requiredGranted: false,
+    );
+    expect(api.uploadCalls, 0);
+    expect(api.grantCalls, 0);
+    expect(find.text(_nameDialogTitle), findsNothing);
+    expect(find.textContaining('부모 동의를 먼저 완료'), findsOneWidget);
+  });
 
   testWidgets('미동의 상태에서 사진을 고르면 JIT 동의 고지가 뜬다', (tester) async {
     final api = await openPhotoPicker(tester, photosGranted: false);

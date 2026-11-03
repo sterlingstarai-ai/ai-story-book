@@ -3,7 +3,7 @@
 
 One fictional character and one 4- or 8-page book per invocation. The illustration
 release gate is enabled. A shared HTTP journal limits all processes to 16 selected
-LLM requests and page_count + cover + 2 Gemini image requests, including failed
+LLM requests and page_count + cover + 2 image requests, including failed
 attempts and repairs. This is a small acceptance sample, not the full A1 quality gate.
 Only already-cached local Docker images are used. No production env is loaded.
 The default is fully synthetic. An optional private reader profile supplies a
@@ -71,14 +71,15 @@ def runtime_config(values, *, llm_values=None, llm_model=None, image_model=None)
     if not key and (declared == provider or (llm_values is not None and not declared)):
         key = source.get("LLM_API_KEY")
     selected_image = image_model or values.get("IMAGE_MODEL")
-    require(values.get("IMAGE_PROVIDER") == "gemini" and selected_image in IMAGE_MODELS,
+    image_provider = "openai" if selected_image == "gpt-image-2" else "gemini"
+    require(values.get("IMAGE_PROVIDER") == image_provider and selected_image in IMAGE_MODELS,
             "INVALID_IMAGE_CONFIGURATION")
     image_key = values.get("IMAGE_API_KEY")
     for secret in (key, image_key):
         require(isinstance(secret, str) and bool(secret) and secret.isascii()
                 and not any(character.isspace() for character in secret), "INVALID_PROVIDER_KEY")
     return SimpleNamespace(llm_provider=provider, llm_model=selected, llm_api_key=key,
-                           image_provider="gemini", image_model=selected_image,
+                           image_provider=image_provider, image_model=selected_image,
                            image_api_key=image_key, llm_timeout=90, image_timeout=90)
 
 
@@ -111,8 +112,7 @@ def save_json(path, value):
 def write_guarded_entry(api, guard_module, *, capture_fictional_review=False):
     """A guard installation error must stop Python before importing the app."""
     require(guard_module in {"live_acceptance_guard", "photo_acceptance_guard"}, "INVALID_ACCEPTANCE_GUARD")
-    require(type(capture_fictional_review) is bool
-            and (not capture_fictional_review or guard_module == "photo_acceptance_guard"),
+    require(type(capture_fictional_review) is bool,
             "INVALID_FICTIONAL_CAPTURE_OPTION")
     entry = api / "live_entry.py"
     entry.write_text(
@@ -196,6 +196,19 @@ def data_scope(reader_profile):
             }}
 
 
+def unverified_candidate_readiness(http_status, payload):
+    """Permit only a fresh isolated candidate's explicit provider probe gap."""
+    services = payload.get("services", {})
+    return (
+        http_status == 503
+        and services.get("provider_runtime") == "unverified"
+        and all(services.get(name) == "healthy" for name in
+                ("database", "redis", "job_monitor", "storage", "provider_keys"))
+        and services.get("cost_budget") == "configured"
+    )
+
+
+
 def journey(base, directory, age, report, case=1, page_count=8, reader_profile=None):
     name = "하루" if reader_profile is None else reader_profile["protagonist_name"]
     owner = {"X-User-Key": str(uuid.uuid4())}
@@ -205,8 +218,12 @@ def journey(base, directory, age, report, case=1, page_count=8, reader_profile=N
             require(response.status_code == 200, f"{method} {path.split('?')[0]}: HTTP {response.status_code}")
             return response
 
-        ready = call("GET", "/health/ready").json()
+        readiness = client.get("/health/ready")
+        ready = readiness.json()
         report["readiness"] = ready
+        report["readiness_http_status"] = readiness.status_code
+        require(readiness.status_code == 200 or unverified_candidate_readiness(readiness.status_code, ready),
+                "Disposable candidate dependencies are not ready")
         call("POST", "/v1/consent", json={"privacy": True, "photos": False, "data_processing": True})
         print("Creating character through the live adapter..." if reader_profile is not None else
               "Creating fictional character through the live adapter...", flush=True)
@@ -314,6 +331,8 @@ def main():
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--reader-profile-file", type=Path,
                         help="Private Git-ignored 0600 JSON: protagonist_name, optional character_gender/character_age")
+    parser.add_argument("--retain-fictional-review-evidence", action="store_true",
+                        help="Retain private QA inputs for the 4-page fully fictional case only")
     parser.add_argument("--age", choices=("3-5", "5-7", "7-9"), default="5-7")
     parser.add_argument("--case", type=int, choices=range(1, 6), default=1)
     parser.add_argument("--page-count", type=int, choices=ACCEPTANCE_PAGE_COUNTS, default=8)
@@ -344,13 +363,16 @@ def run_acceptance(args, *, profile=None):
                      "migrations.log", "cleanup.log", *(f"page-{index:02d}.png" for index in range(args.page_count + 1))):
         require_ignored_path(directory / filename)
     reader_profile = load_reader_profile(args.reader_profile_file, args.age)
+    text_capture = bool(getattr(args, "retain_fictional_review_evidence", False))
+    require(not text_capture or (profile is None and reader_profile is None and args.page_count == 4),
+            "REAL_CHILD_REVIEW_CAPTURE_FORBIDDEN")
     config = profile.config if profile is not None else load_runtime_config(args)
     quality_environment = profile.environment if profile is not None else quality_gate_environment(args.page_count, config)
     directory.mkdir(parents=True, mode=0o700)
-    capture_fictional = bool(profile is not None and getattr(profile, "retain_fictional_review_evidence", False))
+    capture_fictional = text_capture or bool(profile is not None and getattr(profile, "retain_fictional_review_evidence", False))
     if capture_fictional:
-        require(profile.report_fields.get("source_classification") == "fictional_image"
-                and profile.report_fields.get("real_child_data") is False,
+        require(text_capture or (profile.report_fields.get("source_classification") == "fictional_image"
+                and profile.report_fields.get("real_child_data") is False),
                 "REAL_CHILD_REVIEW_CAPTURE_FORBIDDEN")
         evidence = directory / "fictional-review-evidence"
         require_ignored_path(evidence)
@@ -403,8 +425,8 @@ def run_acceptance(args, *, profile=None):
                 guard_module = profile.guard_module
                 require(guard_module == "photo_acceptance_guard", "INVALID_ACCEPTANCE_GUARD")
                 shutil.copy2(ROOT / "scripts/photo_acceptance_guard.py", api / "photo_acceptance_guard.py")
-                if capture_fictional:
-                    shutil.copy2(ROOT / "scripts/fictional_review_capture.py", api / "fictional_review_capture.py")
+            if capture_fictional:
+                shutil.copy2(ROOT / "scripts/fictional_review_capture.py", api / "fictional_review_capture.py")
             # Python ignores sitecustomize exceptions and continues startup.
             # A normal entrypoint makes guard failure fatal before any app import.
             entry = write_guarded_entry(api, guard_module, capture_fictional_review=capture_fictional)

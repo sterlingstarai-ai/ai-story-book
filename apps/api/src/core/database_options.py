@@ -30,6 +30,9 @@ def database_options(
         raise ValueError("Use the Supabase direct or session endpoint on port 5432; transaction pooling is unsupported")
 
     query = dict(url.query)
+    for name in ("sslmode", "sslrootcert", "channel_binding"):
+        if name in query and not isinstance(query[name], str):
+            raise ValueError(f"Duplicate database {name} settings are not supported")
     for name, explicit in (("sslmode", ssl_mode), ("sslrootcert", ssl_root_cert)):
         if explicit and name in query and query[name] != explicit:
             raise ValueError(f"Conflicting database {name} settings")
@@ -41,6 +44,24 @@ def database_options(
     root_cert = query.get("sslrootcert", "")
     if root_cert and mode not in {"verify-ca", "verify-full"}:
         raise ValueError("DATABASE_SSL_ROOT_CERT requires verify-ca or verify-full")
+
+    # Explicit opt-in for providers whose connection policy requires SCRAM
+    # channel binding. psycopg3 uses libpq for both sync and async engines;
+    # asyncpg cannot enforce channel_binding=require. Never silently discard it.
+    if url.drivername == "postgresql+psycopg":
+        if mode != "verify-full" or query.get("channel_binding") != "require":
+            raise ValueError("psycopg requires verify-full and channel_binding=require")
+        if not root_cert:
+            query["sslrootcert"] = "system"
+        elif root_cert != "system":
+            try:
+                ssl.create_default_context(cafile=root_cert)
+            except (OSError, ssl.SSLError):
+                raise ValueError("Database CA certificate cannot be loaded") from None
+        return url.set(drivername="postgresql+psycopg", query=query).render_as_string(hide_password=False), {}
+
+    if asynchronous and "channel_binding" in query:
+        raise ValueError("asyncpg does not support channel_binding; use verified psycopg")
     connect_args = {}
     if asynchronous:
         # SQLAlchemy forwards query keys as asyncpg kwargs, but asyncpg only

@@ -30,6 +30,7 @@ from src.models.dto import (
 from src.models.db import Character
 from src.services.photo_character import photo_character_service, validate_text_character
 from src.services.purge_queue import run_purge_tasks
+from src.services.privacy_journal_transaction import prepare_transaction_event, publish_committed_event
 from src.services.character_avatar import (
     approve_character_avatar, avatar_response_fields, create_image_character,
     dispatch_character_avatar, regenerate_character_avatar,
@@ -565,6 +566,7 @@ async def delete_character(
         raise NotFoundError("캐릭터", character_id)
     if character.user_key != user_key:
         raise AuthorizationError()
+    journal_event = await prepare_transaction_event(db, user_key=user_key, action='character_delete', resource_id=character_id)
     pending_generation = character.avatar_status == "generating"
     tasks = await prepare_character_deletion(db, character)
     try:
@@ -572,6 +574,7 @@ async def delete_character(
     except Exception:
         await db.rollback()
         raise InternalServerError("캐릭터 삭제에 실패했습니다. 잠시 후 다시 시도해주세요.") from None
+    await publish_committed_event(db, journal_event)
     failed = await run_purge_tasks(db, tasks) if tasks else []
     pending = bool(failed) or pending_generation
     return {

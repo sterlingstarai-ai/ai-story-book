@@ -1,5 +1,7 @@
+import re
 import structlog
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Header, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only
@@ -9,8 +11,8 @@ from typing import Literal, Optional
 from src.core.database import get_db
 from src.core.dependencies import get_profile_id, get_user_key
 from src.models.dto import LibraryResponse, BookSummary, TargetAge, Style
-from src.models.db import Book, ChildProfile
-from src.core.exceptions import NotFoundError, AuthorizationError, ValidationError
+from src.models.db import Book, BookDeletionReceipt, ChildProfile
+from src.core.exceptions import APIError, NotFoundError, AuthorizationError, ValidationError
 from src.services.data_deletion import (
     collect_purgeable_image_keys,
     purge_book_children,
@@ -21,6 +23,8 @@ from src.services.purge_queue import (
     run_purge_tasks,
 )
 from src.services.photo_lifecycle import lock_photo_account
+from src.services.privacy_journal_transaction import prepare_transaction_event, publish_committed_event
+from src.services.privacy_journal import DeletionReceipt
 from src.services.storage import book_file_prefix, mask_file_prefix, media_url
 
 router = APIRouter()
@@ -29,6 +33,42 @@ logger = structlog.get_logger()
 
 class UpdateBookRequest(BaseModel):
     title: str = Field(min_length=1, max_length=80)
+
+
+def _deletion_request_id(value) -> Optional[str]:
+    # Direct internal callers (e.g. the isolated replay fixture) do not use
+    # FastAPI dependency injection and therefore receive a Header sentinel.
+    if value is None or not isinstance(value, str):
+        return None
+    if not re.fullmatch('[0-9a-f]{32}', value):
+        raise ValidationError('삭제 요청 ID가 유효하지 않습니다.')
+    return value
+
+
+def _receipt_response():
+    # A committed book-row deletion is not proof that object purges finished.
+    return {'deletion_committed': True, 'storage_purge_status': 'unknown'}
+
+
+@router.get('/{book_id}/deletion-receipt')
+async def get_book_deletion_receipt(
+    book_id: str,
+    x_deletion_request_id: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+    user_key: str = Depends(get_user_key),
+    profile_id: Optional[str] = Depends(get_profile_id),
+):
+    request_id = _deletion_request_id(x_deletion_request_id)
+    if request_id is None:
+        raise ValidationError('삭제 요청 ID가 필요합니다.')
+    await lock_photo_account(db, user_key)
+    scoped_profile_id = await _validate_profile_ownership(db, user_key, profile_id)
+    receipt = await db.get(BookDeletionReceipt, (user_key, request_id))
+    if receipt is None or receipt.book_id != book_id or receipt.profile_id != scoped_profile_id:
+        raise NotFoundError('삭제 요청', 'unavailable')
+    if await db.get(Book, book_id) is not None:
+        raise NotFoundError('삭제 요청', 'unavailable')
+    return JSONResponse(_receipt_response(), headers={'Cache-Control': 'private, no-store'})
 
 
 async def _validate_profile_ownership(
@@ -217,6 +257,7 @@ async def delete_book(
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
     profile_id: Optional[str] = Depends(get_profile_id),
+    x_deletion_request_id: Optional[str] = Header(None),
 ):
     """
     책 삭제
@@ -224,7 +265,18 @@ async def delete_book(
     # Serialize with verified edit publication before touching Book or Page rows.
     # Otherwise deletion's child-first order can deadlock with Book-first edits,
     # and its asset inventory can miss the image an edit has just published.
+    request_id = _deletion_request_id(x_deletion_request_id)
     await lock_photo_account(db, user_key)
+    scoped_profile_id = None
+    if request_id is not None:
+        scoped_profile_id = await _validate_profile_ownership(db, user_key, profile_id)
+        prior = await db.get(BookDeletionReceipt, (user_key, request_id))
+        if prior is not None:
+            if prior.book_id != book_id or prior.profile_id != scoped_profile_id:
+                raise APIError(409, 'DELETION_REQUEST_CONFLICT', '삭제 요청 ID가 다른 요청에 사용되었습니다.')
+            if await db.get(Book, book_id) is not None:
+                raise APIError(409, 'DELETION_REQUEST_CONFLICT', '삭제 요청 상태를 확인할 수 없습니다.')
+            return {**_receipt_response(), 'status': 'unknown', 'purge_retry_pending': True}
     result = await db.execute(select(Book).where(Book.id == book_id))
     book = result.scalar_one_or_none()
 
@@ -233,7 +285,8 @@ async def delete_book(
 
     if book.user_key != user_key:
         raise AuthorizationError()
-    scoped_profile_id = await _validate_profile_ownership(db, user_key, profile_id)
+    if request_id is None:
+        scoped_profile_id = await _validate_profile_ownership(db, user_key, profile_id)
     # 배정되지 않은(profile_id 없는) 책은 계정 공용 — 목록 필터와 같은 규칙.
     if (
         scoped_profile_id
@@ -241,6 +294,10 @@ async def delete_book(
         and book.profile_id != scoped_profile_id
     ):
         raise AuthorizationError("선택한 프로필의 책이 아닙니다.")
+
+    receipt = DeletionReceipt(request_id, scoped_profile_id) if request_id is not None else None
+    journal_event = await prepare_transaction_event(db, user_key=user_key, action='book_delete',
+                                                   resource_id=book_id, deletion_receipt=receipt)
 
     # N1: 파이프라인 이미지(images/{provider}/…)는 books/{id}/ prefix 밖이라 prefix 삭제로
     # 지워지지 않는다. 행을 지우면 image_url이 사라져 역산도 불가능해지므로(영구 고아),
@@ -272,7 +329,13 @@ async def delete_book(
         enqueue_purge_keys(db, user_key=user_key, reason="book_delete", keys=image_keys)
     )
 
+    if receipt is not None:
+        db.add(BookDeletionReceipt(user_key=user_key, request_id=receipt.request_id,
+                                   book_id=book_id, profile_id=receipt.profile_id))
+
     await db.commit()
+
+    await publish_committed_event(db, journal_event)
 
     # H8 계약(R1-7): 파기 실패를 무조건 success로 응답하지 않는다. 예전에는 실패를 로그로만
     # 남기고 `{"message": "deleted"}`를 돌려줘서, 아동 likeness가 스토리지에 남았는데도
@@ -286,9 +349,12 @@ async def delete_book(
             failed_key_count=len(failed_keys),
         )
 
-    return {
+    response = {
         "message": "Book deleted successfully",
         "status": "partial" if failed_keys else "success",
         "storage_delete_failures": len(failed_keys),
         "purge_retry_pending": bool(failed_keys),
     }
+    if receipt is not None:
+        response['deletion_committed'] = True
+    return response

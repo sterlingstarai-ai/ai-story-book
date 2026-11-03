@@ -1,0 +1,13 @@
+[Unit]
+Description=Quarantine an interrupted AI Story Book provider key rotation
+Requires=docker.service
+After=docker.service
+Before=asb-narration-quarantine.service asb-backup-recover.service asb-privacy-deploy-recover.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/ai-story-book/current/scripts/provider_rotation_quarantine.py --recover
+TimeoutStartSec=420
+
+[Install]
+WantedBy=multi-user.target

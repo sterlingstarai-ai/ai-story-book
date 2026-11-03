@@ -51,11 +51,17 @@ def verify(folder):
         manifest = json.loads(manifest_path.read_text())
     except (OSError, ValueError):
         raise BackupValidationError('Backup manifest could not be read.') from None
-    if not isinstance(manifest, dict) or manifest.get('format_version') != 1 or manifest.get('database_scope') != 'public':
+    if (not isinstance(manifest, dict) or type(manifest.get('format_version')) is not int
+            or manifest['format_version'] != 1 or manifest.get('database_scope') != 'public'):
         raise BackupValidationError('Unsupported backup format or database scope.')
     if manifest.get('requires_latest_deletion_and_identity_revocations') is not True:
         raise BackupValidationError('Backup does not carry the mandatory revocation replay requirement.')
     total_size = checked_file(folder, manifest.get('database'), 'database.dump')
+    # An empty byte stream is never a usable PostgreSQL archive, even if its
+    # declared checksum and size match exactly.  This is only a necessary
+    # condition: a nonempty stream still needs a real restore rehearsal.
+    if total_size == 0:
+        raise BackupValidationError('Database archive is empty.')
     objects = manifest.get('objects')
     if not isinstance(objects, list):
         raise BackupValidationError('Backup media inventory is missing.')

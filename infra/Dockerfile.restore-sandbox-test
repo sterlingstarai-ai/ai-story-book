@@ -1,0 +1,22 @@
+# Synthetic-only offline recovery research image. Not an approved release image.
+# The build context is an allowlisted temporary copy, never the repository root.
+ARG PYTHONDEPS=storybook-launch-api:c20d312
+ARG MINIODEPS=storybook-minio-test:2025-09-07
+ARG POSTGRES=postgres:16
+FROM ${PYTHONDEPS} AS pythondeps
+FROM ${MINIODEPS} AS miniodeps
+FROM ${POSTGRES}
+COPY --from=pythondeps /usr/local/bin/python3.11 /usr/local/bin/python3.11
+COPY --from=pythondeps /usr/local/lib/python3.11 /usr/local/lib/python3.11
+COPY --from=pythondeps /usr/local/lib/libpython3.11.so.1.0 /usr/local/lib/libpython3.11.so.1.0
+COPY --from=pythondeps /opt/venv /opt/venv
+COPY --from=miniodeps /usr/local/bin/minio /usr/local/bin/minio
+RUN ldconfig && ln -sf python3.11 /usr/local/bin/python3 && ln -sf python3 /usr/local/bin/python
+COPY apps /offline/apps
+COPY scripts /offline/scripts
+ENV PATH="/opt/venv/bin:/usr/lib/postgresql/16/bin:/usr/local/bin:/usr/bin:/bin" \
+    PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 HOME=/tmp
+WORKDIR /offline/apps/api
+USER 65534:65534
+ENTRYPOINT ["/bin/sleep"]
+CMD ["600"]

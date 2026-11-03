@@ -79,6 +79,24 @@ def test_new_settings_forwarded_in_existing_compose_and_schema_examples():
             assert names <= keys
 
 
+def test_optional_account_scope_settings_are_forwarded_without_requiring_key_at_boot():
+    names = {'ACCOUNT_SCOPE_KEY_FILE', 'ACCOUNT_SCOPE_KEY_SHA256', 'ACCOUNT_SCOPE_NAMESPACE'}
+    schema = json.loads((ROOT / 'env.schema.json').read_text())['properties']
+    assert names | {'ACCOUNT_SCOPE_HOST_KEY_FILE'} <= schema.keys()
+    for name in ['apps/api/.env.example', 'infra/.env.example', 'infra/.env.external.example']:
+        text = (ROOT / name).read_text()
+        assert all(f'{key}=' in text for key in names)
+    for name in ['infra/docker-compose.yml', 'infra/docker-compose.prod.yml', 'infra/docker-compose.external.yml']:
+        services = yaml.safe_load((ROOT / name).read_text())['services']
+        for service in ['api', 'worker']:
+            environment = services[service]['environment']
+            keys = set(environment) if isinstance(environment, dict) else {item.split('=', 1)[0] for item in environment}
+            assert names <= keys
+    override = yaml.safe_load((ROOT / 'infra/docker-compose.account-scope.yml').read_text())['services']['api']
+    assert override['environment']['ACCOUNT_SCOPE_KEY_FILE'] == '/run/asb-secrets/account-scope.key'
+    assert override['volumes'][0]['read_only'] is True
+
+
 def test_external_check_requires_an_explicit_file():
     result = subprocess.run(['bash', str(ROOT / 'scripts/check-env.sh'), '--mode', 'external'],
                             capture_output=True, text=True, env={'PATH': '/usr/bin:/bin'})

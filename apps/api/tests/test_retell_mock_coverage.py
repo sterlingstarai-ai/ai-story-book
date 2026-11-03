@@ -80,6 +80,21 @@ async def test_no_prompt_falls_through_to_mock_fallback():
 
 
 @pytest.mark.asyncio
+async def test_mock_story_text_has_no_page_or_scene_announcements():
+    import json
+    from pathlib import Path
+
+    from src.services.llm import _call_mock
+
+    prompt = (Path(__file__).resolve().parents[1] / "src/prompts/generate_story.system.jinja2").read_text()
+    story = json.loads(await _call_mock(prompt, "language: ko\ntarget_age: 5-7", 1000, 0.7))
+    assert len(story["pages"]) > 1
+    for page in story["pages"]:
+        assert "페이지" not in page["text"]
+        assert "장면" not in page["text"]
+
+
+@pytest.mark.asyncio
 async def test_retell_endpoint_succeeds(client, db_session):
     """엔드포인트 레벨 — 매트릭스 #14 재검증."""
     import uuid

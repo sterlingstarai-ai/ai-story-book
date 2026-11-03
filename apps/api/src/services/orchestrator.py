@@ -1195,6 +1195,10 @@ async def package_book(
             from src.core.consent import require_photo_consent
 
             await lock_photo_account(session, user_key)
+            if series_id:
+                from src.services.series_ownership import owned_series
+
+                await owned_series(session, series_id, user_key)
             publication_job = await session.get(Job, job_id)
             if publication_job is not None and publication_job.photo_derived:
                 await require_photo_consent(session, user_key)
@@ -1557,6 +1561,9 @@ async def regenerate_page(
             await session.refresh(page, with_for_update=True)
             from src.services.purge_queue import enqueue_purge_keys
             from src.services.storage import key_from_public_url
+            from src.services.audio_assets import retire_page_variants
+
+            await retire_page_variants(session, page.id, user_key=book.user_key)
 
             enqueue_purge_keys(
                 session,
@@ -1841,11 +1848,14 @@ async def start_series_generation(
 
     async with AsyncSessionLocal() as session:
         if series_id:
-            series_result = await session.execute(select(Series).where(Series.id == series_id))
-            existing_series = series_result.scalar_one_or_none()
+            from src.services.series_ownership import owned_series
+
+            existing_series = await owned_series(session, series_id, user_key, allow_missing=True)
             if existing_series:
                 max_idx_result = await session.execute(
-                    select(func.max(Book.series_index)).where(Book.series_id == series_id)
+                    select(func.max(Book.series_index)).where(
+                        Book.series_id == series_id, Book.user_key == user_key,
+                    )
                 )
                 max_idx = max_idx_result.scalar() or 0
                 series_index = max_idx + 1

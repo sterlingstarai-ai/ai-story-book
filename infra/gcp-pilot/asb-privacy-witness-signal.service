@@ -1,0 +1,10 @@
+[Unit]
+Description=Publish privacy witness snapshot health
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/ai-story-book/pilot/private/privacy-witness-watch.env
+ExecStart=/opt/ai-story-book/current/apps/api/venv/bin/python /opt/ai-story-book/current/scripts/publish_privacy_witness_health.py
+TimeoutStartSec=150

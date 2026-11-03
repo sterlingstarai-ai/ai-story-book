@@ -87,15 +87,14 @@ class RateLimiter:
         if not self._redis:
             return
 
+        client, self._redis = self._redis, None
         # redis-py async client API changed across versions (`close` -> `aclose`).
         # Prefer `aclose` when available and fall back to legacy `close`.
-        aclose = getattr(self._redis, "aclose", None)
+        aclose = getattr(client, "aclose", None)
         if aclose is not None:
             await aclose()
         else:
-            await self._redis.close()
-
-        self._redis = None
+            await client.close()
 
 
 rate_limiter = RateLimiter()
@@ -115,6 +114,19 @@ async def check_rate_limit(request: Request):
         client = getattr(request, "client", None)
         user_key = "anonymous:" + (getattr(client, "host", None) or "unknown")
     bucket = "read" if getattr(request, "method", "POST") in {"GET", "HEAD"} else "write"
+    await _enforce_rate_limit(request, user_key, bucket)
+
+
+async def check_public_share_rate_limit(request: Request):
+    """Public media uses the trusted peer, never caller-controlled credentials."""
+    if settings.testing and not settings.rate_limit_enforce_in_testing:
+        return
+    client = getattr(request, "client", None)
+    key = "share:" + (getattr(client, "host", None) or "unknown")
+    await _enforce_rate_limit(request, key, "read")
+
+
+async def _enforce_rate_limit(request: Request, user_key: str, bucket: str):
     limit = settings.rate_limit_read_requests if bucket == "read" else settings.rate_limit_requests
 
     try:

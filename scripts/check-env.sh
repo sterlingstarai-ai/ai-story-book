@@ -57,7 +57,9 @@ EXTERNAL_REQUIRED_VARS=(
 
 LOCAL_OPTIONAL_VARS=(
   "LLM_API_KEY"
+  "LLM_API_KEY_FILE"
   "IMAGE_API_KEY"
+  "IMAGE_API_KEY_FILE"
   "AUDIO_FEATURE_ENABLED"
   "TTS_PROVIDER"
   "STT_PROVIDER"
@@ -70,7 +72,9 @@ LOCAL_OPTIONAL_VARS=(
 # /health/ready(tts_provider_not_live / stt_provider_not_live)가 최종 게이트한다.
 PRODUCTION_OPTIONAL_VARS=(
   "LLM_API_KEY"
+  "LLM_API_KEY_FILE"
   "IMAGE_API_KEY"
+  "IMAGE_API_KEY_FILE"
   "AUDIO_FEATURE_ENABLED"
   "TTS_PROVIDER"
   "STT_PROVIDER"
@@ -185,6 +189,9 @@ run_ci_checks() {
   if ! python3 "$ROOT_DIR/scripts/validate_provider_runtime_contract.py"; then
     has_errors=true
   fi
+  if ! python3 "$ROOT_DIR/scripts/validate_privacy_witness_contract.py"; then
+    has_errors=true
+  fi
 
   if [ "$has_errors" = true ]; then
     exit 1
@@ -259,6 +266,32 @@ flag_enabled() {
 
 validate_provider_settings() {
   local failed=false
+  local witness_s3_any=false
+  local witness_name
+  for witness_name in PRIVACY_JOURNAL_WITNESS_S3_ENDPOINT PRIVACY_JOURNAL_WITNESS_S3_BUCKET \
+      PRIVACY_JOURNAL_WITNESS_S3_REGION PRIVACY_JOURNAL_WITNESS_S3_ACCESS_KEY PRIVACY_JOURNAL_WITNESS_S3_SECRET_KEY; do
+    if [ -n "${!witness_name:-}" ]; then witness_s3_any=true; fi
+  done
+  if [ "$witness_s3_any" = true ]; then
+    for witness_name in PRIVACY_JOURNAL_WITNESS_S3_ENDPOINT PRIVACY_JOURNAL_WITNESS_S3_BUCKET \
+        PRIVACY_JOURNAL_WITNESS_S3_REGION PRIVACY_JOURNAL_WITNESS_S3_ACCESS_KEY PRIVACY_JOURNAL_WITNESS_S3_SECRET_KEY; do
+      check_var "$witness_name" true || failed=true
+    done
+    if [ -n "${PRIVACY_JOURNAL_WITNESS_BUCKET:-}" ]; then
+      log_fail "GCS and S3 journal witnesses are mutually exclusive"; failed=true
+    fi
+    case "${PRIVACY_JOURNAL_WITNESS_S3_ENDPOINT:-}" in https://*) ;;
+      *) log_fail "S3 journal witness requires HTTPS"; failed=true ;;
+    esac
+    if [ -n "${PRIVACY_JOURNAL_WITNESS_S3_ACCESS_KEY:-}" ] &&
+       [ "${PRIVACY_JOURNAL_WITNESS_S3_ACCESS_KEY}" = "${S3_ACCESS_KEY:-}" ]; then
+      log_fail "S3 journal witness requires a separate access key"; failed=true
+    fi
+    if [ -n "${PRIVACY_JOURNAL_WITNESS_S3_SECRET_KEY:-}" ] &&
+       [ "${PRIVACY_JOURNAL_WITNESS_S3_SECRET_KEY}" = "${S3_SECRET_KEY:-}" ]; then
+      log_fail "S3 journal witness requires a separate secret"; failed=true
+    fi
+  fi
   case "${S3_ADDRESSING_STYLE:-path}" in
     path|virtual|auto) ;;
     *) log_fail "S3_ADDRESSING_STYLE must be path, virtual or auto"; failed=true ;;
@@ -309,8 +342,23 @@ validate_provider_settings() {
     if [ "${LLM_PROVIDER:-}" = mock ] || [ "${IMAGE_PROVIDER:-}" = mock ]; then
       log_fail "Production requires live LLM and image providers"; failed=true
     fi
-    for var_name in LLM_API_KEY IMAGE_API_KEY LLM_MODEL IMAGE_MODEL; do
+    for var_name in LLM_MODEL IMAGE_MODEL; do
       check_var "$var_name" true || failed=true
+    done
+    for var_name in LLM_API_KEY IMAGE_API_KEY; do
+      local file_name="${var_name}_FILE"
+      local file_path="${!file_name:-}" raw_key="${!var_name:-}"
+      if [ -n "$raw_key" ] && [ -n "$file_path" ]; then
+        log_fail "$var_name and $file_name are mutually exclusive"; failed=true
+      elif [ -n "$file_path" ]; then
+        case "$file_path" in
+          /|//*|*/../*|*/..|*/./*|*/.|*/) log_fail "$file_name must be an absolute normalized container path"; failed=true ;;
+          /*) log_ok "$file_name is configured (container mount and permissions unverified)" ;;
+          *) log_fail "$file_name requires an absolute container path"; failed=true ;;
+        esac
+      else
+        check_var "$var_name" true || failed=true
+      fi
     done
   fi
   if flag_enabled "${ILLUSTRATION_QUALITY_ENABLED:-false}"; then

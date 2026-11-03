@@ -127,6 +127,10 @@ async def test_peer_comparison_many_ties_midrank(db_session):
     ("3-5", False), ("5-7", True), ("7-9", True), ("adult", True),
 ])
 async def test_free_audio_gate_by_band(client, db_session, monkeypatch, band, expect_blocked):
+    from unittest.mock import AsyncMock
+    from src.core.rate_limit import rate_limiter
+    from tests.test_narration_voices import _LockRedis
+    monkeypatch.setattr(rate_limiter, 'get_redis', AsyncMock(return_value=_LockRedis()))
     monkeypatch.setattr(settings, "free_plan_enforcement_enabled", True)
     monkeypatch.setattr(settings, "free_plan_enforce_in_testing", True)
 

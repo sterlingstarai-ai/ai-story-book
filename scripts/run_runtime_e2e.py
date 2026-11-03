@@ -23,7 +23,8 @@ import xml.etree.ElementTree as ET
 from mock_illustration_review import MARKER_NAME, MARKER_VALUE, write_startup_loader
 
 ROOT = Path(__file__).resolve().parents[1]
-IMAGES = ("postgres:15-alpine", "redis:7-alpine", "quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e")
+MINIO_TEST_IMAGE = "storybook-minio-test:2025-09-07"
+IMAGES = ("postgres:15-alpine", "redis:7-alpine", MINIO_TEST_IMAGE)
 
 
 class GateFailure(RuntimeError):
@@ -352,7 +353,21 @@ def main():
                         help="Optional directory for synthetic-only logs/results (default: temporary)")
     parser.add_argument("--suite", choices=("all", "media"), default="all",
                         help="all: PG/Celery regressions + HTTP/portrait/media; media: migrations + HTTP/portrait/media only")
+    parser.add_argument("--serve", action="store_true",
+                        help="After successful checks, keep the synthetic localhost API running until Ctrl-C")
+    parser.add_argument("--api-port", type=int, default=0,
+                        help="Local API port (default: choose a free port)")
+    parser.add_argument("--web-origin", default="http://127.0.0.1:18281",
+                        help="Local browser preview origin allowed only with --serve")
     args = parser.parse_args()
+    if not 0 <= args.api_port <= 65535:
+        parser.error("--api-port must be between 0 and 65535")
+    if args.serve:
+        from urllib.parse import urlsplit
+        origin = urlsplit(args.web_origin)
+        if (origin.scheme != "http" or origin.hostname not in {"127.0.0.1", "localhost"}
+                or origin.username or origin.password or origin.path or origin.query or origin.fragment):
+            parser.error("--web-origin must be an HTTP localhost origin without credentials or a path")
     def interrupted(_signum, _frame):
         raise KeyboardInterrupt
     signal.signal(signal.SIGTERM, interrupted)
@@ -416,6 +431,8 @@ def main():
                 IAP_VERIFICATION_MODE="strict",
                 RATE_LIMIT_REQUESTS="100000", DAILY_GENERATION_BUDGET="100", OBJC_DISABLE_INITIALIZE_FORK_SAFETY="YES")
             runtime_env[MARKER_NAME] = MARKER_VALUE
+            if args.serve:
+                runtime_env["CORS_ORIGINS"] = args.web_origin
             runtime_env.update(E2E_PG_DATABASE_URL=runtime_env["DATABASE_URL"],
                 E2E_REDIS_URL=f"redis://127.0.0.1:{redis}/5", E2E_S3_ENDPOINT=runtime_env["S3_ENDPOINT"],
                 E2E_S3_ACCESS_KEY=runtime_env["S3_ACCESS_KEY"], E2E_S3_SECRET_KEY=runtime_env["S3_SECRET_KEY"],
@@ -442,11 +459,12 @@ def main():
             else:
                 run([sys.executable, "-m", "alembic", "upgrade", "head"], env=runtime_env,
                     cwd=api, log=report_dir / "migrations.log")
-            api_port = free_port()
+            api_port = args.api_port or free_port()
             for name, command in (("worker", [sys.executable, "-m", "celery", "-A", "src.worker", "worker",
                                               "--loglevel=warning", "--concurrency=1", "--pool=solo"]),
                                   ("api", [sys.executable, "-m", "uvicorn", "src.main:app", "--host", "127.0.0.1",
-                                           "--port", str(api_port), "--no-access-log"])):
+                                           "--port", str(api_port), "--no-access-log",
+                                           "--header", f"X-Storybook-Runtime:{project}"])):
                 handle = (report_dir / f"{name}.log").open("w")
                 handles.append(handle)
                 processes.append(subprocess.Popen(command, env=runtime_env, cwd=api,
@@ -457,7 +475,9 @@ def main():
             while time.monotonic() < deadline:
                 require(all(process.poll() is None for process in processes), "API or worker stopped before readiness")
                 try:
-                    if httpx.get(base + "/health/live", timeout=1).status_code == 200:
+                    response = httpx.get(base + "/health/live", timeout=1)
+                    if (response.status_code == 200
+                            and response.headers.get("x-storybook-runtime") == project):
                         break
                 except httpx.HTTPError:
                     pass
@@ -473,6 +493,20 @@ def main():
                 timeout=240, log=report_dir / "journey.log")
             report["http_journey"] = "passed"
             report["status"] = "passed"
+            if args.serve:
+                report.update(preview_api_url=base, preview_origin=args.web_origin,
+                              preview_running=True, cleanup="pending until preview stops")
+                (report_dir / "result.json").write_text(json.dumps(report, indent=2) + "\n")
+                print(f"Synthetic preview API ready: {base}. Ctrl-C stops its owned resources.", flush=True)
+                try:
+                    while True:
+                        require(all(process.poll() is None for process in processes),
+                                "Preview API or worker stopped unexpectedly")
+                        time.sleep(1)
+                except KeyboardInterrupt:
+                    print("Stopping synthetic preview...", flush=True)
+                finally:
+                    report["preview_running"] = False
     except Exception as exc:
         # Avoid raw SDK/HTTP error text which can include credentials or signed URLs.
         report["failure"] = str(exc) if isinstance(exc, GateFailure) else type(exc).__name__

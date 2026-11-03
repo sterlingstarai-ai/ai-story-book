@@ -1,5 +1,6 @@
 // Real native audio plugin lifecycle, independent of provider billing/voices.
 import 'dart:io';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:ai_story_book/services/page_audio_playback.dart';
@@ -37,10 +38,16 @@ void main() {
     'native narration loads, pauses, resumes and stops on page change',
     (tester) async {
       final directory = await getTemporaryDirectory();
+      // Optional generic provider sample for credentialed release checks.
+      // Ordinary tests retain the offline WAV fixture and never call a provider.
+      const sample = String.fromEnvironment('NATIVE_AUDIO_SAMPLE_BASE64');
+      final extension = sample.isEmpty ? 'wav' : 'mp3';
       final file = File(
-        '${directory.path}/native_audio_${DateTime.now().microsecondsSinceEpoch}.wav',
+        '${directory.path}/native_audio_${DateTime.now().microsecondsSinceEpoch}.$extension',
       );
-      await file.writeAsBytes(_silentWave());
+      await file.writeAsBytes(
+        sample.isEmpty ? _silentWave() : base64Decode(sample),
+      );
       final native = AudioPlayer();
       final errors = <Object>[];
       final playback = PageAudioPlayback(

@@ -11,10 +11,13 @@ class IapService {
   IapService({
     InAppPurchase? inAppPurchase,
     Future<void> Function(PurchaseDetails)? androidConsume,
-  }) : _iap = inAppPurchase ?? InAppPurchase.instance,
+  }) : _providedIap = inAppPurchase,
        _androidConsume = androidConsume;
 
-  final InAppPurchase _iap;
+  // Accessing the singleton registers native store listeners. Defer that work
+  // so a browser preview never tries to open StoreKit/Play platform channels.
+  final InAppPurchase? _providedIap;
+  late final InAppPurchase _iap = _providedIap ?? InAppPurchase.instance;
 
   // Android 소모성 소비(consume)의 테스트 시임 — 미주입 시 실제 플랫폼 애드온을 사용.
   final Future<void> Function(PurchaseDetails)? _androidConsume;
@@ -79,9 +82,10 @@ class IapService {
     return result;
   }
 
-  Stream<List<PurchaseDetails>> get purchaseStream => _iap.purchaseStream;
+  Stream<List<PurchaseDetails>> get purchaseStream =>
+      kIsWeb ? const Stream<List<PurchaseDetails>>.empty() : _iap.purchaseStream;
 
-  bool get isConfigured => Platform.isIOS || Platform.isAndroid;
+  bool get isConfigured => !kIsWeb && (Platform.isIOS || Platform.isAndroid);
 
   String? get unavailableReason {
     if (!isConfigured) {

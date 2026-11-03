@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'release_policy_gate.dart';
 
 /// Environment configuration. Both release URL defines share the same gate.
@@ -25,7 +26,7 @@ class EnvConfig {
 
   static String get apiBaseUrl => resolveApiBaseUrl(
     isDebug: _isDebugMode,
-    isAndroid: Platform.isAndroid,
+    isAndroid: !kIsWeb && Platform.isAndroid,
     overrideUrl: const String.fromEnvironment('API_BASE_URL'),
     productionUrl: const String.fromEnvironment('PROD_API_URL'),
   );

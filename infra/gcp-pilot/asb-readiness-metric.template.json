@@ -1,0 +1,8 @@
+{
+  "type": "custom.googleapis.com/ai_story_book/api_readiness",
+  "displayName": "AI Story Book API readiness",
+  "description": "One if the loopback readiness endpoint and provider observation are healthy; zero otherwise. No user data or paid AI calls.",
+  "metricKind": "GAUGE",
+  "valueType": "INT64",
+  "unit": "1"
+}

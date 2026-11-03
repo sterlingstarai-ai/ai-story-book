@@ -1,0 +1,43 @@
+{
+  "base_config_sha256": "e687747a95308a4168609c415cc2e2c259e88e1c64fe0d9cc16d653fb3029f13",
+  "bases": {
+    "api": "sha256:47dcb13c52033638740a93463cded3d61c28bc9c85ccfd7ce4932e681be139b1",
+    "worker": "sha256:75a13c62b099d33f5d23ef4b56a6a41cde8ac0f5aff1b6828a65baf5c528f638"
+  },
+  "description": "Local-only narration, consent, deletion and privacy witness code candidate; not a deployment authorization",
+  "files": {
+    "alembic/env.py": "f0b31b361582145613e90b6ba32bbe311bb0e431b3e91c5a74ca842fe094a22b",
+    "alembic/versions/7e28d9a6b451_narration_styles.py": "210fa487d23e4eb84e439d874527b547471accc0333111dc784ad747b6f05133",
+    "alembic/versions/9c1e3a7f620d_narration_variants.py": "48844900aa3fe0a203c53ba207dd825ba6887c1cbdf0b6db675d6490dae195bd",
+    "src/core/audio_feature.py": "e3126493171ccb51859d93daff143a927bf84a73d0b7044010eb9340861e7547",
+    "src/core/config.py": "c723a92d378ab7053f770bd254e7939939c37c40fc3b35f92e009a673c705bdc",
+    "src/models/db.py": "62cd9538a66df36353190aed0cf8aef2dbf73315f0c391b0a4e66cd646b0a91c",
+    "src/routers/books.py": "7896fb2639d197974f6611bed4a492ee8619cba8074f0b461b98691fc1f5a4ad",
+    "src/routers/config.py": "f22776829caec7edcdc59447a8511020aa4976be94b96838e8c234901ee9000d",
+    "src/routers/consent.py": "123456b2e266d147b9c607278fb3b43db4f5513d204818ceba00e8ad41bf154a",
+    "src/services/audio_assets.py": "f5c216441f5b3f1e89aca6a1596f541cc08a9b1f045d153e5346c22d00624ad7",
+    "src/services/illustration_quality_edits.py": "eb8af8a6bca0bbfd77a06e49292794389b6740a7349c4306660e017ddfee166f",
+    "src/services/narration_style.py": "454d12aaf56bd0a9835ea1ced14bf40b05d80c387b9addcd0c10548d3272bd21",
+    "src/services/orchestrator.py": "253d0e7af410b5ef0c518c15e725bb6ed2b3bfa0fcff13497bbafdb85dfb62c9",
+    "src/services/privacy_checkpoint_gcs.py": "90541ce111445673c40dbbc420f0cd351966b30fbbb853d7ea2124ebb0df5898",
+    "src/services/privacy_checkpoint_head.py": "25ca592f6fa8177126b1772db854c8685befc30c794d4fdb3183241edf11a6c8",
+    "src/services/privacy_checkpoint_keys.py": "8ff662ff1c2c68c9be357622affba4f581d22dde59e5197c6d62f6c6596b1f34",
+    "src/services/privacy_journal.py": "f82cf3b9bb30bee018d4c14d039c99a80eb686f824275f83038086fca49736a7",
+    "src/services/privacy_journal_backfill.py": "5a39b6c278b316a518deb7943584683e146b2d7c1113b3c24b9f4afd33742f26",
+    "src/services/privacy_journal_backfill_guard.py": "88f7b6874ae50da9f678f1c0c0d2cc123fdfb22c54a23a6c318630dc73ed0065",
+    "src/services/privacy_journal_checkpoint.py": "18d433338cbb807533326eb7c61cbc1e95247d896e4d65f410ceee631eebcd32",
+    "src/services/privacy_journal_mirror.py": "7b95835d4a0adff4dd01cf6b90a1377ac25b3357aa368147f1377801b4dc0725",
+    "src/services/privacy_journal_runtime.py": "f224a0a1bc169966d02a8a85269f4476114e188c588a2431ecbe18537b758416",
+    "src/services/privacy_journal_s3.py": "fc2cfc38a8469b1fe13db91835e7176d6f05e9257a7498cee28fffcaa29a24c0",
+    "src/services/privacy_journal_verify.py": "eaea91bb0eaf49a6a32d2a12264e56e94936599abb69f951d2b83cef1b557161",
+    "src/services/privacy_restore_source_guard.py": "d0531e858dc9863ef51284feda92dca3e0f588afa1939e0cc3f01eb04b0ffc95",
+    "src/services/privacy_witness_receipt.py": "5697d4c2c831d47890ceeb104ab304ffced7a127833d6428eda37f5ad88e0dd1",
+    "src/services/privacy_witness_watch.py": "35f02f721408f557090d7de66e9e21cb23da99c3c8bd2b80c1b645d3a2eae73a",
+    "src/services/provider_runtime.py": "6f32957361ceff67501df9a523534147f3acd7a4b30842fae3b38781c8deccb1",
+    "src/services/purge_queue.py": "47968d5720ba2b7980fa858db90dce4efdf653fb4e53a38b03e151f16a35ab0d",
+    "src/services/realtime_tts.py": "df6cfda6f5b212ad0a5b63bea02f1be7d0cf48d7f74849235ba4f0e17037e386",
+    "src/services/storage.py": "7b16beaa510f6f2fe3eab9592a483ab161b651f6dd9ee40437adcbb9b239ee5e",
+    "src/services/tts.py": "b24b3c51535da80ca02e70796345fe9f58545bd5491b18d203fd283066131ef7"
+  },
+  "running_source_manifest_sha256": "168a2b8651f001c4f36a20b352729ac8a1a8e2ae2af007176ad6cde15ac130c7"
+}

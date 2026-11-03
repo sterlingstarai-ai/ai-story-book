@@ -4,10 +4,11 @@ Storage Service: S3/Minio 파일 업로드
 
 import asyncio
 import inspect
-from functools import lru_cache
+from functools import lru_cache, partial
 from typing import Optional
 
 import boto3
+from anyio import to_thread
 from botocore.config import Config
 from botocore.exceptions import ClientError
 import httpx
@@ -24,6 +25,8 @@ logger = structlog.get_logger()
 # Cache for bucket existence check (protected by lock)
 _bucket_verified = False
 _bucket_lock = asyncio.Lock()
+_MAX_OBJECT_BYTES = 20 * 1024 * 1024
+_MAX_PURGE_LIST_PAGES = 10000
 
 # Allowed domains for image fetching (SSRF protection)
 ALLOWED_IMAGE_DOMAINS = {
@@ -76,7 +79,7 @@ def _is_url_allowed(url: str) -> bool:
         return False
 
 
-def get_s3_client():
+def get_s3_client(*, bounded_upload=False):
     """Get S3 client configured for Minio or AWS S3"""
     return boto3.client(
         "s3",
@@ -84,15 +87,20 @@ def get_s3_client():
         aws_access_key_id=settings.s3_access_key,
         aws_secret_access_key=settings.s3_secret_key,
         region_name=settings.s3_region,
-        config=Config(signature_version="s3v4", s3={"addressing_style": settings.s3_addressing_style}),
+        config=Config(signature_version="s3v4", s3={"addressing_style": settings.s3_addressing_style},
+                      **({'connect_timeout': 5, 'read_timeout': 30,
+                          'retries': {'mode': 'standard', 'total_max_attempts': 2}}
+                         if bounded_upload else {})),
     )
 
 
-async def _call_s3(method, **kwargs):
+async def _call_s3(method, *args, **kwargs):
     """
     Execute S3 client method that may be sync (boto3) or async (mock/testing).
     """
-    result = method(**kwargs)
+    if inspect.iscoroutinefunction(method):
+        return await method(*args, **kwargs)
+    result = await to_thread.run_sync(partial(method, *args, **kwargs))
     if inspect.isawaitable(result):
         return await result
     return result
@@ -228,12 +236,17 @@ def media_url(url: Optional[str], *, expires_in: Optional[int] = None) -> Option
 
 async def get_object_bytes(key: str) -> tuple[bytes, str]:
     """S3 객체를 키로 읽어 (bytes, content_type) 반환 — 공유 이미지 토큰 프록시용."""
-    client = get_s3_client()
+    client = await _call_s3(get_s3_client)
     resp = await _call_s3(client.get_object, Bucket=settings.s3_bucket, Key=key)
     body = resp["Body"]
-    data = body.read()
-    if inspect.isawaitable(data):
-        data = await data
+    try:
+        if resp.get("ContentLength", 0) > _MAX_OBJECT_BYTES:
+            raise StorageError("Media object exceeds download size limit")
+        data = await _call_s3(body.read, _MAX_OBJECT_BYTES + 1)
+        if len(data) > _MAX_OBJECT_BYTES:
+            raise StorageError("Media object exceeds download size limit")
+    finally:
+        await _call_s3(body.close)
     content_type = resp.get("ContentType") or "application/octet-stream"
     return data, content_type
 
@@ -323,6 +336,26 @@ async def upload_file(
     return f"{settings.s3_public_url}/{s3_key}"
 
 
+def _validated_prefix_objects(response, prefix: str) -> list:
+    """Reject contradictory page metadata before claiming an empty prefix."""
+    if not isinstance(response, dict) or type(response.get('IsTruncated')) is not bool:
+        raise ValueError('invalid list response')
+    objects = response.get('Contents', [])
+    if (not isinstance(objects, list)
+            or ('KeyCount' in response and (type(response['KeyCount']) is not int
+                                            or response['KeyCount'] != len(objects)))
+            or response.get('CommonPrefixes', []) != []
+            or ('Prefix' in response and response['Prefix'] != prefix)
+            or ('Name' in response and response['Name'] != settings.s3_bucket)
+            or any(not isinstance(obj, dict) or not isinstance(obj.get('Key'), str)
+                   or not obj['Key'].startswith(prefix) for obj in objects)):
+        raise ValueError('invalid object listing')
+    keys = [obj['Key'] for obj in objects]
+    if len(set(keys)) != len(keys):
+        raise ValueError('duplicate object listing')
+    return objects
+
+
 async def _delete_prefix_keys(prefix: str) -> list[str]:
     """prefix 하 모든 객체를 삭제하고, **삭제에 실패한 키 목록**을 반환한다([] = 전건 성공).
 
@@ -335,37 +368,56 @@ async def _delete_prefix_keys(prefix: str) -> list[str]:
     failed: list[str] = []
     total_deleted = 0
     continuation: Optional[str] = None
+    seen_tokens: set[str] = set()
+    page_count = 0
     try:
         while True:
+            page_count += 1
+            if page_count > _MAX_PURGE_LIST_PAGES:
+                raise ValueError("storage listing page limit exceeded")
             kwargs = {"Bucket": settings.s3_bucket, "Prefix": prefix}
             if continuation:
                 kwargs["ContinuationToken"] = continuation
             response = await _call_s3(s3_client.list_objects_v2, **kwargs)
 
-            objects = response.get("Contents", [])
+            objects = _validated_prefix_objects(response, prefix)
+            truncated = response.get("IsTruncated")
+            next_token = response.get("NextContinuationToken")
+            if truncated and (not isinstance(next_token, str) or not next_token or next_token in seen_tokens):
+                raise ValueError("incomplete or repeated listing token")
             if objects:
+                chunk = [obj["Key"] for obj in objects]
                 del_resp = await _call_s3(
                     s3_client.delete_objects,
                     Bucket=settings.s3_bucket,
-                    Delete={"Objects": [{"Key": obj["Key"]} for obj in objects]},
+                    Delete={"Objects": [{"Key": key} for key in chunk]},
                 )
-                errors = del_resp.get("Errors", []) or []
-                failed.extend(e["Key"] for e in errors if e.get("Key"))
-                total_deleted += len(objects) - len(errors)
+                chunk_failed = _delete_response_failures(del_resp, chunk)
+                failed.extend(chunk_failed)
+                total_deleted += len(chunk) - len(chunk_failed)
 
-            if response.get("IsTruncated"):
-                continuation = response.get("NextContinuationToken")
-                if not continuation:
-                    break
+            if truncated:
+                continuation = next_token
+                seen_tokens.add(continuation)
             else:
                 break
-    except ClientError as e:
-        logger.error("S3 delete failed", prefix=prefix, error=str(e))
+        if total_deleted and not failed:
+            # A deletion can change later pages. Re-list the prefix before
+            # declaring the purge complete, including providers that skip or
+            # truncate entries unexpectedly. This is a point-in-time check,
+            # not a fence against a later concurrent upload.
+            remaining = await _call_s3(s3_client.list_objects_v2, Bucket=settings.s3_bucket,
+                                       Prefix=prefix, MaxKeys=1)
+            if (_validated_prefix_objects(remaining, prefix)
+                    or remaining['IsTruncated'] is not False):
+                raise ValueError("storage prefix is not verified empty")
+    except (ClientError, ValueError, TypeError, KeyError):
+        logger.error("S3 prefix deletion incomplete")
         # 삼키지 않는다 — prefix 전체를 실패로 표면화(아동 PII 잔존을 관측 가능하게).
         failed.append(f"{prefix}*")
 
     if total_deleted:
-        logger.info("Deleted objects under prefix", prefix=prefix, count=total_deleted)
+        logger.info("Deleted objects under prefix", count=total_deleted)
     return failed
 
 
@@ -425,6 +477,25 @@ async def delete_book_files(book_id: str) -> list[str]:
     return await _delete_prefix_keys(book_file_prefix(book_id))
 
 
+def _delete_response_failures(response, chunk: list[str]) -> list[str]:
+    """Require the default verbose S3 response to account for every key."""
+    if not isinstance(response, dict):
+        return list(chunk)
+    errors = response.get("Errors", [])
+    deleted = response.get("Deleted", [])
+    if not isinstance(errors, list) or not isinstance(deleted, list):
+        return list(chunk)
+    allowed = set(chunk)
+    if any(not isinstance(entry, dict) or not isinstance(entry.get("Key"), str)
+           or entry["Key"] not in allowed for entry in errors + deleted):
+        return list(chunk)
+    failed = {entry["Key"] for entry in errors}
+    succeeded = {entry["Key"] for entry in deleted}
+    if failed & succeeded or failed | succeeded != allowed:
+        return list(chunk)
+    return list(dict.fromkeys(entry["Key"] for entry in errors))
+
+
 async def delete_keys(keys: list[str]) -> list[str]:
     """명시된 S3 키들을 삭제하고 **삭제 실패한 키 목록**을 반환한다([] = 전건 성공, N1).
 
@@ -445,10 +516,9 @@ async def delete_keys(keys: list[str]) -> list[str]:
                 Bucket=settings.s3_bucket,
                 Delete={"Objects": [{"Key": k} for k in chunk]},
             )
-            errors = del_resp.get("Errors", []) or []
-            failed.extend(e["Key"] for e in errors if e.get("Key"))
-        except ClientError as e:
-            logger.error("S3 delete_keys failed", count=len(chunk), error=str(e))
+            failed.extend(_delete_response_failures(del_resp, chunk))
+        except ClientError:
+            logger.error("S3 delete_keys failed", count=len(chunk))
             failed.extend(chunk)  # 삼키지 않는다 — 청크 전체를 실패로 표면화
     return failed
 
@@ -461,6 +531,7 @@ class StorageService:
         data: bytes,
         key: str,
         content_type: str = "application/octet-stream",
+        *, bounded_upload: bool = False,
     ) -> str:
         """
         Upload bytes data to S3 with custom key
@@ -476,7 +547,7 @@ class StorageService:
         await ensure_bucket_exists()
 
         try:
-            s3_client = get_s3_client()
+            s3_client = get_s3_client(bounded_upload=True) if bounded_upload else get_s3_client()
             await _call_s3(
                 s3_client.put_object,
                 Bucket=settings.s3_bucket,
@@ -484,9 +555,10 @@ class StorageService:
                 Body=data,
                 ContentType=content_type,
             )
-        except ClientError as e:
-            logger.error(f"Failed to upload to S3: {e}")
-            raise StorageError(f"Failed to upload: {e}")
+        except ClientError:
+            # Provider exceptions can contain object keys or credentials.
+            logger.error("Failed to upload to S3")
+            raise StorageError("Failed to upload to storage") from None
 
         return f"{settings.s3_public_url}/{key}"
 

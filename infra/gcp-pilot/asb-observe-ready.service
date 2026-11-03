@@ -1,0 +1,9 @@
+[Unit]
+Description=Record AI Story Book private pilot dependency readiness
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/asb-observe ready
+TimeoutStartSec=45

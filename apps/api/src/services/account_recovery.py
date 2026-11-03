@@ -13,9 +13,13 @@ from sqlalchemy import or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.exceptions import APIError
+from src.core.exceptions import APIError, AuthorizationError
 from src.core.utils import utcnow
 from src.models.db import AccountIdentity
+from src.services.privacy_journal import CredentialState
+from src.services.privacy_journal_transaction import (
+    journal_attached, lock_account_before_credential_change, prepare_transaction_event, publish_committed_event,
+)
 
 DEVICE_KEY_PATTERN = r"^asb_device_[A-Za-z0-9_-]{43}$"
 RECOVERY_CODE_PATTERN = r"^ASB-R1-[A-Za-z0-9_-]{43}$"
@@ -64,16 +68,29 @@ async def resolve_user_key(db: AsyncSession, credential: str) -> str:
 
 
 async def issue_recovery_code(db: AsyncSession, user_key: str, credential: str) -> tuple[str, datetime]:
+    try:
+        await lock_account_before_credential_change(db, user_key)
+    except AuthorizationError:
+        raise authentication_error() from None
     device_hash = credential_hash(credential, kind="device")
     identity = await db.get(AccountIdentity, user_key, populate_existing=True)
     if identity is None:
-        try:
-            async with db.begin_nested():
-                db.add(AccountIdentity(user_key=user_key, device_key_hash=device_hash))
-                await db.flush()
-        except IntegrityError:
-            # Concurrent first enrollment must still pass the active-device CAS.
-            pass
+        if db.get_bind().dialect.name == "sqlite":
+            # SQLite's legacy transaction mode can release the first SAVEPOINT
+            # without a physical outer BEGIN, so a later rollback would leave
+            # enrollment behind. An ordinary upsert starts a write transaction.
+            from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+            await db.execute(sqlite_insert(AccountIdentity).values(
+                user_key=user_key, device_key_hash=device_hash,
+            ).on_conflict_do_nothing())
+        else:
+            try:
+                async with db.begin_nested():
+                    db.add(AccountIdentity(user_key=user_key, device_key_hash=device_hash))
+                    await db.flush()
+            except IntegrityError:
+                # Concurrent first enrollment must still pass the active-device CAS.
+                pass
     code = "ASB-R1-" + secrets.token_urlsafe(32)
     now = utcnow()
     result = await db.execute(
@@ -93,7 +110,10 @@ async def issue_recovery_code(db: AsyncSession, user_key: str, credential: str) 
     if result.rowcount != 1:
         await db.rollback()
         raise authentication_error()
+    journal_event = await prepare_transaction_event(db, user_key=user_key, action='credential_revoke',
+        credential_state=CredentialState(device_hash, credential_hash(code, kind='recovery'), None, now))
     await db.commit()
+    await publish_committed_event(db, journal_event)
     return code, now
 
 
@@ -102,6 +122,20 @@ async def recover_account(
 ) -> tuple[str | None, datetime]:
     old_hash = credential_hash(recovery_code, kind="recovery")
     next_device_hash = credential_hash(new_user_key, kind="device")
+    invalid = APIError(401, "RECOVERY_CODE_INVALID", "복구 코드를 확인해주세요.")
+    if journal_attached(db):
+        # Find only the lock key first, then repeat the authoritative lookup
+        # after acquiring the same lock used by account deletion.
+        owner = await db.scalar(select(AccountIdentity.user_key).where(
+            or_(AccountIdentity.recovery_code_hash == old_hash,
+                AccountIdentity.previous_recovery_code_hash == old_hash),
+            AccountIdentity.deleted.is_(False)))
+        if owner is None:
+            raise invalid
+        try:
+            await lock_account_before_credential_change(db, owner)
+        except AuthorizationError:
+            raise invalid from None
     # Lock serializes competing redemption and exact retry on PostgreSQL. The
     # conditional UPDATE below also enforces single-winner semantics on SQLite.
     identity = (
@@ -118,7 +152,6 @@ async def recover_account(
             .execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
-    invalid = APIError(401, "RECOVERY_CODE_INVALID", "복구 코드를 확인해주세요.")
     if identity is None:
         raise invalid
     if identity.previous_recovery_code_hash == old_hash:
@@ -150,7 +183,10 @@ async def recover_account(
         if result.rowcount != 1:
             await db.rollback()
             raise invalid
+        journal_event = await prepare_transaction_event(db, user_key=identity.user_key, action='credential_revoke',
+            credential_state=CredentialState(next_device_hash, credential_hash(code, kind='recovery'), old_hash, now))
         await db.commit()
+        await publish_committed_event(db, journal_event)
     except IntegrityError:
         await db.rollback()
         raise invalid from None

@@ -1,0 +1,8 @@
+[Unit]
+Description=Check private pilot backup freshness and disk headroom
+After=asb-backup.timer
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/ai-story-book/current/scripts/check_backup_status.py
+TimeoutStartSec=45

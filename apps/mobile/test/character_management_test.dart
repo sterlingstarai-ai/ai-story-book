@@ -22,8 +22,16 @@ class _Api extends ApiClient {
   _Api() : super(baseUrl: 'http://test', userKey: 'test', enableLogging: false);
   final data = avatarJson(status: 'approved', url: null)..['name'] = '캐릭터';
   int renames = 0;
+  bool deleted = false;
+  bool purgePending = false;
   @override
-  Future<List<Character>> getCharacters() async => [Character.fromJson(data)];
+  Future<List<Character>> getCharacters() async =>
+      deleted ? [] : [Character.fromJson(data)];
+  @override
+  Future<void> deleteCharacter(String id) async {
+    deleted = true;
+    if (purgePending) throw const StoragePurgePending();
+  }
   @override
   Future<void> renameCharacter(String id, String name) async {
     expect(id, data['character_id']);
@@ -33,6 +41,39 @@ class _Api extends ApiClient {
 }
 
 void main() {
+  testWidgets('character deletion reports files still being deleted',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    final api = _Api()..purgePending = true;
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sharedPreferencesProvider.overrideWithValue(prefs),
+          apiClientProvider.overrideWithValue(api),
+          parentalControlServiceProvider.overrideWithValue(_Parent()),
+        ],
+        child: const MaterialApp(
+          locale: Locale('ko'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: CharactersScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final l = AppLocalizations.of(tester.element(find.byType(CharactersScreen)));
+    await tester.tap(find.byTooltip('캐릭터 관리'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l.charactersDeleteDialogTitle));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, l.charactersDelete));
+    await tester.pumpAndSettle();
+    expect(find.text(l.characterDeletionPending), findsOneWidget);
+    expect(find.text(l.charactersDeletedSnack), findsNothing);
+    expect(api.deleted, isTrue);
+  });
+
   testWidgets(
     'visible menu renames an approved character without regenerating appearance',
     (tester) async {

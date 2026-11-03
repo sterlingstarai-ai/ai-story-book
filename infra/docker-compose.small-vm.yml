@@ -1,0 +1,5 @@
+# Optional capacity limit for a dedicated small VM. This does not provision swap
+# or make the host production-ready; validate with the actual providers first.
+services:
+  worker:
+    command: celery -A src.worker worker --loglevel=info --concurrency=1

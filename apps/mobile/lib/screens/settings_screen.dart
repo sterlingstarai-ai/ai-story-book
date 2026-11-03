@@ -2,14 +2,44 @@ import 'account_deletion_screen.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:just_audio/just_audio.dart';
 import 'account_recovery_screen.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../l10n/app_localizations.dart';
 import '../providers/providers.dart';
+import '../services/page_audio_playback.dart';
 import 'legal_document_screen.dart';
 import '../utils/constants.dart';
 import '../widgets/age_gate_dialog.dart';
+
+/// Injectable boundary for bundled, offline narration previews.
+abstract class NarrationPreviewPlayer {
+  Future<void> stop();
+  Future<void> setAsset(String asset);
+  Future<void> play();
+  Future<void> dispose();
+}
+
+class _JustAudioNarrationPreviewPlayer implements NarrationPreviewPlayer {
+  final AudioPlayer _player = AudioPlayer();
+  @override
+  Future<void> stop() => _player.stop();
+  @override
+  Future<void> setAsset(String asset) async {
+    await _player.setAsset(asset);
+  }
+
+  @override
+  Future<void> play() => _player.play();
+  @override
+  Future<void> dispose() => _player.dispose();
+}
+
+final narrationPreviewPlayerFactoryProvider =
+    Provider<NarrationPreviewPlayer Function()>(
+      (ref) => _JustAudioNarrationPreviewPlayer.new,
+    );
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -19,8 +49,10 @@ class SettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
-  static const _appVersion =
-      String.fromEnvironment('APP_VERSION', defaultValue: '1.0.0+1');
+  static const _appVersion = String.fromEnvironment(
+    'APP_VERSION',
+    defaultValue: '1.0.0+1',
+  );
 
   bool _isLoading = true;
   bool _isSaving = false;
@@ -33,8 +65,74 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _bedtimeNotificationEnabled = false;
   TimeOfDay _bedtime = const TimeOfDay(hour: 21, minute: 0);
   double _sleepModeMinutes = 20;
+  String _narrationVoice = 'default';
+  String _narrationStyle = 'legacy';
+  NarrationPreviewPlayer? _previewPlayer;
+  int _previewEpoch = 0;
+  Future<void> _previewQueue = Future<void>.value();
   bool _screenTimeEnabled = false;
   double _dailyLimitMinutes = 60;
+
+  @override
+  void dispose() {
+    _previewEpoch++;
+    final player = _previewPlayer;
+    if (player != null) unawaited(_previewQueue.then((_) => player.dispose()));
+    super.dispose();
+  }
+
+  Future<void> _playStylePreview(String style) {
+    final epoch = ++_previewEpoch;
+    // Samples must match the configured provider; old OpenAI previews are
+    // retained for existing deployments while Google uses its own recordings.
+    final isGoogle =
+        ref
+            .read(capabilitiesProvider)
+            .valueOrNull?['narration_preview_provider'] ==
+        'google_gemini';
+    final prefix = isGoogle
+        ? (_narrationVoice == 'deep'
+              ? 'narration_preview_google_male'
+              : 'narration_preview_google')
+        : 'narration_preview';
+    final operation = _previewQueue.then((_) async {
+      if (!mounted || epoch != _previewEpoch) return;
+      try {
+        final player = _previewPlayer ??= ref.read(
+          narrationPreviewPlayerFactoryProvider,
+        )();
+        await player.stop();
+        if (!mounted || epoch != _previewEpoch) return;
+        await player.setAsset('assets/audio/${prefix}_$style.mp3');
+        if (!mounted || epoch != _previewEpoch) return;
+        unawaited(
+          player.play().catchError((Object error) {
+            if (mounted && epoch == _previewEpoch) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    AppLocalizations.of(context).settingsNarrationPreviewError,
+                  ),
+                ),
+              );
+            }
+          }),
+        );
+      } catch (_) {
+        if (mounted && epoch == _previewEpoch) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                AppLocalizations.of(context).settingsNarrationPreviewError,
+              ),
+            ),
+          );
+        }
+      }
+    });
+    _previewQueue = operation;
+    return operation;
+  }
 
   @override
   void initState() {
@@ -53,6 +151,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final bedtimeMinute = _toInt(data['bedtime_notification_minute']);
       final sleepMode = _toInt(data['sleep_mode_default_minutes']);
       final dailyLimit = _toInt(data['daily_limit_minutes']);
+      final narrationStyle = narrationStyleOrDefault(
+        ref
+            .read(sharedPreferencesProvider)
+            .getString(narrationStylePreferenceKey),
+      );
+      final narrationVoice = narrationVoiceOrDefault(
+        ref
+            .read(sharedPreferencesProvider)
+            .getString(narrationVoicePreferenceKey),
+      );
 
       if (!mounted) {
         return;
@@ -73,6 +181,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           minute: bedtimeMinute ?? 0,
         );
         _sleepModeMinutes = (sleepMode ?? 20).toDouble().clamp(10, 60);
+        _narrationVoice = narrationVoice;
+        _narrationStyle = narrationStyle;
         _screenTimeEnabled = data['screen_time_enabled'] == true;
         _dailyLimitMinutes = (dailyLimit ?? 60).toDouble().clamp(30, 120);
         _errorMessage = null;
@@ -114,19 +224,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final screenTimeNotifier = ref.read(screenTimeStateProvider.notifier);
     try {
       final api = ref.read(apiClientProvider);
-      await api.patchSettings(
-        {
-          'language': _language,
-          'dark_mode': _darkMode,
-          'allow_kakao_share': _allowKakaoShare,
-          'bedtime_notification_enabled': _bedtimeNotificationEnabled,
-          'bedtime_notification_hour': _bedtime.hour,
-          'bedtime_notification_minute': _bedtime.minute,
-          'sleep_mode_default_minutes': _sleepModeMinutes.round(),
-          'screen_time_enabled': _screenTimeEnabled,
-          'daily_limit_minutes': _dailyLimitMinutes.round(),
-        },
-      );
+      await api.patchSettings({
+        'language': _language,
+        'dark_mode': _darkMode,
+        'allow_kakao_share': _allowKakaoShare,
+        'bedtime_notification_enabled': _bedtimeNotificationEnabled,
+        'bedtime_notification_hour': _bedtime.hour,
+        'bedtime_notification_minute': _bedtime.minute,
+        'sleep_mode_default_minutes': _sleepModeMinutes.round(),
+        'screen_time_enabled': _screenTimeEnabled,
+        'daily_limit_minutes': _dailyLimitMinutes.round(),
+      });
+      final savedVoice = await ref
+          .read(sharedPreferencesProvider)
+          .setString(narrationVoicePreferenceKey, _narrationVoice);
+      if (!savedVoice) throw StateError('Narrator preference was not saved');
+      final savedStyle = await ref
+          .read(sharedPreferencesProvider)
+          .setString(narrationStylePreferenceKey, _narrationStyle);
+      if (!savedStyle) throw StateError('Narration style was not saved');
       await themeNotifier.setDarkMode(_darkMode);
       await screenTimeNotifier.syncSettings(
         enabled: _screenTimeEnabled,
@@ -216,7 +332,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       return;
     }
     final l = AppLocalizations.of(context);
-    final confirmed = await showDialog<bool>(
+    final confirmed =
+        await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
             scrollable: true,
@@ -247,17 +364,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     // 서버에 철회를 먼저 반영해야 사진 게이트가 실제로 닫히고 아동 사진·파생
     // 캐릭터가 파기된다(성공해야 로컬 철회 진행 — grant 배선과 대칭).
     final cleanup = ref.read(localMediaCleanupProvider);
+    var serverPurgeIncomplete = true;
     try {
       await cleanup.markPending();
-      await apiClient.revokeConsent();
+      final result = await apiClient.revokeConsent();
+      // Older servers do not report this field; absence is not proof that
+      // stored files have been removed.
+      serverPurgeIncomplete = result['purge_incomplete'] != false;
     } catch (e) {
       if (!mounted) {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content:
-              Text(AppLocalizations.of(context).settingsRevokeConsentError),
+          content: Text(
+            AppLocalizations.of(context).settingsRevokeConsentError,
+          ),
         ),
       );
       return;
@@ -279,8 +401,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(localCleanupComplete
-          ? l.settingsConsentRevoked : l.localMediaCleanupFailed)),
+      SnackBar(
+        content: Text(
+          !localCleanupComplete
+              ? l.localMediaCleanupFailed
+              : serverPurgeIncomplete
+              ? l.consentDeletionUnconfirmed
+              : l.settingsConsentRevoked,
+        ),
+      ),
     );
     Navigator.pushNamedAndRemoveUntil(context, '/consent', (_) => false);
   }
@@ -294,7 +423,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       return;
     }
     final l = AppLocalizations.of(context);
-    final firstConfirm = await showDialog<bool>(
+    final firstConfirm =
+        await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
             scrollable: true,
@@ -319,25 +449,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
 
     var deleteKeyword = '';
-    final secondConfirm = await showDialog<bool>(
+    final secondConfirm =
+        await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
             scrollable: true,
             title: Text(l.settingsFinalConfirmTitle),
             content: SingleChildScrollView(
-                child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(l.settingsFinalConfirmPrompt(l.settingsDeleteKeyword)),
-                const SizedBox(height: AppSpacing.sm),
-                TextField(
-                  onChanged: (value) => deleteKeyword = value,
-                  decoration:
-                      InputDecoration(hintText: l.settingsDeleteKeyword),
-                ),
-              ],
-            )),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(l.settingsFinalConfirmPrompt(l.settingsDeleteKeyword)),
+                  const SizedBox(height: AppSpacing.sm),
+                  TextField(
+                    onChanged: (value) => deleteKeyword = value,
+                    decoration: InputDecoration(
+                      hintText: l.settingsDeleteKeyword,
+                    ),
+                  ),
+                ],
+              ),
+            ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, false),
@@ -346,7 +479,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               TextButton(
                 // H21: 하드코딩 '삭제' 대신 로캘 키워드와 비교 → en/ja 사용자도 삭제 가능.
                 onPressed: () => Navigator.pop(
-                    context, deleteKeyword.trim() == l.settingsDeleteKeyword),
+                  context,
+                  deleteKeyword.trim() == l.settingsDeleteKeyword,
+                ),
                 child: Text(l.settingsDeleteKeyword),
               ),
             ],
@@ -360,8 +495,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-            content: Text(
-                AppLocalizations.of(context).settingsDeleteKeywordMismatch)),
+          content: Text(
+            AppLocalizations.of(context).settingsDeleteKeywordMismatch,
+          ),
+        ),
       );
       return;
     }
@@ -384,9 +521,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       invalidateAccountScope(container);
       if (!mounted) return;
       if (purgePending) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l.accountDeletionPending)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(l.accountDeletionPending)));
       }
       Navigator.pushNamedAndRemoveUntil(context, '/consent', (_) => false);
     } catch (_) {
@@ -394,12 +531,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         return;
       }
       if (ref.read(userServiceProvider).deletionRequested) {
-        Navigator.pushAndRemoveUntil(context,
+        Navigator.pushAndRemoveUntil(
+          context,
           MaterialPageRoute(builder: (_) => const AccountDeletionScreen()),
-          (_) => false);
+          (_) => false,
+        );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(AppLocalizations.of(context).settingsDeleteError)),
+          SnackBar(
+            content: Text(AppLocalizations.of(context).settingsDeleteError),
+          ),
         );
       }
     } finally {
@@ -416,20 +557,34 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   void _openLegalDocument(LegalDocument document) {
-    Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => LegalDocumentScreen(document: document),
-    ));
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => LegalDocumentScreen(document: document),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
-    final audioSupported = ref.watch(capabilitiesProvider).maybeWhen(
-          data: (value) => value['audio_supported'] == true,
+    final audioSupported = ref
+        .watch(capabilitiesProvider)
+        .maybeWhen(data: narrationSupported, orElse: () => false);
+    final voiceProfilesSupported = ref
+        .watch(capabilitiesProvider)
+        .maybeWhen(
+          data: (value) => value['voice_profiles_supported'] == true,
           orElse: () => false,
         );
-    final voiceProfilesSupported = ref.watch(capabilitiesProvider).maybeWhen(
-          data: (value) => value['voice_profiles_supported'] == true,
+    final narrationStyleSupported =
+        ref
+            .watch(capabilitiesProvider)
+            .valueOrNull?['narration_style_selection_supported'] ==
+        true;
+    final narrationVoiceSupported = ref
+        .watch(capabilitiesProvider)
+        .maybeWhen(
+          data: (value) => value['narration_voice_selection_supported'] == true,
           orElse: () => false,
         );
     if (_isLoading) {
@@ -458,14 +613,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
                 const SizedBox(height: AppSpacing.md),
                 TextButton(
-                    onPressed: () async {
-                      final recovered = await openAccountRecovery(context, ref,
-                          restoreOnly: true);
-                      if (!context.mounted || !recovered) return;
-                      Navigator.pushNamedAndRemoveUntil(
-                          context, '/startup', (_) => false);
-                    },
-                    child: Text(l.recoveryRestoreTitle)),
+                  onPressed: () async {
+                    final recovered = await openAccountRecovery(
+                      context,
+                      ref,
+                      restoreOnly: true,
+                    );
+                    if (!context.mounted || !recovered) return;
+                    Navigator.pushNamedAndRemoveUntil(
+                      context,
+                      '/startup',
+                      (_) => false,
+                    );
+                  },
+                  child: Text(l.recoveryRestoreTitle),
+                ),
               ],
             ),
           ),
@@ -474,9 +636,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(l.settingsTitle),
-      ),
+      appBar: AppBar(title: Text(l.settingsTitle)),
       bottomNavigationBar: SafeArea(
         top: false,
         minimum: const EdgeInsets.all(AppSpacing.md),
@@ -488,7 +648,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ? const SizedBox(
                   width: 24,
                   height: 24,
-                  child: CircularProgressIndicator(strokeWidth: 2))
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
               : Text(l.settingsSave),
         ),
       ),
@@ -547,18 +708,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 builder: (context) {
                   final dl = AppLocalizations.of(context);
                   Widget item(String title, String body) => Padding(
-                        padding: const EdgeInsets.only(bottom: 14),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(title,
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.w600)),
-                            const SizedBox(height: 2),
-                            Text(body),
-                          ],
+                    padding: const EdgeInsets.only(bottom: 14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(fontWeight: FontWeight.w600),
                         ),
-                      );
+                        const SizedBox(height: 2),
+                        Text(body),
+                      ],
+                    ),
+                  );
                   return AlertDialog(
                     title: Text(dl.settingsPoliciesTitle),
                     content: SingleChildScrollView(
@@ -566,10 +728,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          item(dl.policyCreditRolloverTitle,
-                              dl.policyCreditRolloverBody),
-                          item(dl.policyBookAccessTitle,
-                              dl.policyBookAccessBody),
+                          item(
+                            dl.policyCreditRolloverTitle,
+                            dl.policyCreditRolloverBody,
+                          ),
+                          item(
+                            dl.policyBookAccessTitle,
+                            dl.policyBookAccessBody,
+                          ),
                           item(dl.policyRefundTitle, dl.policyRefundBody),
                         ],
                       ),
@@ -628,6 +794,118 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       setState(() => _sleepModeMinutes = value),
                 ),
               ),
+            if (audioSupported &&
+                (narrationVoiceSupported || _narrationVoice != 'default'))
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                  vertical: AppSpacing.sm,
+                ),
+                child: DropdownButtonFormField<String>(
+                  initialValue: _narrationVoice,
+                  decoration: InputDecoration(
+                    labelText: l.settingsNarratorVoice,
+                    helperText: l.settingsNarratorVoiceHelp,
+                    helperMaxLines: 3,
+                  ),
+                  items: [
+                    DropdownMenuItem(
+                      value: 'default',
+                      child: Text(l.settingsNarratorVoiceDefault),
+                    ),
+                    DropdownMenuItem(
+                      value: 'warm',
+                      enabled: narrationVoiceSupported,
+                      child: Text(l.settingsNarratorVoiceWarm),
+                    ),
+                    DropdownMenuItem(
+                      value: 'deep',
+                      enabled: narrationVoiceSupported,
+                      child: Text(l.settingsNarratorVoiceDeep),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) setState(() => _narrationVoice = value);
+                  },
+                ),
+              ),
+            if (audioSupported &&
+                (narrationStyleSupported || _narrationStyle != 'legacy')) ...[
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                  vertical: AppSpacing.sm,
+                ),
+                child: DropdownButtonFormField<String>(
+                  initialValue: _narrationStyle,
+                  decoration: InputDecoration(
+                    labelText: l.settingsNarrationStyle,
+                    helperText: l.settingsNarrationStyleHelp,
+                    helperMaxLines: 3,
+                  ),
+                  items: [
+                    DropdownMenuItem(
+                      value: 'legacy',
+                      child: Text(l.settingsNarrationStyleLegacy),
+                    ),
+                    DropdownMenuItem(
+                      value: 'natural',
+                      enabled: narrationStyleSupported,
+                      child: Text(l.settingsNarrationStyleNatural),
+                    ),
+                    DropdownMenuItem(
+                      value: 'animated',
+                      enabled: narrationStyleSupported,
+                      child: Text(l.settingsNarrationStyleAnimated),
+                    ),
+                    DropdownMenuItem(
+                      value: 'bedtime',
+                      enabled: narrationStyleSupported,
+                      child: Text(l.settingsNarrationStyleBedtime),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() => _narrationStyle = value);
+                    }
+                  },
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                child: Text(
+                  ref
+                              .watch(capabilitiesProvider)
+                              .valueOrNull?['narration_preview_provider'] ==
+                          'google_gemini'
+                      ? l.settingsNarrationPreviewGoogleHelp
+                      : l.settingsNarrationPreviewHelp,
+                ),
+              ),
+              for (final entry in [
+                ('natural', l.settingsNarrationStyleNatural),
+                ('animated', l.settingsNarrationStyleAnimated),
+                ('bedtime', l.settingsNarrationStyleBedtime),
+              ])
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.md,
+                  ),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: TextButton.icon(
+                      key: ValueKey('narration-preview-${entry.$1}'),
+                      onPressed: () => unawaited(_playStylePreview(entry.$1)),
+                      icon: const Icon(Icons.play_arrow),
+                      label: Text(l.settingsNarrationPreview(entry.$2)),
+                      style: TextButton.styleFrom(
+                        minimumSize: const Size(64, 64),
+                        alignment: Alignment.centerLeft,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
             const Divider(height: 1),
             _SectionHeader(l.settingsSectionScreenTime),
             SwitchListTile(
@@ -703,7 +981,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 final recovered = await openAccountRecovery(context, ref);
                 if (!context.mounted || !recovered) return;
                 Navigator.pushNamedAndRemoveUntil(
-                    context, '/startup', (_) => false);
+                  context,
+                  '/startup',
+                  (_) => false,
+                );
               },
             ),
             if (!voiceProfilesSupported)

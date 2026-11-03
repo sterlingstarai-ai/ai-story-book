@@ -2,6 +2,7 @@ from sqlalchemy import (
     Column,
     String,
     Integer,
+    BigInteger,
     Float,
     Text,
     DateTime,
@@ -10,6 +11,7 @@ from sqlalchemy import (
     JSON,
     Index,
     UniqueConstraint,
+    CheckConstraint,
     text,
 )
 from sqlalchemy.orm import relationship
@@ -31,6 +33,59 @@ class AccountIdentity(Base):
     deleted = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class PrivacyJournalOutbox(Base):
+    """Unpublished privacy events; use only with the disabled journal prototype."""
+
+    __tablename__ = "privacy_journal_outbox"
+    __table_args__ = (
+        UniqueConstraint("user_key", "revision", name="uq_privacy_journal_user_revision"),
+        CheckConstraint("revision > 0", name="ck_privacy_journal_revision_positive"),
+        CheckConstraint("action IN ('account_delete','consent_revoke','consent_grant','photo_revoke','credential_revoke',"
+                        "'book_delete','character_delete','profile_delete','voice_delete','voice_revoke','voice_changed','share_revoke')",
+                        name="ck_privacy_journal_action"),
+        Index("ix_privacy_journal_unpublished", "published_at", "created_at"),
+    )
+
+    event_id = Column(String(32), primary_key=True)
+    user_key = Column(String(80), nullable=False)
+    revision = Column(BigInteger, nullable=False)
+    action = Column(String(30), nullable=False)
+    credential_state = Column(JSON, nullable=True)
+    resource_id = Column(String(60), nullable=True)
+    consent_state = Column(JSON, nullable=True)
+    deletion_receipt = Column(JSON(none_as_null=True), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    published_at = Column(DateTime, nullable=True)
+
+
+class PrivacyJournalRetryCursor(Base):
+    """Durable batch fairness; never contains user identifiers or event payloads."""
+
+    __tablename__ = 'privacy_journal_retry_cursor'
+    name = Column(String(32), primary_key=True)
+    cursor_created_at = Column(DateTime, nullable=True)
+    cursor_event_id = Column(String(32), nullable=True)
+    upper_created_at = Column(DateTime, nullable=True)
+    upper_event_id = Column(String(32), nullable=True)
+    __table_args__ = (
+        CheckConstraint('(cursor_created_at IS NULL) = (cursor_event_id IS NULL)',
+                        name='ck_privacy_retry_cursor_pair'),
+        CheckConstraint('(upper_created_at IS NULL) = (upper_event_id IS NULL)',
+                        name='ck_privacy_retry_upper_pair'),
+    )
+
+
+class BookDeletionReceipt(Base):
+    """Minimal evidence that this account's scoped book deletion committed."""
+
+    __tablename__ = 'book_deletion_receipts'
+    user_key = Column(String(80), primary_key=True)
+    request_id = Column(String(32), primary_key=True)
+    book_id = Column(String(60), nullable=False)
+    profile_id = Column(String(60), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
 
 
 class Job(Base):
@@ -207,6 +262,26 @@ class ContentReport(Base):
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
 
+class NarrationVariant(Base):
+    """Built-in voice audio, isolated from the legacy page audio slots."""
+
+    __tablename__ = "narration_variants"
+    __table_args__ = (
+        UniqueConstraint("page_id", "language", "voice", "style", "provider", name="uq_narration_variant"),
+        CheckConstraint("voice IN ('default','warm','deep')", name="ck_narration_variant_voice"),
+        CheckConstraint("style IN ('legacy','natural','animated','bedtime')", name="ck_narration_variant_style"),
+        Index("ix_narration_variants_page_id", "page_id"),
+    )
+
+    id = Column(String(32), primary_key=True)
+    page_id = Column(Integer, ForeignKey("pages.id", ondelete="CASCADE"), nullable=False)
+    language = Column(String(2), nullable=False)
+    voice = Column(String(16), nullable=False)
+    audio_url = Column(String(500), nullable=False)
+    style = Column(String(16), nullable=False, default="legacy", server_default="legacy")
+    provider = Column(String(24), nullable=False, default="openai", server_default="openai")
+
+
 class Page(Base):
     __tablename__ = "pages"
     __table_args__ = (
@@ -355,6 +430,8 @@ class Subscription(Base):
         String(20), nullable=False, default="active"
     )  # active, cancelled, expired
     credits_per_month = Column(Integer, nullable=False)  # 월간 크레딧
+    # Calendar grants require positive local funding authorization.
+    calendar_refill_enabled = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     current_period_start = Column(DateTime, nullable=False)
     current_period_end = Column(DateTime, nullable=False)
     created_at = Column(DateTime, default=utcnow)
@@ -487,6 +564,13 @@ class ReadingLog(Base):
 
     # 책 참조(many-to-one). UOW가 Book을 ReadingLog보다 먼저 INSERT하도록 보장한다.
     book = relationship("Book")
+
+
+class IAPPurchaseClaim(Base):
+    """Non-account-linked purchase grant barrier that survives account erasure."""
+
+    __tablename__ = "iap_purchase_claims"
+    transaction_digest = Column(String(64), primary_key=True)
 
 
 class IAPReceipt(Base):

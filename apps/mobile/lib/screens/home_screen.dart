@@ -1,6 +1,5 @@
 import '../providers/active_child_profile.dart';
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 import '../l10n/app_localizations.dart';
@@ -8,6 +7,7 @@ import '../models/models.dart';
 import '../utils/constants.dart';
 import '../widgets/app_shell.dart';
 import '../widgets/common_widgets.dart';
+import '../widgets/scoped_book_image.dart';
 import '../widgets/credit_shortage_modal.dart';
 import '../providers/providers.dart';
 import '../services/analytics.dart';
@@ -372,12 +372,8 @@ class _HomeReadingSectionState extends ConsumerState<_HomeReadingSection> {
     final l = AppLocalizations.of(context);
     final books = widget.books;
     final latest = books.first;
-    final hasProgress =
-        (ref
-                .read(sharedPreferencesProvider)
-                .getInt('reading_progress_${latest.id}_v1') ??
-            0) >
-        0;
+    final progress = ref.watch(homeReadingProgressProvider(latest.id));
+    final hasProgress = (progress.valueOrNull ?? 0) > 0;
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.lg),
       child: Column(
@@ -431,6 +427,7 @@ class _HomeReadingSectionState extends ConsumerState<_HomeReadingSection> {
                   child: Row(
                     children: [
                       _HomeBookCover(
+                        bookId: latest.id,
                         imageUrl: latest.coverImageUrl,
                         width: 80,
                         height: 108,
@@ -510,6 +507,7 @@ class _HomeReadingSectionState extends ConsumerState<_HomeReadingSection> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               _HomeBookCover(
+                                bookId: book.id,
                                 imageUrl: book.coverImageUrl,
                                 width: 116,
                                 height: 116,
@@ -542,10 +540,12 @@ class _HomeReadingSectionState extends ConsumerState<_HomeReadingSection> {
 
 class _HomeBookCover extends StatelessWidget {
   const _HomeBookCover({
+    required this.bookId,
     required this.imageUrl,
     required this.width,
     required this.height,
   });
+  final String bookId;
   final String imageUrl;
   final double width;
   final double height;
@@ -569,11 +569,12 @@ class _HomeBookCover extends StatelessWidget {
           height: height,
           child: imageUrl.isEmpty
               ? placeholder
-              : CachedNetworkImage(
+              : ScopedBookImage(
+                  bookId: bookId,
                   imageUrl: imageUrl,
                   fit: BoxFit.cover,
-                  placeholder: (_, __) => placeholder,
-                  errorWidget: (_, __, ___) => placeholder,
+                  placeholder: placeholder,
+                  error: placeholder,
                 ),
         ),
       ),

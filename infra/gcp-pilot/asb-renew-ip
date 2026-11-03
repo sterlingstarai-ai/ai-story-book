@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+/usr/bin/docker inspect --format '{{.State.Running}}' asb-pilot-nginx | /usr/bin/grep -qx true
+/usr/bin/timeout 600 /usr/bin/docker run --rm --network host \
+  -v /etc/ai-story-book/letsencrypt:/etc/letsencrypt \
+  -v /etc/ai-story-book/certbot-lib:/var/lib/letsencrypt \
+  -v /etc/ai-story-book/certbot-log:/var/log/letsencrypt \
+  -v /etc/ai-story-book/acme-webroot:/var/www/certbot \
+  certbot/certbot@sha256:bc93cb710b413e6b456d622f9b0133b3e109c0a78c2ed9976af43d209b0a1805 \
+  renew --cert-name asb-ip --webroot -w /var/www/certbot --preferred-challenges http --non-interactive --no-random-sleep-on-renew --quiet
+/usr/bin/docker exec asb-pilot-nginx nginx -s reload

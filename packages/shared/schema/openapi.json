@@ -1,6 +1,27 @@
 {
   "components": {
     "schemas": {
+      "AccountMediaScopeResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "scope_id": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Scope Id",
+            "type": "string"
+          },
+          "version": {
+            "const": 1,
+            "default": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "scope_id"
+        ],
+        "title": "AccountMediaScopeResponse",
+        "type": "object"
+      },
       "AccountSessionResponse": {
         "additionalProperties": false,
         "properties": {
@@ -1328,6 +1349,11 @@
             "title": "Privacy",
             "type": "boolean"
           },
+          "purge_incomplete": {
+            "description": "Whether known photo-consent erasure tasks are unfinished or their state is unavailable. False means no unfinished tasks were found; it is not proof of storage erasure.",
+            "title": "Purge Incomplete",
+            "type": "boolean"
+          },
           "revoked": {
             "title": "Revoked",
             "type": "boolean"
@@ -1339,7 +1365,8 @@
           "photos",
           "data_processing",
           "consent_version",
-          "revoked"
+          "revoked",
+          "purge_incomplete"
         ],
         "title": "ConsentResponse",
         "type": "object"
@@ -4109,6 +4136,50 @@
         ]
       }
     },
+    "/v1/account/media-scope": {
+      "get": {
+        "operationId": "get_account_media_scope_v1_account_media_scope_get",
+        "parameters": [
+          {
+            "description": "Device credential; legacy UUID or recovered device key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "Device credential; legacy UUID or recovered device key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountMediaScopeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Account Media Scope",
+        "tags": [
+          "Account"
+        ]
+      }
+    },
     "/v1/account/recover": {
       "post": {
         "operationId": "redeem_recovery_code_v1_account_recover_post",
@@ -4689,6 +4760,28 @@
               "default": "ko",
               "pattern": "^(ko|en|ja|zh|es)$",
               "title": "Language",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "voice",
+            "required": false,
+            "schema": {
+              "default": "default",
+              "pattern": "^(default|warm|deep)$",
+              "title": "Voice",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "style",
+            "required": false,
+            "schema": {
+              "default": "legacy",
+              "pattern": "^(legacy|natural|animated|bedtime)$",
+              "title": "Style",
               "type": "string"
             }
           },
@@ -5415,6 +5508,24 @@
               "title": "X-User-Key",
               "type": "string"
             }
+          },
+          {
+            "description": "Optional active child profile id",
+            "in": "header",
+            "name": "x-profile-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional active child profile id",
+              "title": "X-Profile-Id"
+            }
           }
         ],
         "requestBody": {
@@ -5476,6 +5587,24 @@
               "title": "X-User-Key",
               "type": "string"
             }
+          },
+          {
+            "description": "Optional active child profile id",
+            "in": "header",
+            "name": "x-profile-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional active child profile id",
+              "title": "X-Profile-Id"
+            }
           }
         ],
         "responses": {
@@ -5527,6 +5656,24 @@
               "description": "Device credential; legacy UUID or recovered device key",
               "title": "X-User-Key",
               "type": "string"
+            }
+          },
+          {
+            "description": "Optional active child profile id",
+            "in": "header",
+            "name": "x-profile-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional active child profile id",
+              "title": "X-Profile-Id"
             }
           }
         ],
@@ -7533,6 +7680,22 @@
             }
           },
           {
+            "in": "header",
+            "name": "x-deletion-request-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Deletion-Request-Id"
+            }
+          },
+          {
             "description": "Device credential; legacy UUID or recovered device key",
             "in": "header",
             "name": "x-user-key",
@@ -7663,6 +7826,84 @@
           }
         },
         "summary": "Update Book",
+        "tags": [
+          "Library"
+        ]
+      }
+    },
+    "/v1/library/{book_id}/deletion-receipt": {
+      "get": {
+        "operationId": "get_book_deletion_receipt_v1_library__book_id__deletion_receipt_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-deletion-request-id",
+            "required": true,
+            "schema": {
+              "title": "X-Deletion-Request-Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Device credential; legacy UUID or recovered device key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "Device credential; legacy UUID or recovered device key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional active child profile id",
+            "in": "header",
+            "name": "x-profile-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional active child profile id",
+              "title": "X-Profile-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Book Deletion Receipt",
         "tags": [
           "Library"
         ]

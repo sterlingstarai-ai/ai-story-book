@@ -39,6 +39,33 @@ def test_free_beta_does_not_require_disabled_features_or_store_credentials(confi
     assert result["required_external_evidence"]
 
 
+def test_external_neon_psycopg_requires_verified_channel_binding():
+    values = {
+        'DATABASE_URL': 'postgresql+psycopg://user:password@db.invalid/storybook?sslmode=verify-full&channel_binding=require',
+        'DATABASE_SSL_MODE': 'verify-full', 'DATABASE_SSL_ROOT_CERT': '/ca.pem',
+        'S3_REGION': 'ap-southeast-1', 'S3_ADDRESSING_STYLE': 'path', 'S3_AUTO_CREATE_BUCKET': 'false',
+        'S3_ENDPOINT': 'https://storage.invalid', 'S3_DOWNLOAD_ENDPOINT': 'https://storage.invalid',
+    }
+    errors = preflight.external_infrastructure_errors(values)
+    assert not any(error.startswith('DATABASE_URL') for error in errors)
+    for bad in ('channel_binding=disable', 'channel_binding=', 'channel_binding=require&channel_binding=disable'):
+        values['DATABASE_URL'] = values['DATABASE_URL'].split('&channel_binding=')[0] + '&' + bad
+        assert any('channel binding' in e for e in preflight.external_infrastructure_errors(values))
+    values['DATABASE_URL'] = values['DATABASE_URL'].replace('postgresql+psycopg', 'postgresql+asyncpg')
+    assert any('channel binding' in e for e in preflight.external_infrastructure_errors(values))
+
+
+@pytest.mark.parametrize("name,value", [
+    ("TESTING", "true"), ("DEBUG", "yes"), ("ENABLE_TEST_HOOKS", "1"),
+    ("REQUIRE_PARENTAL_CONSENT_ENABLED", "false"),
+    ("REQUIRE_PARENTAL_CONSENT_ENABLED", "unknown"),
+])
+def test_release_blocks_test_bypasses_and_disabled_parental_consent(configured, name, value):
+    result = preflight.assess({**configured, name: value})
+    assert result["status"] == "BLOCKED"
+    assert any(item.startswith(name + " ") for item in result["invalid_configuration"])
+
+
 def test_enabled_purchases_require_both_stores_without_relaxing_receipts(configured):
     result = preflight.assess({**configured, "PURCHASES_ENABLED": "true"})
     assert result["status"] == "BLOCKED"
@@ -90,6 +117,22 @@ def test_placeholder_ai_key_is_blocked(configured):
     result = preflight.assess({**configured, "LLM_API_KEY": "sk-mock-placeholder"})
     assert result["status"] == "BLOCKED"
     assert "LLM_API_KEY" in result["missing_or_placeholder"]
+
+
+def test_private_key_paths_are_configuration_only_and_conflicts_are_rejected(configured):
+    values = {**configured, 'LLM_API_KEY': '', 'IMAGE_API_KEY': '',
+              'LLM_API_KEY_FILE': '/run/asb-provider-keys/one',
+              'IMAGE_API_KEY_FILE': '/run/asb-provider-keys/two'}
+    result = preflight.assess(values)
+    assert result['status'] == 'CONFIGURED_NOT_VERIFIED'
+    assert result['launch_ready'] is False
+    assert 'LLM_API_KEY' not in result['missing_or_placeholder']
+    conflict = preflight.assess({**values, 'LLM_API_KEY': 'sensitive-value'})
+    assert conflict['status'] == 'BLOCKED'
+    assert any(item.startswith('LLM_API_KEY ') for item in conflict['invalid_configuration'])
+    assert 'sensitive-value' not in json.dumps(conflict)
+    invalid = preflight.assess({**values, 'IMAGE_API_KEY_FILE': '../relative'})
+    assert any(item.startswith('IMAGE_API_KEY_FILE ') for item in invalid['invalid_configuration'])
 
 
 @pytest.mark.parametrize("name", ["PRIVACY_POLICY_URL", "TERMS_OF_SERVICE_URL"])

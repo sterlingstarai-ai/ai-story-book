@@ -127,6 +127,16 @@ Check these narrow, concrete defects; use only the corresponding issue codes:
   Do not reject an otherwise matching central action just because exact spatial coverage, a subtle
   hand pose, or every minor qualifier cannot be verified from one still image. Missing incidental
   details and plausible artistic simplification are not a clear contradiction.
+  When a central action requires a visible open or closed state, compare the actual object being
+  handled with that state. For example, if the shown action is drying the book that the text says
+  is open, but that book is clearly closed, report action_mismatch. Do not flag incidental closed
+  books, obscured pages, an unshown later state, or a separately stated earlier moment.
+  When the context establishes one distinctive story-central wearable or tool, also check whether
+  it is visibly duplicated in incompatible positions: for example, a child visibly wearing the
+  matching wheeled skates while that same single pair is also shown beside the child. Report this
+  as action_mismatch only when the duplicated object and both positions are clearly visible.
+  Do not treat ordinary shoes without visible wheels as skates, or flag an extra pair explicitly
+  introduced by the story; a pair on the ground while the child wears ordinary shoes is valid.
   However, when the text names a target or physical mechanism central to the action or lesson,
   compare the visible contact and trajectory with that target; matching only the broad verb is
   insufficient. Clearly blocked paths or flow landing outside its stated destination are defects.

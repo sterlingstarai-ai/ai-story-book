@@ -67,10 +67,13 @@ async def test_create_job_with_credit_is_atomic_on_job_failure(db_session):
 
 
 @pytest.mark.asyncio
-async def test_create_job_with_credit_happy_path_deducts_and_creates(db_session):
+async def test_create_job_with_credit_happy_path_deducts_and_creates(db_session, monkeypatch):
     """정상 경로: 차감 1 + 잡 1행이 함께 커밋된다."""
     from src.routers import books
     from src.services.credits import credits_service
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setattr(books, "consume_daily_generation_budget", AsyncMock(return_value=(True, 1)))
 
     user_key = "f3-happy-user"
     await credits_service.add_credits(

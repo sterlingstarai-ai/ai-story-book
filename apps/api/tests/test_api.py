@@ -48,6 +48,9 @@ async def test_detailed_health_check_healthy():
         ), patch(
             "src.services.job_monitor.get_job_metrics",
             new=AsyncMock(return_value={"queued": 0, "running": 0}),
+        ), patch(
+            "src.core.cost_budget.generation_budget_snapshot",
+            new=AsyncMock(return_value={"status": "available"}),
         ), patch("src.main.settings.admin_api_key", "testadminkey"):
             response = await client.get(
                 "/health/detailed", headers={"X-Admin-Key": "testadminkey"}
@@ -70,6 +73,9 @@ async def test_detailed_health_check_redis_degraded():
         ), patch(
             "src.services.job_monitor.get_job_metrics",
             new=AsyncMock(return_value={"queued": 0, "running": 0}),
+        ), patch(
+            "src.core.cost_budget.generation_budget_snapshot",
+            new=AsyncMock(return_value={"status": "unavailable"}),
         ), patch("src.main.settings.admin_api_key", "testadminkey"):
             response = await client.get(
                 "/health/detailed", headers={"X-Admin-Key": "testadminkey"}
@@ -90,6 +96,9 @@ async def test_detailed_health_check_job_metrics_failure_degraded():
         ), patch(
             "src.services.job_monitor.get_job_metrics",
             new=AsyncMock(side_effect=RuntimeError("job monitor down")),
+        ), patch(
+            "src.core.cost_budget.generation_budget_snapshot",
+            new=AsyncMock(return_value={"status": "unavailable"}),
         ), patch("src.main.settings.admin_api_key", "testadminkey"):
             response = await client.get(
                 "/health/detailed", headers={"X-Admin-Key": "testadminkey"}

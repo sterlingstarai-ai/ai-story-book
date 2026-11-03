@@ -1,0 +1,29 @@
+#!/bin/sh
+# Secret-free pilot observations. This records evidence, not an alerting service.
+set -u
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+status=0
+case "${1:-live}" in
+  live) endpoint=live ;;
+  ready) endpoint=ready ;;
+  *) echo 'invalid observation mode' >&2; exit 2 ;;
+esac
+for name in asb-pilot-api asb-pilot-worker asb-pilot-redis asb-pilot-nginx; do
+  state=$(docker inspect --format '{{.State.Running}} {{.State.OOMKilled}} {{.RestartCount}}' "$name" 2>/dev/null) || state='missing unknown unknown'
+  printf 'container=%s running_oom_restarts=%s\n' "$name" "$state"
+  case "$state" in 'true false '*) ;; *) status=1 ;; esac
+done
+http=$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 25 --resolve 35.209.174.246:443:127.0.0.1 "https://35.209.174.246/health/$endpoint" 2>/dev/null) || http=000
+printf 'https_%s=%s\n' "$endpoint" "$http"
+[ "$http" = 200 ] || status=1
+available=$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo)
+disk=$(df -Pk / | awk 'NR==2 {print $4}')
+printf 'mem_available_kib=%s disk_available_kib=%s\n' "$available" "$disk"
+if openssl x509 -checkend 86400 -noout -in /etc/ai-story-book/letsencrypt/live/asb-ip/cert.pem >/dev/null 2>&1; then
+  printf 'certificate_valid_over_24h=true\n'
+else
+  printf 'certificate_valid_over_24h=false\n'
+  status=1
+fi
+exit "$status"

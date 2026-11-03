@@ -84,6 +84,7 @@ class PeriodicCredits:
             select(Subscription).where(
                 Subscription.status == "active",
                 Subscription.plan != "free",
+                Subscription.calendar_refill_enabled.is_(True),
                 Subscription.current_period_end <= now,
                 # A calendar tick is not evidence of a store renewal. Store-backed
                 # subscriptions are extended only by verified transactions.
@@ -118,6 +119,7 @@ class PeriodicCredits:
                     .where(
                         Subscription.id == sub.id,
                         Subscription.status == "active",
+                        Subscription.calendar_refill_enabled.is_(True),
                         Subscription.current_period_end <= now,
                     )
                     .values(

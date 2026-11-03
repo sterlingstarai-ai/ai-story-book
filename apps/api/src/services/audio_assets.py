@@ -1,14 +1,56 @@
 """Version-checked narration publication with durable orphan cleanup."""
 from dataclasses import dataclass
+from contextlib import asynccontextmanager
+import hashlib
+import secrets
 import uuid
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import delete, or_, select, update
 
 from src.core.consent import require_parental_consent
-from src.models.db import Book, Page
+from src.core.exceptions import APIError
+from src.core.rate_limit import rate_limiter
+from src.models.db import Book, NarrationVariant, Page
 from src.services.audio_text import audio_texts
 from src.services.purge_queue import cancel_purge_task, enqueue_purge_keys
 from src.services.storage import storage_service
+
+_LOCK_TTL_SECONDS = 600
+_UNLOCK = """if redis.call('get', KEYS[1]) == ARGV[1] then
+return redis.call('del', KEYS[1]) else return 0 end"""
+
+
+@asynccontextmanager
+async def variant_singleflight(user_key, book_id, page_number, language, voice, style="legacy", provider="openai"):
+    """Suppress duplicate live requests; fail closed if the shared lock is unavailable.
+
+    A failed or cancelled operation keeps its bounded lock until expiry so a
+    potentially still-running provider request is not immediately duplicated.
+    TTL is recovery, not proof against Redis loss or a long network partition.
+    """
+    identity = '\0'.join((user_key, book_id, str(page_number), language, voice, style, provider))
+    key = 'narration:singleflight:' + hashlib.sha256(identity.encode()).hexdigest()
+    token = secrets.token_hex(24)
+    try:
+        client = await rate_limiter.get_redis()
+        acquired = await client.set(key, token, ex=_LOCK_TTL_SECONDS, nx=True)
+    except Exception:
+        raise APIError(503, 'SERVICE_UNAVAILABLE', '음성 생성 상태를 확인할 수 없습니다. 잠시 후 다시 시도해 주세요.') from None
+    if not acquired:
+        raise APIError(409, 'AUDIO_GENERATION_IN_PROGRESS', '이 목소리를 생성 중입니다. 잠시 후 다시 시도해 주세요.',
+                       headers={'Retry-After': '10'})
+    try:
+        yield
+    except BaseException:
+        # The remote provider might still process an interrupted request.
+        raise
+    else:
+        try:
+            await client.eval(_UNLOCK, 1, key, token)
+        except Exception:
+            # The completed recording is already cached. TTL safely recovers
+            # the lock, and an old owner must not delete a newer owner's lock.
+            pass
 
 
 @dataclass(frozen=True)
@@ -45,13 +87,58 @@ def narration_url(page, language, book_language):
     return url
 
 
+async def variant_url(db, page_id, language, voice, style="legacy", provider="openai"):
+    return await db.scalar(select(NarrationVariant.audio_url).where(
+        NarrationVariant.page_id == page_id, NarrationVariant.language == language,
+        NarrationVariant.voice == voice, NarrationVariant.style == style, NarrationVariant.provider == provider))
+
+
+async def retire_page_variants(db, page_id, *, user_key):
+    """Remove all voice variants atomically when their page text is changed.
+
+    Caller must hold the page row lock until commit, as does publication.
+    Book and account deletion already enqueue the containing book prefix.
+    """
+    from src.services.storage import key_from_public_url
+
+    urls = (await db.scalars(select(NarrationVariant.audio_url).where(
+        NarrationVariant.page_id == page_id))).all()
+    enqueue_purge_keys(db, user_key=user_key, reason="replaced_page_audio",
+                       keys=[key for key in (key_from_public_url(url) for url in urls) if key])
+    await db.execute(delete(NarrationVariant).where(NarrationVariant.page_id == page_id))
+
+
+async def publish_variant(db, source: NarrationSource, language, voice, url, guard, style="legacy", provider="openai"):
+    """Publish one variant only if ownership, consent, and page text still match."""
+    await require_parental_consent(db, source.user_key)
+    page = await db.scalar(select(Page).where(
+        Page.id == source.page_id, Page.book_id == source.book_id,
+        select(Book.id).where(Book.id == source.book_id, Book.user_key == source.user_key,
+                              Book.language == source.book_language).exists(),
+    ).with_for_update().execution_options(populate_existing=True))
+    if not source.matches(page):
+        raise ValueError("Narration page changed or is no longer available")
+    existing = await variant_url(db, source.page_id, language, voice, style, provider)
+    if existing:
+        # The losing upload retains its durable cleanup guard.
+        await db.commit()
+        return existing
+    db.add(NarrationVariant(id=uuid.uuid4().hex, page_id=source.page_id,
+                            language=language, voice=voice, style=style, provider=provider, audio_url=url))
+    cancel_purge_task(guard)
+    await db.commit()
+    return url
+
+
 async def store_narration(db, book_id, page_number, language, audio_bytes, *, user_key=None):
     # A unique key prevents one failed concurrent attempt from purging another
     # successful attempt's file. The caller cancels the guard with its Page update.
-    key = f"books/{book_id}/audio/page_{page_number}_{language}_{uuid.uuid4().hex}.mp3"
+    is_wav = audio_bytes.startswith(b"RIFF") and audio_bytes[8:12] == b"WAVE"
+    extension, content_type = ("wav", "audio/wav") if is_wav else ("mp3", "audio/mpeg")
+    key = f"books/{book_id}/audio/page_{page_number}_{language}_{uuid.uuid4().hex}.{extension}"
     guard = enqueue_purge_keys(db, user_key=user_key, reason="incomplete_narration", keys=[key])[0]
     await db.commit()
-    url = await storage_service.upload_bytes(audio_bytes, key, content_type="audio/mpeg")
+    url = await storage_service.upload_bytes(audio_bytes, key, content_type=content_type)
     return url, guard
 
 

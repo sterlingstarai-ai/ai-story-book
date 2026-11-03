@@ -6,7 +6,6 @@ Pronunciation Router
 from __future__ import annotations
 
 import re
-from difflib import SequenceMatcher
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
@@ -26,6 +25,7 @@ from src.services.stt import stt_service
 router = APIRouter()
 logger = structlog.get_logger()
 _MAX_PRONUNCIATION_AUDIO_BYTES = 15 * 1024 * 1024
+_MAX_SCORING_TEXT = 4000
 
 
 class PronunciationEvaluateRequest(BaseModel):
@@ -36,7 +36,22 @@ class PronunciationEvaluateRequest(BaseModel):
     audio_url: Optional[str] = Field(default=None, max_length=500)
 
 
+def _ordered_matches(left, right) -> int:
+    """LCS length using bounded bitsets, including highly repetitive input."""
+    masks = {}
+    for index, value in enumerate(right):
+        masks[value] = masks.get(value, 0) | (1 << index)
+    row = 0
+    for value in left:
+        matches = row | masks.get(value, 0)
+        row = matches & ~(matches - ((row << 1) | 1))
+    return row.bit_count()
+
+
 def _score_pronunciation(transcript: str, expected: str) -> tuple[float, str]:
+    # STT results also reach this helper without the JSON request model.
+    if len(transcript) > _MAX_SCORING_TEXT or len(expected) > _MAX_SCORING_TEXT:
+        raise ValidationError("발음 평가 텍스트는 4000자 이하여야 합니다.")
     # Unicode letters preserve Japanese/Chinese/Spanish instead of scoring
     # perfectly recognized speech as empty. Apostrophes stay within words.
     token_pattern = re.compile(r"[^\W_]+(?:'[^\W_]+)*", re.UNICODE)
@@ -47,20 +62,14 @@ def _score_pronunciation(transcript: str, expected: str) -> tuple[float, str]:
     if not transcript_tokens:
         return 0.0, "입력된 발화가 비어 있어요. 천천히 다시 읽어볼까요?"
 
-    ordered_matcher = SequenceMatcher(
-        a=expected_tokens,
-        b=transcript_tokens,
-        autojunk=False,
-    )
-    ordered_match_count = sum(block.size for block in ordered_matcher.get_matching_blocks())
+    ordered_match_count = _ordered_matches(expected_tokens, transcript_tokens)
     ordered_ratio = ordered_match_count / len(expected_tokens)
 
-    char_matcher = SequenceMatcher(
-        a=" ".join(expected_tokens),
-        b=" ".join(transcript_tokens),
-        autojunk=False,
+    expected_chars = " ".join(expected_tokens)
+    transcript_chars = " ".join(transcript_tokens)
+    char_ratio = 2 * _ordered_matches(expected_chars, transcript_chars) / (
+        len(expected_chars) + len(transcript_chars)
     )
-    char_ratio = char_matcher.ratio()
 
     transcript_vocab = set(transcript_tokens)
     missing_words = [token for token in expected_tokens if token not in transcript_vocab]

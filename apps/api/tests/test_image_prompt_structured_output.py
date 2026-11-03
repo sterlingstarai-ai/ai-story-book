@@ -215,6 +215,8 @@ async def test_recurring_prop_design_reaches_one_request_with_complete_book_cont
     assert "재질·색·형태·인물에 대한 상대 크기·기능 부품의 배치" in wire
     assert "positive_prompt에 동일한 구절을 반복" in wire
     assert "페이지별 현재 상태는 본문 순서대로" in wire
+    assert "그 장면에서 실제 사용하는 수량과 위치" in wire
+    assert "그 한 쌍을 바닥에도 동시에 두지 않는다" in wire
     assert "별도 소품 목록은 출력하지 않는다" in wire
     assert all(f"Recurring garden device, scene {page:02d}." in wire for page in range(1, 13))
     assert "positive_prompt: 10~1200자" in wire

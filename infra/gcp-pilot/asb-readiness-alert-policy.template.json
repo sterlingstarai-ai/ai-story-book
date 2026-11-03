@@ -1,0 +1,31 @@
+{
+  "displayName": "AI Story Book API readiness",
+  "combiner": "OR",
+  "enabled": true,
+  "notificationChannels": ["PROJECT_NOTIFICATION_CHANNEL_RESOURCE"],
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "The API readiness check is unhealthy or its monitoring signal is missing. This may include expired AI provider observations, connectivity, or a planned backup. Investigate privately; this signal does not make paid AI calls."
+  },
+  "conditions": [
+    {
+      "displayName": "API readiness unhealthy",
+      "conditionThreshold": {
+        "filter": "metric.type=\"custom.googleapis.com/ai_story_book/api_readiness\" AND resource.type=\"global\"",
+        "comparison": "COMPARISON_LT",
+        "thresholdValue": 0.5,
+        "duration": "300s",
+        "aggregations": [{"alignmentPeriod": "600s", "perSeriesAligner": "ALIGN_MAX"}]
+      }
+    },
+    {
+      "displayName": "API readiness signal missing",
+      "conditionAbsent": {
+        "filter": "metric.type=\"custom.googleapis.com/ai_story_book/api_readiness\" AND resource.type=\"global\"",
+        "duration": "1500s",
+        "aggregations": [{"alignmentPeriod": "300s", "perSeriesAligner": "ALIGN_MEAN"}]
+      }
+    }
+  ],
+  "alertStrategy": {"autoClose": "1800s"}
+}

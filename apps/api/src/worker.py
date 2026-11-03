@@ -4,6 +4,7 @@ Celery Worker Configuration
 
 from celery import Celery
 from celery.signals import worker_init, worker_process_init
+from urllib.parse import urlsplit
 
 from src.core.config import settings
 from src.core.logging import configure_logging
@@ -35,6 +36,23 @@ celery_app.conf.update(
     task_acks_late=True,
     task_reject_on_worker_lost=True,
 )
+
+# Some managed Redis providers only support database 0.  An opt-in namespace
+# keeps the Celery broker and result keys distinct when they share a dedicated
+# database with the application's own Redis keys.  This does not make a shared
+# database safe to reuse across products or guarantee persistence.
+if settings.celery_redis_namespace:
+    for url in (settings.celery_broker_url, settings.celery_result_backend):
+        try:
+            parsed = urlsplit(url)
+            parsed.port  # Validate an explicit port without logging credentials.
+            if parsed.scheme not in {"redis", "rediss"} or not parsed.hostname:
+                raise ValueError
+        except ValueError:
+            raise ValueError("Celery Redis namespace requires Redis broker and result URLs") from None
+    namespace = settings.celery_redis_namespace
+    celery_app.conf.broker_transport_options = {"global_keyprefix": f"{namespace}:broker:"}
+    celery_app.conf.result_backend_transport_options = {"global_keyprefix": f"{namespace}:result:"}
 
 # Auto-discover tasks
 celery_app.autodiscover_tasks(["src.services"])

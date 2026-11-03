@@ -1,0 +1,17 @@
+# Optional override. Supply an existing private host directory owned by the
+# container's appuser and set LLM_API_KEY_FILE / IMAGE_API_KEY_FILE to files
+# inside /run/asb-provider-keys. Leave the corresponding raw key values empty.
+# This mount alone does not transfer a key or authorize an operational rollout.
+services:
+  api:
+    volumes:
+      - type: bind
+        source: ${PROVIDER_KEY_HOST_DIR:?Set the private provider-key directory}
+        target: /run/asb-provider-keys
+        read_only: true
+  worker:
+    volumes:
+      - type: bind
+        source: ${PROVIDER_KEY_HOST_DIR:?Set the private provider-key directory}
+        target: /run/asb-provider-keys
+        read_only: true

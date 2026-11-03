@@ -82,4 +82,5 @@ def test_all_budget_callers_pass_resolved_account():
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "consume_generation_budget":
                 calls.append(node)
                 assert any(k.arg == "user_key" and isinstance(k.value, ast.Name) and k.value.id == "user_key" for k in node.keywords), path
-    assert len(calls) == 9
+    # Book, series and daily-story creation share one post-credit admission.
+    assert len(calls) == 7

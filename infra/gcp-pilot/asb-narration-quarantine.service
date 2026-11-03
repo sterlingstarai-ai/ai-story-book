@@ -1,0 +1,13 @@
+[Unit]
+Description=Quarantine an interrupted private-pilot narration deployment
+Requires=docker.service
+After=docker.service
+Before=asb-backup-recover.service asb-privacy-deploy-recover.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/ai-story-book/current/scripts/narration_deploy_safety.py --recover --state-dir /var/lib/ai-story-book/narration-deploy
+TimeoutStartSec=420
+
+[Install]
+WantedBy=multi-user.target

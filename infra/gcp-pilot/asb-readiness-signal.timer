@@ -1,0 +1,10 @@
+[Unit]
+Description=Publish AI Story Book API readiness every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=15s
+
+[Install]
+WantedBy=timers.target

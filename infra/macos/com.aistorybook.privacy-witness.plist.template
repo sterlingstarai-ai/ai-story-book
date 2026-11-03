@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.aistorybook.privacy-witness</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>/ABSOLUTE/PATH/TO/ai-story-book/infra/macos/privacy-witness-log.sh</string>
+    <string>/ABSOLUTE/PATH/TO/ai-story-book/apps/api/venv/bin/python</string>
+    <string>/ABSOLUTE/PATH/TO/ai-story-book/scripts/mac_privacy_witness_observer.py</string>
+    <string>/PRIVATE/PATH/receipt.json</string>
+    <string>/PRIVATE/PATH/public-key.pem</string>
+    <string>/INDEPENDENT/PRIVATE/PATH/trusted-head.json</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StartInterval</key>
+  <integer>300</integer>
+</dict>
+</plist>

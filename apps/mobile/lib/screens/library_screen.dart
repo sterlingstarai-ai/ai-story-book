@@ -1,4 +1,6 @@
 import 'dart:io';
+
+import '../widgets/age_gate_dialog.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -11,6 +13,7 @@ import 'account_recovery_screen.dart';
 import '../l10n/app_localizations.dart';
 import '../models/models.dart';
 import '../providers/providers.dart';
+import '../services/book_media_store.dart';
 import '../utils/constants.dart';
 import '../widgets/app_shell.dart';
 import '../widgets/common_widgets.dart';
@@ -33,6 +36,41 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   // (의도한 새 생성이 조용히 no-op). createBook의 _attemptSig 패턴과 동일.
   String? _seriesAttemptKey;
   String? _seriesAttemptSig;
+  bool _checkingDeletions = false;
+
+  Future<void> _recheckDeletions() async {
+    if (_checkingDeletions) return;
+    setState(() => _checkingDeletions = true);
+    var waiting = true;
+    final api = ref.read(apiClientProvider);
+    try {
+      ref.invalidate(bookMediaStoreProvider);
+      await ref.read(bookMediaStoreProvider.future);
+      if (!identical(api, ref.read(apiClientProvider))) {
+        throw const BookDeletionUnconfirmed();
+      }
+      ref.invalidate(pendingBookDeletionsProvider);
+      waiting = (await ref.read(
+        pendingBookDeletionsProvider.future,
+      )).isNotEmpty;
+      ref.invalidate(libraryProvider);
+      ref.invalidate(libraryBrowseProvider);
+    } catch (_) {
+      waiting = true;
+    }
+    if (!mounted) return;
+    setState(() => _checkingDeletions = false);
+    final l = AppLocalizations.of(context);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          waiting
+              ? l.libraryDeletionReviewWaiting
+              : l.libraryDeletionReviewDone,
+        ),
+      ),
+    );
+  }
 
   Map<String, String> _sortLabels(AppLocalizations l) => {
     'newest': l.librarySortNewest,
@@ -170,13 +208,29 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     }
 
     try {
-      await ref.read(libraryBrowseProvider.notifier).deleteBook(book.id);
+      final purgePending = await ref
+          .read(libraryBrowseProvider.notifier)
+          .deleteBook(book.id);
       if (!mounted) {
         return;
       }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            purgePending ? l.libraryDeletionPending : l.libraryDeleteSuccess,
+          ),
+        ),
+      );
+    } on BookDeletionNotStarted {
+      if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(l.libraryDeleteSuccess)));
+      ).showSnackBar(SnackBar(content: Text(l.libraryDeletionNotStarted)));
+    } on BookDeletionUnconfirmed {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.libraryDeletionUnconfirmed)));
     } catch (error) {
       if (!mounted) {
         return;
@@ -214,6 +268,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   }
 
   Future<void> _shareBook(LibraryBook book) async {
+    if (!await ensureAgeGate(context, ref) || !mounted) return;
     final l = AppLocalizations.of(context);
     final message = l.libraryShareMessage(book.title);
     final box = context.findRenderObject() as RenderBox?;
@@ -264,6 +319,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
     final libraryAsync = ref.watch(libraryBrowseProvider);
+    final pendingDeletions =
+        ref.watch(pendingBookDeletionsProvider).valueOrNull ?? const [];
+    final mediaStatus = ref.watch(bookMediaStoreProvider);
     final notifier = ref.read(libraryBrowseProvider.notifier);
 
     final sortLabels = _sortLabels(l);
@@ -288,78 +346,142 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
           ),
         ],
       ),
-      body: libraryAsync.when(
-        data: (state) {
-          final hasFilter = state.style != null || state.targetAge != null;
-          final hasBooks = state.books.isNotEmpty;
+      body: Column(
+        children: [
+          if (mediaStatus.hasError &&
+              mediaStatus.error is BookMediaScopeConflict)
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.lg,
+                vertical: AppSpacing.sm,
+              ),
+              child: Row(
+                children: [
+                  Expanded(child: Text(l.libraryMediaScopeReview)),
+                  TextButton(
+                    onPressed: _checkingDeletions ? null : _recheckDeletions,
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size(64, 64),
+                    ),
+                    child: Text(l.libraryDeletionReviewAction),
+                  ),
+                ],
+              ),
+            ),
+          if (pendingDeletions.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.lg,
+                vertical: AppSpacing.sm,
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(l.libraryDeletionReviewTitle),
+                        Text(
+                          l.libraryDeletionReviewHelp,
+                          style: AppTextStyles.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: _checkingDeletions ? null : _recheckDeletions,
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size(64, 64),
+                    ),
+                    child: _checkingDeletions
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Text(l.libraryDeletionReviewAction),
+                  ),
+                ],
+              ),
+            ),
+          Expanded(
+            child: libraryAsync.when(
+              data: (state) {
+                final hasFilter =
+                    state.style != null || state.targetAge != null;
+                final hasBooks = state.books.isNotEmpty;
 
-          return Column(
-            children: [
-              _LibraryFilterPanel(
-                sort: state.sort,
-                style: state.style,
-                targetAge: state.targetAge,
-                sortLabels: sortLabels,
-                styleLabels: styleLabels,
-                ageLabels: ageLabels,
-                onSortChanged: notifier.setSort,
-                onStyleChanged: notifier.setStyleFilter,
-                onAgeChanged: notifier.setTargetAgeFilter,
-                onResetFilters: notifier.clearFilters,
-              ),
-              if (state.isOffline)
-                _OfflineBanner(onClose: notifier.clearOfflineBanner),
-              Expanded(
-                child: hasBooks
-                    ? _buildBookContent(
-                        state,
-                        notifier.refresh,
-                        ageLabels,
-                        styleLabels,
-                      )
-                    : EmptyState(
-                        icon: hasFilter
-                            ? Icons.filter_alt_off_outlined
-                            : Icons.auto_stories_outlined,
-                        title: hasFilter
-                            ? l.libraryEmptyFilterTitle
-                            : l.libraryEmptyTitle,
-                        subtitle: hasFilter
-                            ? l.libraryEmptyFilterSubtitle
-                            : l.libraryEmptySubtitle,
-                        buttonText: hasFilter
-                            ? l.libraryResetFilters
-                            : l.libraryCreateNew,
-                        onButtonPressed: hasFilter
-                            ? notifier.clearFilters
-                            : () => Navigator.pushNamed(context, '/create'),
+                return Column(
+                  children: [
+                    _LibraryFilterPanel(
+                      sort: state.sort,
+                      style: state.style,
+                      targetAge: state.targetAge,
+                      sortLabels: sortLabels,
+                      styleLabels: styleLabels,
+                      ageLabels: ageLabels,
+                      onSortChanged: notifier.setSort,
+                      onStyleChanged: notifier.setStyleFilter,
+                      onAgeChanged: notifier.setTargetAgeFilter,
+                      onResetFilters: notifier.clearFilters,
+                    ),
+                    if (state.isOffline)
+                      _OfflineBanner(onClose: notifier.clearOfflineBanner),
+                    Expanded(
+                      child: hasBooks
+                          ? _buildBookContent(
+                              state,
+                              notifier.refresh,
+                              ageLabels,
+                              styleLabels,
+                            )
+                          : EmptyState(
+                              icon: hasFilter
+                                  ? Icons.filter_alt_off_outlined
+                                  : Icons.auto_stories_outlined,
+                              title: hasFilter
+                                  ? l.libraryEmptyFilterTitle
+                                  : l.libraryEmptyTitle,
+                              subtitle: hasFilter
+                                  ? l.libraryEmptyFilterSubtitle
+                                  : l.libraryEmptySubtitle,
+                              buttonText: hasFilter
+                                  ? l.libraryResetFilters
+                                  : l.libraryCreateNew,
+                              onButtonPressed: hasFilter
+                                  ? notifier.clearFilters
+                                  : () =>
+                                        Navigator.pushNamed(context, '/create'),
+                            ),
+                    ),
+                  ],
+                );
+              },
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (error, _) => EmptyState(
+                icon: Icons.wifi_off_rounded,
+                title: l.libraryLoadError,
+                subtitle: _friendlyErrorMessage(error),
+                buttonText: _isExpiredAccount(error)
+                    ? l.recoveryTitle
+                    : l.libraryRetry,
+                onButtonPressed: () {
+                  if (_isExpiredAccount(error)) {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            const AccountRecoveryScreen(restoreOnly: true),
                       ),
+                    );
+                  } else {
+                    ref.invalidate(libraryBrowseProvider);
+                  }
+                },
               ),
-            ],
-          );
-        },
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => EmptyState(
-          icon: Icons.wifi_off_rounded,
-          title: l.libraryLoadError,
-          subtitle: _friendlyErrorMessage(error),
-          buttonText: _isExpiredAccount(error)
-              ? l.recoveryTitle
-              : l.libraryRetry,
-          onButtonPressed: () {
-            if (_isExpiredAccount(error)) {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) =>
-                      const AccountRecoveryScreen(restoreOnly: true),
-                ),
-              );
-            } else {
-              ref.invalidate(libraryBrowseProvider);
-            }
-          },
-        ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -801,6 +923,7 @@ class _LibraryBookCard extends StatelessWidget {
             children: [
               Expanded(
                 child: BookCard(
+                  bookId: book.id,
                   title: book.title,
                   imageUrl: book.coverImageUrl,
                   subtitle: dateLabel,
@@ -1000,6 +1123,7 @@ class _SeriesShelf extends StatelessWidget {
               return SizedBox(
                 width: 130,
                 child: BookCard(
+                  bookId: book.id,
                   title: book.title,
                   imageUrl: book.coverImageUrl,
                   subtitle: '${l.librarySeriesBadge} ${book.seriesIndex ?? ''}'

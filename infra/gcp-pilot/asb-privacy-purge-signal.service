@@ -1,0 +1,10 @@
+[Unit]
+Description=Publish privacy erasure queue health
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/ai-story-book/pilot/private/privacy-purge-watch.env
+ExecStart=/opt/ai-story-book/current/apps/api/venv/bin/python /opt/ai-story-book/privacy-purge-monitor/current/scripts/publish_privacy_purge_health.py
+TimeoutStartSec=150

@@ -44,6 +44,19 @@ def review():
 
 
 @pytest.mark.asyncio
+async def test_four_page_fictional_capture_survives_review_failure(capture):
+    module, root, directory = capture
+    source = inputs()
+    for key in ("page_texts", "image_prompts", "images"):
+        source[key] = {n: value for n, value in source[key].items() if n < 5}
+    provider = AsyncMock(side_effect=LLMError(ErrorCode.SAFETY_OUTPUT, "private"))
+    with pytest.raises(LLMError):
+        await module.wrap_review(provider, directory, root, expected_images=5)(**source)
+    assert module.load_review_input(directory / "review-01", repository_root=root) == source
+    assert len(list((directory / "review-01").glob("page-*.png"))) == 5
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("provider_failed", [False, True])
 async def test_all_thirteen_inputs_are_saved_before_request_and_survive_review_failure(capture, provider_failed):
     module, root, directory = capture

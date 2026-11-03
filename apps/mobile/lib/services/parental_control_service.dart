@@ -15,10 +15,7 @@ class AgeChallenge {
   final int left;
   final int right;
 
-  const AgeChallenge({
-    required this.left,
-    required this.right,
-  });
+  const AgeChallenge({required this.left, required this.right});
 
   int get answer => left * right;
   String get prompt => '$left × $right = ?';
@@ -31,39 +28,49 @@ class ParentalControlService {
   static const reviewLastPromptAtKey = 'review_last_prompt_at_v1';
   static const _ageGateValidity = Duration(minutes: 30);
 
-  bool _ageGateSessionVerified = false;
+  DateTime? _ageGateVerifiedAt;
   final Random _random;
+  final DateTime Function() _now;
 
-  ParentalControlService({Random? random}) : _random = random ?? Random();
+  ParentalControlService({Random? random, DateTime Function()? now})
+    : _random = random ?? Random(),
+      _now = now ?? DateTime.now;
 
-  bool get isAgeGateVerifiedForSession => _ageGateSessionVerified;
+  bool get isAgeGateVerifiedForSession {
+    final verifiedAt = _ageGateVerifiedAt;
+    if (verifiedAt == null) return false;
+    final elapsed = _now().difference(verifiedAt);
+    if (elapsed.isNegative || elapsed > _ageGateValidity) {
+      resetAgeGateSession();
+      return false;
+    }
+    return true;
+  }
 
   void resetAgeGateSession() {
-    _ageGateSessionVerified = false;
+    _ageGateVerifiedAt = null;
   }
 
   void markAgeGateVerified() {
-    _ageGateSessionVerified = true;
+    _ageGateVerifiedAt = _now();
   }
 
   Future<void> loadAgeGateSession(SharedPreferences prefs) async {
     final verifiedAt = prefs.getInt(ageGateSessionKey);
     if (verifiedAt == null) {
-      _ageGateSessionVerified = false;
+      resetAgeGateSession();
       return;
     }
 
-    final elapsed = DateTime.now()
-        .difference(DateTime.fromMillisecondsSinceEpoch(verifiedAt));
+    _ageGateVerifiedAt = DateTime.fromMillisecondsSinceEpoch(verifiedAt);
     // R4: 기기 시계 되돌림에 견고하게. 예전에는 `elapsed <= 30분` 만 봤기 때문에, 시계를
     // 과거로 돌리면 elapsed 가 **음수**가 되어 조건을 항상 만족했다 → 한 번 통과한 세션이
     // 영구 유효. 음수 경과는 정상 시간 흐름이 아니므로 조작으로 보고 fail-closed 로 만료시킨다.
-    if (!elapsed.isNegative && elapsed <= _ageGateValidity) {
-      _ageGateSessionVerified = true;
+    if (isAgeGateVerifiedForSession) {
       return;
     }
 
-    _ageGateSessionVerified = false;
+    resetAgeGateSession();
     await prefs.remove(ageGateSessionKey);
   }
 
@@ -71,7 +78,7 @@ class ParentalControlService {
     markAgeGateVerified();
     await prefs.setInt(
       ageGateSessionKey,
-      DateTime.now().millisecondsSinceEpoch,
+      _ageGateVerifiedAt!.millisecondsSinceEpoch,
     );
   }
 
@@ -101,10 +108,7 @@ class ParentalControlService {
     return prefs.getBool(consentGrantedKey) ?? false;
   }
 
-  Future<void> setConsent(
-    SharedPreferences prefs,
-    bool granted,
-  ) async {
+  Future<void> setConsent(SharedPreferences prefs, bool granted) async {
     await prefs.setBool(consentGrantedKey, granted);
     if (!granted) {
       await clearAgeGateSession(prefs);
@@ -115,10 +119,7 @@ class ParentalControlService {
     return prefs.getBool(onboardingDoneKey) ?? false;
   }
 
-  Future<void> setOnboardingDone(
-    SharedPreferences prefs,
-    bool done,
-  ) async {
+  Future<void> setOnboardingDone(SharedPreferences prefs, bool done) async {
     await prefs.setBool(onboardingDoneKey, done);
   }
 }

@@ -7,21 +7,47 @@ from __future__ import annotations
 import base64
 from contextlib import contextmanager
 from contextvars import ContextVar
+from io import BytesIO
 import uuid
+import warnings
 
 import httpx
 import asyncio
 import structlog
+from PIL import Image, UnidentifiedImageError
 
 from src.core.config import settings
 from src.services.storage import media_url
 from src.services.image_request_budget import consume_image_request
-from src.services.provider_runtime import begin_provider_request, observe_provider_response
+from src.services.provider_runtime import (
+    begin_provider_request, observe_invalid_provider_response, observe_provider_response,
+    observe_validated_provider_success,
+)
 from src.services.image_correction import correction_scene_reference, provider_prompt_with_correction
 from src.core.errors import ImageError, ErrorCode
 from src.models.dto import ImagePrompt
 
 logger = structlog.get_logger()
+
+
+async def _observe_image_output(attempt, data: bytes) -> None:
+    """Provider readiness requires inspectable bounded image bytes, not just HTTP 2xx."""
+    try:
+        if not isinstance(data, bytes) or not 0 < len(data) <= 8 * 1024 * 1024:
+            raise ValueError('invalid image bytes')
+        with warnings.catch_warnings():
+            warnings.simplefilter('error', Image.DecompressionBombWarning)
+            with Image.open(BytesIO(data)) as picture:
+                if (picture.format not in {'PNG', 'JPEG', 'WEBP'} or getattr(picture, 'is_animated', False)
+                        or min(picture.size) < 1 or max(picture.size) > 8192
+                        or picture.width * picture.height > 16_777_216):
+                    raise ValueError('invalid image')
+                picture.verify()
+    except (ValueError, TypeError, OSError, SyntaxError, UnidentifiedImageError,
+            Image.DecompressionBombError, Image.DecompressionBombWarning):
+        await observe_invalid_provider_response(attempt)
+        return
+    await observe_validated_provider_success(attempt)
 
 # 영속화될 이미지의 스토리지 키 접두를 호출 스코프에서 지정한다. 기본(None)이면
 # `images/{provider}/{uuid}`(추적 불가 경로)에 저장되지만, 캐릭터 시트처럼 삭제 가능해야
@@ -193,7 +219,7 @@ async def _generate_openai(prompt: ImagePrompt, reference_image_url: str | None 
                 json=json_body,
             )
 
-        permanent_error = await observe_provider_response(attempt, response)
+        permanent_error = await observe_provider_response(attempt, response, defer_success=True)
         if permanent_error:
             raise ImageError(permanent_error, "AI 제공자 서비스를 현재 사용할 수 없습니다.", page=prompt.page)
 
@@ -220,22 +246,29 @@ async def _generate_openai(prompt: ImagePrompt, reference_image_url: str | None 
         try:
             result = response.json()
         except Exception:
+            await observe_invalid_provider_response(attempt)
             raise ImageError(
                 ErrorCode.IMAGE_FAILED, "Invalid JSON from OpenAI Image API", page=prompt.page
             )
 
-        data = result.get("data", [])
+        data = result.get("data", []) if isinstance(result, dict) else []
         if data:
             # b64_json(gpt-image-1·요청한 dall-e) 우선, 없으면 url 폴백 — 어느 쪽이든 S3 영속화.
-            b64 = data[0].get("b64_json")
+            first = data[0] if isinstance(data, list) and isinstance(data[0], dict) else {}
+            b64 = first.get("b64_json")
             if b64:
-                return await _persist_image_bytes(
-                    base64.b64decode(b64), "image/png", "openai"
-                )
-            url = data[0].get("url")
+                try:
+                    image_bytes = base64.b64decode(b64, validate=True)
+                except (ValueError, TypeError):
+                    await observe_invalid_provider_response(attempt)
+                    raise ImageError(ErrorCode.IMAGE_FAILED, "Invalid image encoding", page=prompt.page) from None
+                await _observe_image_output(attempt, image_bytes)
+                return await _persist_image_bytes(image_bytes, "image/png", "openai")
+            url = first.get("url")
             if url:
-                return await _persist_external_url(url, "openai", prompt.page)
+                return await _persist_external_url(url, "openai", prompt.page, observation=attempt)
 
+        await observe_invalid_provider_response(attempt)
         raise ImageError(
             ErrorCode.IMAGE_FAILED, "No output from OpenAI Image", page=prompt.page
         )
@@ -406,7 +439,7 @@ async def _generate_gemini(
             json=body,
         )
 
-        permanent_error = await observe_provider_response(attempt, response)
+        permanent_error = await observe_provider_response(attempt, response, defer_success=True)
         if permanent_error:
             raise ImageError(permanent_error, "AI 제공자 서비스를 현재 사용할 수 없습니다.", page=prompt.page)
 
@@ -426,16 +459,23 @@ async def _generate_gemini(
         try:
             result = response.json()
         except Exception:
+            await observe_invalid_provider_response(attempt)
             raise ImageError(
                 ErrorCode.IMAGE_FAILED, "Invalid JSON from Gemini", page=prompt.page
             )
 
-    image_bytes, mime = _extract_gemini_image(result)
+    try:
+        image_bytes, mime = _extract_gemini_image(result)
+    except (AttributeError, TypeError, ValueError):
+        await observe_invalid_provider_response(attempt)
+        raise ImageError(ErrorCode.IMAGE_FAILED, "Invalid image from Gemini", page=prompt.page) from None
     if image_bytes is None:
+        await observe_invalid_provider_response(attempt)
         raise ImageError(
             ErrorCode.IMAGE_FAILED, "No image in Gemini response", page=prompt.page
         )
 
+    await _observe_image_output(attempt, image_bytes)
     return await _persist_image_bytes(image_bytes, mime, "gemini")
 
 
@@ -491,28 +531,41 @@ async def _persist_image_bytes(image_bytes: bytes, mime: str, provider: str) -> 
     return await storage_service.upload_bytes(image_bytes, key, content_type=mime)
 
 
-async def _persist_external_url(url: str, provider: str, page: int) -> str:
+async def _persist_external_url(url: str, provider: str, page: int, *, observation=None) -> str:
     """provider의 임시 이미지 URL을 다운로드해 S3로 영속화(만료 방지). SSRF 가드 적용."""
     from src.services.storage import _is_url_allowed
 
     if not url:
+        if observation:
+            await observe_invalid_provider_response(observation)
         raise ImageError(
             ErrorCode.IMAGE_FAILED, f"Empty image URL from {provider}", page=page
         )
     if not _is_url_allowed(url):
+        if observation:
+            await observe_invalid_provider_response(observation)
         logger.warning("generated image URL blocked by SSRF protection", url=url[:100])
         raise ImageError(
             ErrorCode.IMAGE_FAILED, f"Image URL not allowed from {provider}", page=page
         )
     async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.get(url)
+        try:
+            resp = await client.get(url)
+        except httpx.HTTPError:
+            if observation:
+                await observe_invalid_provider_response(observation)
+            raise
         if resp.status_code != 200:
+            if observation:
+                await observe_invalid_provider_response(observation)
             raise ImageError(
                 ErrorCode.IMAGE_FAILED,
                 f"Failed to download {provider} image: {resp.status_code}",
                 page=page,
             )
         mime = resp.headers.get("content-type", "image/png").split(";")[0]
+        if observation:
+            await _observe_image_output(observation, resp.content)
         return await _persist_image_bytes(resp.content, mime, provider)
 
 
@@ -592,7 +645,7 @@ async def _generate_replicate(prompt: ImagePrompt) -> str:
             },
         )
 
-        permanent_error = await observe_provider_response(attempt, response)
+        permanent_error = await observe_provider_response(attempt, response, defer_success=True)
         if permanent_error:
             raise ImageError(permanent_error, "AI 제공자 서비스를 현재 사용할 수 없습니다.", page=prompt.page)
 
@@ -611,11 +664,13 @@ async def _generate_replicate(prompt: ImagePrompt) -> str:
         try:
             prediction = response.json()
         except Exception:
+            await observe_invalid_provider_response(attempt)
             raise ImageError(
                 ErrorCode.IMAGE_FAILED, "Invalid JSON from Replicate API", page=prompt.page
             )
-        prediction_id = prediction.get("id")
+        prediction_id = prediction.get("id") if isinstance(prediction, dict) else None
         if not prediction_id:
+            await observe_invalid_provider_response(attempt)
             raise ImageError(
                 ErrorCode.IMAGE_FAILED,
                 "Replicate API response missing 'id' field",
@@ -641,6 +696,8 @@ async def _generate_replicate(prompt: ImagePrompt) -> str:
                 result = poll_response.json()
             except Exception:
                 continue
+            if not isinstance(result, dict):
+                continue
             status = result.get("status")
 
             if status == "succeeded":
@@ -648,13 +705,15 @@ async def _generate_replicate(prompt: ImagePrompt) -> str:
                 if output:
                     # Replicate delivery URL은 단기 만료 → S3로 영속화.
                     return await _persist_external_url(
-                        output[0], "replicate", prompt.page
+                        output[0], "replicate", prompt.page, observation=attempt
                     )
+                await observe_invalid_provider_response(attempt)
                 raise ImageError(
                     ErrorCode.IMAGE_FAILED, "No output from Replicate", page=prompt.page
                 )
 
             elif status == "failed":
+                await observe_invalid_provider_response(attempt)
                 error = result.get("error", "Unknown error")
                 raise ImageError(
                     ErrorCode.IMAGE_FAILED,
@@ -662,6 +721,7 @@ async def _generate_replicate(prompt: ImagePrompt) -> str:
                     page=prompt.page,
                 )
 
+        await observe_invalid_provider_response(attempt)
         raise ImageError(
             ErrorCode.IMAGE_TIMEOUT, "Replicate prediction timeout", page=prompt.page
         )
@@ -707,7 +767,7 @@ async def _generate_fal(prompt: ImagePrompt) -> str:
             json=payload,
         )
 
-        permanent_error = await observe_provider_response(attempt, response)
+        permanent_error = await observe_provider_response(attempt, response, defer_success=True)
         if permanent_error:
             raise ImageError(permanent_error, "AI 제공자 서비스를 현재 사용할 수 없습니다.", page=prompt.page)
 
@@ -726,17 +786,19 @@ async def _generate_fal(prompt: ImagePrompt) -> str:
         try:
             result = response.json()
         except Exception:
+            await observe_invalid_provider_response(attempt)
             raise ImageError(
                 ErrorCode.IMAGE_FAILED, "Invalid JSON from FAL API", page=prompt.page
             )
 
-        images = result.get("images", [])
-        if images:
+        images = result.get("images", []) if isinstance(result, dict) else []
+        if isinstance(images, list) and images and isinstance(images[0], dict):
             # FAL media URL은 단기 만료 → S3로 영속화.
             return await _persist_external_url(
-                images[0].get("url", ""), "fal", prompt.page
+                images[0].get("url", ""), "fal", prompt.page, observation=attempt
             )
 
+        await observe_invalid_provider_response(attempt)
         raise ImageError(ErrorCode.IMAGE_FAILED, "No output from FAL", page=prompt.page)
 
 

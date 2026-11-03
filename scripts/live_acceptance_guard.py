@@ -20,7 +20,7 @@ LLM_MODELS = {
     "claude-sonnet-5": "anthropic", "claude-opus-5": "anthropic",
     "gpt-6-astra": "openai", "gpt-5.6-sol": "openai",
 }
-IMAGE_MODELS = frozenset({"gemini-3-pro-image", "gemini-3.1-flash-image"})
+IMAGE_MODELS = frozenset({"gemini-3-pro-image", "gemini-3.1-flash-image", "gpt-image-2"})
 LLM_TOKEN_LIMITS = {"anthropic": 8000, "openai": 16000}
 ACCEPTANCE_PAGE_COUNTS = (4, 8)
 JOURNAL_VERSION = 2
@@ -43,6 +43,15 @@ def image_dimensions(body):
     dimensions = []
     if not isinstance(body, dict):
         return dimensions, False
+    if "data" in body:
+        data = body["data"]
+        if not isinstance(data, list) or not data:
+            return dimensions, False
+        try:
+            body = {"candidates": [{"content": {"parts": [{"inlineData": {
+                "mimeType": "image/png", "data": item["b64_json"]}} for item in data]}}]}
+        except (KeyError, TypeError):
+            return dimensions, False
     candidates = body.get("candidates", [])
     if not isinstance(candidates, list):
         return dimensions, False
@@ -115,6 +124,12 @@ def install():
         + image_model + ":generateContent": ("image", limits["image"]),
     }
 
+    image_provider = "openai" if image_model == "gpt-image-2" else "gemini"
+    if image_provider == "openai":
+        urls = {key: value for key, value in urls.items() if value[0] == "llm"}
+        urls.update({"https://api.openai.com/v1/images/" + endpoint: ("image", limits["image"])
+                     for endpoint in ("generations", "edits")})
+
     async def measured(self, url, **kwargs):
         if (str(url) not in urls or kwargs.get("params")
                 or kwargs.get("follow_redirects", self.follow_redirects) is not False):
@@ -137,8 +152,20 @@ def install():
                 or payload.get("tools")
             ):
                 raise RuntimeError("LIVE_ACCEPTANCE_OPENAI_OPTIONS")
+        if role == "image" and image_provider == "openai":
+            editing = str(url).endswith("/edits")
+            payload = kwargs.get("data", {}) if editing else payload
+            if not isinstance(payload, dict) or payload.get("model") != image_model:
+                raise RuntimeError("LIVE_ACCEPTANCE_MODEL_MISMATCH")
+            if (type(payload.get("n")) is not (str if editing else int)
+                    or payload.get("n") != ("1" if editing else 1)
+                    or payload.get("size") not in {"1024x1024", "768x1024", "1024x768", "720x1280", "1280x720"}
+                    or payload.get("quality") not in {"low", "medium", "high"}):
+                raise RuntimeError("LIVE_ACCEPTANCE_IMAGE_OPTIONS")
+            if editing and not kwargs.get("files"):
+                raise RuntimeError("LIVE_ACCEPTANCE_IMAGE_OPTIONS")
         # No image request fields are rewritten: retain the verified live shape.
-        identity = {"role": role, "provider": provider if role == "llm" else "gemini",
+        identity = {"role": role, "provider": provider if role == "llm" else image_provider,
                     "model": llm_model if role == "llm" else image_model}
         append_event(journal, {"kind": "request", **identity}, limit=limit)
         started = time.monotonic()
@@ -153,8 +180,8 @@ def install():
                 if role == "image":
                     sizes, complete = image_dimensions(body)
                     event.update(image_dimensions=sizes, image_dimensions_complete=complete)
-                usage = body.get("usage" if role == "llm" else "usageMetadata", {})
-                names = ("input_tokens", "output_tokens") if role == "llm" else (
+                usage = body.get("usage" if role == "llm" or image_provider == "openai" else "usageMetadata", {})
+                names = ("input_tokens", "output_tokens") if role == "llm" or image_provider == "openai" else (
                     "promptTokenCount", "candidatesTokenCount", "thoughtsTokenCount", "totalTokenCount")
                 event["usage"] = {key: usage[key] for key in names
                                   if type(usage.get(key)) is int and usage[key] >= 0}

@@ -1,0 +1,14 @@
+[Unit]
+Description=Create and verify an AI Story Book private backup
+After=network-online.target docker.service asb-backup-recover.service
+Requires=docker.service asb-backup-recover.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=PATH=/opt/ai-story-book/postgres16/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin ASB_JOURNAL_WITNESS_BUCKET=
+EnvironmentFile=/etc/ai-story-book/pilot/private/backup-config.env
+ExecStart=/opt/ai-story-book/current/apps/api/venv/bin/python /opt/ai-story-book/current/scripts/run_scheduled_backup.py --execute --env-file /etc/ai-story-book/pilot/private/pilot.env --ca-file /etc/ai-story-book/pilot/private/neon-ca.pem --journal-key-file /etc/ai-story-book/pilot/private/privacy-journal.key --journal-bucket ${ASB_JOURNAL_BUCKET} --journal-witness-bucket ${ASB_JOURNAL_WITNESS_BUCKET} --backup-bucket ${ASB_BACKUP_BUCKET} --state-dir /var/lib/ai-story-book/backup-state --output-dir /var/lib/ai-story-book/backups
+ExecStopPost=/usr/bin/python3 /opt/ai-story-book/current/scripts/backup_service_guard.py --recover --state-dir /var/lib/ai-story-book/backup-state
+TimeoutStartSec=3600
+TimeoutStopSec=180

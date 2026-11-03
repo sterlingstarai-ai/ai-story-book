@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -8,12 +7,10 @@ import '../l10n/app_localizations.dart';
 import '../providers/providers.dart';
 import '../utils/constants.dart';
 import '../widgets/common_widgets.dart';
+import '../widgets/scoped_book_image.dart';
 
 class BranchStoryScreen extends ConsumerStatefulWidget {
-  const BranchStoryScreen({
-    super.key,
-    required this.bookId,
-  });
+  const BranchStoryScreen({super.key, required this.bookId});
 
   final String bookId;
 
@@ -22,6 +19,7 @@ class BranchStoryScreen extends ConsumerStatefulWidget {
 }
 
 class _BranchStoryScreenState extends ConsumerState<BranchStoryScreen> {
+  late final Object _branchSessionApi;
   bool _isLoading = true;
   bool _isSubmitting = false;
   bool _isCreatingSample = false;
@@ -34,11 +32,10 @@ class _BranchStoryScreenState extends ConsumerState<BranchStoryScreen> {
   List<Map<String, dynamic>> _currentOptions = const [];
   final List<_BranchSnapshot> _history = [];
 
-  String get _progressStorageKey => 'branch_story_progress_${widget.bookId}_v1';
-
   @override
   void initState() {
     super.initState();
+    _branchSessionApi = ref.read(apiClientProvider);
     _loadGraph();
   }
 
@@ -110,10 +107,18 @@ class _BranchStoryScreenState extends ConsumerState<BranchStoryScreen> {
   }
 
   Future<void> _restoreProgressFromStorage() async {
-    final prefs = ref.read(sharedPreferencesProvider);
-    final savedNodeKey = prefs.getString(_progressStorageKey);
+    if (!mounted || !identical(ref.read(apiClientProvider), _branchSessionApi)) return;
+    final initialNode = _currentNode;
+    String? savedNodeKey;
+    try {
+      final progress = await ref.read(readingProgressProvider(widget.bookId).future);
+      savedNodeKey = await progress.branch();
+    } catch (_) {
+      return;
+    }
     final restoredNode = _findNodeByKey(savedNodeKey);
-    if (restoredNode == null || !mounted) {
+    if (restoredNode == null || !mounted ||
+        !identical(_currentNode, initialNode) || _history.isNotEmpty) {
       return;
     }
     final l = AppLocalizations.of(context);
@@ -126,12 +131,17 @@ class _BranchStoryScreenState extends ConsumerState<BranchStoryScreen> {
   }
 
   Future<void> _saveProgressNode(String? nodeKey) async {
-    final prefs = ref.read(sharedPreferencesProvider);
-    if (nodeKey == null || nodeKey.isEmpty) {
-      await prefs.remove(_progressStorageKey);
-      return;
+    if (!mounted || !identical(ref.read(apiClientProvider), _branchSessionApi)) return;
+    try {
+      final progress = await ref.read(readingProgressProvider(widget.bookId).future);
+      if (nodeKey == null || nodeKey.isEmpty) {
+        await progress.clearBranch();
+      } else {
+        await progress.saveBranch(nodeKey);
+      }
+    } catch (_) {
+      // Progress is optional and must not stop reading.
     }
-    await prefs.setString(_progressStorageKey, nodeKey);
   }
 
   List<Map<String, dynamic>> _optionsFor(String? nodeKey) {
@@ -140,10 +150,12 @@ class _BranchStoryScreenState extends ConsumerState<BranchStoryScreen> {
     }
     return _edges
         .where((edge) => edge['from_node_key']?.toString() == nodeKey)
-        .map((edge) => {
-              'option_text': edge['option_text']?.toString() ?? '',
-              'to_node_key': edge['to_node_key']?.toString() ?? '',
-            })
+        .map(
+          (edge) => {
+            'option_text': edge['option_text']?.toString() ?? '',
+            'to_node_key': edge['to_node_key']?.toString() ?? '',
+          },
+        )
         .where((edge) => (edge['option_text'] as String).isNotEmpty)
         .toList(growable: false);
   }
@@ -267,16 +279,21 @@ class _BranchStoryScreenState extends ConsumerState<BranchStoryScreen> {
     try {
       final api = ref.read(apiClientProvider);
       final book = await api.getBook(widget.bookId);
-      final first =
-          book.pages.isNotEmpty ? book.pages[0].text : l.branchStorySampleText1;
-      final second =
-          book.pages.length > 1 ? book.pages[1].text : l.branchStorySampleText2;
-      final third =
-          book.pages.length > 2 ? book.pages[2].text : l.branchStorySampleText3;
+      final first = book.pages.isNotEmpty
+          ? book.pages[0].text
+          : l.branchStorySampleText1;
+      final second = book.pages.length > 1
+          ? book.pages[1].text
+          : l.branchStorySampleText2;
+      final third = book.pages.length > 2
+          ? book.pages[2].text
+          : l.branchStorySampleText3;
 
       await api.initializeBranchStory(
         widget.bookId,
-        overwrite: true,
+        // The empty view can become stale if another device creates a graph.
+        // Never replace existing story data from this convenience action.
+        overwrite: false,
         nodes: [
           {
             'node_key': 'start',
@@ -312,16 +329,22 @@ class _BranchStoryScreenState extends ConsumerState<BranchStoryScreen> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l.branchStorySampleCreated)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.branchStorySampleCreated)));
     } catch (_) {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l.branchStorySampleCreateFailed)),
-      );
+      // The graph may have been created on another device since this screen
+      // loaded. Refresh before offering another attempt.
+      await _loadGraph(showLoading: false);
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.branchStorySampleCreateFailed)));
     } finally {
       if (mounted) {
         setState(() => _isCreatingSample = false);
@@ -353,130 +376,122 @@ class _BranchStoryScreenState extends ConsumerState<BranchStoryScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _errorMessage != null
-              ? _ErrorPanel(
-                  message: _errorMessage!,
-                  onRetry: _loadGraph,
-                )
-              : _nodes.isEmpty
-                  ? _EmptyPanel(
-                      isCreatingSample: _isCreatingSample,
-                      onCreateSample: _createSampleBranch,
-                    )
-                  : ListView(
-                      padding: const EdgeInsets.all(AppSpacing.md),
-                      children: [
-                        if (_statusLabel != null)
-                          Container(
-                            margin:
-                                const EdgeInsets.only(bottom: AppSpacing.md),
-                            padding: const EdgeInsets.all(AppSpacing.sm),
-                            decoration: BoxDecoration(
-                              color: AppPalette.of(context).primaryLight,
-                              borderRadius: BorderRadius.circular(AppRadius.md),
-                            ),
-                            child: Text(_statusLabel!,
-                                style: AppTextStyles.bodySmall),
-                          ),
-                        Container(
-                          padding: const EdgeInsets.all(AppSpacing.md),
-                          decoration: BoxDecoration(
-                            color: AppPalette.of(context).surface,
-                            borderRadius: BorderRadius.circular(AppRadius.md),
-                            border: Border.all(
-                                color: AppPalette.of(context).divider),
-                          ),
-                          child: Text(
-                            l.branchStoryPageLabel(pageNumber),
-                            style: AppTextStyles.heading3,
-                          ),
-                        ),
-                        const SizedBox(height: AppSpacing.md),
-                        if (imageUrl.isNotEmpty)
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(AppRadius.md),
-                            child: AspectRatio(
-                              aspectRatio: 4 / 3,
-                              child: Semantics(
-                                label: l.branchStoryImageSemantics,
-                                image: true,
-                                child: CachedNetworkImage(
-                                  imageUrl: imageUrl,
-                                  fit: BoxFit.cover,
-                                  placeholder: (_, __) => const Center(
-                                    child: CircularProgressIndicator(),
-                                  ),
-                                  errorWidget: (_, __, ___) =>
-                                      const Icon(Icons.broken_image),
-                                ),
-                              ),
-                            ),
-                          ),
-                        if (imageUrl.isNotEmpty)
-                          const SizedBox(height: AppSpacing.md),
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(AppSpacing.md),
-                          decoration: BoxDecoration(
-                            color: AppPalette.of(context).surface,
-                            borderRadius: BorderRadius.circular(AppRadius.md),
-                            border: Border.all(
-                                color: AppPalette.of(context).divider),
-                          ),
-                          child: Text(
-                            nodeText,
-                            style: AppTextStyles.body,
-                          ),
-                        ),
-                        const SizedBox(height: AppSpacing.lg),
-                        Text(l.branchStoryOptionsHeading,
-                            style: AppTextStyles.heading3),
-                        const SizedBox(height: AppSpacing.sm),
-                        if (_currentOptions.isEmpty)
-                          Text(
-                            l.branchStoryNoOptions,
-                            style: AppTextStyles.bodySmall,
-                          )
-                        else
-                          ..._currentOptions.map((option) {
-                            final text =
-                                option['option_text']?.toString() ?? '';
-                            return Padding(
-                              padding:
-                                  const EdgeInsets.only(bottom: AppSpacing.sm),
-                              child: ElevatedButton(
-                                style: ElevatedButton.styleFrom(
-                                  minimumSize: const Size(double.infinity, 64),
-                                  padding: const EdgeInsets.all(AppSpacing.md),
-                                ),
-                                onPressed: _isSubmitting
-                                    ? null
-                                    : () => _chooseOption(option),
-                                child: Text(text, textAlign: TextAlign.center),
-                              ),
-                            );
-                          }),
-                        const SizedBox(height: AppSpacing.md),
-                        OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                              minimumSize: const Size(64, 64)),
-                          onPressed: _isSubmitting || _history.isEmpty
-                              ? null
-                              : _goBackStep,
-                          icon: const Icon(Icons.undo),
-                          label: Text(l.branchStoryPreviousChoice,
-                              textAlign: TextAlign.center),
-                        ),
-                        const SizedBox(height: AppSpacing.sm),
-                        OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                              minimumSize: const Size(64, 64)),
-                          onPressed: _isSubmitting ? null : _restartFromStart,
-                          icon: const Icon(Icons.restart_alt),
-                          label: Text(l.branchStoryRestart,
-                              textAlign: TextAlign.center),
-                        ),
-                      ],
+          ? _ErrorPanel(message: _errorMessage!, onRetry: _loadGraph)
+          : _nodes.isEmpty
+          ? _EmptyPanel(
+              isCreatingSample: _isCreatingSample,
+              onCreateSample: _createSampleBranch,
+            )
+          : ListView(
+              padding: const EdgeInsets.all(AppSpacing.md),
+              children: [
+                if (_statusLabel != null)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: AppSpacing.md),
+                    padding: const EdgeInsets.all(AppSpacing.sm),
+                    decoration: BoxDecoration(
+                      color: AppPalette.of(context).primaryLight,
+                      borderRadius: BorderRadius.circular(AppRadius.md),
                     ),
+                    child: Text(_statusLabel!, style: AppTextStyles.bodySmall),
+                  ),
+                Container(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  decoration: BoxDecoration(
+                    color: AppPalette.of(context).surface,
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                    border: Border.all(color: AppPalette.of(context).divider),
+                  ),
+                  child: Text(
+                    l.branchStoryPageLabel(pageNumber),
+                    style: AppTextStyles.heading3,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                if (imageUrl.isNotEmpty)
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                    child: AspectRatio(
+                      aspectRatio: 4 / 3,
+                      child: Semantics(
+                        label: l.branchStoryImageSemantics,
+                        image: true,
+                        child: ScopedBookImage(
+                          bookId: widget.bookId,
+                          imageUrl: imageUrl,
+                          fit: BoxFit.cover,
+                          placeholder: const Center(
+                            child: CircularProgressIndicator(),
+                          ),
+                          error: const Icon(Icons.broken_image),
+                        ),
+                      ),
+                    ),
+                  ),
+                if (imageUrl.isNotEmpty) const SizedBox(height: AppSpacing.md),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  decoration: BoxDecoration(
+                    color: AppPalette.of(context).surface,
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                    border: Border.all(color: AppPalette.of(context).divider),
+                  ),
+                  child: Text(nodeText, style: AppTextStyles.body),
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                Text(
+                  l.branchStoryOptionsHeading,
+                  style: AppTextStyles.heading3,
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                if (_currentOptions.isEmpty)
+                  Text(l.branchStoryNoOptions, style: AppTextStyles.bodySmall)
+                else
+                  ..._currentOptions.map((option) {
+                    final text = option['option_text']?.toString() ?? '';
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          minimumSize: const Size(double.infinity, 64),
+                          padding: const EdgeInsets.all(AppSpacing.md),
+                        ),
+                        onPressed: _isSubmitting
+                            ? null
+                            : () => _chooseOption(option),
+                        child: Text(text, textAlign: TextAlign.center),
+                      ),
+                    );
+                  }),
+                const SizedBox(height: AppSpacing.md),
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(64, 64),
+                  ),
+                  onPressed: _isSubmitting || _history.isEmpty
+                      ? null
+                      : _goBackStep,
+                  icon: const Icon(Icons.undo),
+                  label: Text(
+                    l.branchStoryPreviousChoice,
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(64, 64),
+                  ),
+                  onPressed: _isSubmitting ? null : _restartFromStart,
+                  icon: const Icon(Icons.restart_alt),
+                  label: Text(
+                    l.branchStoryRestart,
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ],
+            ),
     );
   }
 }
@@ -494,10 +509,7 @@ class _BranchSnapshot {
 }
 
 class _ErrorPanel extends StatelessWidget {
-  const _ErrorPanel({
-    required this.message,
-    required this.onRetry,
-  });
+  const _ErrorPanel({required this.message, required this.onRetry});
 
   final String message;
   final Future<void> Function({bool showLoading}) onRetry;

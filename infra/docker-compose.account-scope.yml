@@ -1,0 +1,11 @@
+# Optional override; add with -f only after generating and safely backing up
+# an independent 32-byte key and pinning its digest and stable namespace.
+services:
+  api:
+    environment:
+      ACCOUNT_SCOPE_KEY_FILE: /run/asb-secrets/account-scope.key
+    volumes:
+      - type: bind
+        source: ${ACCOUNT_SCOPE_HOST_KEY_FILE:?Set the absolute path to the private scope key}
+        target: /run/asb-secrets/account-scope.key
+        read_only: true

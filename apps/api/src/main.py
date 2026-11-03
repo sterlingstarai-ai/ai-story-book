@@ -35,6 +35,7 @@ from src.routers import (
 from src.core.audio_feature import audio_readiness_issues
 from src.core.database import get_db  # noqa: F401
 from src.core.rate_limit import check_rate_limit, rate_limiter
+from src.core.request_body_limit import RequestBodyLimitMiddleware
 from src.core.utils import redact_path
 from src.core.logging import configure_logging
 from src.core.exceptions import (
@@ -163,6 +164,10 @@ async def lifespan(app: FastAPI):
     from src.services.job_monitor import job_monitor
     from src.services.periodic_credits import periodic_credits
 
+    if settings.privacy_journal_enabled:
+        from src.services.privacy_journal_runtime import configured_journal
+        configured_journal()  # Fail startup if an explicitly enabled key/bucket is invalid.
+
     if not settings.testing:
         await job_monitor.start()
         await periodic_credits.start()
@@ -252,7 +257,10 @@ AI 기반 맞춤형 동화책 생성 API입니다.
     },
 )
 
-# Request ID middleware (outermost - runs first)
+# Run before request parsing, inside the logging, request ID and CORS wrappers.
+app.add_middleware(RequestBodyLimitMiddleware)
+
+# Request ID middleware
 app.add_middleware(RequestIDMiddleware)
 
 # Access logs with request_id bound in middleware above
@@ -676,7 +684,7 @@ app.include_router(
     tags=["Content reports"],
     dependencies=[Depends(check_rate_limit)],
 )
-# 공개 공유 페이지(인증·rate-limit 없음, /share/{token})
+# 공개 공유 페이지(인증 없음, 공유 전용 peer rate-limit, /share/{token})
 app.include_router(shares.public_router, tags=["Share"])
 app.include_router(
     characters.router,

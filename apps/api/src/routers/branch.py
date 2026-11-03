@@ -13,8 +13,8 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
-from src.core.dependencies import get_user_key
-from src.core.exceptions import NotFoundError, ValidationError
+from src.core.dependencies import get_profile_id, get_user_key, validate_profile_ownership
+from src.core.exceptions import AuthorizationError, NotFoundError, ValidationError
 from src.models.db import Book, Page, BranchStoryEdge, BranchStoryNode
 from src.services.storage import key_from_public_url, media_url, canonical_media_url
 
@@ -45,13 +45,22 @@ class BranchChoiceRequest(BaseModel):
     to_node_key: Optional[str] = Field(default=None, min_length=1, max_length=80)
 
 
-async def _ensure_owned_book(*, db: AsyncSession, user_key: str, book_id: str) -> Book:
-    result = await db.execute(select(Book).where(Book.id == book_id))
+async def _ensure_owned_book(*, db: AsyncSession, user_key: str, book_id: str,
+                             profile_id: Optional[str], writing: bool = False) -> Book:
+    # All branch graph readers and writers lock the same parent row. On
+    # PostgreSQL readers can proceed together but cannot interleave with an
+    # initialize/overwrite transaction; SQLite ignores FOR UPDATE in tests.
+    query = select(Book).where(Book.id == book_id).with_for_update(read=not writing)
+    result = await db.execute(query)
     book = result.scalar_one_or_none()
     if not book:
         raise NotFoundError("책", book_id)
     if book.user_key != user_key:
         raise ValidationError("본인의 책만 접근할 수 있습니다.")
+    scoped_profile = await validate_profile_ownership(db, user_key, profile_id)
+    # Unassigned books remain shared within the account, as in the library.
+    if scoped_profile and book.profile_id is not None and book.profile_id != scoped_profile:
+        raise AuthorizationError("선택한 프로필의 책이 아닙니다.")
     return book
 
 
@@ -76,6 +85,7 @@ async def initialize_branch_story(
     request: BranchInitializeRequest,
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
+    profile_id: Optional[str] = Depends(get_profile_id),
 ):
     """
     책의 분기 그래프를 초기화(업서트)한다.
@@ -83,7 +93,8 @@ async def initialize_branch_story(
     - overwrite=false: 기존 그래프가 있으면 에러
     - overwrite=true: 기존 노드/엣지를 모두 지우고 재생성
     """
-    book = await _ensure_owned_book(db=db, user_key=user_key, book_id=book_id)
+    book = await _ensure_owned_book(db=db, user_key=user_key, book_id=book_id,
+                                    profile_id=profile_id, writing=True)
     allowed_keys = await _owned_image_keys(db, book)
 
     for node in request.nodes:
@@ -181,8 +192,10 @@ async def get_branch_story_graph(
     book_id: str,
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
+    profile_id: Optional[str] = Depends(get_profile_id),
 ):
-    book = await _ensure_owned_book(db=db, user_key=user_key, book_id=book_id)
+    book = await _ensure_owned_book(db=db, user_key=user_key, book_id=book_id,
+                                    profile_id=profile_id)
     allowed_keys = await _owned_image_keys(db, book)
 
     nodes_result = await db.execute(
@@ -228,8 +241,10 @@ async def choose_branch_option(
     request: BranchChoiceRequest,
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
+    profile_id: Optional[str] = Depends(get_profile_id),
 ):
-    book = await _ensure_owned_book(db=db, user_key=user_key, book_id=book_id)
+    book = await _ensure_owned_book(db=db, user_key=user_key, book_id=book_id,
+                                    profile_id=profile_id)
     allowed_keys = await _owned_image_keys(db, book)
 
     current_node_key = request.current_node_key.strip()

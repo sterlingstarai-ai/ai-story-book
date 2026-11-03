@@ -13,16 +13,22 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.core.database import Base
 from src.core.config import settings
 from src.core.database_options import database_options
+from src.models.gemini_tts_budget import GeminiTTSRequestBudget  # noqa: F401
+from src.models.generation_budget import GenerationBudgetActivation  # noqa: F401
 
 # Import all models to register them with SQLAlchemy metadata for Alembic
 from src.models.db import (  # noqa: F401
     AccountIdentity,
+    PrivacyJournalOutbox,
+    PrivacyJournalRetryCursor,
     Job,
     StoryDraftDB,
     ImagePromptsDB,
     Book,
+    BookDeletionReceipt,
     ContentReport,
     Page,
+    NarrationVariant,
     Character,
     RateLimit,
     UserCredits,
@@ -32,6 +38,7 @@ from src.models.db import (  # noqa: F401
     DailyStory,
     ReadingLog,
     IAPReceipt,
+    IAPPurchaseClaim,
     UserConsent,
     UserSettings,
     ChildProfile,

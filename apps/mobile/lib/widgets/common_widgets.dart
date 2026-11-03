@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:shimmer/shimmer.dart';
 import '../utils/constants.dart';
+import 'scoped_book_image.dart';
 
 /// 기본 버튼
 class PrimaryButton extends StatelessWidget {
@@ -22,7 +23,9 @@ class PrimaryButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return ConstrainedBox(
       constraints: BoxConstraints(
-          minHeight: 64, minWidth: isFullWidth ? double.infinity : 0),
+        minHeight: 64,
+        minWidth: isFullWidth ? double.infinity : 0,
+      ),
       child: ElevatedButton(
         onPressed: isLoading ? null : onPressed,
         style: ElevatedButton.styleFrom(
@@ -43,8 +46,11 @@ class PrimaryButton extends StatelessWidget {
                   valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                 ),
               )
-            : Text(text,
-                style: AppTextStyles.button, textAlign: TextAlign.center),
+            : Text(
+                text,
+                style: AppTextStyles.button,
+                textAlign: TextAlign.center,
+              ),
       ),
     );
   }
@@ -55,17 +61,15 @@ class SecondaryButton extends StatelessWidget {
   final String text;
   final VoidCallback? onPressed;
 
-  const SecondaryButton({
-    super.key,
-    required this.text,
-    this.onPressed,
-  });
+  const SecondaryButton({super.key, required this.text, this.onPressed});
 
   @override
   Widget build(BuildContext context) {
     return ConstrainedBox(
-      constraints:
-          const BoxConstraints(minHeight: 64, minWidth: double.infinity),
+      constraints: const BoxConstraints(
+        minHeight: 64,
+        minWidth: double.infinity,
+      ),
       child: OutlinedButton(
         onPressed: onPressed,
         style: OutlinedButton.styleFrom(
@@ -76,8 +80,11 @@ class SecondaryButton extends StatelessWidget {
             borderRadius: BorderRadius.circular(AppRadius.md),
           ),
         ),
-        child: Text(text,
-            style: AppTextStyles.button, textAlign: TextAlign.center),
+        child: Text(
+          text,
+          style: AppTextStyles.button,
+          textAlign: TextAlign.center,
+        ),
       ),
     );
   }
@@ -87,6 +94,7 @@ class SecondaryButton extends StatelessWidget {
 class BookCard extends StatelessWidget {
   final String title;
   final String imageUrl;
+  final String? bookId;
   final String? subtitle;
   final VoidCallback? onTap;
 
@@ -94,6 +102,7 @@ class BookCard extends StatelessWidget {
     super.key,
     required this.title,
     required this.imageUrl,
+    this.bookId,
     this.subtitle,
     this.onTap,
   });
@@ -129,8 +138,28 @@ class BookCard extends StatelessWidget {
                       ? Container(
                           width: double.infinity,
                           color: AppPalette.of(context).primaryLight,
-                          child: Icon(Icons.auto_stories_outlined,
-                              size: 48, color: AppPalette.of(context).primary))
+                          child: Icon(
+                            Icons.auto_stories_outlined,
+                            size: 48,
+                            color: AppPalette.of(context).primary,
+                          ),
+                        )
+                      : bookId != null
+                      ? ScopedBookImage(
+                          bookId: bookId!,
+                          imageUrl: imageUrl,
+                          fit: BoxFit.cover,
+                          width: double.infinity,
+                          placeholder: Shimmer.fromColors(
+                            baseColor: Colors.grey[300]!,
+                            highlightColor: Colors.grey[100]!,
+                            child: Container(color: Colors.white),
+                          ),
+                          error: Container(
+                            color: AppPalette.of(context).divider,
+                            child: const Icon(Icons.broken_image, size: 48),
+                          ),
+                        )
                       : CachedNetworkImage(
                           imageUrl: imageUrl,
                           fit: BoxFit.cover,
@@ -155,8 +184,9 @@ class BookCard extends StatelessWidget {
                   children: [
                     Text(
                       title,
-                      style: AppTextStyles.body
-                          .copyWith(fontWeight: FontWeight.w600),
+                      style: AppTextStyles.body.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -165,7 +195,8 @@ class BookCard extends StatelessWidget {
                       Text(
                         subtitle!,
                         style: AppTextStyles.caption.copyWith(
-                            color: AppPalette.of(context).textSecondary),
+                          color: AppPalette.of(context).textSecondary,
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -248,21 +279,19 @@ class CharacterCard extends StatelessWidget {
                       ),
                     ),
                 const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: Text(
-                    name,
-                    style: AppTextStyles.heading3,
-                  ),
-                ),
+                Expanded(child: Text(name, style: AppTextStyles.heading3)),
                 if (isSelected && !showCheckbox)
                   const Icon(Icons.check_circle, color: AppColors.primary),
               ],
             ),
             if (statusLabel != null) ...[
               const SizedBox(height: AppSpacing.sm),
-              Text(statusLabel!,
-                  style: AppTextStyles.caption
-                      .copyWith(color: AppPalette.of(context).primary)),
+              Text(
+                statusLabel!,
+                style: AppTextStyles.caption.copyWith(
+                  color: AppPalette.of(context).primary,
+                ),
+              ),
             ],
             const SizedBox(height: AppSpacing.sm),
             Text(
@@ -332,45 +361,57 @@ class EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (context, constraints) {
-      return SingleChildScrollView(
-        primary: false,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            minHeight: constraints.hasBoundedHeight ? constraints.maxHeight : 0,
-          ),
-          child: Center(
-            child: Padding(
-              padding: const EdgeInsets.all(AppSpacing.xl),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(icon, size: 64, color: AppPalette.of(context).textHint),
-                  const SizedBox(height: AppSpacing.md),
-                  Text(title,
-                      style: AppTextStyles.heading3,
-                      textAlign: TextAlign.center),
-                  if (subtitle != null) ...[
-                    const SizedBox(height: AppSpacing.sm),
-                    Text(subtitle!,
-                        style: AppTextStyles.bodySmall,
-                        textAlign: TextAlign.center),
-                  ],
-                  if (buttonText != null && onButtonPressed != null) ...[
-                    const SizedBox(height: AppSpacing.lg),
-                    PrimaryButton(
-                      text: buttonText!,
-                      onPressed: onButtonPressed,
-                      isFullWidth: false,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          primary: false,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight: constraints.hasBoundedHeight
+                  ? constraints.maxHeight
+                  : 0,
+            ),
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(AppSpacing.xl),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      icon,
+                      size: 64,
+                      color: AppPalette.of(context).textHint,
                     ),
+                    const SizedBox(height: AppSpacing.md),
+                    Text(
+                      title,
+                      style: AppTextStyles.heading3,
+                      textAlign: TextAlign.center,
+                    ),
+                    if (subtitle != null) ...[
+                      const SizedBox(height: AppSpacing.sm),
+                      Text(
+                        subtitle!,
+                        style: AppTextStyles.bodySmall,
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                    if (buttonText != null && onButtonPressed != null) ...[
+                      const SizedBox(height: AppSpacing.lg),
+                      PrimaryButton(
+                        text: buttonText!,
+                        onPressed: onButtonPressed,
+                        isFullWidth: false,
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
           ),
-        ),
-      );
-    });
+        );
+      },
+    );
   }
 }
 
@@ -394,7 +435,8 @@ class ProgressIndicatorBar extends StatelessWidget {
           children: [
             if (currentStep != null)
               Expanded(
-                  child: Text(currentStep!, style: AppTextStyles.bodySmall)),
+                child: Text(currentStep!, style: AppTextStyles.bodySmall),
+              ),
             Text('$progress%', style: AppTextStyles.body),
           ],
         ),
@@ -431,9 +473,9 @@ class AdaptiveModalSheet extends StatelessWidget {
     this.contentPadding = EdgeInsets.zero,
     this.scrollViewKey,
   }) : assert(
-          maxHeightFactor > 0 && maxHeightFactor <= 1,
-          'maxHeightFactor must be between 0 and 1',
-        );
+         maxHeightFactor > 0 && maxHeightFactor <= 1,
+         'maxHeightFactor must be between 0 and 1',
+       );
 
   @override
   Widget build(BuildContext context) {
@@ -463,11 +505,15 @@ class AdaptiveModalSheet extends StatelessWidget {
               if (title != null) ...[
                 const SizedBox(height: AppSpacing.lg),
                 Padding(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-                    child: Text(title!,
-                        style: AppTextStyles.heading3,
-                        textAlign: TextAlign.center)),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.lg,
+                  ),
+                  child: Text(
+                    title!,
+                    style: AppTextStyles.heading3,
+                    textAlign: TextAlign.center,
+                  ),
+                ),
               ],
               if (subtitle != null) ...[
                 const SizedBox(height: AppSpacing.sm),
@@ -477,10 +523,7 @@ class AdaptiveModalSheet extends StatelessWidget {
                   textAlign: TextAlign.center,
                 ),
               ],
-              Padding(
-                padding: contentPadding,
-                child: child,
-              ),
+              Padding(padding: contentPadding, child: child),
             ],
           ),
         ),

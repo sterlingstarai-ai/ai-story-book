@@ -1,9 +1,11 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:ai_story_book/l10n/app_localizations.dart';
+import 'package:ai_story_book/models/models.dart';
 import 'package:ai_story_book/providers/providers.dart';
 import 'package:ai_story_book/screens/branch_story_screen.dart';
 import 'package:ai_story_book/screens/consent_screen.dart';
@@ -16,6 +18,8 @@ import 'package:ai_story_book/screens/startup_gate_screen.dart';
 import 'package:ai_story_book/screens/voice_profiles_screen.dart';
 import 'package:ai_story_book/services/api_client.dart';
 import 'package:ai_story_book/services/parental_control_service.dart';
+import 'package:ai_story_book/services/book_media_store.dart';
+import 'package:ai_story_book/services/scoped_reading_progress.dart';
 
 Future<SharedPreferences> _createPrefs([
   Map<String, Object> values = const <String, Object>{},
@@ -459,10 +463,78 @@ class _InteractiveMockApiClient extends ApiClient {
       Map<String, dynamic>.from(_orderDetail);
 }
 
+class _ConcurrentBranchApi extends _InteractiveMockApiClient {
+  _ConcurrentBranchApi() : super(branchGraph: {'nodes': [], 'edges': []});
+
+  bool? receivedOverwrite;
+  bool existingGraphPreserved = true;
+
+  @override
+  Future<Map<String, dynamic>> getBranchStoryGraph(String bookId) async =>
+      receivedOverwrite == null
+          ? {'nodes': [], 'edges': []}
+          : {
+              'nodes': [
+                {'node_key': 'start', 'page_number': 1, 'text': '기존 이야기'},
+              ],
+              'edges': [],
+            };
+
+  @override
+  Future<BookResult> getBook(String bookId) async => BookResult(
+        bookId: bookId,
+        title: 'fixture',
+        coverImageUrl: '',
+        pages: [],
+      );
+
+  @override
+  Future<Map<String, dynamic>> initializeBranchStory(
+    String bookId, {
+    required List<Map<String, dynamic>> nodes,
+    bool overwrite = false,
+  }) async {
+    receivedOverwrite = overwrite;
+    if (overwrite) existingGraphPreserved = false;
+    // Another device created the graph after this screen loaded empty.
+    throw StateError('Graph already exists');
+  }
+}
+
+class _BranchProgress extends ScopedReadingProgress {
+  _BranchProgress(SharedPreferences preferences, BookMediaStore store, String bookId)
+      : super(preferences, store, bookId, () => true);
+
+  @override
+  Future<String?> branch() async => preferences.getString(key('branch'));
+
+  @override
+  Future<void> saveBranch(String value) async {
+    await preferences.setString(key('branch'), value);
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('P5 hardening widget flows', () {
+    testWidgets('sample creation does not overwrite a concurrently created story',
+        (tester) async {
+      final prefs = await _createPrefs();
+      final api = _ConcurrentBranchApi();
+      await tester.pumpWidget(_buildHarness(
+        const BranchStoryScreen(bookId: 'book-1'),
+        prefs: prefs,
+        overrides: [apiClientProvider.overrideWithValue(api)],
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('샘플 분기 생성'));
+      await tester.pumpAndSettle();
+      expect(api.receivedOverwrite, isFalse);
+      expect(api.existingGraphPreserved, isTrue);
+      expect(find.text('기존 이야기'), findsOneWidget);
+    });
+
     testWidgets('ConsentScreen requires all approvals before continuing',
         (tester) async {
       final prefs = await _createPrefs();
@@ -697,11 +769,20 @@ void main() {
         'branch_story_progress_book-1_v1': 'left_end',
       });
       final api = _InteractiveMockApiClient();
+      final directory = (await tester.runAsync(() => Directory.systemTemp.createTemp('branch-progress-test-')))!;
+      addTearDown(() => directory.delete(recursive: true));
+      final store = BookMediaStore(prefs,
+          scopeDigest: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          baseDirectory: () async => directory,
+          journalDirectory: () async => directory);
+      final progress = _BranchProgress(prefs, store, 'book-1');
+      await progress.saveBranch('left_end');
 
       await tester.pumpWidget(_buildHarness(
         const BranchStoryScreen(bookId: 'book-1'),
         prefs: prefs,
-        overrides: [apiClientProvider.overrideWithValue(api)],
+        overrides: [apiClientProvider.overrideWithValue(api),
+          readingProgressProvider('book-1').overrideWith((ref) async => progress)],
       ));
       await tester.pumpAndSettle();
 
@@ -713,8 +794,9 @@ void main() {
       expect(find.text('갈림길 앞에 선 토끼가 있었어요.'), findsOneWidget);
       expect(
         prefs.getString('branch_story_progress_book-1_v1'),
-        'start',
+        'left_end',
       );
+      expect(await progress.branch(), 'start');
     });
 
     testWidgets(

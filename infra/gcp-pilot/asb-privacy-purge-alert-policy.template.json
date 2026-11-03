@@ -1,0 +1,31 @@
+{
+  "displayName": "AI Story Book privacy erasure queue",
+  "combiner": "OR",
+  "enabled": true,
+  "notificationChannels": ["PROJECT_NOTIFICATION_CHANNEL_RESOURCE"],
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "The privacy erasure queue has unresolved work or its monitoring signal is missing. Investigate privately; no user or object identifiers are included. A healthy signal is not proof of physical erasure or complete event capture."
+  },
+  "conditions": [
+    {
+      "displayName": "Privacy erasure queue unhealthy",
+      "conditionThreshold": {
+        "filter": "metric.type=\"custom.googleapis.com/ai_story_book/privacy_purge_health\" AND resource.type=\"global\"",
+        "comparison": "COMPARISON_LT",
+        "thresholdValue": 0.5,
+        "duration": "0s",
+        "aggregations": [{"alignmentPeriod": "60s", "perSeriesAligner": "ALIGN_MIN"}]
+      }
+    },
+    {
+      "displayName": "Privacy erasure signal missing",
+      "conditionAbsent": {
+        "filter": "metric.type=\"custom.googleapis.com/ai_story_book/privacy_purge_health\" AND resource.type=\"global\"",
+        "duration": "1500s",
+        "aggregations": [{"alignmentPeriod": "60s", "perSeriesAligner": "ALIGN_MEAN"}]
+      }
+    }
+  ],
+  "alertStrategy": {"autoClose": "1800s"}
+}

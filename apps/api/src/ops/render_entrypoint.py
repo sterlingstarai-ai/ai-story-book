@@ -40,7 +40,8 @@ def launch_environment(config, inherited: dict[str, str]) -> dict[str, str]:
         raise ValueError('Render database CA Secret File is missing')
     if config.s3_addressing_style != 'path' or config.s3_auto_create_bucket:
         raise ValueError('Render requires a pre-created private S3 bucket with path addressing')
-    if config.debug or config.testing or not config.use_celery:
+    if (config.debug or config.testing or config.enable_test_hooks
+            or not config.require_parental_consent_enabled or not config.use_celery):
         raise ValueError('Render requires production API/Celery settings')
     # Validate TLS/CA with the same runtime adapter before any process starts.
     database_options(config.database_url, asynchronous=True,
@@ -57,7 +58,7 @@ def main(argv=None):
     try:
         environment = launch_environment(settings, dict(os.environ))
     except (ValueError, OSError):
-        print('Render startup blocked: verify database CA/TLS, private S3 and production Redis/Celery settings.', file=sys.stderr)
+        print('Render startup blocked: verify production safety and parental consent, database CA/TLS, private S3 and Redis/Celery settings.', file=sys.stderr)
         return 1
     command = COMMANDS[args[0]]
     os.execvpe(command[0], command, environment)

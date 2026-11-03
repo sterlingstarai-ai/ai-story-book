@@ -89,8 +89,23 @@ For an isolated integration rehearsal, use the disposable runtime gate:
 ./scripts/run_runtime_e2e.sh
 ```
 
+For a localhost-only interactive review after those checks, add
+`--suite media --serve --api-port 18280`. The runner keeps its isolated source,
+database, worker and private media alive until interrupted, and permits only
+the local browser origin `http://127.0.0.1:18281` by default. The README documents
+the corresponding debug web build and `scripts/serve_web_preview.py`. Use its
+`/preview` route to retire a previous Flutter service worker without clearing
+browser storage. Its no-store responses and build-specific JS URLs prevent an
+older cached application bundle from invalidating the review. This mode uses synthetic mocks, keeps public
+readiness blocked, never loads saved provider credentials, and cleans up only its
+own resources on shutdown; it is not a hosting deployment.
+
 It requires Docker Compose, the API Python dependencies, and locally available
-`postgres:15-alpine`, `redis:7-alpine`, and `minio/minio:latest` images. It never pulls
+`postgres:15-alpine`, `redis:7-alpine`, and `storybook-minio-test:2025-09-07`.
+Build the disposable storage image once with
+`docker build -f infra/Dockerfile.minio-test -t storybook-minio-test:2025-09-07 infra`.
+The Dockerfile downloads the official release binary and verifies its architecture-specific
+SHA-256; it is for isolated tests, not production. The runner itself never pulls
 images, reads project `.env` files, calls paid AI providers, or uses existing volumes.
 Dependencies bind to random localhost ports and are removed after the run. A temporary
 source copy excludes credentials and runtime databases.
@@ -177,6 +192,26 @@ compares every table and media checksum, and verifies restored constraints and p
 access. Both temporary stacks and all dump/media files are removed. The result is a
 small-fixture recovery check, not production RTO/RPO evidence. See
 [BACKUP_RESTORE.md](BACKUP_RESTORE.md) for production ordering and deletion replay.
+
+The optional `PRIVACY_JOURNAL_WITNESS_BUCKET` requires a distinct private GCS
+bucket and a completed, fenced backfill. Configure the same witness for API,
+worker, and the backup runner (`ASB_JOURNAL_WITNESS_BUCKET`); mismatches fail
+closed. This option is not enabled on the pilot. Matching replicas do not prove
+complete history or permit a restored service to be opened. Current evidence and
+remaining production recovery gates are in [BACKUP_DELETION_GUARD_2026-11-02.md](BACKUP_DELETION_GUARD_2026-11-02.md).
+
+The alternative explicit S3 witness uses all five `PRIVACY_JOURNAL_WITNESS_S3_*`
+settings with a separate access key and secret, a private existing bucket and an
+HTTPS endpoint. It cannot be combined with the GCS witness. The same settings
+must reach both writers; mount the existing private journal key separately.
+The candidate scheduled backup reads these settings from its private env file,
+requires an exact match with both writers, and compares both stores with the DB
+before and after the guarded backup. Missing or mismatched settings block the
+backup. This is local candidate code, not an installed pilot configuration.
+Keep the option off until initial backfill, provider permissions, key recovery
+and independent latest-history evidence are validated. Neon app credentials
+can delete objects; configuring S3 does not establish append-only access or
+permit restoring/publishing a service.
 
 For the persistent developer stack instead:
 
@@ -315,3 +350,7 @@ Render 선택 시 [실행 패키지](RENDER_DEPLOYMENT_PACKAGE.md)의 CA Secret 
 운영 템플릿은 새 AI 생성을 초대 계정으로 제한합니다. `GENERATION_ACCESS_MODE`와 `GENERATION_ALLOWED_USER_HASHES`, 읽기 전용 운영 점검 `scripts/check_operations.py`, 중단·최종 승인 절차는 [출시 후보 기록](LAUNCH_CANDIDATE_2026-09-12.md)을 따릅니다.
 
 검증용 MinIO 이미지는 공식 Quay의 `RELEASE.2025-09-07T16-13-09Z`와 다중 아키텍처 digest `sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`로 고정한다. 원격 Docker Hub pull이 거부되어 출처를 변경했으며, 9월 12일 로컬 실행에서 검증한 이미지와 digest가 동일함을 확인했다. 실제 운영의 외부 저장소 선택이나 활성화를 변경하지 않는다.
+
+## 원격 백업 개인정보 기록 기준점 검증
+
+`publish_backup_gcs.verify_remote_backup`은 백업 표식에 개인정보 기록 기준점의 건수와 해시가 일부만 있거나 형식이 잘못된 경우 거부한다. 호출자가 별도로 진위를 확인한 기준점을 `expected_journal_checkpoint`로 전달하면 표식의 누락이나 값 불일치도 거부한다. 이 인자를 생략한 검사는 기준점이 없는 마이그레이션 전 백업과의 호환을 유지하므로, 삭제 이력이 필요한 복원 판단에 단독으로 사용하면 안 된다. 기준점 대조는 백업 이후 발생한 최신 개인정보 변경의 완전성이나 두 저장소의 독립성을 증명하지 않으며, 반환 결과도 복원을 승인하지 않는다. 변경은 로컬 코드에만 있고 운영 배포 전이다.

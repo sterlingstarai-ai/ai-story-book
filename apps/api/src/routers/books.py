@@ -14,11 +14,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select, func, and_, or_, update
 from typing import Optional
+import asyncio
 import math
 import uuid
 import structlog
 
-from src.core.audio_feature import require_audio_supported
+from src.core.audio_feature import require_audio_supported, require_narration_supported
 from src.services.storage import media_url
 from src.core.cost_budget import consume_daily_generation_budget
 from src.core.database import get_db
@@ -321,6 +322,7 @@ async def _create_job_with_credit(
     profile_id: Optional[str] = None,
     validated_style: object = None,
     character_ids: Optional[list[str]] = None,
+    budget_endpoint: str = "books.create",
 ) -> Optional[CreateBookResponse]:
     """
     Create a queued job with credit deduction, **atomically**.
@@ -397,6 +399,8 @@ async def _create_job_with_credit(
             photo_derived=photo_derived,
         )
         db.add(job)
+        await db.flush()
+        await consume_generation_budget(endpoint=budget_endpoint, user_key=user_key)
         await db.commit()  # 차감 + 잡 INSERT 를 함께 커밋(원자적).
     except APIError:
         await db.rollback()
@@ -807,9 +811,6 @@ async def create_book(
     await _enforce_free_plan_create_limits(db, user_key, spec.style)
     await enforce_book_spec_access(db, user_key, spec)
 
-    # M10/R3-3: 모든 선검증(멱등·무료한도·소유권·동의)을 통과한 뒤에만 전역 예산을 소비한다.
-    await consume_generation_budget(endpoint="books.create", user_key=user_key)
-
     # Create new job
     job_id = f"job_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
 
@@ -1122,12 +1123,12 @@ async def inpaint_book_page(
     # content-type 이 명시됐고 image/* 가 아니면 거부한다(오업로드 차단). None/octet-stream 은
     # 관대하게 허용한다 — Dio MultipartFile 이 content-type 을 안 채우는 경우가 있어 엄격히
     # 거부하면 실 클라이언트를 깰 수 있고, 인페인트는 기본 GA 에서 409 로 게이트되며 마스크는
-    # 사용자 본인 소유물이라 위해가 낮다. **1차 방어는 크기 상한**이다(단 read-then-check 라
-    # 수신 자원 자체는 nginx client_max_body_size 가 바운드하고, 여기선 스토리지 쓰기·예산
-    # 소비·provider 호출로의 확대를 차단한다).
+    # 사용자 본인 소유물이라 위해가 낮다. 제한보다 1바이트만 더 읽어 크기를 판별하고
+    # 앱 메모리·스토리지 쓰기·예산 소비·provider 호출로의 확대를 막는다. multipart 파서의
+    # 수신·임시 파일 자체는 별도 프록시 요청 크기 제한이 필요하다.
     if mask.content_type and not mask.content_type.lower().startswith("image/"):
         raise ValidationError("마스크는 이미지 파일이어야 합니다.")
-    mask_bytes = await mask.read()
+    mask_bytes = await mask.read(_MAX_MASK_BYTES + 1)
     if not mask_bytes:
         raise ValidationError("마스크 이미지가 비어 있습니다.")
     if len(mask_bytes) > _MAX_MASK_BYTES:
@@ -1267,6 +1268,12 @@ async def create_series_next(
         if prev_book.user_key != user_key:
             raise AuthorizationError()
 
+    from src.services.series_ownership import owned_series
+
+    series_id = request.series_id or (prev_book.series_id if prev_book else None)
+    if series_id:
+        await owned_series(db, series_id, user_key, allow_missing=True)
+
     # H19: style 미지정 시 원작(prev_book) 스타일을 상속해 무료플랜 한도 검사(무결성 유지).
     from src.models.dto import Style as _Style
 
@@ -1277,9 +1284,6 @@ async def create_series_next(
         effective_style = _Style.watercolor
     await _enforce_free_plan_create_limits(db, user_key, effective_style)
 
-    # H5/R3-2 + M10/R3-3: 실비용 직전, 선검증 통과 후 예산 소비.
-    await consume_generation_budget(endpoint="books.series", user_key=user_key)
-
     # Create new job for series
     job_id = f"series_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
 
@@ -1289,6 +1293,7 @@ async def create_series_next(
         job_id=job_id,
         current_step="시리즈 생성 대기 중",
         credit_description="시리즈 생성",
+        budget_endpoint="books.series",
         character_ids=[request.character_id],
         idempotency_key=idempotency_key,
         profile_id=scoped_profile_id,
@@ -1727,7 +1732,7 @@ async def generate_book_audio(
     - 비동기로 처리되며 완료 후 각 페이지의 audio_url 업데이트
     """
     # H1/G9: 오디오 비활성 배포에서는 provider 해석 실패 500 대신 명시적 미지원으로 차단.
-    require_audio_supported()
+    (require_narration_supported if settings.audio_narration_only_enabled else require_audio_supported)()
 
     # Fetch book
     book_result = await db.execute(select(Book).where(Book.id == book_id))
@@ -1830,6 +1835,8 @@ async def get_page_audio(
     book_id: str,
     page_number: int,
     language: str = Query(default="ko", pattern="^(ko|en|ja|zh|es)$"),
+    voice: str = Query(default="default", pattern="^(default|warm|deep)$"),
+    style: str = Query(default="legacy", pattern="^(legacy|natural|animated|bedtime)$"),
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
     profile_id: Optional[str] = Depends(get_profile_id),
@@ -1841,7 +1848,7 @@ async def get_page_audio(
     - 없으면 즉시 생성 후 반환
     """
     # H1/G9: 오디오 비활성 배포에서는 provider 해석 실패 500 대신 명시적 미지원으로 차단.
-    require_audio_supported()
+    (require_narration_supported if settings.audio_narration_only_enabled else require_audio_supported)()
 
     # Fetch book
     book_result = await db.execute(select(Book).where(Book.id == book_id))
@@ -1867,6 +1874,14 @@ async def get_page_audio(
 
     if not isinstance(language, str):
         language = getattr(language, "default", "ko")
+    if not isinstance(voice, str):
+        voice = getattr(voice, "default", "default")
+    if not isinstance(style, str):
+        style = getattr(style, "default", "legacy")
+    if style not in {"legacy", "natural", "animated", "bedtime"}:
+        raise ValidationError("지원하지 않는 낭독 스타일입니다.")
+    if voice not in {"default", "warm", "deep"}:
+        raise ValidationError("지원하지 않는 낭독 목소리입니다.")
     language = language.lower().strip()
     book_language = str(getattr(book, "language", "") or "ko").lower().strip()
 
@@ -1885,13 +1900,22 @@ async def get_page_audio(
         raise ValidationError("요청한 언어의 본문이 아직 준비되지 않았습니다.")
     await require_parental_consent(db, user_key)
 
+    if voice != "default" or style != "legacy":
+        from src.core.audio_feature import narration_voice_selection_supported, narration_style_selection_supported
+        from src.services.audio_assets import variant_url
+        if (voice != "default" and not narration_voice_selection_supported()) or (style != "legacy" and not narration_style_selection_supported()):
+            raise ValidationError("이 환경에서는 낭독 목소리 선택을 지원하지 않습니다.")
+        selected_url = await variant_url(db, page.id, language, voice, style, settings.tts_provider.strip().lower())
+        if selected_url:
+            return {"audio_url": media_url(selected_url)}
+
     # Existing narration remains readable without another synthesis charge.
     audio_url = None
-    if language == "en":
+    if voice == "default" and style == "legacy" and language == "en":
         audio_url = getattr(page, "audio_url_en", None)
-    elif language == "ko":
+    elif voice == "default" and style == "legacy" and language == "ko":
         audio_url = getattr(page, "audio_url_ko", None)
-    if language == book_language:
+    if voice == "default" and style == "legacy" and language == book_language:
         audio_url = audio_url or getattr(page, "audio_url", None)
     if audio_url:
         return {"audio_url": media_url(audio_url)}
@@ -1909,16 +1933,41 @@ async def get_page_audio(
         source_text = text_by_language[language]
         from src.core.generation_access import require_generation_access
         require_generation_access(user_key)
-        audio_bytes = await tts_service.synthesize_page(
-            source_text,
-            target_age=getattr(book, "target_age", None),
-            language=language,
-        )
+        async def generate_audio():
+            selected_provider = settings.tts_provider.strip().lower()
+            voice_map = ({"warm": "Kore", "deep": "Puck"} if selected_provider == "google_gemini" else
+                         {"warm": "coral", "deep": "cedar" if selected_provider == "openai_realtime" else "onyx"})
+            voice_args = {} if voice == "default" else {"voice": voice_map[voice]}
+            style_args = {} if style == "legacy" else {"style": style}
+            audio_bytes = await tts_service.synthesize_page(
+                source_text, target_age=getattr(book, "target_age", None), language=language, **voice_args, **style_args,
+            )
+            from src.services.audio_assets import publish_narration, publish_variant, store_narration
+            url, guard = await store_narration(db, book_id, page_number, language, audio_bytes, user_key=user_key)
+            if voice == "default" and style == "legacy":
+                return await publish_narration(db, source, language, url, guard)
+            return await publish_variant(db, source, language, voice, url, guard, style, settings.tts_provider.strip().lower())
 
-        from src.services.audio_assets import publish_narration, store_narration
-        audio_url, audio_guard = await store_narration(
-            db, book_id, page_number, language, audio_bytes, user_key=user_key)
-        audio_url = await publish_narration(db, source, language, audio_url, audio_guard)
+        from src.services.audio_assets import narration_url, variant_singleflight, variant_url
+        async with variant_singleflight(user_key, book_id, page_number, language, voice, style, settings.tts_provider.strip().lower()):
+            # A request may have published or the page/consent may have changed
+            # before this request acquired the shared lock.
+            await require_parental_consent(db, user_key)
+            current_page = await db.scalar(select(Page).where(
+                Page.id == source.page_id, Page.book_id == book_id,
+            ).execution_options(populate_existing=True))
+            if not source.matches(current_page):
+                raise ValidationError("페이지가 변경되었습니다. 다시 시도해 주세요.")
+            if voice == "default" and style == "legacy":
+                audio_url = narration_url(current_page, language, source.book_language)
+            else:
+                audio_url = await variant_url(db, page.id, language, voice, style, settings.tts_provider.strip().lower())
+            if not audio_url:
+                # Finish well before lock expiry; uncertain failures retain it.
+                try:
+                    audio_url = await asyncio.wait_for(generate_audio(), timeout=240)
+                except asyncio.TimeoutError:
+                    raise APIError(503, 'SERVICE_UNAVAILABLE', '음성 생성 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.') from None
 
         return {"audio_url": media_url(audio_url)}
 

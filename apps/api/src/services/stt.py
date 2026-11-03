@@ -12,6 +12,7 @@ import httpx
 import structlog
 
 from src.core.config import settings
+from src.core.cost_budget import require_daily_generation_budget
 from src.services.provider_runtime import begin_provider_request, observe_provider_response
 
 # H3: STT 지원 언어 → 코드 매핑. OpenAI Whisper는 ISO-639-1(ko/en/ja/zh/es)을,
@@ -232,7 +233,11 @@ class STTService:
     ) -> str:
         if not isinstance(audio_bytes, (bytes, bytearray)) or len(audio_bytes) == 0:
             return ""
-        return await self.provider.transcribe(
+        if language not in SUPPORTED_STT_LANGUAGES:
+            raise ValueError("Unsupported STT language")
+        provider = self.provider
+        await require_daily_generation_budget("audio.stt")
+        return await provider.transcribe(
             bytes(audio_bytes),
             mime_type=mime_type,
             language=language,

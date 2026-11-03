@@ -8,6 +8,7 @@ import argparse
 from datetime import datetime, timezone
 import hashlib
 import html
+from html.parser import HTMLParser
 import ipaddress
 import json
 from pathlib import Path
@@ -42,6 +43,28 @@ def public_host(host):
             "PUBLIC_HOST_REQUIRED")
 
 
+class LegalStatusParser(HTMLParser):
+    """Each explicit legal-status tag must have one name and one approved value.
+
+    Documents with no legal-status tag remain compatible with externally
+    approved copies; the approval flag and matching digest are still required.
+    """
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.unapproved = False
+
+    def handle_starttag(self, tag, attrs):
+        if tag != "meta":
+            return
+        names = [value for key, value in attrs if key == "name"]
+        if not any(value and value.strip().lower() == "legal-status" for value in names):
+            return
+        values = [value for key, value in attrs if key == "content"]
+        if len(names) != 1 or len(values) != 1 or not values[0] or values[0].strip().lower() != "approved":
+            self.unapproved = True
+
+
 def production_inputs(config, config_path):
     require(set(config) == CONFIG_KEYS, "CONFIG_FIELDS_INVALID")
     require(config["support_contact_verified"] is True, "VERIFIED_SUPPORT_CONTACT_REQUIRED")
@@ -66,8 +89,10 @@ def production_inputs(config, config_path):
         require(hashlib.sha256(data).hexdigest() == config[name + "_sha256"], "POLICY_APPROVAL_HASH_MISMATCH")
         text = data.decode("utf-8")
         decoded = html.unescape(text)
-        require(not re.search(r'<meta\s+name=["\']legal-status["\']\s+content=["\']review["\']',
-                              decoded, re.I), "POLICY_STILL_IN_REVIEW")
+        status = LegalStatusParser()
+        status.feed(decoded)
+        status.close()
+        require(not status.unapproved, "POLICY_STILL_IN_REVIEW")
         compact = re.sub(r"[\x00-\x20]+", "", decoded)
         require(not re.search(r"<(script|iframe|form|object|embed)\b|\bon\w+\s*=", decoded, re.I)
                 and not re.search(r"javascript:", compact, re.I),

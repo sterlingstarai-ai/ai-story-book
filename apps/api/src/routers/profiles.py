@@ -10,7 +10,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
@@ -18,7 +18,9 @@ from src.core.consent import require_parental_consent
 from src.core.dependencies import get_user_key
 from src.core.exceptions import NotFoundError, ValidationError
 from src.core.utils import derive_age_band, utcnow
-from src.models.db import ChildProfile
+from src.models.db import BookDeletionReceipt, ChildProfile
+from src.services.photo_lifecycle import lock_photo_account
+from src.services.privacy_journal_transaction import prepare_transaction_event, publish_committed_event
 
 router = APIRouter()
 
@@ -197,6 +199,7 @@ async def delete_profile(
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
 ):
+    await lock_photo_account(db, user_key)
     result = await db.execute(
         select(ChildProfile).where(
             ChildProfile.id == profile_id,
@@ -207,7 +210,11 @@ async def delete_profile(
     if not profile:
         raise NotFoundError("프로필", profile_id)
 
+    journal_event = await prepare_transaction_event(db, user_key=user_key, action='profile_delete', resource_id=profile_id)
     was_default = profile.is_default
+    await db.execute(delete(BookDeletionReceipt).where(
+        BookDeletionReceipt.user_key == user_key, BookDeletionReceipt.profile_id == profile_id,
+    ))
     await db.delete(profile)
     await db.flush()
 
@@ -223,4 +230,5 @@ async def delete_profile(
 
     await db.commit()
 
+    await publish_committed_event(db, journal_event)
     return {"status": "success", "profile_id": profile_id}

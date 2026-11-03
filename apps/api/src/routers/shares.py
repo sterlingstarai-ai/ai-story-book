@@ -22,16 +22,18 @@ from src.core.config import settings
 from src.core.database import get_db
 from src.core.dependencies import get_user_key
 from src.core.exceptions import AuthorizationError, NotFoundError
+from src.core.rate_limit import check_public_share_rate_limit
 from src.core.utils import utcnow
 from src.models.db import Book, BookShare, Page
 from src.services.storage import get_object_bytes, key_from_public_url
+from src.services.privacy_journal_transaction import prepare_transaction_event, publish_committed_event
 
 logger = structlog.get_logger()
 
 # 인증된 부모용(/v1/books prefix로 등록)
 router = APIRouter()
 # 공개용(prefix 없이 등록 — /share/{token})
-public_router = APIRouter()
+public_router = APIRouter(dependencies=[Depends(check_public_share_rate_limit)])
 
 
 class CreateShareRequest(BaseModel):
@@ -94,6 +96,7 @@ async def revoke_share(
 ):
     """이 책의 활성 공유 링크를 모두 철회(소유자만)."""
     await _require_owned_book(db, book_id, user_key)
+    journal_event = await prepare_transaction_event(db, user_key=user_key, action='share_revoke', resource_id=book_id)
     await db.execute(
         update(BookShare)
         .where(
@@ -104,6 +107,7 @@ async def revoke_share(
         .values(revoked_at=utcnow())
     )
     await db.commit()
+    await publish_committed_event(db, journal_event)
     return {"status": "revoked"}
 
 

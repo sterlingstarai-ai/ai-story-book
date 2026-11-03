@@ -43,6 +43,12 @@ def test_dockerignore_excludes_env():
     assert "!.env.example" in lines, ".env.example은 예제로 유지(negation)"
 
 
+def test_dockerignore_excludes_local_database_and_journal_files():
+    lines = {line.strip() for line in DOCKERIGNORE.read_text().splitlines()}
+    assert {"*.db", "*.db-*", "**/*.db", "**/*.db-*"} <= lines
+    assert {"*.sqlite", "*.sqlite-*", "*.sqlite3", "*.sqlite3-*"} <= lines
+
+
 def test_minio_ports_bound_to_localhost(prod):
     minio = prod["services"].get("minio")
     assert minio, "minio 서비스가 있어야 함"

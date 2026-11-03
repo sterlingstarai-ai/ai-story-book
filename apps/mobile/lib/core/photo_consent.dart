@@ -3,6 +3,19 @@ import 'package:flutter/material.dart';
 import '../l10n/app_localizations.dart';
 import '../services/api_client.dart';
 
+bool _isCompleteConsentResponse(Map<String, dynamic> value) =>
+    value['granted'] is bool &&
+    value['privacy'] is bool &&
+    value['data_processing'] is bool &&
+    value['photos'] is bool &&
+    value['revoked'] is bool;
+
+bool _hasRequiredConsent(Map<String, dynamic> value) =>
+    value['granted'] == true &&
+    value['privacy'] == true &&
+    value['data_processing'] == true &&
+    value['revoked'] == false;
+
 /// 사진/그림(아동 얼굴) 사용 직전 JIT 보호자 동의.
 ///
 /// 이미 사진 동의가 있으면 통과, 없으면 PIPA 5요소(수령자·항목·목적·보유·방법) 고지
@@ -21,9 +34,25 @@ Future<bool> ensurePhotoConsent(BuildContext context, ApiClient api) async {
     // dataProcessing:false)로 기존 필수 동의를 파괴한다. fail-closed로 중단하고
     // 재시도를 안내한다(감사추적·동의 진정성 보존).
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l.photoConsentLoadFailed)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.photoConsentLoadFailed)));
+    }
+    return false;
+  }
+  if (!_isCompleteConsentResponse(consent)) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.photoConsentLoadFailed)));
+    }
+    return false;
+  }
+  if (!_hasRequiredConsent(consent)) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.errorParentalConsentRequired)));
     }
     return false;
   }
@@ -34,9 +63,11 @@ Future<bool> ensurePhotoConsent(BuildContext context, ApiClient api) async {
     return false;
   }
   // H16: PIPA 5요소 법정 고지·제목·버튼을 로컬라이즈(en/ja 사용자도 읽을 수 있는 동의).
-  final agreed = await showDialog<bool>(
+  final agreed =
+      await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
+          scrollable: true,
           title: Text(l.consentPhotoOptionalTitle),
           content: Text(l.consentPhotoDisclosure),
           actions: [
@@ -56,12 +87,22 @@ Future<bool> ensurePhotoConsent(BuildContext context, ApiClient api) async {
     return false;
   }
   try {
-    await api.grantConsent(
+    final saved = await api.grantConsent(
       privacy: consent['privacy'] == true,
       photos: true,
       dataProcessing: consent['data_processing'] == true,
     );
-    return true;
+    if (_isCompleteConsentResponse(saved) &&
+        _hasRequiredConsent(saved) &&
+        saved['photos'] == true) {
+      return true;
+    }
+    if (context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.consentSaveError)));
+    }
+    return false;
   } catch (_) {
     return false;
   }

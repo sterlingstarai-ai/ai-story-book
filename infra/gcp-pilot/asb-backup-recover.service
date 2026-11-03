@@ -1,0 +1,13 @@
+[Unit]
+Description=Recover AI Story Book services after an interrupted backup
+After=docker.service
+Requires=docker.service
+Before=asb-backup.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/ai-story-book/current/scripts/backup_service_guard.py --recover --state-dir /var/lib/ai-story-book/backup-state
+TimeoutStartSec=180
+
+[Install]
+WantedBy=multi-user.target

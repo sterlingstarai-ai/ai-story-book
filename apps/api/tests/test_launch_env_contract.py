@@ -6,6 +6,11 @@ import subprocess
 import pytest
 
 ROOT = Path(__file__).resolve().parents[3]
+WITNESS = {'PRIVACY_JOURNAL_WITNESS_S3_ENDPOINT': 'https://witness.test',
+           'PRIVACY_JOURNAL_WITNESS_S3_BUCKET': 'witness-bucket',
+           'PRIVACY_JOURNAL_WITNESS_S3_REGION': 'us-east-1',
+           'PRIVACY_JOURNAL_WITNESS_S3_ACCESS_KEY': 'witness-access',
+           'PRIVACY_JOURNAL_WITNESS_S3_SECRET_KEY': 'witness-secret'}
 
 
 @pytest.mark.parametrize("overrides,passes", [
@@ -23,7 +28,15 @@ ROOT = Path(__file__).resolve().parents[3]
     ({"LLM_MODEL": "gpt-4o-mini"}, False),
     ({"IMAGE_MODEL": "dall-e-3"}, False),
     ({"IMAGE_API_KEY": ""}, False),
+    ({"IMAGE_API_KEY": "", "IMAGE_API_KEY_FILE": "/run/asb-provider-keys/key"}, True),
+    ({"IMAGE_API_KEY_FILE": "/run/asb-provider-keys/key"}, False),
+    ({"IMAGE_API_KEY": "", "IMAGE_API_KEY_FILE": "relative"}, False),
     ({"POD_ORDERING_ENABLED": "true", "POD_MODE": "local"}, False),
+    ({'PRIVACY_JOURNAL_WITNESS_S3_ENDPOINT': 'https://witness.test'}, False),
+    (WITNESS, True),
+    ({**WITNESS, 'PRIVACY_JOURNAL_WITNESS_BUCKET': 'other-witness'}, False),
+    ({**WITNESS, 'PRIVACY_JOURNAL_WITNESS_S3_ENDPOINT': 'http://witness.test'}, False),
+    ({**WITNESS, 'PRIVACY_JOURNAL_WITNESS_S3_SECRET_KEY': 'test-key'}, False),
 ])
 def test_production_env_validation(tmp_path, overrides, passes):
     values = {

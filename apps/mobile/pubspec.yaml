@@ -21,6 +21,7 @@ dependencies:
   dio: ^5.4.0
 
   # Local Storage
+  file: ^7.0.1
   shared_preferences: ^2.2.2
   # M1(2026-08-17 감사): X-User-Key는 이 앱의 **유일한 자격증명**이다. SharedPreferences는
   # 평문 XML/plist라 기기 백업·이전으로 유출되면 그대로 계정 탈취다 → iOS Keychain /
@@ -79,7 +80,6 @@ dependencies:
   kakao_flutter_sdk_template: ^1.10.0
 
 dev_dependencies:
-  file: ^7.0.1
   flutter_test:
     sdk: flutter
   integration_test:
@@ -100,6 +100,7 @@ flutter:
   generate: true
 
   assets:
+    - assets/audio/
     - assets/legal/
     - assets/images/
     - assets/branding/

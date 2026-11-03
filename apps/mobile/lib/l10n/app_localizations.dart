@@ -2653,7 +2653,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsRevokeConsentContent.
   ///
   /// In en, this message translates to:
-  /// **'Revoking consent immediately and permanently deletes the characters and books made from this child\'s photo. This cannot be undone. Continue?'**
+  /// **'Revoking consent starts deletion of all characters made from photos or drawings on this account, and their related books and images. This cannot be undone. Storage deletion may take longer to complete. Continue?'**
   String get settingsRevokeConsentContent;
 
   /// No description provided for @settingsCancel.
@@ -2673,6 +2673,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Failed to process the revocation. Please check your network and try again.'**
   String get settingsRevokeConsentError;
+
+  /// No description provided for @consentDeletionUnconfirmed.
+  ///
+  /// In en, this message translates to:
+  /// **'Your consent settings have been saved. Removal of related stored files has not yet been confirmed.'**
+  String get consentDeletionUnconfirmed;
 
   /// No description provided for @settingsConsentRevoked.
   ///
@@ -3513,6 +3519,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Delete'**
   String get charactersDelete;
+
+  /// No description provided for @characterDeletionPending.
+  ///
+  /// In en, this message translates to:
+  /// **'The character has been removed. Deletion of some stored files is not yet complete.'**
+  String get characterDeletionPending;
 
   /// No description provided for @charactersDeletedSnack.
   ///
@@ -4781,7 +4793,7 @@ abstract class AppLocalizations {
   /// No description provided for @consentPhotoDisclosure.
   ///
   /// In en, this message translates to:
-  /// **'Your child\'s photo is used only to create storybook characters. · Recipient: AI content-processing providers (incl. overseas, e.g. the US) · Item: child\'s face photo · Purpose: storybook character creation · Retention: kept while you use the service to keep the character consistent, and deleted immediately upon withdrawal or a deletion request · Operators do not view the photos directly. · Right to refuse: you can still use all non-photo features without agreeing (optional).'**
+  /// **'· Recipient: external AI processing providers · Item: the selected photo or drawing · Purpose: storybook character creation · Retention: when you approve the character, we request deletion of the original from service storage. An unapproved original becomes eligible for deletion after 24 hours. The character and related books and images are kept to provide the feature. · Deletion: if you withdraw consent or request deletion, we start deleting the related data. Storage failures can delay completion; we retry. See the privacy policy for external providers\' processing and retention conditions. · Right to refuse: consent is optional and non-photo features remain available.'**
   String get consentPhotoDisclosure;
 
   /// No description provided for @photoConsentAgree.
@@ -5504,6 +5516,60 @@ abstract class AppLocalizations {
   /// **'Check your balance and existing purchases'**
   String get creditBetaStatusSubtitle;
 
+  /// No description provided for @libraryDeletionUnconfirmed.
+  ///
+  /// In en, this message translates to:
+  /// **'We could not confirm whether the book deletion was processed. Check your connection and try again.'**
+  String get libraryDeletionUnconfirmed;
+
+  /// No description provided for @libraryDeletionNotStarted.
+  ///
+  /// In en, this message translates to:
+  /// **'Book deletion was not started. Check your connection and try again after updating the app and server.'**
+  String get libraryDeletionNotStarted;
+
+  /// No description provided for @libraryDeletionReviewTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'A book deletion needs confirmation.'**
+  String get libraryDeletionReviewTitle;
+
+  /// No description provided for @libraryDeletionReviewHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved data is kept until confirmation. Some older servers cannot confirm automatically.'**
+  String get libraryDeletionReviewHelp;
+
+  /// No description provided for @libraryDeletionReviewAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Check again'**
+  String get libraryDeletionReviewAction;
+
+  /// No description provided for @libraryDeletionReviewWaiting.
+  ///
+  /// In en, this message translates to:
+  /// **'It is not confirmed yet. Please check again later.'**
+  String get libraryDeletionReviewWaiting;
+
+  /// No description provided for @libraryDeletionReviewDone.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirmed requests were processed. Older saved files still need separate verification.'**
+  String get libraryDeletionReviewDone;
+
+  /// No description provided for @libraryMediaScopeReview.
+  ///
+  /// In en, this message translates to:
+  /// **'Your saved book storage needs review. Existing files are preserved; check the account and connection, then try again.'**
+  String get libraryMediaScopeReview;
+
+  /// No description provided for @libraryDeletionPending.
+  ///
+  /// In en, this message translates to:
+  /// **'The book has been removed from your library. Removal of stored files has not yet been confirmed.'**
+  String get libraryDeletionPending;
+
   /// No description provided for @accountDeletionPending.
   ///
   /// In en, this message translates to:
@@ -6056,6 +6122,66 @@ abstract class AppLocalizations {
   /// **'We could not confirm the deletion result yet. Retry deletion for this account. If you reopen the app, we will continue checking before opening your library.'**
   String get settingsDeleteUncertain;
 
+  /// No description provided for @settingsDeleteLegacyUnresolved.
+  ///
+  /// In en, this message translates to:
+  /// **'The server accepted the deletion, but cleanup of data stored on this device could not be confirmed. Data may remain on this device and account access is restricted.'**
+  String get settingsDeleteLegacyUnresolved;
+
+  /// No description provided for @legacyCleanupTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear older shared data'**
+  String get legacyCleanupTitle;
+
+  /// No description provided for @legacyAccountCleanupTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear this account\'s older media'**
+  String get legacyAccountCleanupTitle;
+
+  /// No description provided for @legacyAccountCleanupWarning.
+  ///
+  /// In en, this message translates to:
+  /// **'This deletes older images, audio and deletion records for the deleted account on this device. Media from this account\'s other profiles will also be deleted. This cannot be undone. Continue?'**
+  String get legacyAccountCleanupWarning;
+
+  /// No description provided for @legacyAccountCleanupAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear this account\'s older media'**
+  String get legacyAccountCleanupAction;
+
+  /// No description provided for @legacyCleanupWarning.
+  ///
+  /// In en, this message translates to:
+  /// **'This deletes all older shared stories, images, and reading progress on this device. Offline data from other accounts or profiles may also be deleted, and this cannot be undone. Continue?'**
+  String get legacyCleanupWarning;
+
+  /// No description provided for @legacyCleanupAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear older shared data'**
+  String get legacyCleanupAction;
+
+  /// No description provided for @legacyCleanupCancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep data'**
+  String get legacyCleanupCancel;
+
+  /// No description provided for @legacyCleanupConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete all'**
+  String get legacyCleanupConfirm;
+
+  /// No description provided for @legacyCleanupFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The shared data could not be fully cleared. Check the device and try again.'**
+  String get legacyCleanupFailed;
+
   /// No description provided for @recoveryFinishBackupFirst.
   ///
   /// In en, this message translates to:
@@ -6175,6 +6301,96 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Learning activities are unavailable for this book. You can still read the complete story.'**
   String get viewerLearningUnavailable;
+
+  /// No description provided for @settingsNarratorVoice.
+  ///
+  /// In en, this message translates to:
+  /// **'Narrator voice'**
+  String get settingsNarratorVoice;
+
+  /// No description provided for @settingsNarratorVoiceHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'AI-generated voice, saved on this device. A new voice may need new audio.'**
+  String get settingsNarratorVoiceHelp;
+
+  /// No description provided for @settingsNarratorVoiceDefault.
+  ///
+  /// In en, this message translates to:
+  /// **'Default'**
+  String get settingsNarratorVoiceDefault;
+
+  /// No description provided for @settingsNarratorVoiceWarm.
+  ///
+  /// In en, this message translates to:
+  /// **'Feminine-sounding'**
+  String get settingsNarratorVoiceWarm;
+
+  /// No description provided for @settingsNarratorVoiceDeep.
+  ///
+  /// In en, this message translates to:
+  /// **'Masculine-sounding'**
+  String get settingsNarratorVoiceDeep;
+
+  /// No description provided for @settingsNarrationStyle.
+  ///
+  /// In en, this message translates to:
+  /// **'Narration style'**
+  String get settingsNarrationStyle;
+
+  /// No description provided for @settingsNarrationStyleHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved on this device. A new style may generate new audio.'**
+  String get settingsNarrationStyleHelp;
+
+  /// No description provided for @settingsNarrationStyleLegacy.
+  ///
+  /// In en, this message translates to:
+  /// **'Existing narration'**
+  String get settingsNarrationStyleLegacy;
+
+  /// No description provided for @settingsNarrationStyleNatural.
+  ///
+  /// In en, this message translates to:
+  /// **'Storyteller'**
+  String get settingsNarrationStyleNatural;
+
+  /// No description provided for @settingsNarrationStyleAnimated.
+  ///
+  /// In en, this message translates to:
+  /// **'Animation'**
+  String get settingsNarrationStyleAnimated;
+
+  /// No description provided for @settingsNarrationStyleBedtime.
+  ///
+  /// In en, this message translates to:
+  /// **'Bedtime'**
+  String get settingsNarrationStyleBedtime;
+
+  /// No description provided for @settingsNarrationPreviewHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Compare three Korean AI samples of the same sentence in the default voice. Animation varies dialogue tone; it does not cast separate voices.'**
+  String get settingsNarrationPreviewHelp;
+
+  /// No description provided for @settingsNarrationPreviewGoogleHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Compare three Korean AI samples of the same sentence in your selected voice. Animation varies dialogue tone; it does not cast separate voices.'**
+  String get settingsNarrationPreviewGoogleHelp;
+
+  /// No description provided for @settingsNarrationPreview.
+  ///
+  /// In en, this message translates to:
+  /// **'Preview {style}'**
+  String settingsNarrationPreview(String style);
+
+  /// No description provided for @settingsNarrationPreviewError.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not play the preview.'**
+  String get settingsNarrationPreviewError;
 }
 
 class _AppLocalizationsDelegate

@@ -16,6 +16,7 @@ from src.models.db import (
     StoryDraftDB,
     ImagePromptsDB,
     Book,
+    BookDeletionReceipt,
     Series,
     Character,
     UserCredits,
@@ -40,6 +41,8 @@ from src.services.data_deletion import (
 )
 from src.services.photo_lifecycle import lock_photo_account
 from src.services.account_recovery import revoke_deleted_account
+from src.services.purchase_claims import claim_purchase
+from src.services.privacy_journal_transaction import prepare_transaction_event, publish_committed_event
 from src.services.purge_queue import (
     enqueue_purge_keys,
     enqueue_purge_prefix,
@@ -56,12 +59,33 @@ logger = structlog.get_logger()
 _INLINE_PURGE_TIMEOUT_SECONDS = 5
 
 
-@router.delete("/me")
-async def delete_my_data(
-    db: AsyncSession = Depends(get_db),
-    user_key: str = Depends(get_user_key),
-    x_user_key: str = Header(...),
-):
+async def _preserve_other_accounts_iap_grants(db: AsyncSession, user_key: str) -> None:
+    """Erase this entitlement without destroying another account's grant evidence."""
+    receipts = await db.scalars(
+        select(IAPReceipt).where(IAPReceipt.user_key == user_key).with_for_update()
+    )
+    for receipt in receipts:
+        await claim_purchase(db, receipt.platform, receipt.store_transaction_id or receipt.transaction_id)
+        payload = receipt.payload or {}
+        beneficiary = payload.get("credit_grant_user_key")
+        granted = payload.get("granted_credits", 0)
+        if not beneficiary or beneficiary == user_key or not isinstance(granted, int) or granted <= 0:
+            continue
+        balance = await db.scalar(select(UserCredits.user_key).where(UserCredits.user_key == beneficiary))
+        if balance is None:
+            continue
+        receipt.user_key = beneficiary
+        receipt.subscription_id = None
+        # Drop the erased account's restoration/verification payload. Retain only
+        # store transaction metadata needed to refund the surviving grant.
+        receipt.payload = {key: payload[key] for key in (
+            "credit_grant_user_key", "granted_credits", "original_transaction_id",
+            "expires_date_ms", "native_signed_at_ms", "cycle_allocated_credits",
+        ) if key in payload}
+        receipt.payload = {**receipt.payload, "entitlement_erased": True}
+
+
+async def _delete_user_data(db: AsyncSession, user_key: str, revoke_identity):
     """
     내 데이터 전체 삭제.
 
@@ -72,6 +96,7 @@ async def delete_my_data(
     # Serializes with the final avatar/book publication transaction, including
     # legacy users who do not yet have an AccountIdentity row.
     await lock_photo_account(db, user_key)
+    journal_event = await prepare_transaction_event(db, user_key=user_key, action='account_delete')
     # 책 파일 제거를 위해 book ids 먼저 조회
     books_result = await db.execute(select(Book.id).where(Book.user_key == user_key))
     book_ids = [book_id for (book_id,) in books_result.all()]
@@ -111,8 +136,10 @@ async def delete_my_data(
     await db.execute(delete(ReadingLog).where(ReadingLog.user_key == user_key))
     await db.execute(delete(PodOrder).where(PodOrder.user_key == user_key))
     await db.execute(delete(AdRewardLog).where(AdRewardLog.user_key == user_key))
+    await _preserve_other_accounts_iap_grants(db, user_key)
     await db.execute(delete(IAPReceipt).where(IAPReceipt.user_key == user_key))
     await db.execute(delete(UserConsent).where(UserConsent.user_key == user_key))
+    await db.execute(delete(BookDeletionReceipt).where(BookDeletionReceipt.user_key == user_key))
     await db.execute(delete(ScreenTimeLimit).where(ScreenTimeLimit.user_key == user_key))
     await db.execute(delete(UserSettings).where(UserSettings.user_key == user_key))
     await db.execute(delete(ChildProfile).where(ChildProfile.user_key == user_key))
@@ -177,8 +204,9 @@ async def delete_my_data(
         enqueue_purge_keys(db, user_key=user_key, reason=reason, keys=image_keys)
     )
 
-    await revoke_deleted_account(db, user_key, x_user_key)
+    await revoke_identity(db, user_key)
     await db.commit()
+    await publish_committed_event(db, journal_event)
 
     # H8/G24: 스토리지 파기 실패를 삼키지 않고 표면화한다. 남은 실패는 outbox에 pending으로
     # 남아 job_monitor 스윕이 멱등 재실행하며, 응답은 그동안 success 를 주장하지 않는다.
@@ -210,3 +238,22 @@ async def delete_my_data(
         "purge_retry_pending": purge_pending,
         "message": "내 데이터가 삭제되었습니다.",
     }
+
+
+@router.delete("/me")
+async def delete_my_data(
+    db: AsyncSession = Depends(get_db),
+    user_key: str = Depends(get_user_key),
+    x_user_key: str = Header(...),
+):
+    """
+    내 데이터 전체 삭제.
+
+    삭제 대상:
+    - 책/페이지/잡/캐릭터/크레딧/구독/스트릭/설정/프로필/로그
+    - 저장소의 책 파일
+    """
+    async def revoke(db_session, owner):
+        await revoke_deleted_account(db_session, owner, x_user_key)
+
+    return await _delete_user_data(db, user_key, revoke)

@@ -1360,7 +1360,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get settingsRevokeConsentContent =>
-      '同意を撤回すると、この子どもの写真から作成したキャラクターと絵本が直ちに削除され、復元できません。続行しますか？';
+      '同意を撤回すると、このアカウントの写真・絵から作成したすべてのキャラクターと関連する絵本・画像の削除が進められ、復元できません。ストレージの処理状況により削除の完了が遅れることがあります。続行しますか？';
 
   @override
   String get settingsCancel => 'キャンセル';
@@ -1371,6 +1371,10 @@ class AppLocalizationsJa extends AppLocalizations {
   @override
   String get settingsRevokeConsentError =>
       '撤回の処理に失敗しました。ネットワークを確認してから再試行してください。';
+
+  @override
+  String get consentDeletionUnconfirmed =>
+      '同意設定を保存しました。関連する保存ファイルの削除完了はまだ確認できていません。';
 
   @override
   String get settingsConsentRevoked => '同意が撤回されました。';
@@ -1821,6 +1825,10 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get charactersDelete => '削除';
+
+  @override
+  String get characterDeletionPending =>
+      'キャラクターを削除しました。一部の保存ファイルの削除はまだ完了していません。';
 
   @override
   String get charactersDeletedSnack => 'キャラクターを削除しました。';
@@ -2510,7 +2518,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get consentPhotoDisclosure =>
-      'お子さまの写真は絵本キャラクターの作成にのみ使用します。· 提供先：AIコンテンツ処理事業者（米国など国外を含む）· 項目：お子さまの顔写真 · 目的：絵本キャラクターの作成 · 保有・利用期間：キャラクターの一貫性を保つためサービス利用期間中保管し、同意の撤回・削除のご請求時に直ちに破棄します。· 運営者が写真を直接閲覧することはありません。· 拒否権：同意しなくても写真以外の機能はそのままご利用いただけます（任意）。';
+      '· 提供先：外部のAI処理事業者 · 項目：選択したお子さまの写真または絵 · 目的：絵本のキャラクターの作成 · 保有・利用期間：キャラクターの承認時に、原本をサービスのストレージから削除するよう依頼します。未承認の原本は24時間後に削除の対象となります。作成したキャラクターと関連する絵本・画像は機能の提供のために保管します。· 削除：同意の撤回または削除の請求時に、関連データの削除を進めます。ストレージの障害などで完了が遅れた場合は再試行します。外部事業者の処理・保管条件はプライバシーポリシーをご確認ください。· 拒否権：同意は任意で、写真以外の機能は引き続き利用できます。';
 
   @override
   String get photoConsentAgree => '同意';
@@ -2931,6 +2939,37 @@ class AppLocalizationsJa extends AppLocalizations {
   String get creditBetaStatusSubtitle => '残高と購入履歴を確認しましょう';
 
   @override
+  String get libraryDeletionUnconfirmed =>
+      '本の削除依頼が処理されたか確認できませんでした。接続を確認して、もう一度お確かめください。';
+
+  @override
+  String get libraryDeletionNotStarted =>
+      '本の削除は開始されていません。接続を確認し、アプリとサーバーを更新してからもう一度お試しください。';
+
+  @override
+  String get libraryDeletionReviewTitle => '確認が必要な本の削除依頼があります。';
+
+  @override
+  String get libraryDeletionReviewHelp =>
+      '確認が取れるまでデータを保持します。一部の旧サーバーでは自動確認に対応していません。';
+
+  @override
+  String get libraryDeletionReviewAction => 'もう一度確認';
+
+  @override
+  String get libraryDeletionReviewWaiting => 'まだ確認できていません。後でもう一度お確かめください。';
+
+  @override
+  String get libraryDeletionReviewDone => '確認できた依頼を処理しました。以前の保存ファイルは別途確認が必要です。';
+
+  @override
+  String get libraryMediaScopeReview =>
+      '保存した本の領域を確認する必要があります。既存ファイルは保持されています。アカウントと接続を確認して再試行してください。';
+
+  @override
+  String get libraryDeletionPending => '本を本棚から削除しました。保存ファイルの削除完了はまだ確認できていません。';
+
+  @override
   String get accountDeletionPending =>
       'アカウントデータと同意情報は削除されました。一部の保存ファイルは削除処理中です。サーバーが自動的に再試行します。';
 
@@ -3230,6 +3269,39 @@ class AppLocalizationsJa extends AppLocalizations {
       '削除結果をまだ確認できません。同じアカウントで削除を再試行してください。アプリを再度開いた場合も、本棚を開く前に削除の確認を続けます。';
 
   @override
+  String get settingsDeleteLegacyUnresolved =>
+      'サーバーは削除を受け付けましたが、この端末内のデータの消去完了を確認できません。データが端末に残っている可能性があり、アカウントへのアクセスは制限されます。';
+
+  @override
+  String get legacyCleanupTitle => '以前の共有データを消去';
+
+  @override
+  String get legacyAccountCleanupTitle => 'このアカウントの以前のメディアを消去';
+
+  @override
+  String get legacyAccountCleanupWarning =>
+      '削除したアカウントの以前の画像、音声、この端末の削除処理記録を消去します。このアカウントの他のプロフィールのメディアも削除され、元に戻せません。続けますか？';
+
+  @override
+  String get legacyAccountCleanupAction => 'このアカウントの以前のメディアを消去';
+
+  @override
+  String get legacyCleanupWarning =>
+      'この端末の以前の共有されたお話、画像、読書の進み具合をすべて削除します。他のアカウントやプロフィールのオフラインデータも削除される可能性があり、元に戻せません。続けますか？';
+
+  @override
+  String get legacyCleanupAction => '以前の共有データを消去';
+
+  @override
+  String get legacyCleanupCancel => 'データを保持';
+
+  @override
+  String get legacyCleanupConfirm => 'すべて削除';
+
+  @override
+  String get legacyCleanupFailed => '共有データをすべて消去できませんでした。端末を確認してから再試行してください。';
+
+  @override
   String get recoveryFinishBackupFirst => 'コードを保管し、下の保存確認を完了してから戻ってください。';
 
   @override
@@ -3294,4 +3366,54 @@ class AppLocalizationsJa extends AppLocalizations {
   @override
   String get viewerLearningUnavailable =>
       'この本の学習教材を用意できませんでした。物語は最後まで読むことができます。';
+
+  @override
+  String get settingsNarratorVoice => '朗読の声';
+
+  @override
+  String get settingsNarratorVoiceHelp =>
+      'AIが生成した声です。この端末に保存され、変更時に音声を新たに生成する場合があります。';
+
+  @override
+  String get settingsNarratorVoiceDefault => '標準の声';
+
+  @override
+  String get settingsNarratorVoiceWarm => '女性らしい声';
+
+  @override
+  String get settingsNarratorVoiceDeep => '男性らしい声';
+
+  @override
+  String get settingsNarrationStyle => '朗読スタイル';
+
+  @override
+  String get settingsNarrationStyleHelp => 'この端末に保存され、新しいスタイルは音声を再生成する場合があります。';
+
+  @override
+  String get settingsNarrationStyleLegacy => 'これまでの朗読';
+
+  @override
+  String get settingsNarrationStyleNatural => '物語の語り手';
+
+  @override
+  String get settingsNarrationStyleAnimated => 'アニメ';
+
+  @override
+  String get settingsNarrationStyleBedtime => 'おやすみ';
+
+  @override
+  String get settingsNarrationPreviewHelp =>
+      '同じ文章を基本の声で読む韓国語AI音声を3種類聴き比べます。アニメは台詞の調子を変えますが、登場人物ごとに別の声を使いません。';
+
+  @override
+  String get settingsNarrationPreviewGoogleHelp =>
+      '選んだ声で同じ文章を読む韓国語AI音声を3種類聴き比べます。アニメは台詞の調子を変えますが、登場人物ごとに別の声を使いません。';
+
+  @override
+  String settingsNarrationPreview(String style) {
+    return '$styleを試聴';
+  }
+
+  @override
+  String get settingsNarrationPreviewError => '試聴を再生できませんでした。';
 }

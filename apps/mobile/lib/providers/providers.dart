@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:path_provider/path_provider.dart';
 import '../core/api_error.dart';
 import '../core/env_config.dart';
 import '../models/models.dart';
@@ -13,6 +15,10 @@ import '../services/api_client.dart';
 import '../services/job_polling.dart';
 import '../services/account_recovery_service.dart';
 import '../services/local_media_cleanup.dart';
+import '../services/book_media_registry.dart';
+import '../services/book_cleanup_plan_journal.dart';
+import '../services/book_media_store.dart';
+import '../services/scoped_reading_progress.dart';
 import '../services/iap_service.dart';
 import '../services/iap_purchase_recovery.dart';
 import '../services/kakao_share_service.dart';
@@ -87,22 +93,531 @@ final apiClientProvider = Provider<ApiClient>((ref) {
   return client;
 });
 
+String bookMediaProfileDigest(String? profileId) => sha256
+    .convert(
+      utf8.encode(
+        'asb:media-profile:v1\u0000${profileId == null ? 'none' : 'profile:$profileId'}',
+      ),
+    )
+    .toString();
+
+String _bookMediaBinding(String baseUrl, String credential) =>
+    'book_media_scope_binding_v1_${sha256.convert(utf8.encode('asb:scope-binding:v1\u0000$baseUrl\u0000$credential'))}';
+String _localBookMediaScope(String baseUrl, String credential) => sha256
+    .convert(
+      utf8.encode('asb:local-media-scope:v1\u0000$baseUrl\u0000$credential'),
+    )
+    .toString();
+String _bookMediaAlias(String baseUrl, String serverScope) =>
+    'book_media_storage_scope_v1_${sha256.convert(utf8.encode('asb:media-server:v1\u0000$baseUrl\u0000$serverScope'))}';
+String _profileMediaScope(String accountScope, String profileDigest) => sha256
+    .convert(
+      utf8.encode(
+        'asb:profile-media-scope:v2\u0000$accountScope\u0000$profileDigest',
+      ),
+    )
+    .toString();
+String _profileMediaBinding(String accountScope, String profileDigest) =>
+    'book_media_profile_scope_v2_${accountScope}_$profileDigest';
+
+bool _scopeHasOtherAliases(
+  SharedPreferences prefs,
+  String scope,
+  String? currentAlias,
+) => prefs
+    .getKeys()
+    .where(
+      (key) =>
+          key.startsWith('book_media_storage_scope_v1_') && key != currentAlias,
+    )
+    .any((key) => prefs.getString(key) == scope);
+
+class BookMediaContext {
+  const BookMediaContext(
+    this.store, {
+    required this.serverVerified,
+    this.legacyDeletions = const [],
+  });
+  final BookMediaStore store;
+  final bool serverVerified;
+  final List<PendingBookDeletion> legacyDeletions;
+}
+
+class BookMediaScopeConflict implements Exception {
+  const BookMediaScopeConflict();
+}
+
+final bookMediaRegistryProvider = Provider<BookMediaRegistry>((ref) {
+  final registry = BookMediaRegistry(
+    ref.watch(sharedPreferencesProvider),
+    baseDirectory: getTemporaryDirectory,
+    journalDirectory: getApplicationSupportDirectory,
+  );
+  ref.onDispose(() => unawaited(registry.close().catchError((Object _) {})));
+  return registry;
+});
+
+/// Older/offline servers use a local credential-bound scope, never a shared
+/// cache for new writes; only a verified server scope enables receipt handling.
+final FutureProvider<BookMediaContext>
+bookMediaStoreProvider = FutureProvider<BookMediaContext>((ref) async {
+  final prefs = ref.watch(sharedPreferencesProvider);
+  if (prefs.getBool(localMediaCleanupPendingKey) == true) {
+    throw StateError('Local media cleanup is pending');
+  }
+  final api = ref.watch(apiClientProvider);
+  final registry = ref.watch(bookMediaRegistryProvider);
+  final user = ref.watch(userServiceProvider);
+  final credential = user.getUserKey();
+  final profileDigest = bookMediaProfileDigest(user.getActiveProfileId());
+  final baseUrl = ref.watch(apiBaseUrlProvider);
+  var active = true;
+  ref.onDispose(() => active = false);
+  final binding = _bookMediaBinding(baseUrl, credential);
+  final previous = prefs.getString(binding);
+  String? serverScope;
+  try {
+    serverScope = await api.getAccountMediaScope().timeout(
+      const Duration(seconds: 5),
+    );
+  } on DioException catch (error) {
+    if (error.response?.statusCode == 401 ||
+        error.response?.statusCode == 403) {
+      throw StateError('Account media access is not authorized');
+    }
+  } catch (_) {
+    // Legacy/unconfigured or offline servers cannot authorize receipt use.
+  }
+  if (!active) throw StateError('Account changed during media setup');
+  if (previous != null && serverScope != null && previous != serverScope) {
+    throw const BookMediaScopeConflict();
+  }
+  final localFallback = _localBookMediaScope(baseUrl, credential);
+  final knownServerScope = serverScope ?? previous;
+  final alias = knownServerScope == null
+      ? null
+      : _bookMediaAlias(baseUrl, knownServerScope);
+  var localScope = alias == null ? null : prefs.getString(alias);
+  if (_scopeHasOtherAliases(prefs, localFallback, alias) ||
+      (localScope != null && _scopeHasOtherAliases(prefs, localScope, alias))) {
+    throw const BookMediaScopeConflict();
+  }
+  localScope ??= localFallback;
+  if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(localScope)) {
+    throw StateError('Invalid local media scope');
+  }
+  if (serverScope != null &&
+      alias != null &&
+      prefs.getString(alias) == null &&
+      !await prefs.setString(alias, localScope)) {
+    throw StateError('Could not persist local media scope');
+  }
+  if (serverScope != null &&
+      previous == null &&
+      !await prefs.setString(binding, serverScope)) {
+    throw StateError('Could not persist account media scope');
+  }
+  if (!active) throw StateError('Account changed during media setup');
+  final legacyDeletions = <PendingBookDeletion>[];
+  for (final legacyScope in {localFallback, localScope}) {
+    if (await registry.hasScopeData(legacyScope)) {
+      final legacyStore = registry.forScope(legacyScope);
+      final pending = await legacyStore.pendingRequests();
+      if (serverScope != null) {
+        for (final request in pending.where(
+          (item) => item.profileDigest == profileDigest,
+        )) {
+          if (!active) break;
+          try {
+            await api.confirmBookDeletion(request.bookId, request.requestId);
+            if (!active) break;
+            await legacyStore.confirmDeletion(
+              request.bookId,
+              request.requestId,
+              profileDigest: profileDigest,
+            );
+          } catch (_) {
+            // Keep the original request and files for the next retry.
+          }
+        }
+      }
+      // Confirmed legacy records and their media are deliberately kept:
+      // a v1 directory does not identify which profile owns each file.
+      legacyDeletions.addAll(
+        (await legacyStore.unfinishedDeletions()).where(
+          (item) => item.profileDigest == profileDigest,
+        ),
+      );
+    }
+  }
+  if (!active) throw StateError('Account changed during media setup');
+  final profileScope = _profileMediaScope(localScope, profileDigest);
+  final profileBinding = _profileMediaBinding(localScope, profileDigest);
+  await registry.guardProfileRegistration(() async {
+    if (!active ||
+        prefs.getBool(localMediaCleanupPendingKey) == true ||
+        prefs.getBool(UserService.deletionRequestedKey) == true ||
+        prefs.getBool(UserService.deletionCommittedKey) == true) {
+      throw StateError('Account cleanup is pending');
+    }
+    final savedProfileScope = prefs.getString(profileBinding);
+    if (savedProfileScope != null && savedProfileScope != profileScope) {
+      throw const BookMediaScopeConflict();
+    }
+    if (savedProfileScope == null &&
+        !await prefs.setString(profileBinding, profileScope)) {
+      throw StateError('Could not persist profile media scope');
+    }
+  });
+  if (!active) throw StateError('Account changed during media setup');
+  final store = registry.forScope(profileScope);
+  await store.initialize();
+  Future<void> clearBook(String bookId, String profile) async {
+    for (final key in [
+      scopedBookCacheKey(store.scopeDigest, profile, bookId),
+    ]) {
+      if (!await prefs.remove(key)) {
+        throw StateError('Could not clear deleted book data');
+      }
+    }
+    await clearScopedBookProgress(prefs, store.scopeDigest, bookId);
+  }
+
+  try {
+    for (final request in await store.confirmedDeletions()) {
+      if (!active) break;
+      await clearBook(request.bookId, request.profileDigest);
+    }
+    await store.retryPending();
+    for (final request
+        in serverScope == null
+            ? <PendingBookDeletion>[]
+            : await store.pendingRequests()) {
+      if (!active || request.profileDigest != profileDigest) continue;
+      try {
+        await api.confirmBookDeletion(request.bookId, request.requestId);
+        if (!active) break;
+        await store.confirmDeletion(
+          request.bookId,
+          request.requestId,
+          profileDigest: profileDigest,
+        );
+        await clearBook(request.bookId, request.profileDigest);
+        await store.purgeBook(request.bookId);
+      } catch (_) {
+        // An unavailable or ambiguous receipt never confirms deletion.
+      }
+    }
+  } catch (_) {
+    // Per-book tombstones remain blocked; other books can still be opened.
+  }
+  if (!active) throw StateError('Account changed during media setup');
+  return BookMediaContext(
+    store,
+    serverVerified: serverScope != null,
+    legacyDeletions: legacyDeletions,
+  );
+});
+
+final readingProgressProvider = FutureProvider.family<ScopedReadingProgress, String>((ref, bookId) async {
+  final api = ref.watch(apiClientProvider);
+  final prefs = ref.watch(sharedPreferencesProvider);
+  var active = true;
+  ref.onDispose(() => active = false);
+  final media = await ref.watch(bookMediaStoreProvider.future);
+  if (!active) throw StateError('Reading scope changed');
+  return ScopedReadingProgress(prefs, media.store, bookId, () {
+    if (!active) return false;
+    return identical(ref.read(apiClientProvider), api) &&
+        !ref.read(bookMediaBlockedProvider(bookId));
+  });
+});
+
+final homeReadingProgressProvider = FutureProvider.family<int, String>((ref, bookId) async {
+  try {
+    final progress = await ref.watch(readingProgressProvider(bookId).future);
+    return await progress.page() ?? 0;
+  } catch (_) {
+    return 0;
+  }
+});
+
+final bookMediaBlockedProvider = Provider.family<bool, String>((ref, bookId) {
+  ref.watch(bookMediaStoreProvider);
+  final prefs = ref.watch(sharedPreferencesProvider);
+  final user = ref.watch(userServiceProvider);
+  final baseUrl = ref.watch(apiBaseUrlProvider);
+  String credential;
+  try {
+    credential = user.getUserKey();
+  } on UserKeyUnavailable {
+    // The account is unavailable: block media instead of crashing the viewer.
+    return true;
+  }
+  final serverScope = prefs.getString(_bookMediaBinding(baseUrl, credential));
+  final accountScope = serverScope == null
+      ? _localBookMediaScope(baseUrl, credential)
+      : prefs.getString(_bookMediaAlias(baseUrl, serverScope)) ??
+            _localBookMediaScope(baseUrl, credential);
+  final profile = bookMediaProfileDigest(user.getActiveProfileId());
+  final scope = _profileMediaScope(accountScope, profile);
+  return BookMediaStore.isBookBlocked(prefs, scope, bookId) ||
+      BookMediaStore.isLegacyBookBlockedForProfile(
+        prefs,
+        accountScope,
+        bookId,
+        profile,
+      ) ||
+      BookMediaStore.isLegacyBookBlockedForProfile(
+        prefs,
+        _localBookMediaScope(baseUrl, credential),
+        bookId,
+        profile,
+      );
+});
+
+final pendingBookDeletionsProvider = FutureProvider<List<PendingBookDeletion>>((
+  ref,
+) async {
+  final media = await ref.watch(bookMediaStoreProvider.future);
+  final profile = bookMediaProfileDigest(
+    ref.watch(userServiceProvider).getActiveProfileId(),
+  );
+  return [
+    ...(await media.store.unfinishedDeletions()).where(
+      (request) => request.profileDigest == profile,
+    ),
+    ...media.legacyDeletions,
+  ];
+});
+
 final localMediaCachePurgerProvider = Provider<Future<void> Function()>(
   (ref) => purgeAppImageCache,
 );
+final bookCleanupPlanJournalProvider = Provider<BookCleanupPlanJournal>(
+  (ref) =>
+      BookCleanupPlanJournal(baseDirectory: getApplicationSupportDirectory),
+);
+
+/// Called only after explicit on-device confirmation and a committed account
+/// deletion. Historical scopes are never guessed from unrelated accounts.
+final clearLegacyAccountMediaProvider = Provider<Future<void> Function()>((
+  ref,
+) {
+  return () async {
+    final prefs = ref.read(sharedPreferencesProvider);
+    if (prefs.getBool(UserService.deletionCommittedKey) != true ||
+        prefs.getBool(localMediaCleanupPendingKey) != true) {
+      throw StateError('Account deletion is not committed');
+    }
+    final user = ref.read(userServiceProvider);
+    await user.resumeKeyForDeletion();
+    final credential = user.getUserKey();
+    final baseUrl = ref.read(apiBaseUrlProvider);
+    final binding = _bookMediaBinding(baseUrl, credential);
+    final serverScope = prefs.getString(binding);
+    final alias = serverScope == null
+        ? null
+        : _bookMediaAlias(baseUrl, serverScope);
+    final localScope = alias == null ? null : prefs.getString(alias);
+    final expected = <String>{
+      _localBookMediaScope(baseUrl, credential),
+      if (localScope != null) localScope,
+    };
+    if (expected.any(
+      (scope) =>
+          !RegExp(r'^[0-9a-f]{64}$').hasMatch(scope) ||
+          _scopeHasOtherAliases(prefs, scope, alias),
+    )) {
+      throw StateError('Account media ownership requires reconciliation');
+    }
+    final journal = ref.read(bookCleanupPlanJournalProvider);
+    final raw = await reconcileBookCleanupPlan(
+      prefs,
+      journal.read,
+      journal.write,
+    );
+    if (raw == null) throw StateError('Cleanup plan is missing');
+    final plan = jsonDecode(raw);
+    if (plan is! Map<String, dynamic> ||
+        (plan['kind'] != null && plan['kind'] != 'account') ||
+        (plan['legacy_scopes'] ?? plan['scopes']) is! List) {
+      throw StateError('Historical media ownership requires reconciliation');
+    }
+    final planned = Set<String>.from(
+      (plan['legacy_scopes'] ?? plan['scopes']) as List,
+    );
+    if (planned.length != expected.length || !planned.containsAll(expected)) {
+      throw StateError('Account cleanup scopes differ');
+    }
+    await ref
+        .read(bookMediaRegistryProvider)
+        .purgeScopes(planned, eraseJournal: true);
+  };
+});
 final localMediaCleanupProvider = Provider<LocalMediaCleanup>((ref) {
   final preferences = ref.watch(sharedPreferencesProvider);
   final purgeCache = ref.watch(localMediaCachePurgerProvider);
+  final planJournal = ref.watch(bookCleanupPlanJournalProvider);
+  Future<String> ensurePlan(String kind) async {
+    var planText = await reconcileBookCleanupPlan(
+      preferences,
+      planJournal.read,
+      planJournal.write,
+    );
+    if (planText == null) {
+      final user = ref.read(userServiceProvider);
+      String credential;
+      try {
+        credential = user.getUserKey();
+      } on UserKeyUnavailable {
+        await user.resumeKeyForDeletion();
+        credential = user.getUserKey();
+      }
+      final baseUrl = ref.read(apiBaseUrlProvider);
+      final binding = _bookMediaBinding(baseUrl, credential);
+      final serverScope = preferences.getString(binding);
+      if (serverScope != null &&
+          !RegExp(r'^[0-9a-f]{64}$').hasMatch(serverScope)) {
+        throw StateError('Invalid account media binding');
+      }
+      final alias = serverScope == null
+          ? null
+          : _bookMediaAlias(baseUrl, serverScope);
+      final localScope = alias == null ? null : preferences.getString(alias);
+      final scopes = <String>{
+        _localBookMediaScope(baseUrl, credential),
+        if (localScope != null) localScope,
+      };
+      if (scopes.any(
+        (scope) => _scopeHasOtherAliases(preferences, scope, alias),
+      )) {
+        throw StateError('Account media scopes require reconciliation');
+      }
+      if (scopes.any((scope) => !RegExp(r'^[0-9a-f]{64}$').hasMatch(scope))) {
+        throw StateError('Invalid account media scope');
+      }
+      final legacyScopes = scopes.toSet();
+      final profileKeys = <String>[];
+      for (final base in legacyScopes) {
+        final prefix = 'book_media_profile_scope_v2_${base}_';
+        for (final key in preferences.getKeys().where(
+          (key) => key.startsWith(prefix),
+        )) {
+          final profile = key.substring(prefix.length);
+          if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(profile)) {
+            throw StateError('Invalid profile binding');
+          }
+          final expected = _profileMediaScope(base, profile);
+          if (preferences.getString(key) != expected) {
+            throw StateError('Invalid profile scope');
+          }
+          scopes.add(expected);
+          profileKeys.add(key);
+        }
+      }
+      planText = jsonEncode({
+        'scopes': scopes.toList(),
+        'legacy_scopes': legacyScopes.toList(),
+        'metadata_keys': [binding, if (alias != null) alias, ...profileKeys],
+        'kind': kind,
+      });
+      await planJournal.write(planText);
+      if (!await preferences.setString(bookMediaCleanupPlanKey, planText)) {
+        throw StateError('Could not persist account media cleanup plan');
+      }
+    }
+    return planText;
+  }
+
   return LocalMediaCleanup(
     preferences,
+    clearPlan: planJournal.clear,
+    preparePlan: () async {
+      final plan = jsonDecode(await ensurePlan('account_requested'));
+      if (plan is! Map<String, dynamic> ||
+          plan['kind'] != 'account_requested') {
+        throw StateError('Existing cleanup plan requires reconciliation');
+      }
+    },
+    onComplete: () {
+      ref.read(bookMediaRegistryProvider).releasePurgedScopes();
+      ref.invalidate(bookMediaStoreProvider);
+    },
     purge: () async {
       // Dispose pending detail requests before erasing offline data so a late
       // response cannot restore a book cache after consent/account deletion.
       ref.invalidate(bookDetailProvider);
+      ref.invalidate(bookMediaStoreProvider);
       ref.invalidate(libraryProvider);
       ref.invalidate(libraryBrowseProvider);
       ref.invalidate(charactersProvider);
+      var planText = await ensurePlan(
+        preferences.getBool(UserService.deletionCommittedKey) == true
+            ? 'account'
+            : 'consent',
+      );
+      var plan = jsonDecode(planText);
+      if (plan is! Map<String, dynamic> || plan['scopes'] is! List) {
+        throw StateError('Invalid account media cleanup plan');
+      }
+      if (plan['kind'] == 'account_requested' &&
+          preferences.getBool(UserService.deletionCommittedKey) != true) {
+        throw StateError('Account deletion is not confirmed');
+      }
+      if (preferences.getBool(UserService.deletionCommittedKey) == true &&
+          plan['kind'] != 'account') {
+        plan = {...plan, 'kind': 'account'};
+        planText = jsonEncode(plan);
+        await planJournal.write(planText);
+        if (!await preferences.setString(bookMediaCleanupPlanKey, planText)) {
+          throw StateError('Could not persist account cleanup commitment');
+        }
+      }
+      final legacy = plan['legacy_scopes'];
+      // Old plans have no profile inventory. Preserve all of their scopes.
+      final legacyScopes = legacy is List
+          ? Set<String>.from(legacy)
+          : Set<String>.from(plan['scopes'] as List);
+      final newScopes = Set<String>.from(plan['scopes'] as List)
+        ..removeAll(legacyScopes);
+      void verifyProfileInventory() {
+        for (final base in legacyScopes) {
+          final prefix = 'book_media_profile_scope_v2_${base}_';
+          for (final key in preferences.getKeys().where(
+            (key) => key.startsWith(prefix),
+          )) {
+            final profile = key.substring(prefix.length);
+            if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(profile) ||
+                preferences.getString(key) !=
+                    _profileMediaScope(base, profile) ||
+                !newScopes.contains(_profileMediaScope(base, profile))) {
+              throw StateError('Profile scope changed during cleanup');
+            }
+          }
+        }
+      }
+
+      await ref.read(bookMediaRegistryProvider).guardProfileRegistration(
+        () async {
+          verifyProfileInventory();
+        },
+      );
+      await ref
+          .read(bookMediaRegistryProvider)
+          .purgeScopes(
+            newScopes,
+            eraseJournal:
+                preferences.getBool(UserService.deletionCommittedKey) == true,
+          );
+      verifyProfileInventory();
+      for (final oldScope in legacyScopes) {
+        if (await ref.read(bookMediaRegistryProvider).hasScopeData(oldScope)) {
+          throw StateError('Historical media ownership is unresolved');
+        }
+      }
       await purgeCache();
+      ref.invalidate(bookMediaStoreProvider);
     },
   );
 });
@@ -113,6 +628,27 @@ final accountRecoveryServiceProvider = Provider<AccountRecoveryService>((ref) {
     userService: ref.watch(userServiceProvider),
     preferences: ref.watch(sharedPreferencesProvider),
     purgeLocalMedia: ref.watch(localMediaCleanupProvider).run,
+    prepareAccountDeletion: ref
+        .watch(localMediaCleanupProvider)
+        .prepareAccountDeletion,
+    clearCleanupPlan: ref.watch(bookCleanupPlanJournalProvider).clear,
+    readCleanupPlan: ref.watch(bookCleanupPlanJournalProvider).read,
+    writeCleanupPlan: ref.watch(bookCleanupPlanJournalProvider).write,
+    cleanupPlanMatchesCredential: (planText) async {
+      final plan = jsonDecode(planText);
+      if (plan is! Map<String, dynamic> || plan['scopes'] is! List) {
+        return false;
+      }
+      final user = ref.read(userServiceProvider);
+      try {
+        await user.resumeKeyForDeletion();
+        return (plan['scopes'] as List).contains(
+          _localBookMediaScope(baseUrl, user.getUserKey()),
+        );
+      } on UserKeyUnavailable {
+        return false;
+      }
+    },
     clientForKey: (key) => ApiClient(baseUrl: baseUrl, userKey: key),
   );
 });
@@ -128,6 +664,7 @@ void invalidateAccountScope(ProviderContainer container) {
   PaintingBinding.instance.imageCache.clear();
   PaintingBinding.instance.imageCache.clearLiveImages();
   container.invalidate(apiClientProvider);
+  container.invalidate(bookMediaStoreProvider);
   container.invalidate(libraryProvider);
   container.invalidate(libraryBrowseProvider);
   container.invalidate(charactersProvider);
@@ -155,12 +692,24 @@ final generationOptionsProvider = FutureProvider.autoDispose<GenerationOptions>(
   return api.getGenerationOptions();
 });
 
-/// 배포 환경 기능 가용성. 실패 시 보수적으로 미지원으로 처리한다.
+/// 배포 환경 기능 가용성. 실패 시 보수적으로 미지원으로 처리하고 재확인한다.
 final capabilitiesProvider = FutureProvider<Map<String, dynamic>>((ref) async {
-  final api = ref.read(apiClientProvider);
+  final api = ref.watch(apiClientProvider);
+  Timer? retry;
+  var disposed = false;
+  ref.onDispose(() {
+    disposed = true;
+    retry?.cancel();
+  });
   try {
     return await api.getCapabilities();
   } catch (_) {
+    // A transient connectivity failure must not disable capabilities for the
+    // remainder of the app session. Keep the conservative fallback until a
+    // subsequent successful response and avoid a tight retry loop.
+    if (!disposed) {
+      retry = Timer(const Duration(seconds: 30), ref.invalidateSelf);
+    }
     return const {'inpaint_supported': false, 'audio_supported': false};
   }
 });
@@ -624,17 +1173,94 @@ class LibraryBrowseNotifier extends AsyncNotifier<LibraryBrowseState> {
     }
   }
 
-  Future<void> deleteBook(String bookId) async {
+  Future<bool> deleteBook(String bookId) async {
     final current = state.valueOrNull;
     if (current == null) {
-      return;
+      throw StateError('Library is unavailable');
     }
     final api = ref.read(apiClientProvider);
-    await api.deleteBook(bookId);
-    final prefs = ref.read(sharedPreferencesProvider);
-    await prefs.remove('book_cache_${bookId}_v1');
-    await prefs.remove('reading_progress_${bookId}_v1');
+    final media = await ref.read(bookMediaStoreProvider.future);
+    if (!identical(ref.read(apiClientProvider), api)) {
+      throw const BookDeletionUnconfirmed();
+    }
+    final priorRequest = (await media.store.unfinishedDeletions()).any(
+      (request) => request.bookId == bookId,
+    );
+    if (!identical(ref.read(apiClientProvider), api)) {
+      throw const BookDeletionUnconfirmed();
+    }
+    if (!media.serverVerified) {
+      // A prior request may already have reached an older server. Do not tell
+      // the user it never started merely because a new attempt is blocked.
+      if (priorRequest) {
+        throw const BookDeletionUnconfirmed();
+      }
+      throw const BookDeletionNotStarted();
+    }
+    {
+      final user = ref.read(userServiceProvider);
+      final binding = _bookMediaBinding(
+        ref.read(apiBaseUrlProvider),
+        user.getUserKey(),
+      );
+      final expected = ref.read(sharedPreferencesProvider).getString(binding);
+      String current;
+      try {
+        current = await api.getAccountMediaScope().timeout(
+          const Duration(seconds: 5),
+        );
+      } catch (_) {
+        if (!identical(ref.read(apiClientProvider), api) || priorRequest) {
+          throw const BookDeletionUnconfirmed();
+        }
+        throw const BookDeletionNotStarted();
+      }
+      if (!identical(ref.read(apiClientProvider), api) ||
+          expected == null ||
+          current != expected) {
+        // A different account/scope must not reveal another scope's markers.
+        throw const BookDeletionUnconfirmed();
+      }
+    }
+    // Old DefaultCacheManager entries cannot yet be attributed reliably, so
+    // do not claim that all stored files have been removed.
+    const purgePending = true;
+    final store = media.store;
+    final profile = bookMediaProfileDigest(
+      ref.read(userServiceProvider).getActiveProfileId(),
+    );
+    final request = await store.beginDeletion(bookId, profileDigest: profile);
+    ref.invalidate(bookMediaBlockedProvider(bookId));
     ref.invalidate(bookDetailProvider(bookId));
+    ref.invalidate(pendingBookDeletionsProvider);
+    if (!identical(ref.read(apiClientProvider), api)) {
+      throw const BookDeletionUnconfirmed();
+    }
+    // An error, timeout, 403 or 404 leaves the request pending for a later
+    // scoped receipt check; it never authorizes local erasure.
+    try {
+      await api.deleteBookWithReceipt(bookId, request);
+    } catch (_) {
+      throw const BookDeletionUnconfirmed();
+    }
+    await store.confirmDeletion(bookId, request, profileDigest: profile);
+    try {
+      await store.purgeBook(bookId);
+    } catch (_) {
+      /* The persisted marker drives a later retry. */
+    }
+    ref.invalidate(pendingBookDeletionsProvider);
+    if (!identical(ref.read(apiClientProvider), api)) return true;
+    PaintingBinding.instance.imageCache.clear();
+    PaintingBinding.instance.imageCache.clearLiveImages();
+    final prefs = ref.read(sharedPreferencesProvider);
+    ref.invalidate(bookDetailProvider(bookId));
+    if (media.serverVerified) {
+      await prefs.remove(
+        scopedBookCacheKey(media.store.scopeDigest, profile, bookId),
+      );
+      await clearScopedBookProgress(prefs, media.store.scopeDigest, bookId);
+    }
     ref.invalidate(libraryProvider);
 
     final updatedBooks = current.books
@@ -644,6 +1270,7 @@ class LibraryBrowseNotifier extends AsyncNotifier<LibraryBrowseState> {
     state = AsyncValue.data(
       current.copyWith(books: updatedBooks, total: nextTotal),
     );
+    return purgePending;
   }
 
   Future<void> renameBook(String bookId, String title) async {
@@ -651,11 +1278,33 @@ class LibraryBrowseNotifier extends AsyncNotifier<LibraryBrowseState> {
     if (current == null) {
       return;
     }
+    // A profile switch invalidates the client while media initialization or
+    // the request is in flight. Never send using the replacement profile or
+    // publish an old profile's result into the newly selected library.
     final api = ref.read(apiClientProvider);
+    final version = _requestVersion;
+    final profile = bookMediaProfileDigest(
+      ref.read(userServiceProvider).getActiveProfileId(),
+    );
+    final media = await ref.read(bookMediaStoreProvider.future);
+    if (version != _requestVersion ||
+        !identical(ref.read(apiClientProvider), api)) {
+      throw StateError('Profile changed before book rename');
+    }
     final updated = await api.updateBookTitle(bookId, title);
+    if (version != _requestVersion ||
+        !identical(ref.read(apiClientProvider), api)) {
+      return;
+    }
     // Never let the detail fallback resurrect the old title after a rename.
     final prefs = ref.read(sharedPreferencesProvider);
-    await prefs.remove('book_cache_${bookId}_v1');
+    await prefs.remove(
+      scopedBookCacheKey(media.store.scopeDigest, profile, bookId),
+    );
+    if (version != _requestVersion ||
+        !identical(ref.read(apiClientProvider), api)) {
+      return;
+    }
     ref.invalidate(bookDetailProvider(bookId));
     ref.invalidate(libraryProvider);
 
@@ -1104,19 +1753,67 @@ class BookCreationNotifier extends AsyncNotifier<void> {
 // ==================== Book Viewer Provider ====================
 
 /// 책 상세 조회 Provider
-final bookDetailProvider = FutureProvider.autoDispose
-    .family<BookResult, String>((ref, bookId) async {
+final AutoDisposeFutureProviderFamily<BookResult, String> bookDetailProvider =
+    FutureProvider.autoDispose.family<BookResult, String>((ref, bookId) async {
       final api = ref.watch(apiClientProvider);
       final prefs = ref.read(sharedPreferencesProvider);
-      final cacheKey = 'book_cache_${bookId}_v1';
+      final user = ref.read(userServiceProvider);
+      final profile = bookMediaProfileDigest(user.getActiveProfileId());
       var active = true;
       ref.onDispose(() => active = false);
+      if (prefs.getBool(localMediaCleanupPendingKey) == true) {
+        throw StateError('Local media cleanup is pending');
+      }
+      var mediaScopeConflict = false;
+      BookMediaContext? media;
+      try {
+        media = await ref.watch(bookMediaStoreProvider.future);
+      } on BookMediaScopeConflict {
+        // A missing or changed scope restricts the new media feature, not the
+        // existing authenticated book text and reading flow.
+        mediaScopeConflict = true;
+      }
+      if (!active) throw StateError('Profile changed during book lookup');
+      final baseUrl = ref.read(apiBaseUrlProvider);
+      final credential = user.getUserKey();
+      final serverScope = prefs.getString(
+        _bookMediaBinding(baseUrl, credential),
+      );
+      final scope =
+          media?.store.scopeDigest ??
+          (serverScope == null
+              ? _localBookMediaScope(baseUrl, credential)
+              : prefs.getString(_bookMediaAlias(baseUrl, serverScope)) ??
+                    _localBookMediaScope(baseUrl, credential));
+      bool blocked() =>
+          BookMediaStore.isBookBlocked(prefs, scope, bookId) ||
+          BookMediaStore.isLegacyBookBlockedForProfile(
+            prefs,
+            _localBookMediaScope(baseUrl, credential),
+            bookId,
+            profile,
+          ) ||
+          (serverScope != null &&
+              BookMediaStore.isLegacyBookBlockedForProfile(
+                prefs,
+                prefs.getString(_bookMediaAlias(baseUrl, serverScope)) ??
+                    _localBookMediaScope(baseUrl, credential),
+                bookId,
+                profile,
+              ));
+      if (blocked()) throw StateError('Book deletion requires confirmation');
+      final cacheKey = scopedBookCacheKey(scope, profile, bookId);
 
       try {
         final book = await api.getBook(bookId);
-        if (active) await prefs.setString(cacheKey, jsonEncode(book.toJson()));
+        if (blocked()) throw StateError('Book deletion requires confirmation');
+        if (active && !mediaScopeConflict) {
+          await prefs.setString(cacheKey, jsonEncode(book.toJson()));
+        }
         return book;
       } catch (error) {
+        if (!active) rethrow;
+        if (blocked()) rethrow;
         final apiError = error is ApiError
             ? error
             : error is DioException
@@ -1131,6 +1828,7 @@ final bookDetailProvider = FutureProvider.autoDispose
           await prefs.remove(cacheKey);
           rethrow;
         }
+        if (mediaScopeConflict) rethrow;
         final cached = prefs.getString(cacheKey);
         if (cached != null && cached.isNotEmpty) {
           try {

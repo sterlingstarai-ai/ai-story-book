@@ -1,0 +1,31 @@
+{
+  "displayName": "AI Story Book backup health",
+  "combiner": "OR",
+  "enabled": true,
+  "notificationChannels": ["PROJECT_NOTIFICATION_CHANNEL_RESOURCE"],
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "The private pilot backup status is unhealthy or its health signal is missing. Check the backup watch, disk and service logs. No child data is included."
+  },
+  "conditions": [
+    {
+      "displayName": "Backup status unhealthy",
+      "conditionThreshold": {
+        "filter": "metric.type=\"custom.googleapis.com/ai_story_book/backup_health\" AND resource.type=\"global\"",
+        "comparison": "COMPARISON_LT",
+        "thresholdValue": 0.5,
+        "duration": "0s",
+        "aggregations": [{"alignmentPeriod": "60s", "perSeriesAligner": "ALIGN_MIN"}]
+      }
+    },
+    {
+      "displayName": "Backup health signal missing",
+      "conditionAbsent": {
+        "filter": "metric.type=\"custom.googleapis.com/ai_story_book/backup_health\" AND resource.type=\"global\"",
+        "duration": "2400s",
+        "aggregations": [{"alignmentPeriod": "60s", "perSeriesAligner": "ALIGN_MEAN"}]
+      }
+    }
+  ],
+  "alertStrategy": {"autoClose": "1800s"}
+}

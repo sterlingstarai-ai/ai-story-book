@@ -99,6 +99,23 @@ parental approval, twelve-page book generation and consent-withdrawal erasure.
 PostgreSQL also checks that photo publication and withdrawal serialize for one
 account without blocking another account. Live AI/store acceptance remains separate.
 
+To inspect the current app locally without loading saved provider credentials,
+keep that verified synthetic backend running and build a debug browser preview:
+
+```bash
+./scripts/run_runtime_e2e.sh --suite media --serve --api-port 18280
+# In a second terminal, from apps/mobile:
+flutter build web --debug --no-wasm-dry-run --dart-define=API_BASE_URL=http://127.0.0.1:18280
+python3 ../../scripts/serve_web_preview.py
+```
+
+Open `http://127.0.0.1:18281/preview`. The local server serves fresh build URLs,
+disables offline worker registration and preserves browser data. This is a
+synthetic review preview, not a public
+release or native feature certification. Use fictional inputs only. Readiness
+continues to reject mock providers with HTTP 503 even when local dependencies
+are healthy. Ctrl-C on the runtime command removes only its temporary services.
+
 For a synthetic PostgreSQL/private-media backup and restore check, run
 `./scripts/run_backup_restore_rehearsal.sh`. It compares restored database and media
 checksums in a second isolated stack. The operational procedure is in

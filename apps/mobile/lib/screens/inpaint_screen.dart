@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import '../l10n/app_localizations.dart';
 import '../providers/providers.dart';
 import '../services/api_client.dart';
+import '../services/book_scoped_cache_manager.dart';
 import '../utils/constants.dart';
 import '../widgets/common_widgets.dart';
 
@@ -97,8 +98,10 @@ class _InpaintScreenState extends ConsumerState<InpaintScreen> {
       canvas.drawPath(path, brush);
     }
     final picture = recorder.endRecording();
-    final image =
-        await picture.toImage(size.width.round(), size.height.round());
+    final image = await picture.toImage(
+      size.width.round(),
+      size.height.round(),
+    );
     final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
     image.dispose();
     picture.dispose();
@@ -111,9 +114,9 @@ class _InpaintScreenState extends ConsumerState<InpaintScreen> {
     final api = ref.read(apiClientProvider);
     final prompt = _promptController.text.trim();
     if (_strokes.isEmpty || prompt.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l.inpaintNeedRegionAndPrompt)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.inpaintNeedRegionAndPrompt)));
       return;
     }
     final box = _canvasKey.currentContext?.findRenderObject() as RenderBox?;
@@ -125,7 +128,8 @@ class _InpaintScreenState extends ConsumerState<InpaintScreen> {
       if (maskBytes == null || !mounted) return;
       final dir = await getTemporaryDirectory();
       final file = File(
-          '${dir.path}/inpaint_mask_${widget.pageNumber}_${DateTime.now().microsecondsSinceEpoch}.png');
+        '${dir.path}/inpaint_mask_${widget.pageNumber}_${DateTime.now().microsecondsSinceEpoch}.png',
+      );
       temporaryMask = file;
       await file.writeAsBytes(maskBytes, flush: true);
 
@@ -250,9 +254,24 @@ class _InpaintScreenState extends ConsumerState<InpaintScreen> {
         errorBuilder: (context, _, __) => _imageError(context),
       );
     }
+    if (ref.watch(bookMediaBlockedProvider(widget.bookId))) {
+      return _imageError(context);
+    }
+    final scope = ref.watch(bookMediaStoreProvider);
+    if (scope.isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (scope.hasError) return _imageError(context);
+    final media = scope.valueOrNull;
+    if (media == null) return _imageError(context);
     return CachedNetworkImage(
       key: ValueKey(_imageAttempt),
       imageUrl: widget.imageUrl,
+      cacheManager: BookScopedCacheManager(
+        store: media.store,
+        bookId: widget.bookId,
+        fileExtension: 'img',
+      ),
       fit: BoxFit.cover,
       imageBuilder: (context, provider) {
         _markImageReady();
@@ -300,8 +319,10 @@ class _InpaintScreenState extends ConsumerState<InpaintScreen> {
                           children: [
                             _illustration(),
                             IgnorePointer(
-                                child: CustomPaint(
-                                    painter: _MaskPainter(_strokes))),
+                              child: CustomPaint(
+                                painter: _MaskPainter(_strokes),
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -336,7 +357,8 @@ class _InpaintScreenState extends ConsumerState<InpaintScreen> {
               PrimaryButton(
                 text: l.inpaintApply,
                 isLoading: _isLoading,
-                onPressed: !_imageReady ||
+                onPressed:
+                    !_imageReady ||
                         _strokes.isEmpty ||
                         _promptController.text.trim().isEmpty
                     ? null

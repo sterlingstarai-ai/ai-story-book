@@ -13,6 +13,9 @@ greenlet>=3.1.1,<4
 alembic==1.14.0
 psycopg2-binary>=2.9.9
 asyncpg==0.31.0
+# Optional verified channel-binding PostgreSQL driver; selected only by the
+# explicit postgresql+psycopg:// URL. Both API and migrations use libpq TLS.
+psycopg[binary]==3.3.6
 
 # Celery
 celery[redis]==5.4.0
@@ -27,10 +30,14 @@ boto3==1.35.0
 
 # HTTP Client
 httpx==0.28.1
+# Realtime TTS WebSocket client, explicitly bounded API version.
+websockets>=14,<18
 # aiohttp 제거(CI-1): src/·tests/ 어디서도 import하지 않는 고아 의존이었고(역의존 0 실측),
 # 상향해도 수정본 없는 CVE가 남았다. 안 쓰는 의존을 지워 현재 CVE + 향후 aiohttp CVE를
 # 영구 제거하고 공격 표면·이미지 크기도 줄인다. HTTP 클라이언트 정본은 httpx.
 google-auth==2.40.0
+# Explicit dependency for the encrypted privacy-journal prototype.
+cryptography==50.0.1
 app-store-server-library==3.1.2
 
 # Templating

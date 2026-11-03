@@ -19,6 +19,7 @@ class _FakeApi extends ApiClient {
   bool serverPhotos;
   bool grantCalled = false;
   bool lookupFails = false;
+  bool? purgeIncomplete;
 
   @override
   Future<Map<String, dynamic>> getConsent() async {
@@ -40,7 +41,10 @@ class _FakeApi extends ApiClient {
   }) async {
     grantCalled = true;
     serverPhotos = photos;
-    return {'photos': photos};
+    return {
+      'photos': photos,
+      if (purgeIncomplete != null) 'purge_incomplete': purgeIncomplete,
+    };
   }
 }
 
@@ -57,6 +61,42 @@ Widget _host(_FakeApi api) {
 }
 
 void main() {
+  for (final status in [true, false, null]) {
+    testWidgets('photo opt-out reports file status $status', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      final api = _FakeApi(serverPhotos: true)..purgeIncomplete = status;
+      final cleanup = LocalMediaCleanup(prefs, purge: () async {});
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            apiClientProvider.overrideWithValue(api),
+            sharedPreferencesProvider.overrideWithValue(prefs),
+            localMediaCleanupProvider.overrideWithValue(cleanup),
+          ],
+          child: MaterialApp(
+            locale: const Locale('ko'),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            routes: {'/onboarding': (_) => const Scaffold(body: Text('app entered'))},
+            home: const ConsentScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final l = await AppLocalizations.delegate.load(const Locale('ko'));
+      await tester.tap(find.byType(CheckboxListTile).first);
+      await tester.pump();
+      await tester.tap(find.byType(ElevatedButton));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l.settingsRevoke));
+      await tester.pumpAndSettle();
+      expect(find.text('app entered'), findsOneWidget);
+      expect(find.text(l.consentDeletionUnconfirmed),
+          status == false ? findsNothing : findsOneWidget);
+    });
+  }
+
   testWidgets(
     'unknown previous photo consent cannot trigger destructive opt-out',
     (tester) async {

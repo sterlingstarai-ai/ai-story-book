@@ -18,6 +18,7 @@ import '../widgets/common_widgets.dart';
 import '../widgets/character_avatar_preview.dart';
 import '../services/selected_photo_cache.dart';
 import '../services/photo_upload_fingerprint.dart';
+import '../services/api_client.dart';
 
 enum _CharacterCreationMode { photo, drawing }
 
@@ -487,14 +488,26 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
 
     try {
       final apiClient = ref.read(apiClientProvider);
-      await apiClient.deleteCharacter(character.id);
+      var purgePending = false;
+      try {
+        await apiClient.deleteCharacter(character.id);
+      } on StoragePurgePending {
+        // The character has been removed, while server-side file erasure retries.
+        purgePending = true;
+      }
       if (!mounted) {
         return;
       }
       final l = AppLocalizations.of(context);
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(l.charactersDeletedSnack)));
+      ).showSnackBar(
+        SnackBar(
+          content: Text(
+            purgePending ? l.characterDeletionPending : l.charactersDeletedSnack,
+          ),
+        ),
+      );
       await ref.read(charactersProvider.notifier).refresh();
     } catch (_) {
       if (!mounted) {

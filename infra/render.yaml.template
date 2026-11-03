@@ -85,6 +85,12 @@ services:
     value: 'coral'
   - key: GOOGLE_TTS_API_KEY
     value: ''
+  - key: GOOGLE_GEMINI_TTS_PROJECT
+    value: ''
+  - key: GOOGLE_GEMINI_TTS_DAILY_REQUEST_LIMIT
+    value: '0'
+  - key: GOOGLE_GEMINI_TTS_MONTHLY_REQUEST_LIMIT
+    value: '0'
   - key: ELEVENLABS_API_KEY
     value: ''
   - key: ELEVENLABS_VOICE_ID
@@ -113,6 +119,24 @@ services:
     sync: false
   - key: S3_BUCKET
     sync: false
+  - key: PRIVACY_JOURNAL_ENABLED
+    value: 'false'
+  - key: PRIVACY_JOURNAL_BUCKET
+    value: ''
+  - key: PRIVACY_JOURNAL_WITNESS_BUCKET
+    value: ''
+  - key: PRIVACY_JOURNAL_WITNESS_S3_ENDPOINT
+    value: ''
+  - key: PRIVACY_JOURNAL_WITNESS_S3_BUCKET
+    value: ''
+  - key: PRIVACY_JOURNAL_WITNESS_S3_REGION
+    value: ''
+  - key: PRIVACY_JOURNAL_WITNESS_S3_ACCESS_KEY
+    value: ''
+  - key: PRIVACY_JOURNAL_WITNESS_S3_SECRET_KEY
+    value: ''
+  - key: PRIVACY_JOURNAL_KEY_FILE
+    value: ''
   - key: S3_PUBLIC_URL
     sync: false
   - key: S3_LEGACY_PUBLIC_URLS
@@ -151,6 +175,8 @@ services:
     sync: false
   - key: DAILY_GENERATION_BUDGET
     value: '20'
+  - key: GENERATION_BUDGET_STORE
+    value: redis
   - key: DAILY_JOB_LIMIT_PER_USER
     value: '20'
   - key: MAX_PENDING_JOBS
@@ -356,6 +382,21 @@ services:
       name: __PREFIX__-api
       type: web
       envVarKey: GOOGLE_TTS_API_KEY
+  - key: GOOGLE_GEMINI_TTS_PROJECT
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: GOOGLE_GEMINI_TTS_PROJECT
+  - key: GOOGLE_GEMINI_TTS_DAILY_REQUEST_LIMIT
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: GOOGLE_GEMINI_TTS_DAILY_REQUEST_LIMIT
+  - key: GOOGLE_GEMINI_TTS_MONTHLY_REQUEST_LIMIT
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: GOOGLE_GEMINI_TTS_MONTHLY_REQUEST_LIMIT
   - key: ELEVENLABS_API_KEY
     fromService:
       name: __PREFIX__-api
@@ -426,6 +467,51 @@ services:
       name: __PREFIX__-api
       type: web
       envVarKey: S3_BUCKET
+  - key: PRIVACY_JOURNAL_ENABLED
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: PRIVACY_JOURNAL_ENABLED
+  - key: PRIVACY_JOURNAL_BUCKET
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: PRIVACY_JOURNAL_BUCKET
+  - key: PRIVACY_JOURNAL_WITNESS_BUCKET
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: PRIVACY_JOURNAL_WITNESS_BUCKET
+  - key: PRIVACY_JOURNAL_WITNESS_S3_ENDPOINT
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: PRIVACY_JOURNAL_WITNESS_S3_ENDPOINT
+  - key: PRIVACY_JOURNAL_WITNESS_S3_BUCKET
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: PRIVACY_JOURNAL_WITNESS_S3_BUCKET
+  - key: PRIVACY_JOURNAL_WITNESS_S3_REGION
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: PRIVACY_JOURNAL_WITNESS_S3_REGION
+  - key: PRIVACY_JOURNAL_WITNESS_S3_ACCESS_KEY
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: PRIVACY_JOURNAL_WITNESS_S3_ACCESS_KEY
+  - key: PRIVACY_JOURNAL_WITNESS_S3_SECRET_KEY
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: PRIVACY_JOURNAL_WITNESS_S3_SECRET_KEY
+  - key: PRIVACY_JOURNAL_KEY_FILE
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: PRIVACY_JOURNAL_KEY_FILE
   - key: S3_PUBLIC_URL
     fromService:
       name: __PREFIX__-api
@@ -521,6 +607,11 @@ services:
       name: __PREFIX__-api
       type: web
       envVarKey: DAILY_GENERATION_BUDGET
+  - key: GENERATION_BUDGET_STORE
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: GENERATION_BUDGET_STORE
   - key: DAILY_JOB_LIMIT_PER_USER
     fromService:
       name: __PREFIX__-api

@@ -31,7 +31,6 @@ from src.routers.books import (
     _create_job_with_credit,
     _enforce_free_plan_create_limits,
     check_guardrails,
-    consume_generation_budget,
     enforce_book_spec_access,
     get_idempotency_key,
     schedule_book_generation,
@@ -273,7 +272,6 @@ async def generate_today_story(
     # 실비용 경로인데 전역 예산·일일 한도 어느 쪽도 통과하지 않았다 — 예산 우회 채널.
     # M10/R3-3: 멱등·무료한도 검증을 통과한 뒤 소비.
     await check_guardrails(db, user_key)
-    await consume_generation_budget(endpoint="streak.today_generate", user_key=user_key)
 
     job_id = f"job_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
     existing = await _create_job_with_credit(
@@ -282,6 +280,7 @@ async def generate_today_story(
         job_id=job_id,
         current_step="queued",  # M32
         credit_description="오늘의 동화 생성",
+        budget_endpoint="streak.today_generate",
         character_ids=spec.character_ids or ([spec.character_id] if spec.character_id else []),
         idempotency_key=idempotency_key,
         profile_id=scoped_profile_id,

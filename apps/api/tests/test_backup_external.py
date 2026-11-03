@@ -70,6 +70,15 @@ def test_database_password_is_only_in_child_environment(backup, monkeypatch, val
     assert process.call_args.kwargs['stderr'] == backup.subprocess.PIPE
 
 
+def test_required_channel_binding_reaches_libpq(backup, values, tmp_path):
+    values['DATABASE_URL'] = 'postgresql+psycopg://user:pass@db.invalid/storybook?sslmode=verify-full&channel_binding=require'
+    env = backup.database_environment(values, tmp_path / 'ca.crt')
+    assert env['PGCHANNELBINDING'] == 'require'
+    values['DATABASE_URL'] += '&channel_binding=disable'
+    with pytest.raises(backup.BackupError):
+        backup.database_environment(values, tmp_path / 'ca.crt')
+
+
 @pytest.fixture
 def inert_backup(backup, monkeypatch, values, tmp_path):
     commands = []
@@ -77,7 +86,15 @@ def inert_backup(backup, monkeypatch, values, tmp_path):
         commands.append(command)
         assert 'private@secret' not in str(command)
         if command[0] == 'pg_dump':
+            if '--version' in command:
+                return b'pg_dump (PostgreSQL) 16.11\n'
             destination.write(b'synthetic-db-dump')
+        if command[:2] == ['pg_restore', '--version']:
+            return b'pg_restore (PostgreSQL) 16.11\n'
+        if 'server_version_num' in command[-1]:
+            return b'160009\n'
+        if 'txid_current_snapshot' in command[-1]:
+            return b'100:100:\n'
         if 'SELECT count' in command[-1]:
             return b'0\n'
         if 'version_num' in command[-1]:
@@ -85,7 +102,7 @@ def inert_backup(backup, monkeypatch, values, tmp_path):
         return b''
     monkeypatch.setattr(backup, 'run_pg', run)
     client = Mock()
-    client.get_paginator.return_value.paginate.return_value = [{'Contents': [
+    client.get_paginator.return_value.paginate.return_value = [{'IsTruncated': False, 'Contents': [
         {'Key': '../../escape.png', 'ETag': 'etag', 'Size': 5, 'LastModified': 'fixture-time'}]}]
     client.get_object.side_effect = lambda **kwargs: {'Body': io.BytesIO(b'image'), 'ContentLength': 5,
         'ContentType': 'image/png', 'Metadata': {'fixture': 'yes'}}
@@ -139,8 +156,109 @@ def test_failed_backup_removes_partial_set_and_keeps_old_backup(inert_backup, mo
 
 def test_active_jobs_block_before_object_reads(inert_backup, monkeypatch):
     backup, values, destination, ca, client, _ = inert_backup
-    monkeypatch.setattr(backup, 'run_pg', lambda *_: b'1\n')
+    original = backup.run_pg
+    monkeypatch.setattr(backup, 'run_pg', lambda cmd, env, **kwargs:
+                        b'1\n' if 'SELECT count' in cmd[-1] else original(cmd, env, **kwargs))
     with pytest.raises(backup.BackupError, match='generation jobs remain'):
         backup.create_backup(values, destination, ca)
     client.get_paginator.assert_not_called()
     assert not destination.exists()
+
+
+def test_unfinished_deletion_blocks_backup_before_storage_read(inert_backup, monkeypatch):
+    backup, values, destination, ca, client, _ = inert_backup
+    original = backup.run_pg
+    monkeypatch.setattr(backup, 'run_pg', lambda cmd, env, **kwargs:
+                        b'1\n' if 'public.storage_purge_tasks' in cmd[-1] else original(cmd, env, **kwargs))
+    with pytest.raises(backup.BackupError, match='storage deletion tasks'):
+        backup.create_backup(values, destination, ca)
+    assert not destination.exists()
+    client.get_paginator.assert_not_called()
+
+
+def test_unpublished_privacy_event_blocks_before_storage_read(inert_backup, monkeypatch):
+    backup, values, destination, ca, client, _ = inert_backup
+    original = backup.run_pg
+    monkeypatch.setattr(backup, 'run_pg', lambda cmd, env, **kwargs:
+                        b'1\n' if 'public.privacy_journal_outbox' in cmd[-1] else original(cmd, env, **kwargs))
+    with pytest.raises(backup.BackupError, match='Unpublished privacy events'):
+        backup.create_backup(values, destination, ca)
+    assert not destination.exists()
+    client.get_paginator.assert_not_called()
+
+
+def test_deletion_arriving_during_backup_discards_partial_set(inert_backup, monkeypatch):
+    backup, values, destination, ca, _, _ = inert_backup
+    original = backup.run_pg
+    calls = 0
+
+    def run(command, environment, **kwargs):
+        nonlocal calls
+        if 'public.storage_purge_tasks' in command[-1]:
+            calls += 1
+            if calls == 2:
+                return b'1\n'
+        return original(command, environment, **kwargs)
+
+    monkeypatch.setattr(backup, 'run_pg', run)
+    with pytest.raises(backup.BackupError, match='storage deletion tasks'):
+        backup.create_backup(values, destination, ca)
+    assert list(destination.iterdir()) == []
+
+
+def test_job_arriving_during_backup_discards_partial_set(inert_backup, monkeypatch):
+    backup, values, destination, ca, _, _ = inert_backup
+    original = backup.run_pg
+    calls = 0
+
+    def run(command, environment, **kwargs):
+        nonlocal calls
+        if 'public.jobs' in command[-1]:
+            calls += 1
+            if calls == 2:
+                return b'1\n'
+        return original(command, environment, **kwargs)
+
+    monkeypatch.setattr(backup, 'run_pg', run)
+    with pytest.raises(backup.BackupError, match='generation jobs remain'):
+        backup.create_backup(values, destination, ca)
+    assert list(destination.iterdir()) == []
+
+
+def test_completed_transaction_during_backup_discards_partial_set(inert_backup, monkeypatch):
+    backup, values, destination, ca, _, _ = inert_backup
+    original = backup.run_pg
+    snapshots = iter((b'100:100:\n', b'101:101:\n'))
+
+    def run(command, environment, **kwargs):
+        if 'txid_current_snapshot' in command[-1]:
+            return next(snapshots)
+        return original(command, environment, **kwargs)
+
+    monkeypatch.setattr(backup, 'run_pg', run)
+    with pytest.raises(backup.BackupError, match='transaction state changed'):
+        backup.create_backup(values, destination, ca)
+    assert list(destination.iterdir()) == []
+
+
+def test_unreadable_transaction_snapshot_blocks_before_storage(inert_backup, monkeypatch):
+    backup, values, destination, ca, client, _ = inert_backup
+    original = backup.run_pg
+    monkeypatch.setattr(backup, 'run_pg', lambda cmd, env, **kwargs:
+                        b'' if 'txid_current_snapshot' in cmd[-1] else original(cmd, env, **kwargs))
+    with pytest.raises(backup.BackupError, match='snapshot could not be verified'):
+        backup.create_backup(values, destination, ca)
+    client.get_paginator.assert_not_called()
+    assert not destination.exists()
+
+
+def test_backup_blocks_mismatched_pg_major_before_backup_or_storage(inert_backup, monkeypatch):
+    backup, values, destination, ca, client, _ = inert_backup
+    original = backup.run_pg
+    monkeypatch.setattr(backup, 'run_pg', lambda cmd, env, **kwargs:
+                        b'pg_dump (PostgreSQL) 18.3\n' if cmd == ['pg_dump', '--version']
+                        else original(cmd, env, **kwargs))
+    with pytest.raises(backup.BackupError, match='match the server major'):
+        backup.create_backup(values, destination, ca)
+    assert not destination.exists()
+    client.get_paginator.assert_not_called()

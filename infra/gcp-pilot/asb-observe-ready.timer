@@ -1,0 +1,10 @@
+[Unit]
+Description=Record private pilot readiness hourly
+
+[Timer]
+OnBootSec=4min
+OnUnitActiveSec=1h
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

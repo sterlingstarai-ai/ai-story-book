@@ -921,6 +921,10 @@ async def test_free_plan_allows_page_audio_for_nonreader_3_5(
     monkeypatch: pytest.MonkeyPatch,
 ):
     # 글 못 읽는 저연령(3-5)은 낭독이 유일한 소비 수단 → 무료 플랜도 신규 합성 허용.
+    from unittest.mock import AsyncMock
+    from tests.test_narration_voices import _LockRedis
+    from src.core.rate_limit import rate_limiter
+    monkeypatch.setattr(rate_limiter, 'get_redis', AsyncMock(return_value=_LockRedis()))
     monkeypatch.setattr(settings, "free_plan_enforcement_enabled", True)
     monkeypatch.setattr(settings, "free_plan_enforce_in_testing", True)
 

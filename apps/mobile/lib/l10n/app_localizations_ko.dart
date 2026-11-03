@@ -1360,7 +1360,7 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get settingsRevokeConsentContent =>
-      '동의를 철회하면 이 아이 사진으로 만든 캐릭터와 책이 즉시 삭제되며 복구할 수 없습니다. 계속하시겠어요?';
+      '동의를 철회하면 이 계정의 사진·그림으로 만든 모든 캐릭터와 관련 책·그림의 삭제가 진행되며 복구할 수 없습니다. 저장소 처리 상황에 따라 삭제 완료가 지연될 수 있습니다. 계속하시겠어요?';
 
   @override
   String get settingsCancel => '취소';
@@ -1370,6 +1370,10 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get settingsRevokeConsentError => '철회 처리에 실패했어요. 네트워크 확인 후 다시 시도해주세요.';
+
+  @override
+  String get consentDeletionUnconfirmed =>
+      '동의 설정은 저장되었어요. 관련 저장 파일의 삭제 완료 여부는 아직 확인되지 않았어요.';
 
   @override
   String get settingsConsentRevoked => '동의가 철회되었습니다.';
@@ -1821,6 +1825,10 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get charactersDelete => '삭제';
+
+  @override
+  String get characterDeletionPending =>
+      '캐릭터는 삭제되었어요. 일부 저장 파일의 삭제는 아직 완료되지 않았어요.';
 
   @override
   String get charactersDeletedSnack => '캐릭터가 삭제되었어요.';
@@ -2510,7 +2518,7 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get consentPhotoDisclosure =>
-      '아이 사진은 동화 캐릭터 생성에만 쓰입니다. · 받는 곳: AI 콘텐츠 처리 업체(미국 등 국외) · 항목: 아이 얼굴 사진 · 목적: 동화 캐릭터 생성 · 보유·이용기간: 캐릭터 일관성 유지를 위해 서비스 이용 기간 동안 보관, 동의 철회·삭제 요청 시 즉시 파기 · 운영자는 사진을 직접 열람하지 않습니다. · 거부권: 동의하지 않아도 사진 외 기능은 그대로 이용할 수 있어요(선택).';
+      '· 받는 곳: 외부 AI 처리업체 · 항목: 선택한 아이 사진 또는 그림 · 목적: 동화 캐릭터 제작 · 보유·이용기간: 원본은 캐릭터 승인 시 서비스 저장소에서 삭제를 요청하며, 미승인 원본은 24시간 후 삭제 대상입니다. 만들어진 캐릭터와 관련 책·그림은 기능 제공을 위해 보관합니다. · 삭제: 동의 철회·삭제 요청 시 관련 자료의 삭제를 진행합니다. 저장소 장애 등으로 지연되면 재시도합니다. 외부 업체의 처리·보관 조건은 개인정보처리방침을 참고하세요. · 거부권: 동의하지 않아도 사진 외 기능은 이용할 수 있어요(선택).';
 
   @override
   String get photoConsentAgree => '동의';
@@ -2930,6 +2938,39 @@ class AppLocalizationsKo extends AppLocalizations {
   String get creditBetaStatusSubtitle => '잔액과 기존 구매 내역을 확인해요';
 
   @override
+  String get libraryDeletionUnconfirmed =>
+      '책 삭제 요청이 처리됐는지 확인하지 못했어요. 연결을 확인한 뒤 다시 확인해 주세요.';
+
+  @override
+  String get libraryDeletionNotStarted =>
+      '책 삭제를 시작하지 않았어요. 연결을 확인하고 앱과 서버를 업데이트한 뒤 다시 시도해 주세요.';
+
+  @override
+  String get libraryDeletionReviewTitle => '확인이 필요한 책 삭제 요청이 있어요.';
+
+  @override
+  String get libraryDeletionReviewHelp =>
+      '확인되기 전까지 저장된 자료를 보관해요. 일부 이전 서버는 자동 확인을 지원하지 않아요.';
+
+  @override
+  String get libraryDeletionReviewAction => '다시 확인';
+
+  @override
+  String get libraryDeletionReviewWaiting => '아직 확인되지 않았어요. 나중에 다시 확인해 주세요.';
+
+  @override
+  String get libraryDeletionReviewDone =>
+      '확인된 요청을 처리했어요. 기존 저장 파일의 삭제 여부는 별도로 확인이 필요해요.';
+
+  @override
+  String get libraryMediaScopeReview =>
+      '저장된 책 영역을 확인해야 해요. 기존 파일은 보관 중이며, 같은 계정과 연결을 확인한 뒤 다시 시도해 주세요.';
+
+  @override
+  String get libraryDeletionPending =>
+      '책은 서재에서 삭제되었어요. 저장 파일의 삭제 완료 여부는 아직 확인되지 않았어요.';
+
+  @override
   String get accountDeletionPending =>
       '계정 데이터와 동의 정보는 삭제되었습니다. 일부 저장 파일의 삭제가 남아 있어 서버에서 자동으로 다시 처리합니다.';
 
@@ -3232,6 +3273,40 @@ class AppLocalizationsKo extends AppLocalizations {
       '삭제 요청의 결과를 아직 확인하지 못했어요. 같은 계정으로 삭제를 다시 눌러 확인해 주세요. 앱을 다시 열어도 삭제 확인을 이어갑니다.';
 
   @override
+  String get settingsDeleteLegacyUnresolved =>
+      '서버에 삭제가 접수됐지만, 이 기기에 저장된 자료의 정리 완료를 확인하지 못했어요. 자료가 기기에 남아 있을 수 있으며 계정 접근이 제한됩니다.';
+
+  @override
+  String get legacyCleanupTitle => '이전 공용 자료 정리';
+
+  @override
+  String get legacyAccountCleanupTitle => '이 계정의 이전 미디어 정리';
+
+  @override
+  String get legacyAccountCleanupWarning =>
+      '삭제된 이 계정의 이전 이미지와 음성, 기기에 남은 삭제 처리 기록을 지웁니다. 이 계정의 다른 프로필 자료도 삭제되며 되돌릴 수 없습니다. 계속할까요?';
+
+  @override
+  String get legacyAccountCleanupAction => '이 계정의 이전 미디어 정리';
+
+  @override
+  String get legacyCleanupWarning =>
+      '이 기기에 저장된 이전 공용 동화, 이미지, 읽기 기록을 모두 삭제합니다. 다른 계정이나 프로필의 오프라인 자료도 함께 삭제될 수 있으며 되돌릴 수 없습니다. 계속할까요?';
+
+  @override
+  String get legacyCleanupAction => '이전 공용 자료 정리하기';
+
+  @override
+  String get legacyCleanupCancel => '보관하기';
+
+  @override
+  String get legacyCleanupConfirm => '모두 삭제';
+
+  @override
+  String get legacyCleanupFailed =>
+      '기기의 공용 자료를 모두 정리하지 못했어요. 자료를 확인한 뒤 다시 시도해 주세요.';
+
+  @override
   String get recoveryFinishBackupFirst =>
       '코드를 보관하고 아래의 보관 확인을 완료한 뒤 돌아갈 수 있어요.';
 
@@ -3298,4 +3373,55 @@ class AppLocalizationsKo extends AppLocalizations {
   @override
   String get viewerLearningUnavailable =>
       '이 동화의 학습 자료를 준비하지 못했어요. 동화는 정상적으로 읽을 수 있어요.';
+
+  @override
+  String get settingsNarratorVoice => '낭독 목소리';
+
+  @override
+  String get settingsNarratorVoiceHelp =>
+      'AI가 만든 목소리예요. 이 기기에 저장되며, 변경한 목소리는 음성을 새로 만들 수 있어요.';
+
+  @override
+  String get settingsNarratorVoiceDefault => '기본 목소리';
+
+  @override
+  String get settingsNarratorVoiceWarm => '여성 느낌의 목소리';
+
+  @override
+  String get settingsNarratorVoiceDeep => '남성 느낌의 목소리';
+
+  @override
+  String get settingsNarrationStyle => '낭독 스타일';
+
+  @override
+  String get settingsNarrationStyleHelp =>
+      '이 기기에 저장되며, 새 스타일은 음성을 다시 만들 수 있어요.';
+
+  @override
+  String get settingsNarrationStyleLegacy => '기존 낭독';
+
+  @override
+  String get settingsNarrationStyleNatural => '이야기 성우';
+
+  @override
+  String get settingsNarrationStyleAnimated => '애니메이션';
+
+  @override
+  String get settingsNarrationStyleBedtime => '잠자리';
+
+  @override
+  String get settingsNarrationPreviewHelp =>
+      '기본 음색으로 같은 문장의 한국어 AI 음성 세 가지를 들어보세요. 애니메이션은 대사 어조를 살리며 배역별 별도 음성은 아닙니다.';
+
+  @override
+  String get settingsNarrationPreviewGoogleHelp =>
+      '선택한 목소리로 같은 문장의 한국어 AI 음성 세 가지를 들어보세요. 애니메이션은 대사 어조를 살리며 배역별 별도 음성은 아닙니다.';
+
+  @override
+  String settingsNarrationPreview(String style) {
+    return '$style 미리 듣기';
+  }
+
+  @override
+  String get settingsNarrationPreviewError => '미리 듣기를 재생하지 못했어요.';
 }

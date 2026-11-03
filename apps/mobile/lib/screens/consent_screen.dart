@@ -45,8 +45,9 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
   }
 
   /// F1(감사 Q1/M9): 이전에 사진 동의가 켜져 있었는데 이번에 끄고 제출하면, 서버 grant_consent
-  /// 는 철회와 **동일하게** 이 아이 사진으로 만든 캐릭터·책·이미지를 즉시·불가역 파기한다
-  /// (재설치 후 로컬 동의 플래그만 초기화된 경우 등에서 도달). 실수 파기를 막기 위해, 사진
+  /// 는 철회와 **동일하게** 계정의 사진·그림 파생 캐릭터·책·이미지 삭제를 진행한다.
+  /// 저장소 삭제는 장애 시 지연·재시도될 수 있다(재설치 후 로컬 동의 플래그만 초기화된
+  /// 경우 등에서 도달). 실수 파기를 막기 위해, 사진
   /// 미동의로 제출하는데 서버에 활성 사진 동의가 있으면 철회 버튼과 같은 파괴적 확인을 받는다.
   Future<bool> _confirmPhotoDataDeletionIfNeeded() async {
     final apiClient = ref.read(apiClientProvider);
@@ -123,7 +124,7 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
       // termination must not leave previously cached photo-derived images.
       if (_photoDeletionConfirmed) await mediaCleanup.markPending();
       // 1) 서버에 동의 기록(사진 기능 게이트의 근거) — 성공해야 진행
-      await apiClient.grantConsent(
+      final result = await apiClient.grantConsent(
         privacy: _privacy,
         photos: _photo,
         dataProcessing: _dataProcess,
@@ -144,10 +145,16 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
       }
       final seenOnboarding = await parental.hasSeenOnboarding(prefs);
       if (!mounted) return;
+      final messenger = ScaffoldMessenger.of(context);
+      final purgeUnconfirmed = !_photo && result['purge_incomplete'] != false;
+      final pendingMessage = AppLocalizations.of(context).consentDeletionUnconfirmed;
       Navigator.pushReplacementNamed(
         context,
         seenOnboarding ? '/' : '/onboarding',
       );
+      if (purgeUnconfirmed) {
+        messenger.showSnackBar(SnackBar(content: Text(pendingMessage)));
+      }
     } catch (e) {
       if (!mounted) {
         return;

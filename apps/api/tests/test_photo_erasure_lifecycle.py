@@ -423,3 +423,31 @@ async def test_account_deletion_keeps_a_guard_for_inflight_avatar(
     fake_storage["objects"].add("characters/photo-character/avatars/v1/late.jpg")
     assert await purge_queue.sweep_pending_purges() == 1
     assert fake_storage["objects"] == set()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('flags', [
+    dict(privacy=False, data_processing=True, photos=True),
+    dict(privacy=True, data_processing=False, photos=True),
+    dict(privacy=False, data_processing=False, photos=True),
+])
+@pytest.mark.parametrize('already_ineffective', [False, True])
+async def test_mandatory_withdrawal_erases_shared_photo_assets(
+    db_session, fake_storage, flags, already_ineffective,
+):
+    _grant(db_session)
+    if already_ineffective:
+        await db_session.flush()
+        consent = await db_session.scalar(select(UserConsent).where(UserConsent.user_key == OWNER))
+        consent.granted = False
+        consent.privacy = False
+    db_session.add(_character())
+    await db_session.flush()
+    book, _ = await _book(db_session, 'mandatory-withdrawal', character='photo-character', photo_derived=True)
+    db_session.add(BookShare(id='withdrawn-share', book_id=book.id, user_key=OWNER))
+    await db_session.commit()
+    await grant_consent(ConsentGrantRequest(**flags), db=db_session, user_key=OWNER)
+    assert await db_session.get(Book, 'mandatory-withdrawal') is None
+    assert await db_session.get(BookShare, 'withdrawn-share') is None
+    assert await db_session.get(Character, 'photo-character') is None
+    assert await _has_active_photo_consent(db_session, OWNER) is False

@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
 
 import 'api_client.dart';
 import '../core/api_error.dart';
@@ -19,24 +20,73 @@ class AccountRecoveryService {
     required this.preferences,
     required this.clientForKey,
     required this.purgeLocalMedia,
+    this.clearCleanupPlan,
+    this.readCleanupPlan,
+    this.writeCleanupPlan,
+    this.cleanupPlanMatchesCredential,
+    this.prepareAccountDeletion,
   });
 
   final UserService userService;
   final SharedPreferences preferences;
   final ApiClient Function(String key) clientForKey;
   final Future<void> Function() purgeLocalMedia;
+  final Future<void> Function()? clearCleanupPlan;
+  final Future<String?> Function()? readCleanupPlan;
+  final Future<void> Function(String)? writeCleanupPlan;
+  final Future<bool> Function(String)? cleanupPlanMatchesCredential;
+  final Future<void> Function()? prepareAccountDeletion;
 
   Future<void> initialize() async {
+    if (readCleanupPlan != null && writeCleanupPlan != null) {
+      final plan = await reconcileBookCleanupPlan(
+        preferences,
+        readCleanupPlan!,
+        writeCleanupPlan!,
+      );
+      if (plan != null) {
+        final kind = (jsonDecode(plan) as Map<String, dynamic>)['kind'];
+        if (kind == 'account') {
+          // A stale journal may survive a power loss after account rotation.
+          // Never apply it to a different credential just because it exists.
+          if (preferences.getBool(UserService.deletionCommittedKey) != true &&
+              (cleanupPlanMatchesCredential == null ||
+                  !await cleanupPlanMatchesCredential!(plan))) {
+            throw const AccountDeletionUnconfirmed();
+          }
+          if (!await preferences.setBool(
+            UserService.deletionCommittedKey,
+            true,
+          )) {
+            throw const AccountDeletionUnconfirmed();
+          }
+        } else if (kind == 'account_requested') {
+          if (cleanupPlanMatchesCredential == null ||
+              !await cleanupPlanMatchesCredential!(plan)) {
+            throw const AccountDeletionUnconfirmed();
+          }
+          await userService.markDeletionRequested();
+        } else if (kind == 'consent') {
+          if (preferences.getBool(localMediaCleanupPendingKey) != true &&
+              (cleanupPlanMatchesCredential == null ||
+                  !await cleanupPlanMatchesCredential!(plan))) {
+            throw const AccountDeletionUnconfirmed();
+          }
+          if (!await preferences.setBool(localMediaCleanupPendingKey, true)) {
+            throw const AccountDeletionUnconfirmed();
+          }
+        }
+      }
+    }
     if (preferences.getBool(UserService.deletionCommittedKey) == true) {
       try {
         await purgeLocalMedia();
-        await userService.completeAccountDeletion();
+        await userService.completeAccountDeletion(
+          beforeFinalize: clearCleanupPlan,
+        );
       } catch (_) {
         throw const AccountDeletionUnconfirmed();
       }
-    }
-    if (preferences.getBool(localMediaCleanupPendingKey) == true) {
-      await purgeLocalMedia();
     }
     if (userService.deletionRequested) {
       try {
@@ -45,6 +95,9 @@ class AccountRecoveryService {
       } catch (_) {
         throw const AccountDeletionUnconfirmed();
       }
+    }
+    if (preferences.getBool(localMediaCleanupPendingKey) == true) {
+      await purgeLocalMedia();
     }
     final pending = await userService.pendingRecoveryKey();
     if (pending == null) return;
@@ -58,10 +111,15 @@ class AccountRecoveryService {
   /// Persist the user's confirmed intent before sending the destructive request.
   /// A lost response keeps the same credential for reconciliation on next launch.
   Future<bool> deleteAccount({ApiClient? client}) async {
+    if (preferences.getBool(UserService.deletionCommittedKey) != true) {
+      await prepareAccountDeletion?.call();
+    }
     await userService.markDeletionRequested();
     if (preferences.getBool(UserService.deletionCommittedKey) == true) {
       await purgeLocalMedia();
-      await userService.completeAccountDeletion();
+      await userService.completeAccountDeletion(
+        beforeFinalize: clearCleanupPlan,
+      );
       return true;
     }
     final api = client ?? clientForKey(userService.getUserKey());
@@ -84,7 +142,9 @@ class AccountRecoveryService {
         throw const UserKeyUnavailable();
       }
       await purgeLocalMedia();
-      await userService.completeAccountDeletion();
+      await userService.completeAccountDeletion(
+        beforeFinalize: clearCleanupPlan,
+      );
       return purgePending;
     } finally {
       if (client == null) api.close();

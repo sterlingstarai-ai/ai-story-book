@@ -70,6 +70,19 @@ Important properties:
 - image defaults can be overridden with `API_IMAGE` and `WORKER_IMAGE`
 - `IMAGE_TAG` is propagated through `scripts/deploy.sh --image-tag`
 
+## Trusted proxy and public share limits
+
+Production Compose gives nginx a fixed internal address (`NGINX_PROXY_IP`, default
+`172.30.0.2`) and passes that same address to the API's `FORWARDED_ALLOW_IPS`.
+Only nginx's forwarded client address is trusted; public share requests use that
+address for a shared Redis read limit. Caller-supplied user keys do not change it.
+The API has no published host port. Keep nginx's appended `X-Forwarded-For` header.
+
+`APP_NETWORK_SUBNET` defaults to `172.30.0.0/24`. If it conflicts with a host network,
+set both variables to an unused subnet and an address inside it before recreating
+the Compose network. Other deployment topologies must set `FORWARDED_ALLOW_IPS`
+to their actual trusted proxy addresses; do not use `*` on an exposed API.
+
 ## TLS termination (H9 — required before any real traffic)
 
 **Until this section is done, the edge serves plain HTTP and `X-User-Key` — the only
@@ -136,6 +149,58 @@ measuring actual generation cost. Do not disable the limit in production.
 Redis holds both generation counters and Celery messages. Production uses
 `maxmemory-policy noeviction` so memory pressure cannot silently delete either; rejected
 writes must be treated as unavailable capacity rather than permission to generate.
+
+LLM and image providers may optionally read keys from `LLM_API_KEY_FILE` and
+`IMAGE_API_KEY_FILE` inside the container instead of `LLM_API_KEY` and
+`IMAGE_API_KEY`. A pair cannot be set simultaneously. The configured path must
+be absolute and have no symlink in any component; the file must be regular,
+owned by the process's effective numeric UID and inaccessible to group/others.
+The same private file can be used for both providers. An absent, unreadable or
+unsafe configured file blocks startup. Settings serialization excludes both key
+values. Startup checks do not prove that the provider has accepted the key.
+
+The optional `infra/docker-compose.provider-key-files.yml` override mounts an
+existing directory from `PROVIDER_KEY_HOST_DIR` read-only into both API and
+worker at `/run/asb-provider-keys`. Set each `*_API_KEY_FILE` to an absolute
+path under that mount and leave each corresponding raw environment key empty.
+The host file's numeric UID must match the actual effective UID of **both**
+container processes (check the pinned images and runtime user namespaces), and
+its mode must be 0400 or 0600. Limit access to the host directory and transfer
+the credential securely; this override does not create or deliver it. Verify
+the mount and permissions within isolated candidate containers before any
+rollout. Host/container paths in configuration preflight do not prove a file
+exists or can be read. Docker administrators and privileged host users may read
+mounted files and process memory; this is not a secret-manager boundary.
+
+The optional `GENERATION_BUDGET_STORE=postgres` persists the global request count in
+PostgreSQL and fails closed if its activation or database is unavailable. Existing
+deployments remain on Redis by default. This remains a request count, not a spending
+cap; provider billing limits are still required. A successful database backup restore
+can rewind counts: fence generation until the next Korea-local day, or restore the
+latest independently verified admission history before resuming. The application
+cannot detect a valid but stale restored row or a mixed-store rollout. Keep durable
+mode inactive until these operational controls are in place. Do not downgrade the
+migration after activation or revert to Redis while the durable mode is active. The
+PostgreSQL server clock defines the day for all API and worker instances.
+
+**Fenced one-way cutover:** take a verified backup; deploy the new image and migration
+while generation is disabled. Stop and fence every old API instance, worker, cron job
+and other writer, including autoscaling/restart paths, and verify they cannot make
+provider calls or restart. An old binary cannot honor the new counter. On the intended
+PostgreSQL database, from `apps/api`, run:
+
+```bash
+python -m scripts.activate_generation_budget --all-old-writers-stopped-and-fenced
+```
+
+The flag records an operator assertion; the
+script cannot prove fencing. It blocks all admissions for the rest of the current
+Korea-local day instead of guessing the old Redis count, and refuses reactivation.
+Set `GENERATION_BUDGET_STORE=postgres` and the same positive daily limit on every new
+API and worker, then start only those new instances. Verify the detailed budget status
+and instance configuration before reopening generation. Keep all old writers fenced;
+never use a rolling mixed-store deployment. If fencing, migration, database identity,
+or verification cannot be established, do not activate or reopen generation.
 
 ## Deploy script
 

@@ -1419,7 +1419,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsRevokeConsentContent =>
-      'Revoking consent immediately and permanently deletes the characters and books made from this child\'s photo. This cannot be undone. Continue?';
+      'Revoking consent starts deletion of all characters made from photos or drawings on this account, and their related books and images. This cannot be undone. Storage deletion may take longer to complete. Continue?';
 
   @override
   String get settingsCancel => 'Cancel';
@@ -1430,6 +1430,10 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get settingsRevokeConsentError =>
       'Failed to process the revocation. Please check your network and try again.';
+
+  @override
+  String get consentDeletionUnconfirmed =>
+      'Your consent settings have been saved. Removal of related stored files has not yet been confirmed.';
 
   @override
   String get settingsConsentRevoked => 'Consent has been revoked.';
@@ -1911,6 +1915,10 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get charactersDelete => 'Delete';
+
+  @override
+  String get characterDeletionPending =>
+      'The character has been removed. Deletion of some stored files is not yet complete.';
 
   @override
   String get charactersDeletedSnack => 'The character has been deleted.';
@@ -2641,7 +2649,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get consentPhotoDisclosure =>
-      'Your child\'s photo is used only to create storybook characters. · Recipient: AI content-processing providers (incl. overseas, e.g. the US) · Item: child\'s face photo · Purpose: storybook character creation · Retention: kept while you use the service to keep the character consistent, and deleted immediately upon withdrawal or a deletion request · Operators do not view the photos directly. · Right to refuse: you can still use all non-photo features without agreeing (optional).';
+      '· Recipient: external AI processing providers · Item: the selected photo or drawing · Purpose: storybook character creation · Retention: when you approve the character, we request deletion of the original from service storage. An unapproved original becomes eligible for deletion after 24 hours. The character and related books and images are kept to provide the feature. · Deletion: if you withdraw consent or request deletion, we start deleting the related data. Storage failures can delay completion; we retry. See the privacy policy for external providers\' processing and retention conditions. · Right to refuse: consent is optional and non-photo features remain available.';
 
   @override
   String get photoConsentAgree => 'Agree';
@@ -3076,6 +3084,41 @@ class AppLocalizationsEn extends AppLocalizations {
       'Check your balance and existing purchases';
 
   @override
+  String get libraryDeletionUnconfirmed =>
+      'We could not confirm whether the book deletion was processed. Check your connection and try again.';
+
+  @override
+  String get libraryDeletionNotStarted =>
+      'Book deletion was not started. Check your connection and try again after updating the app and server.';
+
+  @override
+  String get libraryDeletionReviewTitle =>
+      'A book deletion needs confirmation.';
+
+  @override
+  String get libraryDeletionReviewHelp =>
+      'Saved data is kept until confirmation. Some older servers cannot confirm automatically.';
+
+  @override
+  String get libraryDeletionReviewAction => 'Check again';
+
+  @override
+  String get libraryDeletionReviewWaiting =>
+      'It is not confirmed yet. Please check again later.';
+
+  @override
+  String get libraryDeletionReviewDone =>
+      'Confirmed requests were processed. Older saved files still need separate verification.';
+
+  @override
+  String get libraryMediaScopeReview =>
+      'Your saved book storage needs review. Existing files are preserved; check the account and connection, then try again.';
+
+  @override
+  String get libraryDeletionPending =>
+      'The book has been removed from your library. Removal of stored files has not yet been confirmed.';
+
+  @override
   String get accountDeletionPending =>
       'Account data and consent have been removed. Some stored files are still being deleted. The server will retry automatically.';
 
@@ -3401,6 +3444,40 @@ class AppLocalizationsEn extends AppLocalizations {
       'We could not confirm the deletion result yet. Retry deletion for this account. If you reopen the app, we will continue checking before opening your library.';
 
   @override
+  String get settingsDeleteLegacyUnresolved =>
+      'The server accepted the deletion, but cleanup of data stored on this device could not be confirmed. Data may remain on this device and account access is restricted.';
+
+  @override
+  String get legacyCleanupTitle => 'Clear older shared data';
+
+  @override
+  String get legacyAccountCleanupTitle => 'Clear this account\'s older media';
+
+  @override
+  String get legacyAccountCleanupWarning =>
+      'This deletes older images, audio and deletion records for the deleted account on this device. Media from this account\'s other profiles will also be deleted. This cannot be undone. Continue?';
+
+  @override
+  String get legacyAccountCleanupAction => 'Clear this account\'s older media';
+
+  @override
+  String get legacyCleanupWarning =>
+      'This deletes all older shared stories, images, and reading progress on this device. Offline data from other accounts or profiles may also be deleted, and this cannot be undone. Continue?';
+
+  @override
+  String get legacyCleanupAction => 'Clear older shared data';
+
+  @override
+  String get legacyCleanupCancel => 'Keep data';
+
+  @override
+  String get legacyCleanupConfirm => 'Delete all';
+
+  @override
+  String get legacyCleanupFailed =>
+      'The shared data could not be fully cleared. Check the device and try again.';
+
+  @override
   String get recoveryFinishBackupFirst =>
       'Save the code and complete the backup confirmation below before leaving.';
 
@@ -3472,4 +3549,55 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get viewerLearningUnavailable =>
       'Learning activities are unavailable for this book. You can still read the complete story.';
+
+  @override
+  String get settingsNarratorVoice => 'Narrator voice';
+
+  @override
+  String get settingsNarratorVoiceHelp =>
+      'AI-generated voice, saved on this device. A new voice may need new audio.';
+
+  @override
+  String get settingsNarratorVoiceDefault => 'Default';
+
+  @override
+  String get settingsNarratorVoiceWarm => 'Feminine-sounding';
+
+  @override
+  String get settingsNarratorVoiceDeep => 'Masculine-sounding';
+
+  @override
+  String get settingsNarrationStyle => 'Narration style';
+
+  @override
+  String get settingsNarrationStyleHelp =>
+      'Saved on this device. A new style may generate new audio.';
+
+  @override
+  String get settingsNarrationStyleLegacy => 'Existing narration';
+
+  @override
+  String get settingsNarrationStyleNatural => 'Storyteller';
+
+  @override
+  String get settingsNarrationStyleAnimated => 'Animation';
+
+  @override
+  String get settingsNarrationStyleBedtime => 'Bedtime';
+
+  @override
+  String get settingsNarrationPreviewHelp =>
+      'Compare three Korean AI samples of the same sentence in the default voice. Animation varies dialogue tone; it does not cast separate voices.';
+
+  @override
+  String get settingsNarrationPreviewGoogleHelp =>
+      'Compare three Korean AI samples of the same sentence in your selected voice. Animation varies dialogue tone; it does not cast separate voices.';
+
+  @override
+  String settingsNarrationPreview(String style) {
+    return 'Preview $style';
+  }
+
+  @override
+  String get settingsNarrationPreviewError => 'Could not play the preview.';
 }

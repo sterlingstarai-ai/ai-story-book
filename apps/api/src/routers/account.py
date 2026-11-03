@@ -1,12 +1,14 @@
 """Parent-managed account backup and device recovery."""
 
 import hashlib
+import asyncio
 import uuid
 
-from fastapi import APIRouter, Depends, Header, Request
+from fastapi import APIRouter, Depends, Header, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
+from src.core.config import settings
 from src.core.dependencies import get_user_key
 from src.core.exceptions import APIError, RateLimitError
 from src.core.rate_limit import rate_limiter
@@ -14,12 +16,15 @@ from src.core.utils import utcnow
 from src.models.db import AccountIdentity
 from src.models.dto import (
     AccountSessionResponse,
+    AccountMediaScopeResponse,
     RecoverAccountRequest,
     RecoverAccountResponse,
     RecoveryCodeResponse,
     RecoveryStatusResponse,
 )
 from src.services.account_recovery import issue_recovery_code, recover_account
+from src.services.account_scope import AccountScopeUnavailable, derive_account_scope
+from src.services.photo_lifecycle import lock_photo_account
 
 router = APIRouter()
 RECOVERY_ATTEMPT_WINDOW = 600
@@ -59,6 +64,25 @@ async def check_recovery_rate_limit(request: Request) -> None:
 @router.get("/session", response_model=AccountSessionResponse)
 async def get_account_session(user_key: str = Depends(get_user_key)):
     return AccountSessionResponse()
+
+
+@router.get('/media-scope', response_model=AccountMediaScopeResponse)
+async def get_account_media_scope(
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    user_key: str = Depends(get_user_key),
+):
+    # Revalidate after the same lock used by account erasure; a request that
+    # authenticated just before deletion must not obtain a new scope afterward.
+    await lock_photo_account(db, user_key)
+    try:
+        scope = await asyncio.to_thread(derive_account_scope, owner=user_key,
+            namespace=settings.account_scope_namespace, key_path=settings.account_scope_key_file,
+            expected_sha256=settings.account_scope_key_sha256)
+    except AccountScopeUnavailable:
+        raise APIError(503, 'ACCOUNT_SCOPE_UNAVAILABLE', '계정 보관 범위를 확인할 수 없습니다.') from None
+    response.headers['Cache-Control'] = 'private, no-store'
+    return AccountMediaScopeResponse(scope_id=scope)
 
 
 @router.get("/recovery", response_model=RecoveryStatusResponse)

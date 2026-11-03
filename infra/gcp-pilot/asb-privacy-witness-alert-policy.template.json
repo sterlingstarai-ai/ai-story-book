@@ -1,0 +1,31 @@
+{
+  "displayName": "AI Story Book privacy witness snapshot",
+  "combiner": "OR",
+  "enabled": true,
+  "notificationChannels": ["PROJECT_NOTIFICATION_CHANNEL_RESOURCE"],
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "The privacy witness snapshot is unhealthy or its signal is missing. Keep recovery quarantined. A healthy signal does not prove independently held latest-head availability or authorize restoration."
+  },
+  "conditions": [
+    {
+      "displayName": "Privacy witness snapshot unhealthy",
+      "conditionThreshold": {
+        "filter": "metric.type=\"custom.googleapis.com/ai_story_book/privacy_witness_health\" AND resource.type=\"global\"",
+        "comparison": "COMPARISON_LT",
+        "thresholdValue": 0.5,
+        "duration": "0s",
+        "aggregations": [{"alignmentPeriod": "60s", "perSeriesAligner": "ALIGN_MIN"}]
+      }
+    },
+    {
+      "displayName": "Privacy witness health signal missing",
+      "conditionAbsent": {
+        "filter": "metric.type=\"custom.googleapis.com/ai_story_book/privacy_witness_health\" AND resource.type=\"global\"",
+        "duration": "1500s",
+        "aggregations": [{"alignmentPeriod": "60s", "perSeriesAligner": "ALIGN_MEAN"}]
+      }
+    }
+  ],
+  "alertStrategy": {"autoClose": "1800s"}
+}

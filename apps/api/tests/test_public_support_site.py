@@ -79,6 +79,42 @@ def test_review_document_cannot_publish_even_with_approval_flag_and_matching_has
     assert not output.exists()
 
 
+@pytest.mark.parametrize("meta", [
+    '<meta content="review" name="legal-status">',
+    '<META data-id="1" name="legal-status" content="review">',
+    '<meta name="legal-status" content="review_required">',
+    '<meta name="legal-status">',
+    '<meta name="legal-status" content="approved" content="review">',
+    '<meta name="legal-status" content="approved"><meta name="legal-status" content="review">',
+])
+def test_unapproved_policy_status_cannot_be_published_with_matching_hash(tmp_path, meta):
+    config_path, config, policy = fixture_config(tmp_path)
+    policy.write_text(f'<!doctype html><html><head>{meta}</head><body>검토본</body></html>')
+    config["privacy_policy_sha256"] = hashlib.sha256(policy.read_bytes()).hexdigest()
+    config["terms_of_service_sha256"] = config["privacy_policy_sha256"]
+    config_path.write_text(json.dumps(config))
+    output = tmp_path / "production"
+    with pytest.raises(ValueError, match="POLICY_STILL_IN_REVIEW"):
+        site.build(config_path, output)
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("meta", [
+    '',  # External approved documents need not contain our metadata.
+    '<meta content="approved" name="legal-status">',
+    '<meta name="legal-status" content="approved"><meta name="legal-status" content="approved">',
+])
+def test_approved_policy_documents_remain_usable(tmp_path, meta):
+    config_path, config, policy = fixture_config(tmp_path)
+    policy.write_text(f'<!doctype html><html><head>{meta}</head><body>승인 흐름 모의 문서</body></html>')
+    config["privacy_policy_sha256"] = hashlib.sha256(policy.read_bytes()).hexdigest()
+    config["terms_of_service_sha256"] = config["privacy_policy_sha256"]
+    config_path.write_text(json.dumps(config))
+    output = tmp_path / "production"
+    site.build(config_path, output)
+    assert (output / "privacy/index.html").read_bytes() == policy.read_bytes()
+
+
 def test_preview_omits_contacts_and_policies_and_cannot_claim_publication(tmp_path, monkeypatch):
     config_path, _, _ = fixture_config(tmp_path)
     monkeypatch.setattr(site, "ROOT", tmp_path)

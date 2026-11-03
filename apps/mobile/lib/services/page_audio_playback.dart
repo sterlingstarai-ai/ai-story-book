@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
@@ -41,9 +42,78 @@ String pageAudioCacheKey(
   String bookId,
   int page,
   String language,
-  String text,
-) =>
-    'story_audio_${sha256.convert(utf8.encode('$bookId/$page/$language/$text'))}';
+  String text, {
+  String voice = 'default',
+  String style = 'legacy',
+  String? provider,
+}) =>
+    'story_audio_${sha256.convert(utf8.encode('$bookId/$page/$language/$text${voice == 'default' ? '' : '/voice/$voice'}${style == 'legacy' ? '' : '/style/$style'}${provider == null || (voice == 'default' && style == 'legacy') ? '' : '/provider/$provider'}'))}';
+
+/// Unknown provider values never become cache identifiers. Older servers do
+/// not advertise a provider and continue using their historical cache keys.
+String? narrationAudioProvider(Map<String, dynamic>? capabilities) {
+  final value = capabilities?['narration_audio_provider'];
+  return const {
+        'mock',
+        'openai',
+        'openai_realtime',
+        'google',
+        'google_gemini',
+        'elevenlabs',
+      }.contains(value)
+      ? value as String
+      : null;
+}
+
+/// Older servers expose only the combined audio capability. A present but
+/// invalid new value fails closed instead of falling back to the old flag.
+bool narrationSupported(Map<String, dynamic>? capabilities) {
+  if (capabilities == null) return false;
+  if (capabilities.containsKey('narration_supported')) {
+    return capabilities['narration_supported'] == true;
+  }
+  return capabilities['audio_supported'] == true;
+}
+
+/// Narrator choice is kept on this device and is never an impersonation of a
+/// person. Unknown values fail back to the existing default narration.
+const narrationStylePreferenceKey = 'narration_style_v1';
+String narrationStyleOrDefault(String? value) =>
+    const {'natural', 'animated', 'bedtime'}.contains(value)
+    ? value!
+    : 'legacy';
+
+const narrationVoicePreferenceKey = 'narration_voice_v1';
+String narrationVoiceOrDefault(String? value) =>
+    value == 'warm' || value == 'deep' ? value! : 'default';
+
+/// An offset from another synthesized voice/style/provider can skip text.
+/// Old unscoped offsets are retained only for the historical default audio.
+Duration narrationResumePosition(
+  String? value, {
+  required int page,
+  required String language,
+  required String voice,
+  required String style,
+  required String? provider,
+}) {
+  final saved = value?.split('|');
+  if (saved == null ||
+      saved.length < 3 ||
+      saved.length > 6 ||
+      saved[0] != '$page' ||
+      saved[1] != language ||
+      (saved.length == 3 ? voice != 'default' : saved[3] != voice) ||
+      (saved.length < 5 ? style != 'legacy' : saved[4] != style) ||
+      (saved.length < 6
+          ? (voice != 'default' || style != 'legacy')
+          : saved[5] != (provider ?? 'unknown'))) {
+    return Duration.zero;
+  }
+  return Duration(
+    milliseconds: (int.tryParse(saved[2]) ?? 0).clamp(0, 3600000),
+  );
+}
 
 /// Uses the same bounded cache that account/photo erasure already purges.
 /// A text change invalidates the audio; refreshed signed URLs do not.
@@ -52,15 +122,50 @@ Future<String> cachedPageAudio(
   Future<String> Function() resolveUrl, {
   BaseCacheManager? cache,
   bool Function()? isCurrent,
+  bool Function()? shouldRemoveLateFile,
+  Future<String?> Function()? refreshRejectedUrl,
 }) async {
   final manager = cache ?? DefaultCacheManager();
+  void requireCurrent() {
+    if (isCurrent != null && !isCurrent()) {
+      throw StateError('Narration request is no longer active');
+    }
+  }
+
+  requireCurrent();
   final cached = await manager.getFileFromCache(key);
-  if (cached != null && await cached.file.exists()) return cached.file.path;
-  final file = await manager.getSingleFile(await resolveUrl(), key: key);
+  requireCurrent();
+  if (cached != null && await cached.file.exists()) {
+    requireCurrent();
+    return cached.file.path;
+  }
+  requireCurrent();
+  final url = await resolveUrl();
+  requireCurrent();
+  late final File file;
+  try {
+    file = await manager.getSingleFile(url, key: key);
+  } on HttpExceptionWithStatus catch (error) {
+    // A previously issued signed URL may be rejected before its advertised
+    // expiry (for example after credential rotation). Refresh only once and
+    // only when the caller knows the rejected URL came from a cached book.
+    if (refreshRejectedUrl == null ||
+        !const {401, 403, 404}.contains(error.statusCode)) {
+      rethrow;
+    }
+    requireCurrent();
+    final freshUrl = await refreshRejectedUrl();
+    requireCurrent();
+    if (freshUrl == null || freshUrl.isEmpty || freshUrl == url) rethrow;
+    file = await manager.getSingleFile(freshUrl, key: key);
+  }
   if (isCurrent != null && !isCurrent()) {
     // Erasure/route disposal can finish while a download is still in flight.
-    // Remove this late file instead of repopulating the cleared media cache.
-    await manager.removeFile(key);
+    // Remove the late file unless the caller says this shared cache key may
+    // still be in use by a newer request.
+    if (shouldRemoveLateFile?.call() ?? true) {
+      await manager.removeFile(key);
+    }
     throw StateError('Narration request is no longer active');
   }
   return file.path;
@@ -79,6 +184,14 @@ class PageAudioPlayback extends ChangeNotifier {
 
   bool get loading => _loading;
   bool get hasLoadedSource => _loadedKey != null;
+
+  /// Capture from resolveFile while play() is active. A later stop, play or
+  /// disposal invalidates this particular request even if the user returns to
+  /// the same page and language.
+  bool Function() captureRequestGuard() {
+    final epoch = _epoch;
+    return () => !_disposed && epoch == _epoch;
+  }
 
   void _setLoading(bool value) {
     if (_disposed || _loading == value) return;

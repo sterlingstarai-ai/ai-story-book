@@ -7,7 +7,7 @@ import pytest
 
 from src.core.config import settings
 from src.core.audio_feature import audio_readiness_issues
-from src.services.tts import OpenAITTSProvider
+from src.services.tts import OpenAITTSProvider, TTSService
 
 
 @pytest.mark.asyncio
@@ -33,6 +33,9 @@ async def test_openai_narration_payload_and_bytes(monkeypatch):
     assert payload["input"] == "별빛이 반짝였어요."
     assert payload["speed"] == 0.9
     assert payload["response_format"] == "mp3"
+    assert "expressively" in payload["instructions"]
+    assert "exactly as written" in payload["instructions"]
+    assert "Do not add introductions" in payload["instructions"]
     assert "test-secret" not in str(payload)
 
 
@@ -76,3 +79,21 @@ def test_openai_narration_readiness_requires_explicit_key(monkeypatch):
     assert "tts_key" in audio_readiness_issues()
     monkeypatch.setattr(settings, "openai_tts_api_key", "test")
     assert "tts_key" not in audio_readiness_issues()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("age", ["3-5", "5-7", "7-9", "adult", None, "unknown"])
+async def test_narration_uses_natural_speed_without_changing_story(monkeypatch, age):
+    async def allow(_kind):
+        return None
+
+    class CaptureProvider:
+        async def synthesize(self, text, voice, *, language, speaking_rate):
+            assert text == "페이지 1의 비밀을 찾아요."
+            assert speaking_rate == 1.0
+            return b"audio"
+
+    monkeypatch.setattr("src.services.tts.require_daily_generation_budget", allow)
+    service = TTSService()
+    service._provider = CaptureProvider()
+    assert await service.synthesize_page("페이지 1의 비밀을 찾아요.", target_age=age) == b"audio"

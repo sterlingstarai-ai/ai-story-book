@@ -288,6 +288,9 @@ async def edit_verified_page(
             page.image_url = verified.image_urls[page_number]
             page.image_prompt = verified.image_prompts[page_number].positive_prompt
             if revised is not None:
+                from src.services.audio_assets import retire_page_variants
+
+                await retire_page_variants(db, page.id, user_key=snapshot.book["user_key"])
                 enqueue_purge_keys(
                     db, user_key=snapshot.book["user_key"], reason="replaced_page_audio",
                     keys=[key for key in (

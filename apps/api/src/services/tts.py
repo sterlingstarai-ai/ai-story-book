@@ -4,15 +4,29 @@ TTS (Text-to-Speech) Service
 """
 
 import httpx
+import re
 import structlog
 from typing import Optional
 from abc import ABC, abstractmethod
 
 from ..core.config import settings
-from src.services.provider_runtime import begin_provider_request, observe_provider_response
+from src.core.cost_budget import require_daily_generation_budget
+from src.core.gemini_tts_budget import require_gemini_tts_request_budget
+from src.services.provider_runtime import begin_provider_request, observe_provider_response, observe_validated_provider_success
+from src.services.narration_style import STYLE_DIRECTIONS
 
 logger = structlog.get_logger()
 
+# Based on the approved Korean comparison samples. Directions avoid
+# hard-coding that sample's surprise/ending into unrelated stories.
+GEMINI_STYLE_DIRECTIONS = {
+    "natural": "Read the text exactly, with a warm natural storyteller voice and clear pronunciation. No added words or sound effects.",
+    "animated": ("Perform this children's story as a lively professional storyteller for young children. "
+                 "Give dialogue a distinctly brighter, playful character voice when the words support it. "
+                 "Vary pitch, rhythm and energy noticeably to match the story, without shouting or adding any words or sound effects. "
+                 "Read exactly the supplied text."),
+    "bedtime": "Read the story exactly, in a gentle calm soothing bedtime voice, soft energy and relaxed natural rhythm. No added words or sound effects.",
+}
 
 # H3: 스토리 5개 언어(ko/en/ja/zh/es) → TTS 언어코드·기본 보이스.
 # 이전에는 ko/en만 매핑돼 ja/zh/es 책이 한국어(ko-KR) 보이스로 오합성된 오디오를
@@ -33,6 +47,24 @@ TTS_DEFAULT_VOICES = {
 }
 # 오디오 표면(생성·조회·발음)이 허용하는 언어 = TTS 매핑 보유 언어.
 SUPPORTED_AUDIO_LANGUAGES = tuple(TTS_LANGUAGE_CODES.keys())
+
+
+_NARRATION_LABEL = re.compile(
+    r"\A[ \t\r\n]*(?:"
+    r"(?:페이지|ページ|page)[ \t]*[0-9]+[ \t]*(?:[.:：．](?=[ \t\r\n]|$)[ \t]*|\r?\n[ \t]*|$)"
+    r"|장면[ \t]*[0-9]+의[ \t]*이야기[ \t]*입니다(?:[.!。](?=[ \t\r\n]|$)[ \t]*|$)"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def narration_text_without_heading(text: str) -> str:
+    """Remove only unmistakable leading production labels, never story dialogue."""
+    while True:
+        match = _NARRATION_LABEL.match(text)
+        if match is None:
+            return text
+        text = text[match.end():]
 
 
 def resolve_tts_language(language: str) -> tuple[str, str]:
@@ -76,7 +108,12 @@ class OpenAITTSProvider(BaseTTSProvider):
         *,
         language: str = "ko",
         speaking_rate: float = 0.9,
+        style: str = "legacy",
     ) -> bytes:
+        if style not in {"legacy", "natural", "animated", "bedtime"}:
+            raise ValueError("Unsupported narration style")
+        if style != "legacy" and not settings.openai_tts_model.startswith("gpt-4o-mini-tts"):
+            raise ValueError("Narration style unsupported by model")
         resolve_tts_language(language)
         if not text.strip() or len(text) > 4096:
             raise ValueError("TTS text must contain 1 to 4096 characters")
@@ -110,9 +147,12 @@ class OpenAITTSProvider(BaseTTSProvider):
         if settings.openai_tts_model.startswith("gpt-4o-mini-tts"):
             payload["instructions"] = (
                 "Read the supplied story exactly as written, in its original language. "
-                "Use a warm, calm storytelling voice with natural pauses. "
+                "Tell the story warmly and expressively, with gentle changes in emotion and character "
+                "inflection to suit the scene, at a natural conversational pace with natural pauses. "
                 "Do not add introductions, sound effects, or additional words."
             )
+        if style != "legacy":
+            payload["instructions"] += " " + STYLE_DIRECTIONS[style]
         observation = begin_provider_request("openai", settings.openai_tts_model, "tts", key)
         async with httpx.AsyncClient(timeout=60) as client:
             response = await client.post(
@@ -130,6 +170,90 @@ class OpenAITTSProvider(BaseTTSProvider):
             raise ValueError("OpenAI TTS returned no audio")
         await observe_provider_response(observation, response)
         return response.content
+
+
+class RealtimeTTSProvider(BaseTTSProvider):
+    """Opt-in experimental Realtime provider; not a live verification."""
+
+    async def synthesize(self, text, voice="default", *, language="ko", speaking_rate=1.0, style="legacy"):
+        resolve_tts_language(language)
+        if speaking_rate != 1.0:
+            raise ValueError("Realtime provider supports natural speed only")
+        from src.services.realtime_tts import MODEL, synthesize_realtime
+        observation = begin_provider_request('openai_realtime', MODEL, 'tts', settings.openai_tts_api_key)
+        audio = await synthesize_realtime(text, voice, style=style)
+        await observe_validated_provider_success(observation)
+        return audio
+
+
+class GeminiCloudTTSProvider(BaseTTSProvider):
+    """Opt-in Gemini TTS via workload ADC; never uses long-lived API keys."""
+
+    async def synthesize(self, text, voice="default", *, language="ko", speaking_rate=1.0, style="legacy"):
+        import asyncio
+        import base64
+        import binascii
+        import re
+
+        import google.auth
+        from google.auth.transport.requests import Request
+
+        language_code, _ = resolve_tts_language(language)
+        if not isinstance(text, str) or not text.strip() or len(text.encode("utf-8")) > 4000:
+            raise ValueError("Gemini TTS input must be 1 to 4000 UTF-8 bytes")
+        if style not in {"legacy", "natural", "animated", "bedtime"}:
+            raise ValueError("Unsupported narration style")
+        if speaking_rate != 1.0:
+            raise ValueError("Gemini TTS supports natural speed only")
+        selected = "Kore" if voice in {"default", "Kore"} else voice
+        if selected not in {"Kore", "Puck"}:
+            raise ValueError("Unsupported Gemini narration voice")
+        project = settings.google_gemini_tts_project or ""
+        if not re.fullmatch(r"[a-z][a-z0-9-]{4,28}[a-z0-9]", project):
+            raise ValueError("Gemini TTS billing project is invalid")
+
+        def access_token():
+            credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+            credentials.refresh(Request())
+            if not credentials.token:
+                raise ValueError("Gemini TTS credentials unavailable")
+            return credentials.token
+
+        try:
+            token = await asyncio.wait_for(asyncio.to_thread(access_token), timeout=20)
+        except Exception:
+            raise ValueError("Gemini TTS credentials unavailable") from None
+        prompt = GEMINI_STYLE_DIRECTIONS["natural" if style == "legacy" else style]
+        if language == "ko":
+            prompt = prompt.replace("Read the text exactly,", "Read the Korean text exactly,")
+            prompt = prompt.replace("with a warm natural storyteller voice and clear pronunciation.",
+                                    "with a warm natural storyteller voice and clear Korean pronunciation.")
+            prompt = prompt.replace("this children's story", "this Korean children's story")
+            prompt = prompt.replace("Read the story exactly,", "Read the Korean story exactly,")
+        payload = {"input": {"text": text, "prompt": prompt},
+                   "voice": {"languageCode": language_code, "name": selected,
+                             "modelName": "gemini-2.5-flash-tts"},
+                   "audioConfig": {"audioEncoding": "MP3"}}
+        # Each actual provider attempt reserves both durable limits first;
+        # failed requests still count and no refund is made on timeout.
+        await require_gemini_tts_request_budget()
+        observation = begin_provider_request("google_gemini", "gemini-2.5-flash-tts", "tts", project)
+        try:
+            async with httpx.AsyncClient(timeout=60) as client:
+                response = await client.post("https://texttospeech.googleapis.com/v1/text:synthesize",
+                    json=payload, headers={"Authorization": f"Bearer {token}", "x-goog-user-project": project})
+            await observe_provider_response(observation, response)
+            if response.is_error:
+                raise ValueError(f"Gemini TTS request failed: HTTP {response.status_code}")
+            encoded = response.json().get("audioContent")
+            if not isinstance(encoded, str) or len(encoded) > 24_000_000:
+                raise ValueError("Gemini TTS returned invalid audio")
+            audio = base64.b64decode(encoded, validate=True)
+            if not audio or not (audio.startswith(b"ID3") or (audio[0] == 0xff and len(audio) > 1 and audio[1] & 0xe0 == 0xe0)):
+                raise ValueError("Gemini TTS returned invalid audio")
+            return audio
+        except (httpx.HTTPError, KeyError, TypeError, binascii.Error):
+            raise ValueError("Gemini TTS request failed") from None
 
 
 class GoogleTTSProvider(BaseTTSProvider):
@@ -291,9 +415,9 @@ class TTSService:
     """TTS 서비스"""
 
     AGE_SPEED_MAP = {
-        "3-5": 0.65,
-        "5-7": 0.80,
-        "7-9": 0.90,
+        "3-5": 1.00,
+        "5-7": 1.00,
+        "7-9": 1.00,
         "adult": 1.00,
     }
 
@@ -317,6 +441,10 @@ class TTSService:
         """
         provider_name = settings.tts_provider.lower().strip()
 
+        if provider_name == "openai_realtime":
+            return RealtimeTTSProvider()
+        if provider_name == "google_gemini":
+            return GeminiCloudTTSProvider()
         if provider_name == "openai":
             return OpenAITTSProvider()
         if provider_name == "google":
@@ -336,8 +464,8 @@ class TTSService:
 
     def _resolve_speed(self, target_age: Optional[str]) -> float:
         if not target_age:
-            return 0.9
-        return self.AGE_SPEED_MAP.get(target_age, 0.9)
+            return 1.0
+        return self.AGE_SPEED_MAP.get(target_age, 1.0)
 
     async def synthesize_page(
         self,
@@ -346,14 +474,27 @@ class TTSService:
         *,
         target_age: Optional[str] = None,
         language: str = "ko",
+        style: str = "legacy",
     ) -> bytes:
         """페이지 텍스트를 오디오로 변환"""
+        resolve_tts_language(language)
+        if not text.strip() or len(text) > 4096:
+            raise ValueError("TTS text must contain 1 to 4096 characters")
+        text = narration_text_without_heading(text)
+        if not text.strip():
+            raise ValueError("TTS text must contain story narration")
+        provider = self.provider
+        await require_daily_generation_budget("audio.tts")
         voice = voice or "default"
-        return await self.provider.synthesize(
+        style_args = {} if style == "legacy" else {"style": style}
+        if style != "legacy" and not isinstance(provider, (OpenAITTSProvider, RealtimeTTSProvider, GeminiCloudTTSProvider)):
+            raise ValueError("Narration style unsupported by provider")
+        return await provider.synthesize(
             text,
             voice,
             language=language,
             speaking_rate=self._resolve_speed(target_age),
+            **style_args,
         )
 
     async def synthesize_book(

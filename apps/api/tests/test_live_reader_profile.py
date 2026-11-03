@@ -132,6 +132,16 @@ def test_unignored_output_is_rejected_before_paid_work(harness, monkeypatch):
                                             reader_profile_file=None, age="7-9", page_count=8))
 
 
+def test_fictional_capture_rejects_private_reader_before_paid_setup(harness, monkeypatch):
+    book, root = harness
+    profile = write_profile(root, {"protagonist_name": "테스트별"})
+    monkeypatch.setattr(book, "load_runtime_config", lambda _args: pytest.fail("No paid setup allowed"))
+    with pytest.raises(book.GateFailure, match="REAL_CHILD_REVIEW_CAPTURE_FORBIDDEN"):
+        book.run_acceptance(SimpleNamespace(output_dir=root / "docs/acceptance/sample",
+            reader_profile_file=profile, age="7-9", page_count=4,
+            retain_fictional_review_evidence=True))
+
+
 @pytest.mark.parametrize("reader_profile", [None, {"protagonist_name": "테스트별"},
                                           {"protagonist_name": "테스트별", "character_gender": "girl",
                                            "character_age": 5}])
@@ -153,9 +163,10 @@ def test_journey_consistent_name_fictional_appearance_and_private_artifacts(
         requests.append(request)
         path = request.url.path
         if path == "/health/ready":
-            owner = request.headers["X-User-Key"]
+            assert "X-User-Key" not in request.headers
             return httpx.Response(200, json={"ready": True})
         if path == "/v1/consent":
+            owner = request.headers["X-User-Key"]
             return httpx.Response(200, json={})
         if path == "/v1/characters/from-text":
             return httpx.Response(200, json={"character_id": "synthetic-character", "name": name})

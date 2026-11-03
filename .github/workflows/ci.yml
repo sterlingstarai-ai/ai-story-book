@@ -192,7 +192,12 @@ jobs:
           PHOTO_PROCESSING_ENABLED: "false"
           ILLUSTRATION_QUALITY_ENABLED: "false"
           TTS_PROVIDER: mock
-        run: pytest tests/test_celery_worker_pg.py -v
+        run: |
+          qa_startup=$(mktemp -d)
+          trap 'rm -rf "$qa_startup"' EXIT
+          python ../../scripts/mock_illustration_review.py "$qa_startup"
+          STORYBOOK_MOCK_QA=illustration-review-v1 PYTHONPATH="$qa_startup:$PWD" \
+            pytest tests/test_celery_worker_pg.py -v
 
       - name: Private media runtime gate (real PostgreSQL, Celery and S3)
         # The PG/Celery regression files ran above; this isolated stack additionally

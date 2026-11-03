@@ -7,6 +7,7 @@ import 'package:ai_story_book/l10n/app_localizations.dart';
 import 'package:ai_story_book/models/job_status.dart';
 import 'package:ai_story_book/providers/providers.dart';
 import 'package:ai_story_book/services/api_client.dart';
+import 'package:ai_story_book/services/parental_control_service.dart';
 import 'package:ai_story_book/screens/viewer_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -17,39 +18,43 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// 뷰어가 초기화 시 호출하는 서버 조회만 막는 최소 스텁(네트워크 차단).
 class _StubApiClient extends ApiClient {
   _StubApiClient() : super(baseUrl: 'http://127.0.0.1:1', userKey: 'test-user');
+  int pdfRequests = 0;
 
   @override
-  Future<Map<String, dynamic>> getSettings() async =>
-      {'allow_kakao_share': true};
+  Future<List<int>> downloadPdf(String bookId) async {
+    pdfRequests++;
+    throw StateError('synthetic export boundary');
+  }
+
+  @override
+  Future<Map<String, dynamic>> getSettings() async => {
+    'allow_kakao_share': true,
+  };
 
   @override
   Future<Map<String, dynamic>> recordReading({
     required String bookId,
     int readingTime = 0,
     bool completed = false,
-  }) async =>
-      {};
+  }) async => {};
 }
 
 BookResult _book() => BookResult(
-      bookId: 'book-1',
-      jobId: 'job-1',
-      title: '테스트 동화',
-      coverImageUrl: '',
-      pages: [
-        PageResult(
-          pageNumber: 1,
-          text: '토끼가 숲으로 갔어요.',
-          imageUrl: '',
-        ),
-      ],
-    );
+  bookId: 'book-1',
+  jobId: 'job-1',
+  title: '테스트 동화',
+  coverImageUrl: '',
+  pages: [PageResult(pageNumber: 1, text: '토끼가 숲으로 갔어요.', imageUrl: '')],
+);
 
 Future<void> _pumpViewer(
   WidgetTester tester, {
   required bool audioSupported,
+  bool? narrationSupported,
   bool podSupported = false,
   BookResult? book,
+  _StubApiClient? api,
+  ParentalControlService? parental,
 }) async {
   SharedPreferences.setMockInitialValues({});
   final prefs = await SharedPreferences.getInstance();
@@ -58,14 +63,21 @@ Future<void> _pumpViewer(
     ProviderScope(
       overrides: [
         sharedPreferencesProvider.overrideWithValue(prefs),
-        apiClientProvider.overrideWithValue(_StubApiClient()),
-        bookDetailProvider('book-1')
-            .overrideWith((ref) async => book ?? _book()),
-        capabilitiesProvider.overrideWith((ref) async => {
-              'inpaint_supported': false,
-              'audio_supported': audioSupported,
-              'pod_ordering_supported': podSupported,
-            }),
+        apiClientProvider.overrideWithValue(api ?? _StubApiClient()),
+        if (parental != null)
+          parentalControlServiceProvider.overrideWithValue(parental),
+        bookDetailProvider(
+          'book-1',
+        ).overrideWith((ref) async => book ?? _book()),
+        capabilitiesProvider.overrideWith(
+          (ref) async => {
+            'inpaint_supported': false,
+            'audio_supported': audioSupported,
+            if (narrationSupported != null)
+              'narration_supported': narrationSupported,
+            'pod_ordering_supported': podSupported,
+          },
+        ),
       ],
       child: MaterialApp(
         theme: ThemeData(
@@ -110,8 +122,72 @@ Future<void> _teardownViewer(WidgetTester tester) async {
 }
 
 void main() {
-  testWidgets('viewer report menu opens the parent gate inside the app',
-      (tester) async {
+  for (final export in [
+    'cover',
+    'pdf',
+    'message',
+    'more',
+    'download',
+    'print',
+  ]) {
+    testWidgets('$export requires parental approval before export', (
+      tester,
+    ) async {
+      final api = _StubApiClient();
+      await _pumpViewer(tester, audioSupported: false, api: api);
+      final l = AppLocalizations.of(tester.element(find.byType(ViewerScreen)));
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.pumpAndSettle();
+      if (['cover', 'pdf', 'message', 'more'].contains(export)) {
+        await tester.ensureVisible(find.text(l.viewerShare));
+        await tester.tap(find.text(l.viewerShare));
+        await tester.pumpAndSettle();
+      }
+      final label = switch (export) {
+        'cover' => l.viewerShareCover,
+        'pdf' => l.viewerSharePdf,
+        'message' => l.viewerShareMessage,
+        'more' => l.viewerShareMore,
+        'download' => l.viewerExportPdf,
+        _ => l.viewerPrint,
+      };
+      await tester.ensureVisible(find.text(label));
+      await tester.tap(find.text(label));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(api.pdfRequests, 0);
+      // Cancelling the gate cannot reach the provider/native export boundary.
+      Navigator.of(tester.element(find.byType(AlertDialog))).pop(false);
+      await tester.pumpAndSettle();
+      expect(api.pdfRequests, 0);
+      await _teardownViewer(tester);
+    });
+  }
+
+  testWidgets('fresh parental approval still allows PDF download', (
+    tester,
+  ) async {
+    final api = _StubApiClient();
+    final parental = ParentalControlService()..markAgeGateVerified();
+    await _pumpViewer(
+      tester,
+      audioSupported: false,
+      api: api,
+      parental: parental,
+    );
+    final l = AppLocalizations.of(tester.element(find.byType(ViewerScreen)));
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text(l.viewerExportPdf));
+    await tester.tap(find.text(l.viewerExportPdf));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(api.pdfRequests, 1);
+    await _teardownViewer(tester);
+  });
+  testWidgets('viewer report menu opens the parent gate inside the app', (
+    tester,
+  ) async {
     await _pumpViewer(tester, audioSupported: false);
     await tester.tap(find.byIcon(Icons.more_vert));
     await tester.pump();
@@ -125,8 +201,9 @@ void main() {
     await _teardownViewer(tester);
   });
 
-  testWidgets('small large-text reader keeps story above page navigation',
-      (tester) async {
+  testWidgets('small large-text reader keeps story above page navigation', (
+    tester,
+  ) async {
     tester.view.physicalSize = const Size(320, 480);
     tester.view.devicePixelRatio = 1;
     tester.platformDispatcher.textScaleFactorTestValue = 1.4;
@@ -136,11 +213,14 @@ void main() {
     await _pumpViewer(tester, audioSupported: false);
     final story = find.text('토끼가 숲으로 갔어요.');
     final next = find.byIcon(Icons.chevron_right);
-    final illustration = find.byWidgetPredicate((widget) =>
-        widget is Semantics && widget.properties.label == '1페이지 삽화');
+    final illustration = find.byWidgetPredicate(
+      (widget) => widget is Semantics && widget.properties.label == '1페이지 삽화',
+    );
     final closeButton = find.byTooltip('닫기');
-    expect(tester.getRect(illustration).top,
-        greaterThanOrEqualTo(tester.getRect(closeButton).bottom));
+    expect(
+      tester.getRect(illustration).top,
+      greaterThanOrEqualTo(tester.getRect(closeButton).bottom),
+    );
     await tester.ensureVisible(story);
     await tester.pump();
     expect(tester.getRect(story).bottom, lessThan(tester.getRect(next).top));
@@ -149,51 +229,55 @@ void main() {
   });
 
   testWidgets(
-      'small reader scrolls long learning pages without covering controls',
-      (tester) async {
-    tester.view.physicalSize = const Size(320, 480);
-    tester.view.devicePixelRatio = 1;
-    tester.view.padding = const FakeViewPadding(top: 44, bottom: 34);
-    tester.platformDispatcher.textScaleFactorTestValue = 1.4;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    addTearDown(tester.view.resetPadding);
-    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-    final book = BookResult.fromJson({
-      'book_id': 'book-1',
-      'title': '긴 이야기를 함께 읽어요',
-      'cover_image_url': '',
-      'pages': [
-        {
-          'page_number': 1,
-          'text': List.filled(6, '토끼는 친구와 정원에 갔어요.').join(' '),
-          'image_url': '',
-          'vocab': [
-            {'word': '정원', 'meaning': '꽃이 피는 곳'}
-          ],
-        },
-      ],
-    });
-    await _pumpViewer(tester, audioSupported: true, book: book);
-    expect(tester.takeException(), isNull);
-    final finish = find.byKey(const Key('viewer-finish-reading'));
-    final bodyScroll = find.byKey(const ValueKey('reader-content-1'));
-    for (var i = 0; i < 12 && finish.hitTestable().evaluate().isEmpty; i++) {
-      await tester.drag(bodyScroll, const Offset(0, -220));
+    'small reader scrolls long learning pages without covering controls',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 480);
+      tester.view.devicePixelRatio = 1;
+      tester.view.padding = const FakeViewPadding(top: 44, bottom: 34);
+      tester.platformDispatcher.textScaleFactorTestValue = 1.4;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPadding);
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      final book = BookResult.fromJson({
+        'book_id': 'book-1',
+        'title': '긴 이야기를 함께 읽어요',
+        'cover_image_url': '',
+        'pages': [
+          {
+            'page_number': 1,
+            'text': List.filled(6, '토끼는 친구와 정원에 갔어요.').join(' '),
+            'image_url': '',
+            'vocab': [
+              {'word': '정원', 'meaning': '꽃이 피는 곳'},
+            ],
+          },
+        ],
+      });
+      await _pumpViewer(tester, audioSupported: true, book: book);
+      expect(tester.takeException(), isNull);
+      final finish = find.byKey(const Key('viewer-finish-reading'));
+      final bodyScroll = find.byKey(const ValueKey('reader-content-1'));
+      for (var i = 0; i < 12 && finish.hitTestable().evaluate().isEmpty; i++) {
+        await tester.drag(bodyScroll, const Offset(0, -220));
+        await tester.pump(const Duration(milliseconds: 300));
+      }
       await tester.pump(const Duration(milliseconds: 300));
-    }
-    await tester.pump(const Duration(milliseconds: 300));
-    expect(finish.hitTestable(), findsOneWidget);
-    expect(
+      expect(finish.hitTestable(), findsOneWidget);
+      expect(
         tester.getRect(finish).bottom,
         lessThanOrEqualTo(
-            tester.getRect(find.byKey(const Key('viewer_learning_bar'))).top));
-    expect(tester.takeException(), isNull);
-    await _teardownViewer(tester);
-  });
+          tester.getRect(find.byKey(const Key('viewer_learning_bar'))).top,
+        ),
+      );
+      expect(tester.takeException(), isNull);
+      await _teardownViewer(tester);
+    },
+  );
 
-  testWidgets('reader keeps artwork below the title and iPhone cutout',
-      (tester) async {
+  testWidgets('reader keeps artwork below the title and iPhone cutout', (
+    tester,
+  ) async {
     tester.view.physicalSize = const Size(402, 874);
     tester.view.devicePixelRatio = 1;
     tester.view.padding = const FakeViewPadding(top: 62, bottom: 34);
@@ -201,10 +285,13 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     addTearDown(tester.view.resetPadding);
     await _pumpViewer(tester, audioSupported: false);
-    final illustration = find.byWidgetPredicate((widget) =>
-        widget is Semantics && widget.properties.label == '1페이지 삽화');
-    expect(tester.getRect(illustration).top,
-        greaterThanOrEqualTo(tester.getRect(find.byTooltip('닫기')).bottom));
+    final illustration = find.byWidgetPredicate(
+      (widget) => widget is Semantics && widget.properties.label == '1페이지 삽화',
+    );
+    expect(
+      tester.getRect(illustration).top,
+      greaterThanOrEqualTo(tester.getRect(find.byTooltip('닫기')).bottom),
+    );
     expect(tester.getRect(illustration).top, greaterThan(62));
     expect(tester.takeException(), isNull);
     await _teardownViewer(tester);
@@ -242,6 +329,21 @@ void main() {
     await _pumpViewer(tester, audioSupported: true);
     expect(find.byIcon(Icons.volume_up), findsOneWidget);
     expect(find.text('AI 낭독'), findsOneWidget);
+    await _teardownViewer(tester);
+  });
+
+  testWidgets('낭독만 지원하면 낭독은 보이고 발음 연습은 숨긴다', (tester) async {
+    await _pumpViewer(tester, audioSupported: false, narrationSupported: true);
+    expect(find.byIcon(Icons.volume_up), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byIcon(Icons.record_voice_over_outlined), findsNothing);
+    await _teardownViewer(tester);
+  });
+
+  testWidgets('낭독이 명시적으로 비활성이면 기존 오디오 플래그보다 우선한다', (tester) async {
+    await _pumpViewer(tester, audioSupported: true, narrationSupported: false);
+    expect(find.byIcon(Icons.volume_up), findsNothing);
     await _teardownViewer(tester);
   });
 }

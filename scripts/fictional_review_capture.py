@@ -74,8 +74,9 @@ def _context(title, page_texts, image_prompts):
     return context
 
 
-def wrap_review(original, directory, repository_root):
+def wrap_review(original, directory, repository_root, *, expected_images=13):
     """No retries, response substitutions, relaxed deadlines or publication changes."""
+    require(expected_images in (5, 13), "FICTIONAL_CAPTURE_IMAGE_COUNT_INVALID")
     root_fd = private_directory(directory, repository_root)
     os.close(root_fd)
 
@@ -84,7 +85,7 @@ def wrap_review(original, directory, repository_root):
         from src.services.image_quality import _validate_inputs, BookIllustrationReview
 
         numbers = _validate_inputs(title, page_texts, image_prompts, images, timeout)
-        require(numbers == list(range(13)), "FICTIONAL_CAPTURE_REQUIRES_THIRTEEN_IMAGES")
+        require(numbers == list(range(expected_images)), "FICTIONAL_CAPTURE_IMAGE_COUNT_INVALID")
         context = _context(title, page_texts, image_prompts)
         root_fd = private_directory(directory, repository_root)
         try:
@@ -133,7 +134,7 @@ def wrap_review(original, directory, repository_root):
 
 
 def load_review_input(directory, *, repository_root):
-    """Restore validated 13-page QA inputs; no network calls or source-photo path."""
+    """Restore validated 5- or 13-image QA inputs; no network or source-photo path."""
     from src.services.image_quality import _validate_inputs
 
     fd = private_directory(directory, repository_root)
@@ -142,7 +143,7 @@ def load_review_input(directory, *, repository_root):
         require(record.get("version") == 1 and record.get("classification") == "fictional_image"
                 and record.get("real_child_data") is False and record.get("source_photos_retained") is False,
                 "REAL_CHILD_REVIEW_CAPTURE_FORBIDDEN")
-        require(type(record.get("images")) is list and len(record["images"]) == 13,
+        require(type(record.get("images")) is list and len(record["images"]) in (5, 13),
                 "FICTIONAL_CAPTURE_IMAGE_LIST_INVALID")
         images = {}
         for number, image in enumerate(record["images"]):
@@ -175,6 +176,9 @@ def install():
 
     require(not getattr(image_quality.review_book_illustrations, "_fictional_capture", False),
             "FICTIONAL_CAPTURE_ALREADY_INSTALLED")
-    wrapper = wrap_review(image_quality.review_book_illustrations, directory, repository_root)
+    page_count = os.environ.get("LIVE_ACCEPTANCE_PAGE_COUNT", "12")
+    require(page_count in ("4", "12"), "FICTIONAL_CAPTURE_IMAGE_COUNT_INVALID")
+    wrapper = wrap_review(image_quality.review_book_illustrations, directory, repository_root,
+                          expected_images=int(page_count) + 1)
     wrapper._fictional_capture = True
     image_quality.review_book_illustrations = wrapper

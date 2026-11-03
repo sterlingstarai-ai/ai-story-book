@@ -7,6 +7,7 @@ H1/G9: 오디오는 GA에서 기본 비활성(audio_feature_enabled=False)이다
 """
 
 from fastapi import HTTPException
+import re
 
 from src.core.config import settings
 
@@ -14,7 +15,7 @@ from src.core.config import settings
 AUDIO_NOT_SUPPORTED_CODE = "AUDIO_NOT_SUPPORTED"
 
 
-def audio_readiness_issues() -> list[str]:
+def tts_readiness_issues() -> list[str]:
     """오디오 기능 ON 상태에서 TTS/STT가 라이브 미구성이면 사유 목록을 반환한다(H1).
 
     mock/미지 provider는 무음 오디오·가짜 발음 점수를 성공으로 서빙하므로 readiness를 막는다.
@@ -22,18 +23,28 @@ def audio_readiness_issues() -> list[str]:
     issues: list[str] = []
 
     tts = (settings.tts_provider or "").strip().lower()
-    if tts == "openai":
+    if tts in {"openai", "openai_realtime"}:
         if not settings.openai_tts_api_key:
             issues.append("tts_key")
     elif tts == "google":
         if not settings.google_tts_api_key:
             issues.append("tts_key")
+    elif tts == "google_gemini":
+        if not re.fullmatch(r"[a-z][a-z0-9-]{4,28}[a-z0-9]", settings.google_gemini_tts_project or ""):
+            issues.append("tts_project")
+        if settings.google_gemini_tts_daily_request_limit <= 0 or settings.google_gemini_tts_monthly_request_limit <= 0:
+            issues.append("tts_request_budget")
     elif tts == "elevenlabs":
         if not settings.elevenlabs_api_key:
             issues.append("tts_key")
     else:
         issues.append("tts_provider_not_live")
 
+    return issues
+
+
+def stt_readiness_issues() -> list[str]:
+    issues: list[str] = []
     stt = (settings.stt_provider or "").strip().lower()
     if stt == "openai":
         if not (settings.stt_api_key or (
@@ -49,6 +60,13 @@ def audio_readiness_issues() -> list[str]:
     return issues
 
 
+def audio_readiness_issues() -> list[str]:
+    issues = tts_readiness_issues()
+    if not settings.audio_narration_only_enabled:
+        issues += stt_readiness_issues()
+    return issues
+
+
 def audio_supported() -> bool:
     """이 배포에서 오디오·발음 기능을 실제로 제공할 수 있는가.
 
@@ -57,7 +75,25 @@ def audio_supported() -> bool:
     """
     if not settings.audio_feature_enabled:
         return False
-    return not audio_readiness_issues()
+    return not (tts_readiness_issues() or stt_readiness_issues())
+
+
+def narration_supported() -> bool:
+    if not settings.audio_feature_enabled:
+        return False
+    if not settings.audio_narration_only_enabled:
+        return audio_supported()
+    return not tts_readiness_issues()
+
+
+def narration_voice_selection_supported() -> bool:
+    """Only expose choices whose built-in voice mapping is implemented."""
+    return narration_supported() and (settings.tts_provider or "").strip().lower() in {"openai", "openai_realtime", "google_gemini"}
+
+
+def narration_style_selection_supported() -> bool:
+    """Expressive style instructions require the OpenAI mini TTS model."""
+    return narration_voice_selection_supported() and ((settings.tts_provider or "").strip().lower() in {"openai_realtime", "google_gemini"} or (settings.openai_tts_model or "").startswith("gpt-4o-mini-tts"))
 
 
 def require_audio_supported() -> None:
@@ -71,6 +107,15 @@ def require_audio_supported() -> None:
             "message": "이 배포에서는 오디오 기능을 사용할 수 없습니다.",
         },
     )
+
+
+def require_narration_supported() -> None:
+    if narration_supported():
+        return
+    raise HTTPException(status_code=409, detail={
+        "code": AUDIO_NOT_SUPPORTED_CODE,
+        "message": "이 배포에서는 오디오 기능을 사용할 수 없습니다.",
+    })
 
 
 def voice_profiles_supported() -> bool:

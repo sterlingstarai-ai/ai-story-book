@@ -988,6 +988,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
         return false;
       }
 
+      if (!await ensureAgeGate(context, ref) || !mounted) return false;
       await iapService.buyProduct(target, consumable: consumable);
       if (mounted) {
         final l = AppLocalizations.of(context);

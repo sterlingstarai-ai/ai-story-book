@@ -112,14 +112,14 @@ async def run_purge_tasks(
     for task in tasks:
         try:
             task_failed = await _execute_task(task)
-        except Exception as exc:  # ClientError 외 예외도 '미완'으로 취급
+        except Exception:  # ClientError 외 예외도 '미완'으로 취급
             task.attempts = (task.attempts or 0) + 1
-            task.last_error = str(exc)[:300]
+            # Provider errors can embed signed URLs, object names, or secrets.
+            # Retain a stable diagnostic code, not the exception payload.
+            task.last_error = "storage_operation_failed"
             task.updated_at = utcnow()
             failed.append(task.target)
-            logger.warning(
-                "storage purge task raised", target=task.target, error=str(exc)
-            )
+            logger.warning("storage purge task raised", task_id=task.id)
             continue
         task.attempts = (task.attempts or 0) + 1
         task.updated_at = utcnow()
@@ -128,8 +128,8 @@ async def run_purge_tasks(
             failed.extend(task_failed)
             logger.warning(
                 "storage purge task incomplete",
-                target=task.target,
-                failed_keys=task_failed,
+                task_id=task.id,
+                failed_key_count=len(task_failed),
             )
         else:
             task.status = "done"
@@ -162,6 +162,10 @@ async def sweep_pending_purges(limit: int = 100) -> int:
             )
             .order_by(StoragePurgeTask.id.asc())
             .limit(limit)
+            # Publishers lock their precommitted guard until registration or
+            # upload completion. Never delete a guard in use by another
+            # transaction. PostgreSQL supplies the cross-process guarantee.
+            .with_for_update(skip_locked=True)
         )
         tasks = list(rows.scalars().all())
         if not tasks:
@@ -171,8 +175,8 @@ async def sweep_pending_purges(limit: int = 100) -> int:
             task.updated_at = utcnow()
             try:
                 task_failed = await _execute_task(task)
-            except Exception as exc:
-                task.last_error = str(exc)[:300]
+            except Exception:
+                task.last_error = "storage_operation_failed"
                 if task.attempts >= MAX_ATTEMPTS:
                     task.status = "failed"
                 continue

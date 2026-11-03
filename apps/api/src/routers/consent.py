@@ -8,8 +8,9 @@ from typing import Optional
 
 import structlog
 from fastapi import APIRouter, Depends
-from pydantic import ConfigDict, BaseModel
-from sqlalchemy import delete, select, update
+from pydantic import ConfigDict, BaseModel, Field
+from sqlalchemy import delete, or_, select, update
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
@@ -17,7 +18,7 @@ from src.core.consent import _has_active_photo_consent, latest_active_consent
 from src.core.database import get_db
 from src.core.dependencies import get_user_key
 from src.core.utils import utcnow
-from src.models.db import Book, Character, Job, UserConsent
+from src.models.db import Book, Character, Job, StoragePurgeTask, UserConsent
 from src.services.data_deletion import (
     collect_purgeable_image_keys,
     detach_series_from_characters,
@@ -32,6 +33,8 @@ from src.services.purge_queue import (
     run_purge_tasks,
 )
 from src.services.photo_lifecycle import lock_photo_account
+from src.services.privacy_journal import ConsentState
+from src.services.privacy_journal_transaction import prepare_transaction_event, publish_committed_event
 from src.services.storage import (
     book_file_prefix,
     mask_file_prefix,
@@ -63,10 +66,16 @@ class ConsentResponse(BaseModel):
     data_processing: bool
     consent_version: str
     revoked: bool
+    # True includes failed, delayed and unknown statuses; it does not promise
+    # that automatic retries are still available after their attempt limit.
+    purge_incomplete: bool = Field(description=(
+        'Whether known photo-consent erasure tasks are unfinished or their state is unavailable. '
+        'False means no unfinished tasks were found; it is not proof of storage erasure.'
+    ))
 
 
 def _to_response(
-    consent: Optional[UserConsent], *, revoked: bool = False
+    consent: Optional[UserConsent], *, revoked: bool = False, purge_incomplete: bool
 ) -> ConsentResponse:
     """활성 동의 행 → 응답. 활성 행이 없을 때 `revoked` 로 '철회됨'과 '동의한 적 없음'을 구분한다.
 
@@ -82,6 +91,7 @@ def _to_response(
             data_processing=False,
             consent_version=settings.consent_current_version,
             revoked=revoked,
+            purge_incomplete=purge_incomplete,
         )
     return ConsentResponse(
         granted=consent.granted,
@@ -90,7 +100,30 @@ def _to_response(
         data_processing=consent.data_processing,
         consent_version=consent.consent_version,
         revoked=consent.revoked_at is not None,
+        purge_incomplete=purge_incomplete,
     )
+
+
+async def _photo_purge_incomplete(db: AsyncSession, user_key: str) -> bool:
+    """Report unresolved photo-consent erasures without exposing targets.
+
+    Include the deferred second-pass guard for active generation. Treat every
+    status except done (including cancelled/unknown) as incomplete. A failed
+    query also stays unknown: the consent decision itself may already be saved.
+    """
+    reasons = ('consent_revoke', 'consent_photos_off',
+               'consent_revoke_inflight_images', 'consent_photos_off_inflight_images',
+               'consent_revoke_inflight_avatar', 'consent_photos_off_inflight_avatar')
+    try:
+        result = await db.execute(select(StoragePurgeTask.id).where(
+            StoragePurgeTask.user_key == user_key,
+            StoragePurgeTask.reason.in_(reasons),
+            or_(StoragePurgeTask.status.is_(None), StoragePurgeTask.status != 'done'),
+        ).limit(1))
+        return result.scalar_one_or_none() is not None
+    except SQLAlchemyError:
+        logger.warning('photo consent purge status unavailable')
+        return True
 
 
 @router.post("", response_model=ConsentResponse)
@@ -108,10 +141,11 @@ async def grant_consent(
     항목 해제'의 의미가 이원화되고, 사용자가 사진 사용을 껐는데 얼굴은 그대로 남는다.
     """
     await lock_photo_account(db, user_key)
-    # 사진 동의 해제 여부를 새 행 기록 '전'에 판정(기존 활성 행 기준).
-    photos_revoked = (
-        await _has_active_photo_consent(db, user_key)
-    ) and not request.photos
+    journal_event = await prepare_transaction_event(db, user_key=user_key, action='consent_grant',
+        consent_state=ConsentState(request.privacy, request.photos, request.data_processing,
+                                   request.consent_version or settings.consent_current_version))
+    # Also repair assets stranded by an earlier ineffective consent decision.
+    photos_revoked = not (request.privacy and request.data_processing and request.photos)
 
     # 기존 비철회 행 폐기(누적 방지 — 게이트/철회 일관성)
     await db.execute(
@@ -146,9 +180,10 @@ async def grant_consent(
             )
     else:
         await db.commit()
+    await publish_committed_event(db, journal_event)
     await db.refresh(consent)
 
-    return _to_response(consent)
+    return _to_response(consent, purge_incomplete=await _photo_purge_incomplete(db, user_key))
 
 
 
@@ -175,7 +210,7 @@ async def get_consent(
     revoked = False
     if active is None:
         revoked = await _has_revoked_consent(db, user_key)
-    resp = _to_response(active, revoked=revoked)
+    resp = _to_response(active, revoked=revoked, purge_incomplete=await _photo_purge_incomplete(db, user_key))
     # photos 게이트는 'granted'와 독립으로 평가되므로(require_photo_consent와 동일 소스),
     # JIT 판단이 서버 집행과 어긋나지 않게 photos 필드를 게이트 기준으로 보정한다.
     resp.photos = await _has_active_photo_consent(db, user_key)
@@ -306,6 +341,7 @@ async def revoke_consent(
     이후 사진 기반 기능은 다시 차단되고, from_photo 캐릭터 레코드·원본 사진(스토리지)은 삭제된다.
     """
     await lock_photo_account(db, user_key)
+    journal_event = await prepare_transaction_event(db, user_key=user_key, action='consent_revoke')
     # 비철회 동의 행 '전부' 폐기 — granted=False/photos=True 같은 잔여 행이 게이트를 열어두지 않도록.
     await db.execute(
         update(UserConsent)
@@ -319,6 +355,7 @@ async def revoke_consent(
     failed_keys = await purge_photo_derived_data(
         db, user_key, reason="consent_revoke"
     )
+    await publish_committed_event(db, journal_event)
     if failed_keys:
         # H8 계약: unknown 파기 결과를 success로 위장하지 않는다. 지시는 outbox에 남아
         # 스윕이 재시도하므로, 여기서는 관측 가능하게 남기고 응답은 철회 성공을 유지한다
@@ -329,4 +366,4 @@ async def revoke_consent(
             failed_key_count=len(failed_keys),
         )
 
-    return _to_response(None, revoked=True)
+    return _to_response(None, revoked=True, purge_incomplete=await _photo_purge_incomplete(db, user_key))

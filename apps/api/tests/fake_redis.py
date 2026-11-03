@@ -7,7 +7,15 @@ class FakeRedis:
         self.sorted_sets = {}
         self.ttls = {}
 
-    async def eval(self, script, numkeys, key, now, window, limit, member):
+    async def eval(self, script, numkeys, key, *args):
+        if len(args) == 1 and "redis.call('INCR', KEYS[1])" in script:
+            used = await self.incr(key)
+            if key not in self.ttls:
+                await self.expire(key, args[0])
+            return used
+        if len(args) != 4:
+            raise NotImplementedError('Unsupported fake Redis script')
+        now, window, limit, member = args
         # Boundary fake for admission HTTP tests; real Lua behavior is exercised
         # separately against Redis, including same-timestamp concurrency.
         import math

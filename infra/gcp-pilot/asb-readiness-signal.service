@@ -1,0 +1,9 @@
+[Unit]
+Description=Publish AI Story Book API readiness signal to Cloud Monitoring
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/ai-story-book/readiness-monitor/publish_readiness_health.py
+TimeoutStartSec=60

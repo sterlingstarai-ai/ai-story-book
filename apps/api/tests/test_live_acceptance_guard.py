@@ -245,3 +245,69 @@ def test_matrix_rejects_spend_thresholds_that_disable_the_paid_guard(acceptance_
     _, matrix = acceptance_scripts
     with pytest.raises(argparse.ArgumentTypeError):
         matrix.text_spend_threshold(value)
+
+
+def test_current_openai_image_config(acceptance_scripts):
+    book, _ = acceptance_scripts
+    values = dict(LLM_PROVIDER='openai', LLM_MODEL='gpt-5.6-sol', LLM_API_KEY='inert',
+                  IMAGE_PROVIDER='openai', IMAGE_MODEL='gpt-image-2', IMAGE_API_KEY='inert-image')
+    assert book.runtime_config(values).image_provider == 'openai'
+    with pytest.raises(book.GateFailure, match='INVALID_IMAGE_CONFIGURATION'):
+        book.runtime_config(dict(values, IMAGE_PROVIDER='gemini'))
+
+
+@pytest.mark.asyncio
+async def test_openai_images_share_budget_for_generation_edits_and_failures(tmp_path, monkeypatch):
+    path = tmp_path / 'journal.jsonl'
+    path.touch()
+    for key, value in dict(LIVE_ACCEPTANCE_JOURNAL=str(path), IMAGE_MODEL='gpt-image-2',
+                           LLM_PROVIDER='openai', LLM_MODEL='gpt-5.6-sol',
+                           ILLUSTRATION_QUALITY_ENABLED='true', LIVE_ACCEPTANCE_PAGE_COUNT='4').items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(httpx.AsyncClient, 'post', httpx.AsyncClient.post)
+    guard.install()
+    requests = []
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(429, json={'private': 'sentinel-private', 'usage': {'input_tokens': 5}})
+    payload = dict(model='gpt-image-2', n=1, size='768x1024', quality='medium', prompt='sentinel-private')
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        for n in range(7):
+            if n % 2:
+                await client.post('https://api.openai.com/v1/images/edits',
+                                  data={k: str(v) for k, v in payload.items()},
+                                  files={'image[]': ('reference.png', b'sentinel-private', 'image/png')})
+            else:
+                await client.post('https://api.openai.com/v1/images/generations', json=payload)
+        with pytest.raises(RuntimeError, match='REQUEST_LIMIT'):
+            await client.post('https://api.openai.com/v1/images/generations', json=payload)
+        for field, value in [('n', 2), ('n', True), ('quality', 'auto'), ('size', 'auto'), ('model', 'other')]:
+            with pytest.raises(RuntimeError, match='IMAGE_OPTIONS|MODEL_MISMATCH'):
+                await client.post('https://api.openai.com/v1/images/generations', json=dict(payload, **{field: value}))
+    assert len(requests) == 7
+    assert 'sentinel-private' not in path.read_text()
+    events = [json.loads(line) for line in path.read_text().splitlines()]
+    assert all(e['provider'] == 'openai' for e in events)
+    assert events[1]['usage'] == {'input_tokens': 5}
+
+
+def test_openai_image_dimensions_are_measured_from_returned_bytes():
+    import base64
+    from io import BytesIO
+    from PIL import Image
+    stream = BytesIO()
+    Image.new('RGB', (12, 16)).save(stream, format='PNG')
+    body = {'data': [{'b64_json': base64.b64encode(stream.getvalue()).decode()}]}
+    assert guard.image_dimensions(body) == ([{'width': 12, 'height': 16}], True)
+    assert guard.image_dimensions({'data': [{'url': 'https://example.invalid'}]}) == ([], False)
+
+
+def test_only_provider_observation_gap_allows_fresh_candidate(acceptance_scripts):
+    book, _ = acceptance_scripts
+    services = {name: 'healthy' for name in ('database', 'redis', 'job_monitor', 'storage', 'provider_keys')}
+    services.update(provider_runtime='unverified', cost_budget='configured')
+    assert book.unverified_candidate_readiness(503, {'services': services})
+    for name in services:
+        assert not book.unverified_candidate_readiness(503, {'services': dict(services, **{name: 'unhealthy'})})
+    assert not book.unverified_candidate_readiness(500, {'services': services})
+    assert not book.unverified_candidate_readiness(503, {})

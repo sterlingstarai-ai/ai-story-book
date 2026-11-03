@@ -38,6 +38,15 @@ def test_corrected_prompt_preserves_full_schema_valid_visual_brief():
     ImagePrompt.model_validate(corrected.model_dump())
 
 
+def test_action_correction_requests_the_story_required_visible_object_state():
+    with image_correction_scope(page_text="The children leave the book open to dry.",
+                                issues=["action_mismatch"]):
+        expanded = provider_prompt_with_correction(complete_prompt())
+    assert "visible pages in an open book" in expanded.positive_prompt
+    assert "do not invent a state" in expanded.positive_prompt
+    assert "The children leave the book open to dry." in expanded.positive_prompt
+
+
 def test_full_repair_context_fits_reference_provider_request_without_losing_tail():
     original = complete_prompt().model_copy(update={"negative_prompt": "n" * 600})
     narrative = "The tap fills the watering can through its top opening. " + "x" * 540

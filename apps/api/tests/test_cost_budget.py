@@ -32,8 +32,19 @@ class _FakeRedis:
         self.expires[key] = ttl
         return True
 
+    async def eval(self, _script, _numkeys, key, ttl):
+        used = await self.incr(key)
+        if key not in self.expires:
+            await self.expire(key, ttl)
+        return used
+
 
 class _BrokenRedis:
+    async def eval(self, *_args):
+        import redis.asyncio as redis
+
+        raise redis.RedisError("redis down")
+
     async def incr(self, key: str):
         import redis.asyncio as redis
 
@@ -99,6 +110,17 @@ async def test_budget_sets_expiry_so_counters_do_not_leak(budget_env):
     """카운터에 TTL이 없으면 날짜 키가 무한 누적된다."""
     await consume_daily_generation_budget()
     assert budget_env.expires, "일일 카운터에 만료가 설정돼야 함"
+
+
+@pytest.mark.asyncio
+async def test_budget_repairs_missing_expiry_without_extending_existing_ttl(budget_env):
+    key = daily_budget_key()
+    budget_env.store[key] = 1
+    await consume_daily_generation_budget()
+    assert budget_env.expires[key] > 0
+    budget_env.expires[key] = 17
+    await consume_daily_generation_budget()
+    assert budget_env.expires[key] == 17
 
 
 @pytest.mark.asyncio

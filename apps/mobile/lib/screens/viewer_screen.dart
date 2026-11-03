@@ -6,7 +6,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:confetti/confetti.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -27,6 +26,8 @@ import '../services/api_client.dart';
 import '../utils/constants.dart';
 import '../widgets/age_gate_dialog.dart';
 import '../widgets/common_widgets.dart';
+import '../widgets/scoped_book_image.dart';
+import '../services/book_scoped_cache_manager.dart';
 import '../widgets/credit_shortage_modal.dart';
 import '../widgets/content_report_sheet.dart';
 
@@ -104,31 +105,38 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     super.initState();
     _readingSessionApi = ref.read(apiClientProvider);
     _audioPreferences = ref.read(sharedPreferencesProvider);
-    _pageAudio = PageAudioPlayback(JustAudioPagePlayer(_audioPlayer),
-        onError: (error) => unawaited(_showAudioError(error)));
+    _pageAudio = PageAudioPlayback(
+      JustAudioPagePlayer(_audioPlayer),
+      onError: (error) => unawaited(_showAudioError(error)),
+    );
     _pageAudio.addListener(() {
       if (mounted) setState(() => _isLoadingAudio = _pageAudio.loading);
     });
     _readingSessionScope = ProviderScope.containerOf(context, listen: false);
     WidgetsBinding.instance.addObserver(this);
     _mediaRefreshTimer = Timer.periodic(
-        const Duration(minutes: 1), (_) => _refreshMediaIfNeeded());
+      const Duration(minutes: 1),
+      (_) => _refreshMediaIfNeeded(),
+    );
     _pageController = PageController();
     _completionConfettiController = ConfettiController(
       duration: const Duration(seconds: 3),
     );
     _viewStartedAt = DateTime.now();
-    ref.read(analyticsProvider).logEvent(
-      AnalyticsEvents.readingStarted,
-      params: {'book_id': widget.bookId},
-    );
+    ref
+        .read(analyticsProvider)
+        .logEvent(
+          AnalyticsEvents.readingStarted,
+          params: {'book_id': widget.bookId},
+        );
     unawaited(_loadViewerSettings());
     unawaited(_configureAudioSession());
     // Store subscription to cancel later (memory leak fix)
     _playerStateSubscription = _audioPlayer.playerStateStream.listen((state) {
       if (mounted) {
         setState(() {
-          _isPlaying = state.playing &&
+          _isPlaying =
+              state.playing &&
               state.processingState != ProcessingState.completed;
           if (state.processingState == ProcessingState.completed) {
             _audioProgress = 1;
@@ -156,8 +164,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
       if (duration == null || duration.inMilliseconds <= 0) {
         return;
       }
-      final ratio =
-          (position.inMilliseconds / duration.inMilliseconds).clamp(0.0, 1.0);
+      final ratio = (position.inMilliseconds / duration.inMilliseconds).clamp(
+        0.0,
+        1.0,
+      );
       if ((ratio - _audioProgress).abs() < 0.02 && ratio < 1) {
         return;
       }
@@ -207,17 +217,19 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     // synchronous transport errors (for example a client closed at sign-out).
     unawaited(
       Future<Map<String, dynamic>>.sync(
-        () => _readingSessionApi.recordReading(
-          bookId: widget.bookId,
-          readingTime: seconds < 0 ? 0 : seconds,
-          completed: false,
-        ),
-      ).then((result) {
-        // 서버는 이 기록만으로도 '오늘 읽음'이 된다. 홈 카드가 캐시된 옛 값을
-        // 계속 보여 주지 않도록 기록 성공 후에만 무효화한다.
-        _readingSessionScope.invalidate(homeStreakProvider);
-        return result;
-      }).catchError((_) => <String, dynamic>{}),
+            () => _readingSessionApi.recordReading(
+              bookId: widget.bookId,
+              readingTime: seconds < 0 ? 0 : seconds,
+              completed: false,
+            ),
+          )
+          .then((result) {
+            // 서버는 이 기록만으로도 '오늘 읽음'이 된다. 홈 카드가 캐시된 옛 값을
+            // 계속 보여 주지 않도록 기록 성공 후에만 무효화한다.
+            _readingSessionScope.invalidate(homeStreakProvider);
+            return result;
+          })
+          .catchError((_) => <String, dynamic>{}),
     );
   }
 
@@ -243,15 +255,20 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
+    ref.listen<bool>(bookMediaBlockedProvider(widget.bookId), (
+      previous,
+      blocked,
+    ) {
+      if (blocked) unawaited(_pageAudio.stop());
+    });
     final bookAsync = ref.watch(bookDetailProvider(widget.bookId));
 
     return Scaffold(
       backgroundColor: Colors.black,
       body: bookAsync.when(
         data: (book) => _buildViewer(book),
-        loading: () => const Center(
-          child: CircularProgressIndicator(color: Colors.white),
-        ),
+        loading: () =>
+            const Center(child: CircularProgressIndicator(color: Colors.white)),
         error: (error, _) => Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -312,8 +329,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
               }
               unawaited(_saveReadingProgress(index, totalPages));
               await stopped;
-              if (mounted && _currentPage == index &&
-                  _sleepModeEnabled && index > 0) {
+              if (mounted &&
+                  _currentPage == index &&
+                  _sleepModeEnabled &&
+                  index > 0) {
                 await _playPageAudio(book, restart: true);
               }
             },
@@ -321,6 +340,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
               if (index == 0) {
                 // 표지
                 return _CoverPage(
+                  bookId: book.bookId,
                   title: book.getTitle(_selectedLanguage),
                   imageUrl: book.coverImageUrl,
                   controlsVisible: _showControls,
@@ -332,17 +352,18 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                     ? (_selectedLanguage == 'ko' ? page.textEn : page.textKo)
                     : null;
                 return _ContentPage(
+                  bookId: book.bookId,
                   topControlsInset: _showControls
                       ? MediaQuery.paddingOf(context).top +
-                          AppSizing.minTouchTarget +
-                          AppSpacing.sm * 2
+                            AppSizing.minTouchTarget +
+                            AppSpacing.sm * 2
                       : MediaQuery.paddingOf(context).top,
                   controlsInset: _showControls
                       ? 144 +
-                          (page.hasLearningContent ? 80 : 0) +
-                          MediaQuery.paddingOf(context).bottom +
-                          (MediaQuery.textScalerOf(context).scale(24) - 24)
-                              .clamp(0, 48)
+                            (page.hasLearningContent ? 80 : 0) +
+                            MediaQuery.paddingOf(context).bottom +
+                            (MediaQuery.textScalerOf(context).scale(24) - 24)
+                                .clamp(0, 48)
                       : 0,
                   onComplete: index == totalPages - 1 && !_completionHandled
                       ? () => _completeReading(book)
@@ -354,8 +375,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                   page: page,
                   selectedLanguage: _selectedLanguage,
                   followReadingEnabled: _followReadingEnabled,
-                  followProgress:
-                      _audioProgressPage == index ? _audioProgress : 0,
+                  followProgress: _audioProgressPage == index
+                      ? _audioProgress
+                      : 0,
                   onShowLearning: () => _showLearningMode(book, page),
                 );
               }
@@ -487,8 +509,11 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.card_giftcard,
-                        color: AppPalette.of(context).primary, size: 20),
+                    Icon(
+                      Icons.card_giftcard,
+                      color: AppPalette.of(context).primary,
+                      size: 20,
+                    ),
                     const SizedBox(width: AppSpacing.sm),
                     Expanded(child: Text(l.viewerMilestoneRewardEarned)),
                   ],
@@ -510,13 +535,17 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   Future<void> _completeReading(BookResult book) async {
     if (_completionHandled || _currentPage != book.pages.length) return;
     setState(() => _completionHandled = true);
-    ref.read(analyticsProvider).logEvent(
-      AnalyticsEvents.readingCompleted,
-      params: {
-        'book_id': widget.bookId,
-        'reading_seconds': DateTime.now().difference(_viewStartedAt).inSeconds,
-      },
-    );
+    ref
+        .read(analyticsProvider)
+        .logEvent(
+          AnalyticsEvents.readingCompleted,
+          params: {
+            'book_id': widget.bookId,
+            'reading_seconds': DateTime.now()
+                .difference(_viewStartedAt)
+                .inSeconds,
+          },
+        );
     await _handleBookCompleted(book);
   }
 
@@ -729,8 +758,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
 
   Widget _buildControls(BookResult book, int totalPages) {
     final l = AppLocalizations.of(context);
-    final audioOk =
-        _audioSupportedFrom(ref.watch(capabilitiesProvider).valueOrNull);
+    final audioOk = narrationSupported(
+      ref.watch(capabilitiesProvider).valueOrNull,
+    );
     return Column(
       children: [
         // 상단 바
@@ -810,10 +840,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
             gradient: LinearGradient(
               begin: Alignment.bottomCenter,
               end: Alignment.topCenter,
-              colors: [
-                AppColors.blackOverlayStrong,
-                Colors.transparent,
-              ],
+              colors: [AppColors.blackOverlayStrong, Colors.transparent],
             ),
           ),
           child: Column(
@@ -837,8 +864,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                       _currentPage == 0
                           ? l.viewerCover
                           : l.viewerPageIndicator(_currentPage, totalPages - 1),
-                      style:
-                          AppTextStyles.caption.copyWith(color: Colors.white),
+                      style: AppTextStyles.caption.copyWith(
+                        color: Colors.white,
+                      ),
                     ),
                   ),
                 ],
@@ -911,7 +939,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
       if (compr > 0) l.viewerLearningQuestionCount(compr),
     ];
     final label = l.viewerLearningBar(parts.join(' · '));
-    final compact = MediaQuery.sizeOf(context).width < 360 ||
+    final compact =
+        MediaQuery.sizeOf(context).width < 360 ||
         MediaQuery.textScalerOf(context).scale(14) > 17;
     return Semantics(
       button: true,
@@ -924,8 +953,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
           onTap: () => _showLearningMode(book, page),
           child: Container(
             width: double.infinity,
-            constraints:
-                const BoxConstraints(minHeight: AppSizing.minTouchTarget),
+            constraints: const BoxConstraints(
+              minHeight: AppSizing.minTouchTarget,
+            ),
             padding: const EdgeInsets.symmetric(
               horizontal: AppSpacing.md,
               vertical: 13,
@@ -937,8 +967,11 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.menu_book_rounded,
-                    color: Colors.white, size: 18),
+                const Icon(
+                  Icons.menu_book_rounded,
+                  color: Colors.white,
+                  size: 18,
+                ),
                 const SizedBox(width: AppSpacing.sm),
                 Expanded(
                   child: Text(
@@ -972,21 +1005,53 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     await _playPageAudio(book);
   }
 
-  String get _audioPositionKey => 'reading_progress_audio_${widget.bookId}_v1';
-
   Future<void> _saveAudioPosition(Duration position) async {
     if (_currentPage < 1 || _completionHandled) return;
-    await _audioPreferences.setString(_audioPositionKey,
-        '$_currentPage|$_selectedLanguage|${position.inMilliseconds}');
+    if (!identical(ref.read(apiClientProvider), _readingSessionApi)) return;
+    final voice = narrationVoiceOrDefault(
+      _audioPreferences.getString(narrationVoicePreferenceKey),
+    );
+    final style = narrationStyleOrDefault(
+      _audioPreferences.getString(narrationStylePreferenceKey),
+    );
+    final provider = narrationAudioProvider(
+      ref.read(capabilitiesProvider).valueOrNull,
+    );
+    final value = '$_currentPage|$_selectedLanguage|${position.inMilliseconds}|$voice|$style|${provider ?? 'unknown'}';
+    try {
+      final progress = await ref.read(readingProgressProvider(widget.bookId).future);
+      await progress.saveAudio(value);
+    } catch (_) {
+      // Saving a resume point must not interrupt playback.
+    }
   }
 
-  Duration _savedAudioPosition(int page, String language) {
-    final saved = _audioPreferences.getString(_audioPositionKey)?.split('|');
-    if (saved == null || saved.length != 3 ||
-        saved[0] != '$page' || saved[1] != language) {
+  Future<Duration> _savedAudioPosition(int page, String language) async {
+    if (!identical(ref.read(apiClientProvider), _readingSessionApi)) return Duration.zero;
+    final voice = narrationVoiceOrDefault(
+      _audioPreferences.getString(narrationVoicePreferenceKey),
+    );
+    final style = narrationStyleOrDefault(
+      _audioPreferences.getString(narrationStylePreferenceKey),
+    );
+    String? saved;
+    try {
+      final progress = await ref.read(readingProgressProvider(widget.bookId).future);
+      saved = await progress.audio();
+    } catch (_) {
       return Duration.zero;
     }
-    return Duration(milliseconds: (int.tryParse(saved[2]) ?? 0).clamp(0, 3600000));
+    if (!mounted) return Duration.zero;
+    return narrationResumePosition(
+      saved,
+      page: page,
+      language: language,
+      voice: voice,
+      style: style,
+      provider: narrationAudioProvider(
+        ref.read(capabilitiesProvider).valueOrNull,
+      ),
+    );
   }
 
   ApiError? _extractApiError(Object error) {
@@ -1014,11 +1079,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     final title = apiError.isPlanUpgradeRequired
         ? l.viewerPlanUpgradeNeeded
         : l.viewerCreditShortage;
-    await showCreditShortageModal(
-      context,
-      title: title,
-      message: message,
-    );
+    await showCreditShortageModal(context, title: title, message: message);
     return true;
   }
 
@@ -1036,24 +1097,117 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     if (!mounted || _currentPage == 0 || _pageAudio.loading) return;
     final pageIndex = _currentPage;
     final language = _selectedLanguage;
+    final voice = narrationVoiceOrDefault(
+      _audioPreferences.getString(narrationVoicePreferenceKey),
+    );
+    final style = narrationStyleOrDefault(
+      _audioPreferences.getString(narrationStylePreferenceKey),
+    );
+    final caps = ref.read(capabilitiesProvider).valueOrNull;
+    if (style != 'legacy' &&
+        caps?['narration_style_selection_supported'] != true) {
+      await _showAudioError(StateError('Narration style is unavailable'));
+      return;
+    }
+    if (voice != 'default' &&
+        caps?['narration_voice_selection_supported'] != true) {
+      await _showAudioError(StateError('Narrator selection is unavailable'));
+      return;
+    }
     final page = book.pages[pageIndex - 1];
-    final key = pageAudioCacheKey(book.bookId, pageIndex, language,
-        page.getText(language));
-    setState(() { _audioProgressPage = pageIndex; });
-    await _pageAudio.play(key, () => cachedPageAudio(key, () async {
-      // The base audio slot belongs to the book language, never a translation.
-      String? url = language == 'ko' ? page.audioUrlKo :
-          language == 'en' ? page.audioUrlEn : null;
-      if (language == (book.language ?? 'ko')) url ??= page.audioUrl;
-      if (url == null || url.isEmpty || mediaUrlNeedsRefresh(url)) {
-        return _readingSessionApi.getPageAudioUrl(book.bookId, pageIndex,
-            language: language);
-      }
-      return url;
-    }, isCurrent: () => mounted && _currentPage == pageIndex &&
-        _selectedLanguage == language), restart: restart,
-        initialPosition: restart ? Duration.zero :
-            _savedAudioPosition(pageIndex, language));
+    final key = pageAudioCacheKey(
+      book.bookId,
+      pageIndex,
+      language,
+      page.getText(language),
+      voice: voice,
+      style: style,
+      provider: narrationAudioProvider(caps),
+    );
+    setState(() {
+      _audioProgressPage = pageIndex;
+    });
+    final initialPosition = restart ? Duration.zero : await _savedAudioPosition(pageIndex, language);
+    if (!mounted || _currentPage != pageIndex || _selectedLanguage != language) return;
+    await _pageAudio.play(
+      key,
+      () async {
+        final requestIsCurrent = _pageAudio.captureRequestGuard();
+        var usedBookAudioUrl = false;
+        final media = await ref.read(bookMediaStoreProvider.future);
+        if (!requestIsCurrent() || !mounted) {
+          throw StateError('Narration request is no longer active');
+        }
+        final usesDefaultAudio = voice == 'default' && style == 'legacy';
+        String? existingUrl = usesDefaultAudio
+            ? (language == 'ko'
+                  ? page.audioUrlKo
+                  : language == 'en'
+                  ? page.audioUrlEn
+                  : null)
+            : null;
+        if (usesDefaultAudio && language == (book.language ?? 'ko')) {
+          existingUrl ??= page.audioUrl;
+        }
+        final oldPath =
+            Uri.tryParse(existingUrl ?? '')?.path.toLowerCase() ?? '';
+        final audioExtension = oldPath.endsWith('.wav')
+            ? 'wav'
+            : oldPath.endsWith('.mp3')
+            ? 'mp3'
+            : narrationAudioProvider(caps) == 'openai_realtime'
+            ? 'wav'
+            : 'mp3';
+        return cachedPageAudio(
+          key,
+          () async {
+            // The base audio slot belongs to the book language, never a translation.
+            final url = existingUrl;
+            if (url == null || url.isEmpty || mediaUrlNeedsRefresh(url)) {
+              return _readingSessionApi.getPageAudioUrl(
+                book.bookId,
+                pageIndex,
+                language: language,
+                voice: voice,
+                style: style,
+              );
+            }
+            usedBookAudioUrl =
+                Uri.tryParse(
+                  url,
+                )?.queryParameters.containsKey('X-Amz-Signature') ??
+                false;
+            return url;
+          },
+          cache: BookScopedCacheManager(
+            store: media.store,
+            bookId: book.bookId,
+            fileExtension: audioExtension,
+          ),
+          isCurrent: () =>
+              requestIsCurrent() &&
+              mounted &&
+              _currentPage == pageIndex &&
+              _selectedLanguage == language,
+          shouldRemoveLateFile: () =>
+              !mounted ||
+              _currentPage != pageIndex ||
+              _selectedLanguage != language,
+          refreshRejectedUrl: () async {
+            if (!usedBookAudioUrl) return null;
+            return _readingSessionApi.getPageAudioUrl(
+              book.bookId,
+              pageIndex,
+              language: language,
+              voice: voice,
+              style: style,
+            );
+          },
+        );
+      },
+      restart: restart,
+      initialPosition: initialPosition,
+    );
   }
 
   Future<void> _handleSleepPlaybackCompleted() async {
@@ -1151,7 +1305,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     if (byTimer && wasEnabled && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-            content: Text(AppLocalizations.of(context).viewerSleepModeEnded)),
+          content: Text(AppLocalizations.of(context).viewerSleepModeEnded),
+        ),
       );
     }
   }
@@ -1170,17 +1325,21 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     return '$minutes:$seconds';
   }
 
-  String get _progressKey => 'reading_progress_${widget.bookId}_v1';
-
   void _restoreReadingProgressIfNeeded(int totalPages) {
     if (_progressRestored) {
       return;
     }
     _progressRestored = true;
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final prefs = ref.read(sharedPreferencesProvider);
-      final savedPage = prefs.getInt(_progressKey) ?? 0;
-      if (!mounted || savedPage <= 0 || savedPage >= totalPages) {
+      if (!mounted || !identical(ref.read(apiClientProvider), _readingSessionApi)) return;
+      int savedPage;
+      try {
+        final progress = await ref.read(readingProgressProvider(widget.bookId).future);
+        savedPage = await progress.page() ?? 0;
+      } catch (_) {
+        return;
+      }
+      if (!mounted || _currentPage != 0 || savedPage <= 0 || savedPage >= totalPages) {
         return;
       }
       _currentPage = savedPage;
@@ -1191,18 +1350,29 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   }
 
   Future<void> _saveReadingProgress(int pageIndex, int totalPages) async {
-    final prefs = ref.read(sharedPreferencesProvider);
-    if (pageIndex >= totalPages - 1) {
-      await prefs.remove(_progressKey);
-      return;
+    if (!mounted || !identical(ref.read(apiClientProvider), _readingSessionApi)) return;
+    try {
+      final progress = await ref.read(readingProgressProvider(widget.bookId).future);
+      if (pageIndex >= totalPages - 1) {
+        await progress.clearPage();
+      } else {
+        await progress.savePage(pageIndex);
+      }
+      if (mounted) ref.invalidate(homeReadingProgressProvider(widget.bookId));
+    } catch (_) {
+      // A missing scope never blocks reading.
     }
-    await prefs.setInt(_progressKey, pageIndex);
   }
 
   Future<void> _clearReadingProgress() async {
-    final prefs = ref.read(sharedPreferencesProvider);
-    await prefs.remove(_progressKey);
-    await prefs.remove(_audioPositionKey);
+    if (!mounted || !identical(ref.read(apiClientProvider), _readingSessionApi)) return;
+    try {
+      final progress = await ref.read(readingProgressProvider(widget.bookId).future);
+      await progress.clearReading();
+      if (mounted) ref.invalidate(homeReadingProgressProvider(widget.bookId));
+    } catch (_) {
+      // A missing scope never blocks reading.
+    }
   }
 
   /// 다른 연령대로 본문만 다시 써서 새 책으로 연다(삽화 재사용, 크레딧 0).
@@ -1231,12 +1401,13 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     if (targetAge == null || !mounted) {
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(l.viewerRetellInProgress)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(l.viewerRetellInProgress)));
     try {
-      final newBookId =
-          await ref.read(apiClientProvider).retellBook(book.bookId, targetAge);
+      final newBookId = await ref
+          .read(apiClientProvider)
+          .retellBook(book.bookId, targetAge);
       if (!mounted) {
         return;
       }
@@ -1256,8 +1427,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
 
   void _showOptionsMenu(BookResult book) {
     final l = AppLocalizations.of(context);
-    final audioOk =
-        _audioSupportedFrom(ref.read(capabilitiesProvider).valueOrNull);
+    final capabilities = ref.read(capabilitiesProvider).valueOrNull;
+    final audioOk = narrationSupported(capabilities);
     final hasBilingualText = book.pages.any(
       (page) =>
           (page.textKo?.isNotEmpty ?? false) &&
@@ -1289,12 +1460,14 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                     ? 0
                     : book.pages[_currentPage - 1].pageNumber;
                 Navigator.pop(context);
-                unawaited(showContentReportSheet(
-                  this.context,
-                  ref,
-                  bookId: book.bookId,
-                  pageNumber: pageNumber,
-                ));
+                unawaited(
+                  showContentReportSheet(
+                    this.context,
+                    ref,
+                    bookId: book.bookId,
+                    pageNumber: pageNumber,
+                  ),
+                );
               },
             ),
             if (_currentPage > 0 && audioOk)
@@ -1316,7 +1489,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                     return;
                   }
                   setState(
-                      () => _followReadingEnabled = !_followReadingEnabled);
+                    () => _followReadingEnabled = !_followReadingEnabled,
+                  );
                 },
               ),
             if (hasBilingualText)
@@ -1345,9 +1519,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                 Navigator.pushNamed(
                   context,
                   '/branch-story',
-                  arguments: {
-                    'bookId': book.bookId,
-                  },
+                  arguments: {'bookId': book.bookId},
                 );
               },
             ),
@@ -1384,7 +1556,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                   _showParentGuide(book);
                 },
               ),
-            if (_currentPage > 0 && audioOk)
+            if (_currentPage > 0 && _audioSupportedFrom(capabilities))
               ListTile(
                 leading: const Icon(Icons.record_voice_over_outlined),
                 title: Text(l.viewerPronunciationTitle),
@@ -1441,9 +1613,11 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                 leading: Icon(
                   _sleepModeEnabled ? Icons.bedtime_off : Icons.bedtime,
                 ),
-                title: Text(_sleepModeEnabled
-                    ? l.viewerSleepModeStop
-                    : l.viewerSleepModeStart),
+                title: Text(
+                  _sleepModeEnabled
+                      ? l.viewerSleepModeStop
+                      : l.viewerSleepModeStart,
+                ),
                 subtitle: Text(
                   _sleepModeEnabled
                       ? l.viewerSleepModeRemaining(_sleepRemainingText())
@@ -1524,7 +1698,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     }
     _recordedQuiz.add(key);
     try {
-      await ref.read(apiClientProvider).recordQuizAnswer(
+      await ref
+          .read(apiClientProvider)
+          .recordQuizAnswer(
             bookId: widget.bookId,
             quizType: 'quiz',
             correct: correct,
@@ -1550,7 +1726,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     }
     _recordedQuiz.add(key);
     try {
-      await ref.read(apiClientProvider).recordQuizAnswer(
+      await ref
+          .read(apiClientProvider)
+          .recordQuizAnswer(
             bookId: widget.bookId,
             quizType: 'vocab',
             correct: correct,
@@ -1651,9 +1829,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   Future<void> _openInpaint(BookResult book, int pageIndex) async {
     final l = AppLocalizations.of(context);
     if (book.jobId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l.viewerRegenerateNotSupported)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.viewerRegenerateNotSupported)));
       return;
     }
     final page = book.pages[pageIndex];
@@ -1714,9 +1892,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     if (_regenerationInFlight) return;
     final l = AppLocalizations.of(context);
     if (book.jobId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l.viewerRegenerateNotSupported)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.viewerRegenerateNotSupported)));
       return;
     }
 
@@ -1738,9 +1916,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
       }
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l.viewerRegenerating)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.viewerRegenerating)));
 
       final apiClient = ref.read(apiClientProvider);
       final regenJobId = await apiClient.regeneratePage(
@@ -1790,9 +1968,11 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
             _extractApiError(e)?.code == 'IMAGE_QUALITY_FAILED';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(qualityFailed
-                ? AppLocalizations.of(context).viewerImageQualityFailed
-                : AppLocalizations.of(context).viewerRegenerateFailed),
+            content: Text(
+              qualityFailed
+                  ? AppLocalizations.of(context).viewerImageQualityFailed
+                  : AppLocalizations.of(context).viewerRegenerateFailed,
+            ),
             backgroundColor: AppColors.error,
           ),
         );
@@ -1826,12 +2006,13 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   }
 
   Future<void> _downloadPdf(BookResult book) async {
+    if (!await ensureAgeGate(context, ref) || !mounted) return;
     final l = AppLocalizations.of(context);
     try {
       // 로딩 표시
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l.viewerPdfGenerating)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.viewerPdfGenerating)));
 
       // API 호출
       final apiClient = ref.read(apiClientProvider);
@@ -1847,8 +2028,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content:
-                  Text(AppLocalizations.of(context).viewerPdfSaved(fileName))),
+            content: Text(
+              AppLocalizations.of(context).viewerPdfSaved(fileName),
+            ),
+          ),
         );
       }
     } catch (e) {
@@ -1992,16 +2175,16 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
       }
       await Clipboard.setData(ClipboardData(text: url));
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l.viewerCopyDone)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(l.viewerCopyDone)));
       }
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content:
-                  Text(AppLocalizations.of(context).viewerShareLinkFailed)),
+            content: Text(AppLocalizations.of(context).viewerShareLinkFailed),
+          ),
         );
       }
     }
@@ -2028,8 +2211,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content:
-                  Text(AppLocalizations.of(context).viewerShareLinkFailed)),
+            content: Text(AppLocalizations.of(context).viewerShareLinkFailed),
+          ),
         );
       }
     }
@@ -2041,22 +2224,23 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     try {
       await ref.read(apiClientProvider).revokeShareLink(book.bookId);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l.viewerShareRevokeDone)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(l.viewerShareRevokeDone)));
       }
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content:
-                  Text(AppLocalizations.of(context).viewerShareRevokeFailed)),
+            content: Text(AppLocalizations.of(context).viewerShareRevokeFailed),
+          ),
         );
       }
     }
   }
 
-  void _shareText(BookResult book) {
+  Future<void> _shareText(BookResult book) async {
+    if (!await ensureAgeGate(context, ref) || !mounted) return;
     final l = AppLocalizations.of(context);
     final shareText = l.viewerShareFullText(book.title).trim();
     final box = context.findRenderObject() as RenderBox?;
@@ -2095,15 +2279,16 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
       return;
     }
     if (mounted && result.reason != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(result.reason!)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(result.reason!)));
     }
 
     // 폴백(카카오톡 미설치 등): 앱 딥링크 + 공개 토큰 URL.
     final deepLink = 'ai-story-book://books/${book.bookId}';
-    final shareText =
-        l.viewerKakaoShareText(book.title, deepLink, shareUrl).trim();
+    final shareText = l
+        .viewerKakaoShareText(book.title, deepLink, shareUrl)
+        .trim();
     await Share.share(
       shareText,
       subject: l.viewerKakaoShareSubject(book.title),
@@ -2112,6 +2297,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   }
 
   Future<void> _printPdf(BookResult book) async {
+    if (!await ensureAgeGate(context, ref) || !mounted) return;
     try {
       final apiClient = ref.read(apiClientProvider);
       final pdfBytes = await apiClient.downloadPdf(book.bookId);
@@ -2135,6 +2321,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   }
 
   Future<void> _shareCoverImage(BookResult book) async {
+    if (!await ensureAgeGate(context, ref) || !mounted) return;
     final l = AppLocalizations.of(context);
     try {
       final request = await HttpClient().getUrl(Uri.parse(book.coverImageUrl));
@@ -2172,11 +2359,12 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   }
 
   Future<void> _sharePdf(BookResult book) async {
+    if (!await ensureAgeGate(context, ref) || !mounted) return;
     final l = AppLocalizations.of(context);
     try {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l.viewerPdfGenerating)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.viewerPdfGenerating)));
 
       final apiClient = ref.read(apiClientProvider);
       final pdfBytes = await apiClient.downloadPdf(book.bookId);
@@ -2250,11 +2438,13 @@ class _ShareButton extends StatelessWidget {
 
 /// 표지 페이지
 class _CoverPage extends StatelessWidget {
+  final String bookId;
   final bool controlsVisible;
   final String title;
   final String imageUrl;
 
   const _CoverPage({
+    required this.bookId,
     required this.controlsVisible,
     required this.title,
     required this.imageUrl,
@@ -2272,19 +2462,26 @@ class _CoverPage extends StatelessWidget {
           child: imageUrl.trim().isEmpty
               ? Container(
                   color: AppColors.primary,
-                  child: const Icon(Icons.auto_stories_rounded,
-                      color: Colors.white, size: 64),
+                  child: const Icon(
+                    Icons.auto_stories_rounded,
+                    color: Colors.white,
+                    size: 64,
+                  ),
                 )
-              : CachedNetworkImage(
+              : ScopedBookImage(
+                  bookId: bookId,
                   imageUrl: imageUrl,
                   fit: BoxFit.contain,
-                  placeholder: (context, url) => const Center(
+                  placeholder: const Center(
                     child: CircularProgressIndicator(color: Colors.white),
                   ),
-                  errorWidget: (context, url, error) => Container(
+                  error: Container(
                     color: AppColors.primary,
-                    child: const Icon(Icons.broken_image,
-                        color: Colors.white, size: 64),
+                    child: const Icon(
+                      Icons.broken_image,
+                      color: Colors.white,
+                      size: 64,
+                    ),
                   ),
                 ),
         ),
@@ -2293,10 +2490,7 @@ class _CoverPage extends StatelessWidget {
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              colors: [
-                Colors.transparent,
-                AppColors.blackOverlayStrong,
-              ],
+              colors: [Colors.transparent, AppColors.blackOverlayStrong],
             ),
           ),
         ),
@@ -2336,6 +2530,7 @@ class _CoverPage extends StatelessWidget {
 
 /// 본문 페이지
 class _ContentPage extends StatelessWidget {
+  final String bookId;
   final VoidCallback? onComplete;
   final double topControlsInset;
   final double controlsInset;
@@ -2350,6 +2545,7 @@ class _ContentPage extends StatelessWidget {
   final VoidCallback onShowLearning;
 
   const _ContentPage({
+    required this.bookId,
     this.onComplete,
     required this.topControlsInset,
     required this.controlsInset,
@@ -2375,98 +2571,115 @@ class _ContentPage extends StatelessWidget {
         children: [
           SizedBox(height: topControlsInset),
           Expanded(
-            child: LayoutBuilder(builder: (context, constraints) {
-              return SingleChildScrollView(
-                key: ValueKey('reader-content-$pageNumber'),
-                primary: false,
-                child: Column(
-                  children: [
-                    SizedBox(
-                      height: max(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                return SingleChildScrollView(
+                  key: ValueKey('reader-content-$pageNumber'),
+                  primary: false,
+                  child: Column(
+                    children: [
+                      SizedBox(
+                        height: max(
                           160.0,
                           constraints.maxHeight *
-                              (onComplete == null ? 0.6 : 0.45)),
-                      child: Semantics(
-                        label: l.viewerPageImageSemantics(pageNumber),
-                        image: true,
-                        child: imageUrl.trim().isEmpty
-                            ? Container(
-                                width: double.infinity,
-                                color: AppColors.divider,
-                                child: const Icon(Icons.image_outlined,
-                                    size: 64, color: AppColors.textSecondary),
-                              )
-                            : CachedNetworkImage(
-                                imageUrl: imageUrl,
-                                fit: BoxFit.contain,
-                                width: double.infinity,
-                                placeholder: (context, url) => Container(
+                              (onComplete == null ? 0.6 : 0.45),
+                        ),
+                        child: Semantics(
+                          label: l.viewerPageImageSemantics(pageNumber),
+                          image: true,
+                          child: imageUrl.trim().isEmpty
+                              ? Container(
+                                  width: double.infinity,
                                   color: AppColors.divider,
-                                  child: const Center(
-                                      child: CircularProgressIndicator()),
+                                  child: const Icon(
+                                    Icons.image_outlined,
+                                    size: 64,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                )
+                              : ScopedBookImage(
+                                  bookId: bookId,
+                                  imageUrl: imageUrl,
+                                  fit: BoxFit.contain,
+                                  width: double.infinity,
+                                  placeholder: Container(
+                                    color: AppColors.divider,
+                                    child: const Center(
+                                      child: CircularProgressIndicator(),
+                                    ),
+                                  ),
+                                  error: Container(
+                                    color: AppColors.divider,
+                                    child: const Icon(
+                                      Icons.broken_image,
+                                      size: 64,
+                                      color: AppColors.textSecondary,
+                                    ),
+                                  ),
                                 ),
-                                errorWidget: (context, url, error) => Container(
-                                  color: AppColors.divider,
-                                  child: const Icon(Icons.broken_image,
-                                      size: 64, color: AppColors.textSecondary),
-                                ),
-                              ),
+                        ),
                       ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.all(AppSpacing.lg),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          _HighlightedStoryText(
-                            text: text,
-                            progress: followProgress,
-                            enabled: followReadingEnabled,
-                            style: const TextStyle(
+                      Padding(
+                        padding: const EdgeInsets.all(AppSpacing.lg),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _HighlightedStoryText(
+                              text: text,
+                              progress: followProgress,
+                              enabled: followReadingEnabled,
+                              style: const TextStyle(
                                 fontSize: 20,
                                 height: 1.8,
-                                color: AppColors.textPrimary),
-                            highlightColor: AppColors.primary,
-                          ),
-                          if (secondaryText != null &&
-                              secondaryText!.trim().isNotEmpty) ...[
-                            const SizedBox(height: AppSpacing.lg),
-                            const Divider(color: AppColors.divider, height: 1),
-                            const SizedBox(height: AppSpacing.lg),
-                            _HighlightedStoryText(
-                              text: secondaryText!,
-                              progress: 0,
-                              enabled: false,
-                              style: const TextStyle(
-                                  fontSize: 17,
-                                  height: 1.7,
-                                  color: AppColors.textSecondary),
+                                color: AppColors.textPrimary,
+                              ),
                               highlightColor: AppColors.primary,
                             ),
+                            if (secondaryText != null &&
+                                secondaryText!.trim().isNotEmpty) ...[
+                              const SizedBox(height: AppSpacing.lg),
+                              const Divider(
+                                color: AppColors.divider,
+                                height: 1,
+                              ),
+                              const SizedBox(height: AppSpacing.lg),
+                              _HighlightedStoryText(
+                                text: secondaryText!,
+                                progress: 0,
+                                enabled: false,
+                                style: const TextStyle(
+                                  fontSize: 17,
+                                  height: 1.7,
+                                  color: AppColors.textSecondary,
+                                ),
+                                highlightColor: AppColors.primary,
+                              ),
+                            ],
+                            if (onComplete != null) ...[
+                              const SizedBox(height: AppSpacing.lg),
+                              PrimaryButton(
+                                key: const Key('viewer-finish-reading'),
+                                text: l.viewerFinishReading,
+                                onPressed: onComplete,
+                              ),
+                            ],
+                            if (hasLearning && controlsInset == 0)
+                              TextButton.icon(
+                                onPressed: onShowLearning,
+                                icon: const Icon(Icons.school, size: 18),
+                                label: Text(l.viewerLearn),
+                                style: TextButton.styleFrom(
+                                  foregroundColor: AppColors.primary,
+                                ),
+                              ),
                           ],
-                          if (onComplete != null) ...[
-                            const SizedBox(height: AppSpacing.lg),
-                            PrimaryButton(
-                              key: const Key('viewer-finish-reading'),
-                              text: l.viewerFinishReading,
-                              onPressed: onComplete,
-                            ),
-                          ],
-                          if (hasLearning && controlsInset == 0)
-                            TextButton.icon(
-                              onPressed: onShowLearning,
-                              icon: const Icon(Icons.school, size: 18),
-                              label: Text(l.viewerLearn),
-                              style: TextButton.styleFrom(
-                                  foregroundColor: AppColors.primary),
-                            ),
-                        ],
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-              );
-            }),
+                    ],
+                  ),
+                );
+              },
+            ),
           ),
           SizedBox(height: controlsInset),
         ],
@@ -2494,42 +2707,37 @@ class _HighlightedStoryText extends StatelessWidget {
   Widget build(BuildContext context) {
     final normalized = text.trim();
     if (!enabled || normalized.isEmpty) {
-      return Text(
-        text,
-        style: style,
-        textAlign: TextAlign.center,
-      );
+      return Text(text, style: style, textAlign: TextAlign.center);
     }
 
-    final segments = RegExp(r'\s+|\S+')
-        .allMatches(text)
-        .map((match) => match.group(0)!)
-        .toList(growable: false);
+    final segments = RegExp(
+      r'\s+|\S+',
+    ).allMatches(text).map((match) => match.group(0)!).toList(growable: false);
     final words = segments.where((segment) => segment.trim().isNotEmpty).length;
     if (words == 0) {
-      return Text(
-        text,
-        style: style,
-        textAlign: TextAlign.center,
-      );
+      return Text(text, style: style, textAlign: TextAlign.center);
     }
 
     final target = (words * progress.clamp(0.0, 1.0)).round().clamp(0, words);
     var seenWords = 0;
 
-    final spans = segments.map((segment) {
-      if (segment.trim().isEmpty) {
-        return TextSpan(text: segment, style: style);
-      }
-      seenWords += 1;
-      return TextSpan(
-        text: segment,
-        style: style.copyWith(
-          color: seenWords <= target ? highlightColor : style.color,
-          fontWeight: seenWords <= target ? FontWeight.w700 : style.fontWeight,
-        ),
-      );
-    }).toList(growable: false);
+    final spans = segments
+        .map((segment) {
+          if (segment.trim().isEmpty) {
+            return TextSpan(text: segment, style: style);
+          }
+          seenWords += 1;
+          return TextSpan(
+            text: segment,
+            style: style.copyWith(
+              color: seenWords <= target ? highlightColor : style.color,
+              fontWeight: seenWords <= target
+                  ? FontWeight.w700
+                  : style.fontWeight,
+            ),
+          );
+        })
+        .toList(growable: false);
 
     return RichText(
       textScaler: MediaQuery.textScalerOf(context),
@@ -2761,18 +2969,21 @@ class _LearningModeSheetState extends State<_LearningModeSheet>
         TabBar(
           controller: _tabController,
           labelPadding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
-          labelStyle:
-              AppTextStyles.bodySmall.copyWith(fontWeight: FontWeight.w600),
-          unselectedLabelStyle:
-              AppTextStyles.bodySmall.copyWith(fontWeight: FontWeight.w600),
+          labelStyle: AppTextStyles.bodySmall.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+          unselectedLabelStyle: AppTextStyles.bodySmall.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
           labelColor: AppPalette.of(context).primary,
           unselectedLabelColor: AppPalette.of(context).textSecondary,
           indicatorColor: AppPalette.of(context).primary,
           tabs: [
             Tab(icon: const Icon(Icons.abc), text: l.viewerTabWord),
             Tab(
-                icon: const Icon(Icons.help_outline),
-                text: l.viewerTabQuestion),
+              icon: const Icon(Icons.help_outline),
+              text: l.viewerTabQuestion,
+            ),
             Tab(icon: const Icon(Icons.quiz), text: l.viewerTabQuiz),
           ],
         ),
@@ -2787,7 +2998,8 @@ class _LearningModeSheetState extends State<_LearningModeSheet>
                 onAnswered: widget.onVocabAnswered,
               ),
               _ComprehensionTab(
-                  questions: widget.page.comprehensionQuestions ?? []),
+                questions: widget.page.comprehensionQuestions ?? [],
+              ),
               _QuizTab(
                 quiz: widget.page.quiz ?? [],
                 onAnswered: widget.onQuizAnswered,
@@ -2850,9 +3062,12 @@ class _VocabDisplayCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(item.word,
-                style: AppTextStyles.heading3
-                    .copyWith(color: AppPalette.of(context).primary)),
+            Text(
+              item.word,
+              style: AppTextStyles.heading3.copyWith(
+                color: AppPalette.of(context).primary,
+              ),
+            ),
             const SizedBox(height: AppSpacing.sm),
             Text(item.meaning, style: AppTextStyles.body),
           ],
@@ -2914,7 +3129,9 @@ class _ComprehensionCardState extends State<_ComprehensionCard> {
           children: [
             Text(
               l.viewerComprehensionQuestion(
-                  widget.index, widget.question.question),
+                widget.index,
+                widget.question.question,
+              ),
               style: AppTextStyles.body.copyWith(fontWeight: FontWeight.bold),
             ),
             if (widget.question.answer != null) ...[
@@ -2922,8 +3139,9 @@ class _ComprehensionCardState extends State<_ComprehensionCard> {
               if (_showAnswer)
                 Text(
                   l.viewerComprehensionAnswer(widget.question.answer!),
-                  style: AppTextStyles.body
-                      .copyWith(color: AppPalette.of(context).primary),
+                  style: AppTextStyles.body.copyWith(
+                    color: AppPalette.of(context).primary,
+                  ),
                 )
               else
                 TextButton(
@@ -3023,7 +3241,8 @@ class _QuizCardState extends State<_QuizCard> {
                         : () => setState(() => _selectedIndex = optionIndex),
                     child: Container(
                       constraints: const BoxConstraints(
-                          minHeight: AppSizing.minTouchTarget),
+                        minHeight: AppSizing.minTouchTarget,
+                      ),
                       alignment: Alignment.centerLeft,
                       width: double.infinity,
                       padding: const EdgeInsets.all(AppSpacing.md),
@@ -3061,13 +3280,14 @@ class _QuizCardState extends State<_QuizCard> {
                   ),
                   const SizedBox(width: AppSpacing.sm),
                   Expanded(
-                      child: Text(
-                    isCorrect ? l.viewerQuizCorrect : l.viewerQuizIncorrect,
-                    style: TextStyle(
-                      color: isCorrect ? AppColors.success : AppColors.error,
-                      fontWeight: FontWeight.bold,
+                    child: Text(
+                      isCorrect ? l.viewerQuizCorrect : l.viewerQuizIncorrect,
+                      style: TextStyle(
+                        color: isCorrect ? AppColors.success : AppColors.error,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
-                  )),
+                  ),
                 ],
               ),
               if (widget.quiz.explanation != null) ...[
@@ -3121,8 +3341,11 @@ class _ParentGuideSheet extends StatelessWidget {
             Icon(Icons.family_restroom, color: AppPalette.of(context).primary),
             const SizedBox(width: AppSpacing.sm),
             Flexible(
-                child: Text(l.viewerParentGuideTitle,
-                    style: AppTextStyles.heading2)),
+              child: Text(
+                l.viewerParentGuideTitle,
+                style: AppTextStyles.heading2,
+              ),
+            ),
           ],
         ),
         const SizedBox(height: AppSpacing.md),
@@ -3191,16 +3414,18 @@ class _GuideSection extends StatelessWidget {
         const SizedBox(height: AppSpacing.sm),
         if (content != null) Text(content!, style: AppTextStyles.body),
         if (items != null)
-          ...items!.map((item) => Padding(
-                padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('• ', style: TextStyle(fontSize: 16)),
-                    Expanded(child: Text(item, style: AppTextStyles.body)),
-                  ],
-                ),
-              )),
+          ...items!.map(
+            (item) => Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('• ', style: TextStyle(fontSize: 16)),
+                  Expanded(child: Text(item, style: AppTextStyles.body)),
+                ],
+              ),
+            ),
+          ),
       ],
     );
   }

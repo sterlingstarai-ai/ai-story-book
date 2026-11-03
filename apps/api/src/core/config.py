@@ -1,4 +1,7 @@
 from pathlib import Path
+import os
+import re
+import stat
 from typing import Literal, Optional
 from pydantic import Field
 
@@ -14,12 +17,74 @@ API_ENV_FILE = API_ROOT / ".env"
 APP_VERSION = "1.0.0"
 
 
+def read_provider_key_file(path: str) -> str:
+    """Read a private symlink-free credential without exposing errors or paths."""
+    descriptors = []
+    try:
+        if (not isinstance(path, str) or not path.startswith('/') or path.startswith('//')
+                or os.path.normpath(path) != path or path == '/'
+                or not hasattr(os, 'O_NOFOLLOW') or not hasattr(os, 'O_DIRECTORY')):
+            raise ValueError('invalid path')
+        components = path[1:].split('/')
+        directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, 'O_CLOEXEC', 0)
+        descriptors.append(os.open('/', directory_flags))
+        for component in components[:-1]:
+            descriptors.append(os.open(component, directory_flags, dir_fd=descriptors[-1]))
+        fd = os.open(components[-1], os.O_RDONLY | os.O_NOFOLLOW | getattr(os, 'O_NONBLOCK', 0)
+                     | getattr(os, 'O_CLOEXEC', 0), dir_fd=descriptors[-1])
+        descriptors.append(fd)
+        info = os.fstat(fd)
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+                or info.st_mode & 0o077 or info.st_size > 4098):
+            raise ValueError('invalid file')
+        raw = os.read(fd, 4099)
+        after = os.fstat(fd)
+        if (len(raw) != info.st_size or
+                any(getattr(info, name) != getattr(after, name) for name in
+                    ('st_dev', 'st_ino', 'st_size', 'st_mtime_ns', 'st_ctime_ns', 'st_uid', 'st_mode'))):
+            raise ValueError('file changed during read')
+        if raw.endswith(b'\r\n'):
+            raw = raw[:-2]
+        elif raw.endswith(b'\n'):
+            raw = raw[:-1]
+        key = raw.decode('ascii')
+        if not re.fullmatch(r'[\x21-\x7e]{1,4096}', key):
+            raise ValueError('invalid credential')
+        return key
+    except Exception:
+        raise RuntimeError('Provider key file is unavailable or unsafe') from None
+    finally:
+        for fd in reversed(descriptors):
+            os.close(fd)
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=str(API_ENV_FILE),
+        env_file=None if (os.environ.get("TESTING", "").lower() == "true"
+                          and os.environ.get("ASB_TEST_ISOLATED_SETTINGS") == "1") else str(API_ENV_FILE),
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    def __repr_args__(self):
+        # Settings contain credentials and connection URLs. Never expose values
+        # in exception messages, pytest assertions, or interactive repr output.
+        return []
+
+    def __init__(self, **values):
+        super().__init__(**values)
+        pairs = (("llm_api_key", "llm_api_key_file"), ("image_api_key", "image_api_key_file"))
+        for key_name, file_name in pairs:
+            path = getattr(self, file_name)
+            if path and getattr(self, key_name):
+                raise RuntimeError('Provider key and key file cannot both be configured')
+        loaded = {}
+        for key_name, file_name in pairs:
+            path = getattr(self, file_name)
+            if path:
+                if path not in loaded:
+                    loaded[path] = read_provider_key_file(path)
+                setattr(self, key_name, loaded[path])
 
     # App
     app_name: str = "AI Story Book API"
@@ -46,6 +111,9 @@ class Settings(BaseSettings):
     # Celery
     celery_broker_url: str = "redis://localhost:6379/1"
     celery_result_backend: str = "redis://localhost:6379/2"
+    # Optional transport namespaces for dedicated Redis services that support
+    # only database 0. Keep empty for the existing separate-DB configuration.
+    celery_redis_namespace: str = Field(default="", max_length=64, pattern=r"^[A-Za-z0-9_-]*$")
 
     # S3/Minio
     # SECURITY: No defaults for credentials - must be set via environment
@@ -64,9 +132,28 @@ class Settings(BaseSettings):
     s3_download_endpoint: Optional[str] = None
     s3_download_ttl_seconds: int = Field(default=3600, ge=60, le=86400)
 
+    # Disabled until the independent journal bucket, key recovery, complete
+    # event coverage and quarantined restore procedures are verified.
+    privacy_journal_enabled: bool = False
+    privacy_journal_bucket: str = ""
+    privacy_journal_witness_bucket: str = ""
+    privacy_journal_witness_s3_endpoint: str = ""
+    privacy_journal_witness_s3_bucket: str = ""
+    privacy_journal_witness_s3_region: str = ""
+    privacy_journal_witness_s3_access_key: str = ""
+    privacy_journal_witness_s3_secret_key: str = ""
+    privacy_journal_key_file: str = ""
+
+    # Optional opaque account scope; only its endpoint fails if unconfigured.
+    # The pinned digest detects accidental key replacement without exposing it.
+    account_scope_key_file: str = ""
+    account_scope_key_sha256: str = ""
+    account_scope_namespace: str = ""
+
     # LLM
     llm_provider: str = "openai"  # openai, anthropic, gemini
-    llm_api_key: Optional[str] = None
+    llm_api_key: Optional[str] = Field(default=None, exclude=True, repr=False)
+    llm_api_key_file: str = ""
     llm_model: str = "gpt-4o-mini"
     llm_timeout: int = 90
     # Cached observations never initiate paid calls or promise future credit.
@@ -83,7 +170,8 @@ class Settings(BaseSettings):
 
     # Image Generation
     image_provider: str = "openai"  # openai, gemini, replicate, fal, mock
-    image_api_key: Optional[str] = None
+    image_api_key: Optional[str] = Field(default=None, exclude=True, repr=False)
+    image_api_key_file: str = ""
     # dall-e-3, gpt-image-1, gemini-3-pro-image(Nano Banana Pro stable, 얼굴보존·레퍼런스 최대 14장)
     # ⚠ 구 preview 별칭(gemini-3-pro-image-preview)은 stable 승격으로 대체됨 — stable ID를 쓸 것.
     # 저비용 대안: gemini-3.1-flash-image(Nano Banana 2, 레퍼런스 지원·더 저렴).
@@ -103,13 +191,23 @@ class Settings(BaseSettings):
     # 오디오(낭독·발음) 기능 플래그 — G9: GA에서 명시적 비활성으로 출시(원격 config로 전환).
     # False면 /health/ready가 TTS/STT 라이브 구성을 게이트하지 않는다(기능이 꺼져 있으므로).
     audio_feature_enabled: bool = False
+    # Optional narration-only mode: pronunciation remains unavailable until
+    # its STT provider is configured. Existing deployments retain both gates.
+    audio_narration_only_enabled: bool = False
 
     # TTS (Text-to-Speech)
-    tts_provider: str = "mock"  # mock, openai, google, elevenlabs
+    tts_provider: str = "mock"  # mock, openai, google, elevenlabs, openai_realtime (experimental)
     openai_tts_api_key: Optional[str] = None
     openai_tts_model: str = "gpt-4o-mini-tts"
     openai_tts_voice: str = "coral"
     google_tts_api_key: Optional[str] = None
+    # Gemini TTS uses Google Application Default Credentials and an explicit
+    # billing project. No account credential is stored in this field.
+    google_gemini_tts_project: Optional[str] = None
+    # Both limits are required for Gemini TTS; zero blocks its paid requests.
+    # These are request counts, not a monetary or provider-side spend cap.
+    google_gemini_tts_daily_request_limit: int = Field(default=0, ge=0)
+    google_gemini_tts_monthly_request_limit: int = Field(default=0, ge=0)
     elevenlabs_api_key: Optional[str] = None
     elevenlabs_voice_id: str = "21m00Tcm4TlvDq8ikWAM"
 
@@ -174,6 +272,8 @@ class Settings(BaseSettings):
     # 모두 우회되므로, 개별 식별자와 무관한 상한으로 LLM/이미지 청구서 폭증을 막는다.
     # 0 이하 = 비활성. 운영은 실측 트래픽 기준으로 넉넉히 잡고 알림으로 조기 인지한다.
     daily_generation_budget: int = 0
+    # Redis remains the default; PostgreSQL requires an explicit fenced cutover.
+    generation_budget_store: Literal["redis", "postgres"] = "redis"
     generation_access_mode: Literal["open", "invite_only", "paused"] = "open"
     # Domain-separated SHA-256 of stable account ownership keys; never raw credentials.
     generation_allowed_user_hashes: str = ""

@@ -42,6 +42,8 @@ docker compose --env-file infra/.env.external -f infra/docker-compose.external.y
 
 ## 운영 대상이 확정된 뒤 실행할 순서
 
+Google e2-micro처럼 메모리가 작은 전용 시험 VM은 기본 worker 동시성 2를 바로 적용하지 않는다. 선택 오버라이드 `infra/docker-compose.small-vm.yml`을 외부 Compose 뒤에 지정하면 prefork worker 동시성을 1로 제한한다. 이는 `/health/ready`, 실제 Neon/S3·AI, 동시 작업, 속도, Redis 한도·재시작, 백업 또는 보안 검증을 대신하지 않는다. 스왑은 이 파일이 만들지 않으며 민감정보가 들어갈 수 있으므로 운영에서 암호화·보존 정책을 먼저 확정한다. 실제 운영 배포 전 [VM 시험 결과](FREE_HOSTING_2026-11-02.md)를 확인한다.
+
 1. 전용 프로젝트/버킷/지역과 상주 호스트·Redis를 확정하고 자격증명과 CA 파일을 비공개로 공급합니다. 관리형 Redis는 영속성·`noeviction`·사설 접근을 실제 설정합니다.
 2. 해당 checkout의 CI 이미지로 마이그레이션을 먼저 실행하고 API와 워커를 올립니다. `deploy.sh --compose-file infra/docker-compose.external.yml --env-file infra/.env.external --image-tag COMMIT_SHA deploy` 경로를 사용할 수 있으나, 이는 원격 쓰기이며 실제 배포 창에서만 실행합니다. HTTPS ingress가 먼저 준비되어야 최종 readiness가 성공합니다.
 3. `/health/ready`, 실제 DB TLS 검증, 연속 두 책의 Celery 실행, 서명 다운로드·익명 거부·삭제/동의 철회 후 제거를 실제 호스트에서 확인합니다. 무료 테스트로 만든 합성 오브젝트로 시작합니다.

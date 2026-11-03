@@ -11,11 +11,12 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import subprocess
 import tempfile
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from dotenv import dotenv_values
 
@@ -26,16 +27,26 @@ class BackupError(RuntimeError):
     pass
 
 
+_MAX_INVENTORY_PAGES = 10000
+
+
 def database_environment(values, ca_file):
     """Pass libpq secrets through a child-only environment, never a URL on argv."""
     url = urlsplit(values.get('DATABASE_MIGRATION_URL') or values['DATABASE_URL'])
-    return {
+    query = parse_qs(url.query, keep_blank_values=True)
+    binding = query.get('channel_binding')
+    if binding is not None and binding != ['require']:
+        raise BackupError('Unsupported database channel binding configuration')
+    result = {
         'PATH': os.environ.get('PATH', '/usr/bin:/bin'),
         'PGHOST': url.hostname, 'PGPORT': str(url.port or 5432),
         'PGUSER': unquote(url.username), 'PGPASSWORD': unquote(url.password),
         'PGDATABASE': unquote(url.path.lstrip('/')), 'PGSSLMODE': 'verify-full',
         'PGSSLROOTCERT': str(ca_file), 'PGCONNECT_TIMEOUT': '15',
     }
+    if binding:
+        result['PGCHANNELBINDING'] = 'require'
+    return result
 
 
 def run_pg(command, environment, *, destination=None):
@@ -61,12 +72,42 @@ def storage_client(values):
 
 def inventory(client, bucket):
     objects = {}
+    saw_page = False
+    awaiting_page = False
+    tokens = set()
+    pages_seen = 0
     for page in client.get_paginator('list_objects_v2').paginate(Bucket=bucket):
-        for item in page.get('Contents', []):
+        pages_seen += 1
+        if pages_seen > _MAX_INVENTORY_PAGES:
+            raise BackupError('Media inventory pagination exceeds limit')
+        if saw_page and not awaiting_page:
+            raise BackupError('Media inventory pagination is invalid')
+        saw_page = True
+        truncated = page.get('IsTruncated')
+        if type(truncated) is not bool:
+            raise BackupError('Media inventory pagination is invalid')
+        if truncated:
+            token = page.get('NextContinuationToken')
+            if not isinstance(token, str) or not token or token in tokens:
+                raise BackupError('Media inventory pagination is incomplete')
+            tokens.add(token)
+        awaiting_page = truncated
+        contents = page.get('Contents', [])
+        if (not isinstance(contents, list)
+                or page.get('CommonPrefixes', []) != []
+                or ('Name' in page and page['Name'] != bucket)
+                or ('KeyCount' in page and (type(page['KeyCount']) is not int
+                                             or page['KeyCount'] != len(contents)))
+                or any(not isinstance(item, dict) or not isinstance(item.get('Key'), str)
+                       or not item['Key'] for item in contents)):
+            raise BackupError('Media inventory page is invalid')
+        for item in contents:
             key = item['Key']
             if key in objects:
                 raise BackupError('Object inventory changed while listing; retry in a quiesced window')
             objects[key] = {name: str(item.get(name, '')) for name in ('ETag', 'Size', 'LastModified')}
+    if not saw_page or awaiting_page:
+        raise BackupError('Media inventory pagination is incomplete')
     return objects
 
 
@@ -78,15 +119,49 @@ def file_hash(path):
     return digest.hexdigest()
 
 
-def create_backup(values, destination, ca_file):
+def assert_quiescent(environment, query):
+    active = run_pg(query + ["SELECT count(*) FROM public.jobs WHERE status IN ('queued','running')"], environment).strip()
+    if active != b'0':
+        raise BackupError('Pending/running generation jobs remain; finish the quiescence procedure first')
+    purges = run_pg(query + ["SELECT count(*) FROM public.storage_purge_tasks WHERE status NOT IN ('done','cancelled')"], environment).strip()
+    if purges != b'0':
+        raise BackupError('Unfinished or unknown storage deletion tasks remain; resolve before backup')
+    journal = run_pg(query + ["SELECT count(*) FROM public.privacy_journal_outbox WHERE published_at IS NULL"], environment).strip()
+    if journal != b'0':
+        raise BackupError('Unpublished privacy events remain; resolve before backup')
+
+
+def transaction_snapshot(environment, query):
+    """Detect intervening DB transactions; this does not replace write quiescence."""
+    snapshot = run_pg(query + ['SELECT txid_current_snapshot()::text'], environment).strip()
+    if not re.fullmatch(rb'\d+:\d+:[\d,]*', snapshot):
+        raise BackupError('Database transaction snapshot could not be verified')
+    return snapshot
+
+
+def create_backup(values, destination, ca_file, *, quiescence_check=None, fence=None):
     """Only called after CLI authorization; all remote methods here are read-only."""
+    if quiescence_check is None:
+        quiescence_check = assert_quiescent
     if not ca_file.is_file():
         raise BackupError('Provider CA file is not readable on this backup host')
     environment = database_environment(values, ca_file)
     query = ['psql', '-X', '--no-password', '--tuples-only', '--no-align', '--set', 'ON_ERROR_STOP=1', '-c']
-    active = run_pg(query + ["SELECT count(*) FROM public.jobs WHERE status IN ('queued','running')"], environment).strip()
-    if active != b'0':
-        raise BackupError('Pending/running generation jobs remain; finish the quiescence procedure first')
+    version = run_pg(query + ['SHOW server_version_num'], environment).strip()
+    if not version.isdigit() or int(version) < 100000:
+        raise BackupError('Unsupported or unknown PostgreSQL server version')
+    server_major = int(version) // 10000
+    for tool in ('pg_dump', 'pg_restore'):
+        output = run_pg([tool, '--version'], environment)
+        match = re.fullmatch(rb'pg_(?:dump|restore) \(PostgreSQL\) (\d+)(?:\.\d+)*(?:[^\r\n]*)?[\r\n]*', output)
+        if not match or int(match.group(1)) != server_major:
+            raise BackupError('PostgreSQL backup tools must match the server major version')
+    quiescence_check(environment, query)
+    if fence is None:
+        transaction_baseline = transaction_snapshot(environment, query)
+    else:
+        fence.verify()
+        transaction_baseline = None
     revision = run_pg(query + ['SELECT version_num FROM public.alembic_version ORDER BY version_num'], environment).decode().strip()
     if not revision:
         raise BackupError('Alembic revision is missing')
@@ -105,8 +180,11 @@ def create_backup(values, destination, ca_file):
         with dump.open('xb') as output:
             os.chmod(dump, 0o600)
             # Only application/public data, not Supabase's managed auth/storage schemas.
-            run_pg(['pg_dump', '--no-password', '--format=custom', '--schema=public',
-                    '--no-owner', '--no-privileges'], environment, destination=output)
+            dump_command = ['pg_dump', '--no-password', '--format=custom', '--schema=public',
+                            '--no-owner', '--no-privileges']
+            if fence is not None:
+                dump_command.extend(['--snapshot', fence.snapshot_id])
+            run_pg(dump_command, environment, destination=output)
         run_pg(['pg_restore', '--list', str(dump)], environment)
         media = []
         for key, expected in sorted(before.items()):
@@ -134,6 +212,11 @@ def create_backup(values, destination, ca_file):
                           'content_encoding': obj.get('ContentEncoding')})
         if inventory(client, bucket) != before:
             raise BackupError('Media inventory changed during backup; no complete set will be published')
+        quiescence_check(environment, query)
+        if fence is not None:
+            fence.verify()
+        elif transaction_snapshot(environment, query) != transaction_baseline:
+            raise BackupError('Database transaction state changed during backup; no complete set will be published')
         manifest = {'format_version': 1, 'created_at': datetime.now(timezone.utc).isoformat(),
                     'database_scope': 'public', 'alembic_revision': revision,
                     'database': {'file': 'database.dump', 'sha256': file_hash(dump), 'size': dump.stat().st_size},

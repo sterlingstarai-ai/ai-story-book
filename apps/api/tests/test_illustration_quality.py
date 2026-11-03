@@ -133,6 +133,42 @@ async def test_concrete_issues_are_retained_without_an_overall_pass_override(mon
 
 
 @pytest.mark.asyncio
+async def test_story_wearable_duplication_policy_reaches_reviewer(monkeypatch, review_settings):
+    # A mock verifies the review contract, not actual visual recognition.
+    requests = mock_response(monkeypatch, review_payload())
+    await image_quality.review_book_illustrations(**inputs())
+    body = requests[0][1]
+    instruction = next(item["content"] for item in body["input"] if item["role"] == "system")
+    assert "matching wheeled skates" in instruction
+    assert "ordinary shoes without visible wheels" in instruction
+    assert "extra pair explicitly" in instruction
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("detected", [False, True])
+async def test_visible_object_state_policy_preserves_earlier_moment_tolerance(
+    monkeypatch, review_settings, detected,
+):
+    # A scripted review proves policy transmission and result propagation;
+    # it does not establish that a live model detects open/closed mismatches.
+    payload = review_payload()
+    if detected:
+        payload["pages"][2]["issues"] = ["action_mismatch"]
+    requests = mock_response(monkeypatch, payload)
+    data = inputs()
+    data["page_texts"][2] = "The children leave the book open to dry."
+    result = await image_quality.review_book_illustrations(**data)
+
+    body = requests[0][1]
+    instruction = next(item["content"] for item in body["input"] if item["role"] == "system")
+    assert "compare the actual object being" in instruction
+    assert "book is clearly closed" in instruction
+    assert "obscured pages" in instruction
+    assert "separately stated earlier moment" in instruction
+    assert result.failed_page_numbers == ([2] if detected else [])
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("page_six_issues", [[], ["action_mismatch"]])
 async def test_story_central_object_policy_is_sent_without_relabeling_other_pages(
     monkeypatch, review_settings, page_six_issues,

@@ -22,6 +22,9 @@ class _FakeDbSession:
     def add(self, _row):
         pass
 
+    async def scalar(self, _query):
+        return self._pages[self._index - 1]
+
     async def execute(self, _query):
         if getattr(_query, "is_update", False):
             page = self._pages[self._index - 1]
@@ -116,13 +119,15 @@ async def test_get_page_audio_rolls_back_when_commit_fails():
     from src.routers.books import get_page_audio
 
     book = SimpleNamespace(id="book-123", user_key="user-123", language="ko", target_age="5-7")
-    page = SimpleNamespace(id="page-1", page_number=1, text="hello", audio_url=None)
+    page = SimpleNamespace(id="page-1", page_number=1, text="hello", text_ko=None, text_en=None, audio_url=None)
     fake_db = _FakeDbSession([book, page])
 
     synthesize_mock = AsyncMock(return_value=b"audio-1")
     upload_mock = AsyncMock(return_value="https://cdn.example.com/audio-1.mp3")
 
-    with patch("src.services.job_runners.tts_service.synthesize_page", new=synthesize_mock):
+    from tests.test_narration_voices import _LockRedis
+    with patch("src.core.rate_limit.rate_limiter.get_redis", new=AsyncMock(return_value=_LockRedis())), \
+         patch("src.services.job_runners.tts_service.synthesize_page", new=synthesize_mock):
         with patch("src.services.job_runners.storage_service.upload_bytes", new=upload_mock):
             with pytest.raises(InternalServerError):
                 await get_page_audio("book-123", 1, db=fake_db, user_key="user-123")
@@ -144,6 +149,9 @@ class _FakeDbSessionOK:
 
     def add(self, _row):
         pass
+
+    async def scalar(self, _query):
+        return self._rows[self._index - 1]
 
     async def execute(self, _query):
         if getattr(_query, "is_update", False):
@@ -198,14 +206,16 @@ async def test_get_page_audio_ja_uses_base_slot_and_ja_voice():
         id="b1", user_key="u1", language="ja", target_age="3-5"
     )
     page = SimpleNamespace(
-        id="p1", page_number=1, text="ねこ", audio_url=None, audio_url_ko=None, audio_url_en=None
+        id="p1", page_number=1, text="ねこ", text_ko=None, text_en=None, audio_url=None, audio_url_ko=None, audio_url_en=None
     )
     fake_db = _FakeDbSessionOK([book, page])
 
     synth = AsyncMock(return_value=b"aud")
     upload = AsyncMock(return_value="https://cdn.example.com/ja1.mp3")
 
-    with patch("src.services.job_runners.tts_service.synthesize_page", new=synth):
+    from tests.test_narration_voices import _LockRedis
+    with patch("src.core.rate_limit.rate_limiter.get_redis", new=AsyncMock(return_value=_LockRedis())), \
+         patch("src.services.job_runners.tts_service.synthesize_page", new=synth):
         with patch("src.services.job_runners.storage_service.upload_bytes", new=upload):
             result = await get_page_audio(
                 "b1", 1, language="ja", db=fake_db, user_key="u1", profile_id=None

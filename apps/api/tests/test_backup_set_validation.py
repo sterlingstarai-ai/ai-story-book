@@ -42,6 +42,24 @@ def test_verified_files_do_not_claim_restore_or_revocation_replay(backup_set):
     assert 'synthetic/book.png' not in json.dumps(result)
 
 
+def test_matching_empty_database_archive_and_boolean_version_are_rejected(backup_set):
+    folder, manifest = backup_set
+    (folder / 'database.dump').write_bytes(b'')
+    manifest['database']['size'] = 0
+    manifest['database']['sha256'] = hashlib.sha256(b'').hexdigest()
+    (folder / 'manifest.json').write_text(json.dumps(manifest))
+    with pytest.raises(backup.BackupValidationError):
+        backup.verify(folder)
+
+    (folder / 'database.dump').write_bytes(b'synthetic-db')
+    manifest['database']['size'] = len(b'synthetic-db')
+    manifest['database']['sha256'] = hashlib.sha256(b'synthetic-db').hexdigest()
+    manifest['format_version'] = True
+    (folder / 'manifest.json').write_text(json.dumps(manifest))
+    with pytest.raises(backup.BackupValidationError):
+        backup.verify(folder)
+
+
 @pytest.mark.parametrize('corruption', ['database', 'media', 'missing', 'extra', 'duplicate', 'traversal', 'symlink'])
 def test_corrupt_or_escaping_backup_is_rejected(backup_set, corruption):
     folder, manifest = backup_set

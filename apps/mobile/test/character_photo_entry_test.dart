@@ -50,6 +50,7 @@ class _Api extends ApiClient {
     'privacy': true,
     'data_processing': true,
     'granted': true,
+    'revoked': false,
   };
   @override
   Future<Map<String, dynamic>> createCharacterFromPhoto(

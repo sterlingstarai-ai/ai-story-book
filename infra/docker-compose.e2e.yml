@@ -29,7 +29,7 @@ services:
       timeout: 3s
       retries: 30
   minio:
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    image: storybook-minio-test:2025-09-07
     environment:
       MINIO_ROOT_USER: runtime_test
       MINIO_ROOT_PASSWORD: disposable-runtime-password

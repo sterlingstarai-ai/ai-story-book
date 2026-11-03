@@ -104,6 +104,7 @@ def runtime(monkeypatch):
     config = SimpleNamespace(database_url='postgresql://user:secret@db.host/postgres',
         database_ssl_mode='verify-full', database_ssl_root_cert='/etc/secrets/supabase-ca.crt',
         s3_addressing_style='path', s3_auto_create_bucket=False, debug=False, testing=False, use_celery=True,
+        enable_test_hooks=False, require_parental_consent_enabled=True,
         redis_url='redis://user:secret@internal:6379')
     monkeypatch.setattr(launcher, 'Path', lambda _: SimpleNamespace(is_file=lambda: True))
     tls = Mock(return_value=('postgresql+asyncpg://db', {}))
@@ -127,7 +128,8 @@ def test_launcher_validates_tls_then_execs_original_process_without_secrets_in_a
 
 
 @pytest.mark.parametrize('field,value', [('database_ssl_mode', 'require'), ('s3_auto_create_bucket', True),
-                                       ('s3_addressing_style', 'virtual'), ('use_celery', False), ('testing', True)])
+                                       ('s3_addressing_style', 'virtual'), ('use_celery', False), ('testing', True),
+                                       ('enable_test_hooks', True), ('require_parental_consent_enabled', False)])
 def test_launcher_rejects_unsafe_runtime_before_exec(runtime, monkeypatch, field, value):
     config, _ = runtime
     setattr(config, field, value)

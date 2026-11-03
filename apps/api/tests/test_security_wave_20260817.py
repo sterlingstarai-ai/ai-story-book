@@ -48,9 +48,11 @@ def test_every_paid_generation_endpoint_consumes_budget():
     ]
 
     missing = []
+    shared = inspect.getsource(books_module._create_job_with_credit)
+    assert "consume_generation_budget(" in shared
     for func, label in paid_endpoints:
         src = inspect.getsource(func)
-        if "consume_generation_budget(" not in src:
+        if "consume_generation_budget(" not in src and "_create_job_with_credit(" not in src:
             missing.append(label)
     assert not missing, f"전역 예산을 소비하지 않는 유료 경로: {missing}"
 
@@ -66,7 +68,9 @@ def test_budget_is_consumed_after_validation_not_before():
     from src.routers import books as books_module
 
     src = inspect.getsource(books_module.create_book)
-    consume_at = src.index("consume_generation_budget(")
+    consume_at = src.index("_create_job_with_credit(")
+    shared = inspect.getsource(books_module._create_job_with_credit)
+    assert shared.index("credits_service.use_credit(") < shared.index("consume_generation_budget(")
     # 이 검증들은 반드시 예산 소비보다 앞에 있어야 한다.
     for marker in (
         "check_guardrails(",              # 일일 한도

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:ai_story_book/l10n/app_localizations.dart';
 import 'package:ai_story_book/core/api_error.dart';
@@ -165,6 +166,106 @@ void main() {
   });
 
   test(
+    'deletion recovery cannot invent a credential when secure storage is empty',
+    () async {
+      UserService.resetCacheForTest();
+      secure.store.clear();
+      await prefs.remove('user_key_initialized_v1');
+      await expectLater(
+        user.resumeKeyForDeletion(),
+        throwsA(isA<UserKeyUnavailable>()),
+      );
+      expect(secure.store.containsKey('user_key'), isFalse);
+    },
+  );
+
+  test(
+    'stale cleanup journal cannot delete or rotate a different account',
+    () async {
+      var purged = false;
+      final plan = jsonEncode({
+        'scopes': ['synthetic-old-account'],
+        'metadata_keys': [],
+        'kind': 'account',
+      });
+      final recovered = AccountRecoveryService(
+        userService: user,
+        preferences: prefs,
+        clientForKey: (_) => api,
+        purgeLocalMedia: () async {
+          purged = true;
+        },
+        readCleanupPlan: () async => plan,
+        writeCleanupPlan: (_) async {},
+        cleanupPlanMatchesCredential: (_) async => false,
+      );
+      await expectLater(
+        recovered.initialize(),
+        throwsA(isA<AccountDeletionUnconfirmed>()),
+      );
+      expect(purged, isFalse);
+      expect(secure.store['user_key'], _oldKey);
+    },
+  );
+
+  test(
+    'account deletion prepares before request and never purges uncertain response',
+    () async {
+      var prepared = false;
+      var purged = false;
+      final recovered = AccountRecoveryService(
+        userService: user,
+        preferences: prefs,
+        clientForKey: (_) => api,
+        prepareAccountDeletion: () async {
+          prepared = true;
+        },
+        purgeLocalMedia: () async {
+          purged = true;
+        },
+      );
+      api.deletionUncertain = true;
+      await expectLater(
+        recovered.deleteAccount(client: api),
+        throwsA(isA<TimeoutException>()),
+      );
+      expect(prepared, isTrue);
+      expect(purged, isFalse);
+      expect(user.deletionRequested, isTrue);
+    },
+  );
+
+  test(
+    'requested journal restores intent without assuming server confirmation',
+    () async {
+      final plan = jsonEncode({
+        'scopes': ['synthetic-account'],
+        'metadata_keys': [],
+        'kind': 'account_requested',
+      });
+      var purged = false;
+      api.deletionUncertain = true;
+      final recovered = AccountRecoveryService(
+        userService: user,
+        preferences: prefs,
+        clientForKey: (_) => api,
+        purgeLocalMedia: () async {
+          purged = true;
+        },
+        readCleanupPlan: () async => plan,
+        writeCleanupPlan: (_) async {},
+        cleanupPlanMatchesCredential: (_) async => true,
+      );
+      await expectLater(
+        recovered.initialize(),
+        throwsA(isA<AccountDeletionUnconfirmed>()),
+      );
+      expect(user.deletionRequested, isTrue);
+      expect(purged, isFalse);
+    },
+  );
+
+  test(
     'lost delete response keeps intent and old credential, restart reconciles before profiles load',
     () async {
       api.deletionUncertain = true;
@@ -181,7 +282,7 @@ void main() {
       expect(user.deletionRequested, isFalse);
       expect(user.getUserKey(), isNot(_oldKey));
       expect(prefs.getString('active_profile_id_v1'), isNull);
-      expect(prefs.getString('book_cache_old_v1'), isNull);
+      expect(prefs.getString('book_cache_old_v1'), 'child data');
     },
   );
 
@@ -208,7 +309,7 @@ void main() {
       expect(purgeCalls, 2);
       expect(api.deleteCalls, 1);
       expect(user.getUserKey(), isNot(_oldKey));
-      expect(prefs.getString('book_cache_old_v1'), isNull);
+      expect(prefs.getString('book_cache_old_v1'), 'child data');
     },
   );
 
@@ -236,7 +337,7 @@ void main() {
       expect(user.getUserKey(), api.newKey);
       expect(await user.pendingRecoveryKey(), isNull);
       expect(prefs.getString('active_profile_id_v1'), isNull);
-      expect(prefs.getString('book_cache_old_v1'), isNull);
+      expect(prefs.getString('book_cache_old_v1'), 'child data');
       expect(prefs.getInt('age_gate_session_v1'), isNull);
       expect(prefs.getBool('onboarding_done_v1'), isNull);
       expect(prefs.getBool('consent_granted_v1'), true);
@@ -334,14 +435,17 @@ void main() {
   test(
     'confirmed deletion replaces a revoked device and removes all recovery state',
     () async {
+      const otherAccountCache = 'book_cache_scoped_v1_other_account_test';
+      await prefs.setString(otherAccountCache, 'another account');
       await user.prepareRecoveryKey();
       await user.completeAccountDeletion();
       expect(user.getUserKey(), isNot(_oldKey));
       expect(user.getUserKey().startsWith('asb_device_'), false);
       expect(await user.pendingRecoveryKey(), isNull);
-      expect(prefs.containsKey('book_cache_old_v1'), false);
+      expect(prefs.getString('book_cache_old_v1'), 'child data');
       expect(prefs.containsKey(UserService.deletionCommittedKey), false);
       expect(prefs.getBool('user_key_initialized_v1'), true);
+      expect(prefs.getString(otherAccountCache), 'another account');
     },
   );
 
@@ -358,6 +462,27 @@ void main() {
       await service.initialize();
       expect(user.getUserKey(), isNot(_oldKey));
       expect(prefs.containsKey(UserService.deletionCommittedKey), false);
+    },
+  );
+
+  test(
+    'cleanup finalization failure retains the deletion intent and other scope markers',
+    () async {
+      const other = 'book_media_state_v1_other_account';
+      await prefs.setString(other, 'preserve');
+      await expectLater(
+        user.completeAccountDeletion(
+          beforeFinalize: () async {
+            throw StateError('synthetic cleanup journal failure');
+          },
+        ),
+        throwsA(isA<UserKeyUnavailable>()),
+      );
+      expect(prefs.getBool(UserService.deletionCommittedKey), isTrue);
+      expect(prefs.getString(other), 'preserve');
+      await user.completeAccountDeletion(beforeFinalize: () async {});
+      expect(prefs.containsKey(UserService.deletionCommittedKey), isFalse);
+      expect(prefs.getString(other), 'preserve');
     },
   );
 

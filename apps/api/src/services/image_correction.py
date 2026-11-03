@@ -18,11 +18,11 @@ CORRECTION_INSTRUCTIONS = {
     "duplicate_character": "Draw each named character exactly once; remove clones and extra bystanders.",
     "identity_swap": "Restore each character's own face, hair, outfit and colors; do not exchange identities.",
     "action_mismatch": (
-        "Create a new composition for the action in the page narrative. Discard the previous pose, "
-        "camera angle and movement direction. Make actors, object contact and destination clear; "
-        "ascending and descending are different actions. Use side/rear views to show travel toward "
-        "the destination instead of forcing front-facing faces. Preserve approved identities, "
-        "clothing and style. Use only story props; do not invent an alternative event."
+        "Create a new composition for the action: show actors, contact, direction, destination "
+        "and the required object state; show visible pages in an open book, do not invent a state. "
+        "Ascending and descending differ. Preserve identities, clothing and style; use story props, "
+        "do not invent an alternative event. Do not duplicate a wearable pair in use and on the ground; "
+        "keep story-required spares. Ordinary shoes and unused skates may coexist."
     ),
 }
 MAX_CORRECTION_NARRATIVE = 600

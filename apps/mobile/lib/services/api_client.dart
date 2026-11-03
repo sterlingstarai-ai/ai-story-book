@@ -527,10 +527,11 @@ class ApiClient {
 
   /// 캐릭터 삭제
   Future<void> deleteCharacter(String characterId) async {
-    await _dio.delete(
+    final response = await _dio.delete(
       '/v1/characters/$characterId',
       options: Options(headers: _headers),
     );
+    _checkPurgePending(response.data);
   }
 
   /// 사진에서 캐릭터 생성
@@ -678,10 +679,69 @@ class ApiClient {
 
   /// 서재 책 삭제
   Future<void> deleteBook(String bookId) async {
-    await _dio.delete(
+    final response = await _dio.delete(
       '/v1/library/$bookId',
       options: Options(headers: _headers),
     );
+    _checkPurgePending(response.data);
+  }
+
+  /// A deletion receipt confirms the book-row transaction only. It does not
+  /// establish that the corresponding storage objects have been erased.
+  Future<Map<String, dynamic>> deleteBookWithReceipt(
+    String bookId,
+    String requestId,
+  ) async {
+    _validateBookDeletionRequest(bookId, requestId);
+    final response = await _dio.delete(
+      '/v1/library/${Uri.encodeComponent(bookId)}',
+      options: Options(
+        headers: {..._headers, 'X-Deletion-Request-Id': requestId},
+      ),
+    );
+    final result = _asJsonMap(response.data, context: 'book deletion response');
+    if (result['deletion_committed'] != true) {
+      throw StateError('Book deletion is unconfirmed');
+    }
+    return result;
+  }
+
+  /// A missing, denied or malformed response is not a deletion confirmation.
+  Future<void> confirmBookDeletion(String bookId, String requestId) async {
+    _validateBookDeletionRequest(bookId, requestId);
+    final response = await _dio.get(
+      '/v1/library/${Uri.encodeComponent(bookId)}/deletion-receipt',
+      options: Options(
+        headers: {..._headers, 'X-Deletion-Request-Id': requestId},
+      ),
+    );
+    final result = _asJsonMap(response.data, context: 'book deletion receipt');
+    if (result['deletion_committed'] != true ||
+        result['storage_purge_status'] != 'unknown') {
+      throw StateError('Book deletion is unconfirmed');
+    }
+  }
+
+  static void _validateBookDeletionRequest(String bookId, String requestId) {
+    if (!RegExp(r'^[A-Za-z0-9_-]{1,60}$').hasMatch(bookId) ||
+        !RegExp(r'^[0-9a-f]{32}$').hasMatch(requestId)) {
+      throw ArgumentError('Invalid book deletion request');
+    }
+  }
+
+  /// A pseudonymous cache scope, distinct from the account credential.
+  /// An old or unconfigured server cannot safely identify this cache scope.
+  Future<String> getAccountMediaScope() async {
+    final response = await _dio.get(
+      '/v1/account/media-scope',
+      options: Options(headers: _headers),
+    );
+    final result = _asJsonMap(response.data, context: 'account media scope');
+    final value = result['scope_id'];
+    if (value is! String || !RegExp(r'^[0-9a-f]{64}$').hasMatch(value)) {
+      throw StateError('Account media scope is unavailable');
+    }
+    return value;
   }
 
   /// 부모 전용 공개 공유 링크 생성(만료·철회 가능). 반환: {token, url, expires_at}.
@@ -750,10 +810,16 @@ class ApiClient {
     String bookId,
     int pageNumber, {
     String language = 'ko',
+    String voice = 'default',
+    String style = 'legacy',
   }) async {
     final response = await _dio.get(
       '/v1/books/$bookId/pages/$pageNumber/audio',
-      queryParameters: {'language': language},
+      queryParameters: {
+        'language': language,
+        if (voice != 'default') 'voice': voice,
+        if (style != 'legacy') 'style': style,
+      },
       options: Options(
         headers: _headers,
         receiveTimeout: kLongSyncReceiveTimeout, // H17: 요청 내 TTS 합성

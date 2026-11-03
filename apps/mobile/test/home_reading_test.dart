@@ -45,6 +45,7 @@ Future<void> _pump(
   required Future<List<LibraryBook>> Function() load,
   required List<RouteSettings> navigation,
   Map<String, Object> initialPreferences = const {},
+  List<Override> overrides = const [],
 }) async {
   SharedPreferences.setMockInitialValues(initialPreferences);
   final prefs = await SharedPreferences.getInstance();
@@ -64,6 +65,7 @@ Future<void> _pump(
         growthReportProvider.overrideWith(
           (ref) async => throw StateError('synthetic'),
         ),
+        ...overrides,
       ],
       child: MaterialApp(
         locale: const Locale('ko'),
@@ -98,7 +100,23 @@ Future<void> _scrollTo(WidgetTester tester, Finder target) async {
 }
 
 void main() {
-  testWidgets('saved page shows continue reading and clears after completion', (
+  testWidgets('scoped saved page offers continue reading', (tester) async {
+    await _pump(
+      tester,
+      load: () async => [_book('latest', '읽다 만 동화')],
+      navigation: [],
+      overrides: [homeReadingProgressProvider('latest').overrideWith((ref) async => 5)],
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('home_featured_book')),
+        matching: find.text('이어 읽기'),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('unattributed legacy progress is preserved and not displayed', (
     tester,
   ) async {
     await _pump(
@@ -109,13 +127,13 @@ void main() {
     );
     final featured = find.byKey(const Key('home_featured_book'));
     expect(
-      find.descendant(of: featured, matching: find.text('이어 읽기')),
+      find.descendant(of: featured, matching: find.text('동화 읽기')),
       findsOneWidget,
     );
     await tester.tap(featured);
     await tester.pumpAndSettle();
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('reading_progress_latest_v1');
+    expect(prefs.getInt('reading_progress_latest_v1'), 5);
     Navigator.pop(tester.element(find.text('destination')));
     await tester.pumpAndSettle();
     expect(

@@ -104,6 +104,70 @@ async def test_successful_explicit_probe_clears_observed_failure():
 
 
 @pytest.mark.asyncio
+async def test_narration_only_excludes_unconfigured_stt_but_keeps_tts_gate(monkeypatch):
+    monkeypatch.setattr(settings, 'audio_feature_enabled', True)
+    monkeypatch.setattr(settings, 'audio_narration_only_enabled', True)
+    monkeypatch.setattr(settings, 'tts_provider', 'google_gemini')
+    monkeypatch.setattr(settings, 'google_gemini_tts_project', 'test-project-123')
+    monkeypatch.setattr(settings, 'stt_provider', 'google')
+    monkeypatch.setattr(settings, 'google_stt_api_key', None)
+    await runtime.observe_provider_response(request(), httpx.Response(200, json={}))
+    await runtime.observe_provider_response(request('image'), httpx.Response(200, json={}))
+    narration = runtime.begin_provider_request('google_gemini', 'gemini-2.5-flash-tts',
+                                               'tts', 'test-project-123')
+    state = await runtime.provider_runtime_status(include_audio=True)
+    assert state['status'] == 'unverified'
+    assert {item['kind'] for item in state['observations']} == {'llm', 'image', 'tts'}
+    await runtime.observe_provider_response(narration, httpx.Response(200, json={}))
+    assert (await runtime.provider_runtime_status(include_audio=True))['status'] == 'healthy'
+    await runtime.observe_provider_response(narration, httpx.Response(401, json={}))
+    assert (await runtime.provider_runtime_status(include_audio=True))['status'] == 'unavailable'
+
+
+@pytest.mark.asyncio
+async def test_narration_only_still_checks_configured_stt(monkeypatch):
+    monkeypatch.setattr(settings, 'audio_feature_enabled', True)
+    monkeypatch.setattr(settings, 'audio_narration_only_enabled', True)
+    monkeypatch.setattr(settings, 'tts_provider', 'google_gemini')
+    monkeypatch.setattr(settings, 'google_gemini_tts_project', 'test-project-123')
+    monkeypatch.setattr(settings, 'stt_provider', 'google')
+    monkeypatch.setattr(settings, 'google_stt_api_key', 'synthetic-key')
+    await runtime.observe_provider_response(request(), httpx.Response(200, json={}))
+    await runtime.observe_provider_response(request('image'), httpx.Response(200, json={}))
+    narration = runtime.begin_provider_request('google_gemini', 'gemini-2.5-flash-tts',
+                                               'tts', 'test-project-123')
+    await runtime.observe_provider_response(narration, httpx.Response(200, json={}))
+    state = await runtime.provider_runtime_status(include_audio=True)
+    assert state['status'] == 'unverified'
+    assert any(item['kind'] == 'stt' and item['status'] == 'unverified' for item in state['observations'])
+
+
+@pytest.mark.asyncio
+async def test_realtime_observation_matches_readiness_and_requires_valid_audio(monkeypatch):
+    from src.services.tts import RealtimeTTSProvider
+    monkeypatch.setattr(settings, 'audio_feature_enabled', True)
+    monkeypatch.setattr(settings, 'audio_narration_only_enabled', True)
+    monkeypatch.setattr(settings, 'tts_provider', 'openai_realtime')
+    monkeypatch.setattr(settings, 'openai_tts_api_key', 'synthetic-realtime-key')
+    monkeypatch.setattr(settings, 'stt_provider', 'mock')
+    await runtime.observe_provider_response(request(), httpx.Response(200, json={}))
+    await runtime.observe_provider_response(request('image'), httpx.Response(200, json={}))
+    synth = AsyncMock(side_effect=ValueError('invalid audio'))
+    monkeypatch.setattr('src.services.realtime_tts.synthesize_realtime', synth)
+    with pytest.raises(ValueError):
+        await RealtimeTTSProvider().synthesize('test')
+    assert (await runtime.provider_runtime_status(include_audio=True))['status'] == 'unverified'
+    synth.side_effect = None
+    synth.return_value = b'RIFF-synthetic'
+    assert await RealtimeTTSProvider().synthesize('test') == b'RIFF-synthetic'
+    state = await runtime.provider_runtime_status(include_audio=True)
+    assert state['status'] == 'healthy'
+    assert any(item['provider'] == 'openai_realtime' and item['kind'] == 'tts'
+               and item['status'] == 'healthy' for item in state['observations'])
+    assert 'synthetic-realtime-key' not in json.dumps(state)
+
+
+@pytest.mark.asyncio
 async def test_readiness_unavailable_without_paid_health_request(client, monkeypatch):
     monkeypatch.setattr(settings, "testing", True)
     await runtime.observe_provider_response(request(), httpx.Response(429, json={"error": {"code": "insufficient_quota"}}))
@@ -138,7 +202,21 @@ def configured_production_readiness(client, monkeypatch):
     stored = {}
     async def put(key, value, ex):
         stored[key] = value
-    redis = SimpleNamespace(set=put, get=AsyncMock(side_effect=lambda key: stored.get(key)))
+    async def evaluate(script, count, *args):
+        if script == runtime._VALIDATED_SUCCESS_UPDATE and count == 2:
+            key, invalid_key, value, _ttl = args
+            stored[key] = value
+            stored.pop(invalid_key, None)
+            return 1
+        if script == runtime._INVALID_RESPONSE_UPDATE and count == 1:
+            key, value, _ttl = args
+            previous = json.loads(stored.get(key, '{}'))
+            if previous.get('reason') in {'credentials_rejected', 'quota_exhausted'}:
+                return 0
+            stored[key] = value
+            return 1
+        raise AssertionError('unexpected provider observation script')
+    redis = SimpleNamespace(set=put, get=AsyncMock(side_effect=lambda key: stored.get(key)), eval=evaluate)
     monkeypatch.setattr(rate_limiter, "get_redis", AsyncMock(return_value=redis))
 
 

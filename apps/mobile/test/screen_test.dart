@@ -11,6 +11,7 @@ import 'package:ai_story_book/models/models.dart';
 import 'package:ai_story_book/models/generation_options.dart';
 import 'package:ai_story_book/providers/providers.dart';
 import 'package:ai_story_book/services/api_client.dart';
+import 'package:ai_story_book/services/book_media_store.dart';
 import 'package:ai_story_book/screens/create_screen.dart';
 import 'package:ai_story_book/utils/spec_labels.dart';
 import 'package:ai_story_book/screens/home_screen.dart';
@@ -655,6 +656,48 @@ void main() {
       expect(find.text('토끼의 모험'), findsOneWidget);
       expect(find.text('하나의 여행'), findsOneWidget);
     });
+
+    for (final priorRequest in [false, true]) {
+      testWidgets('explains deletion status with prior request $priorRequest', (
+        tester,
+      ) async {
+        await tester.pumpWidget(
+          buildTestableWidget(
+            const LibraryScreen(),
+            overrides: [
+              libraryBrowseProvider.overrideWith(
+                () => _NotStartedLibraryBrowseNotifier(
+                  priorRequest: priorRequest,
+                ),
+              ),
+            ],
+          ),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        final l = AppLocalizations.of(
+          tester.element(find.byType(LibraryScreen)),
+        );
+        await tester.tap(find.byIcon(Icons.more_horiz).first);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+        await tester.tap(find.text(l.libraryMenuDelete));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+        await tester.tap(find.widgetWithText(FilledButton, l.libraryDelete));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+        expect(
+          find.text(
+            priorRequest
+                ? l.libraryDeletionUnconfirmed
+                : l.libraryDeletionNotStarted,
+          ),
+          findsOneWidget,
+        );
+        expect(find.text('토끼의 모험'), findsOneWidget);
+      });
+    }
 
     testWidgets('groups series books into a shelf with an add-volume tile', (
       tester,
@@ -1552,6 +1595,28 @@ class _MockLibraryBrowseNotifier extends LibraryBrowseNotifier {
 
   @override
   Future<LibraryBrowseState> build() async => _state;
+}
+
+class _NotStartedLibraryBrowseNotifier extends _MockLibraryBrowseNotifier {
+  _NotStartedLibraryBrowseNotifier({this.priorRequest = false})
+    : super(
+        LibraryBrowseState(
+          books: _sampleBooks,
+          total: _sampleBooks.length,
+          nextCursor: null,
+          hasMore: false,
+          isLoadingMore: false,
+          isOffline: false,
+          sort: 'newest',
+          style: null,
+          targetAge: null,
+        ),
+      );
+  final bool priorRequest;
+  @override
+  Future<bool> deleteBook(String bookId) async => priorRequest
+      ? throw const BookDeletionUnconfirmed()
+      : throw const BookDeletionNotStarted();
 }
 
 class _MockLoadingLibraryBrowseNotifier extends LibraryBrowseNotifier {

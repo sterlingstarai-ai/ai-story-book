@@ -11,6 +11,23 @@ import 'package:ai_story_book/services/api_client.dart';
 
 void main() {
   group('ApiClient', () {
+    test('audio request sends the selected narrator only when non-default', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      final received = <Map<String, String>>[];
+      server.listen((request) async {
+        received.add(request.uri.queryParameters);
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({'audio_url': 'https://example.invalid/audio'}));
+        await request.response.close();
+      });
+      final client = ApiClient(baseUrl: 'http://${server.address.host}:${server.port}',
+          userKey: 'test-user', enableLogging: false);
+      await client.getPageAudioUrl('book', 1, language: 'ko');
+      await client.getPageAudioUrl('book', 1, language: 'ko', voice: 'deep');
+      await client.getPageAudioUrl('book', 1, language: 'ko', voice: 'deep', style: 'animated');
+      expect(received, [{'language': 'ko'}, {'language': 'ko', 'voice': 'deep'}, {'language': 'ko', 'voice': 'deep', 'style': 'animated'}]);
+    });
     test('addCredits sends admin key header and transaction_id payload',
         () async {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);

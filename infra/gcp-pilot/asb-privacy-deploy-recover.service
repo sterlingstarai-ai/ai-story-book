@@ -1,0 +1,16 @@
+[Unit]
+Description=Recover interrupted AI Story Book privacy deployment
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+Before=asb-backup-recover.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/ai-story-book/current/apps/api/venv/bin/python /opt/ai-story-book/current/scripts/deploy_pilot_privacy.py --recover
+Restart=on-failure
+RestartSec=20
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target

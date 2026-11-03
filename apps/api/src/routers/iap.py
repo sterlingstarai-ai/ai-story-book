@@ -19,9 +19,12 @@ from src.core.database import get_db
 from src.core.dependencies import get_user_key
 from src.core.exceptions import AuthorizationError, ValidationError
 from src.core.utils import utcnow
-from src.models.db import CreditTransaction, IAPReceipt, IapWebhookEvent, Subscription
+from src.models.db import (
+    AccountIdentity, CreditTransaction, IAPReceipt, IapWebhookEvent, Subscription, UserCredits,
+)
 from src.services.credits import SUBSCRIPTION_PLANS, credits_service
 from src.services.iap_verifier import _strip_google_order_suffix, iap_verifier
+from src.services.purchase_claims import claim_purchase
 from src.services.store_notifications import (
     StoreEvent,
     decode_apple_notification,
@@ -118,6 +121,7 @@ def _resolve_reward(product_id: str) -> tuple[int, Optional[str]]:
 
 def _store_period(subscription: Subscription, verification) -> None:
     """Store timestamps are authoritative, never a new 30 days on restoration."""
+    subscription.calendar_refill_enabled = False
     end = getattr(verification, "expires_date_ms", None)
     if end:
         subscription.current_period_end = datetime.fromtimestamp(end / 1000, timezone.utc).replace(
@@ -254,6 +258,7 @@ async def verify_iap(
 
     def _build_payload(extra: Optional[dict] = None) -> dict:
         base = {
+            "credit_grant_user_key": user_key,
             "receipt_data": receipt_data,
             "is_subscription": resolved_is_subscription,
             "verified_at": utcnow().isoformat(),
@@ -284,7 +289,8 @@ async def verify_iap(
     ).scalar_one_or_none()
 
     if existing:
-        if existing.user_key == user_key:
+        entitlement_erased = bool((existing.payload or {}).get("entitlement_erased"))
+        if existing.user_key == user_key and not entitlement_erased:
             return IAPVerifyResponse(
                 status="already_processed",
                 transaction_id=existing.transaction_id,
@@ -309,9 +315,23 @@ async def verify_iap(
         previous_user_key = existing.user_key
         if existing.status in {"refunded", "expired"}:
             raise ValidationError("종료 또는 환불된 결제는 복원할 수 없습니다.")
+        # Preserve funding provenance before a receipt moves or loses its FK.
+        previous_sub = await db.get(Subscription, existing.subscription_id) if existing.subscription_id else None
+        if previous_sub is not None:
+            previous_sub.calendar_refill_enabled = False
+        # Entitlement ownership may move; the already-issued credit grant does not.
+        # Snapshot legacy ledger evidence before replacing the subscription pointer.
+        grant_user_key = _credit_grant_user_key(existing)
+        granted_credits = await _granted_subscription_credits(db, existing)
+        restored_payload = {
+            **(existing.payload or {}),
+            **_build_payload({"restored_from_user_key": previous_user_key}),
+            "credit_grant_user_key": grant_user_key,
+            "granted_credits": granted_credits,
+        }
         existing.user_key = user_key
         existing.status = "restored"
-        existing.payload = _build_payload({"restored_from_user_key": previous_user_key})
+        existing.payload = restored_payload
         try:
             if plan:
                 # 만료 영수증(MA1)은 어떤 권한도 이전하지 않는다 — active 구독 재활성 금지로
@@ -323,10 +343,11 @@ async def verify_iap(
                 if _subscription_expired(verification):
                     existing.subscription_id = None
                 else:
-                    # 권한 이전: 이전 소유자의 해당 plan active 구독만 만료(cancelled 잔여기간 보존, G2).
-                    if previous_user_key != user_key:
+                    # Transfer only the receipt's entitlement, including cancelled paid time.
+                    if previous_user_key != user_key and not entitlement_erased:
                         await credits_service.expire_active_subscription_for_plan(
-                            db, previous_user_key, plan, commit=False
+                            db, previous_user_key, plan, commit=False,
+                            subscription_id=existing.subscription_id,
                         )
                     # 복원은 월간 크레딧을 재지급하지 않는다(G1).
                     restored_sub = await credits_service.create_subscription(
@@ -334,6 +355,7 @@ async def verify_iap(
                     )
                     _store_period(restored_sub, verification)
                     existing.subscription_id = restored_sub.id  # H5
+                    existing.payload = {**existing.payload, "entitlement_erased": False}
             await db.commit()
         except IntegrityError:
             # 동시 복원 경쟁 패자 — 현재 상태 재조회 후 멱등 반환.
@@ -364,6 +386,13 @@ async def verify_iap(
             verification_source=verification.source,
         )
 
+    first_grant = await claim_purchase(db, request.platform, store_txn)
+    if not first_grant and plan is None:
+        return IAPVerifyResponse(
+            status="already_processed", transaction_id=transaction_id,
+            product_id=product_id, credits_added=0, verification_source=verification.source,
+        )
+
     # 이미 같은 플랜이 **active**면 보상 없이 영수증만 기록.
     #
     # H3/R2-1: 예전에는 `get_active_subscription`(status ∈ {active, cancelled})을 그대로 썼다.
@@ -378,6 +407,7 @@ async def verify_iap(
             and active_subscription.plan == plan
             and active_subscription.status == "active"
         ):
+            active_subscription.calendar_refill_enabled = False
             # A verified later billing cycle is a renewal, even if the preceding
             # cycle is still active. The unique store transaction claim and grant
             # are committed together, so client replay cannot refill credits.
@@ -403,16 +433,17 @@ async def verify_iap(
                 renewal_credits = (
                     active_subscription.credits_per_month
                     or SUBSCRIPTION_PLANS[plan]["credits_per_month"]
-                )
-                await credits_service.add_credits(
-                    db,
-                    user_key,
-                    amount=renewal_credits,
-                    transaction_type="subscription",
-                    description="스토어에서 확인한 구독 갱신 크레딧",
-                    reference_id=f"iap:{request.platform}:{store_txn}",
-                    commit=False,
-                )
+                ) if first_grant else 0
+                if renewal_credits:
+                    await credits_service.add_credits(
+                        db,
+                        user_key,
+                        amount=renewal_credits,
+                        transaction_type="subscription",
+                        description="스토어에서 확인한 구독 갱신 크레딧",
+                        reference_id=f"iap:{request.platform}:{store_txn}",
+                        commit=False,
+                    )
             receipt = IAPReceipt(
                 user_key=user_key,
                 platform=request.platform,
@@ -455,6 +486,8 @@ async def verify_iap(
                 subscription_grant, cycle_allocation = await _plan_change_credit_grant(
                     db, plan, active_subscription, verification.raw.get("purchase_date_ms")
                 )
+                if not first_grant:
+                    subscription_grant = 0
                 # H3/R2-1: 취소 후 재결제 — 잔여 cancelled 행은 이 결제로 대체(종료)한다.
                 await credits_service.supersede_cancelled_subscription_for_plan(db, user_key, plan)
                 new_sub = await credits_service.create_subscription(
@@ -555,6 +588,16 @@ def _status_rank(status: Optional[str]) -> int:
     return _STATUS_RANK.get(status or "", 1)
 
 
+def _credit_grant_user_key(receipt: IAPReceipt) -> Optional[str]:
+    payload = receipt.payload or {}
+    # Old restores discarded the original grant evidence. Do not infer a payer
+    # from the current entitlement owner or the last hop of a multi-hop restore.
+    return payload.get(
+        "credit_grant_user_key",
+        None if "restored_from_user_key" in payload else receipt.user_key,
+    )
+
+
 async def _granted_subscription_credits(db: AsyncSession, receipt: IAPReceipt) -> int:
     """이 영수증이 개설한 구독으로 **실제 지급된** 크레딧 합계 (M3/R2-3).
 
@@ -562,16 +605,17 @@ async def _granted_subscription_credits(db: AsyncSession, receipt: IAPReceipt) -
     'subscription' 타입 원장을 남긴다. 그 합계가 곧 회수 가능한 상한이다.
     - subscription_id 가 없는 레거시 영수증: 원장을 특정할 수 없으므로 0(회수 안 함) —
       무고한 차감보다 미회수가 낫다(회수 실패는 로그로 관측 가능).
-    - restored / already_subscribed 영수증: 애초에 지급이 없어 합계가 0이다.
+    - 복원 후에는 복원 전에 보존한 지급액을 사용하며, 0 지급도 그대로 보존한다.
     """
     exact_grant = (receipt.payload or {}).get("granted_credits")
     if isinstance(exact_grant, int):
         return max(0, exact_grant)
-    if receipt.subscription_id is None:
+    grant_user_key = _credit_grant_user_key(receipt)
+    if receipt.subscription_id is None or grant_user_key is None:
         return 0
     total = await db.scalar(
         select(func.coalesce(func.sum(CreditTransaction.amount), 0)).where(
-            CreditTransaction.user_key == receipt.user_key,
+            CreditTransaction.user_key == grant_user_key,
             CreditTransaction.transaction_type == "subscription",
             CreditTransaction.reference_id == str(receipt.subscription_id),
         )
@@ -604,6 +648,7 @@ async def _apply_status_to_receipt(
     # periodic_credits가 매월 영구 리필 → buy→consume→refund 무한 무료 크레딧.
     if (
         sync_subscription
+        and not (receipt.payload or {}).get("entitlement_erased")
         and receipt.product_id in SUBSCRIPTION_PRODUCTS
         and status
         in {
@@ -667,10 +712,16 @@ async def _apply_status_to_receipt(
     if status == "refunded" and receipt.product_id in SUBSCRIPTION_PRODUCTS:
         clawback_amount = await _granted_subscription_credits(db, receipt)
         clawback_ref = receipt.store_transaction_id or receipt.transaction_id
-        if clawback_amount > 0:
+        grant_user_key = _credit_grant_user_key(receipt)
+        # Account erasure must not recreate an old beneficiary via get_or_create.
+        balance = await db.scalar(
+            select(UserCredits).where(UserCredits.user_key == grant_user_key).with_for_update()
+        ) if grant_user_key else None
+        identity = await db.get(AccountIdentity, grant_user_key) if grant_user_key else None
+        if clawback_amount > 0 and balance is not None and not (identity and identity.deleted):
             await credits_service.clawback_credits(
                 db=db,
-                user_key=receipt.user_key,
+                user_key=grant_user_key,
                 amount=clawback_amount,
                 reference_id=clawback_ref,
                 description="구독 환불 회수",
@@ -678,7 +729,7 @@ async def _apply_status_to_receipt(
             )
         else:
             logger.info(
-                "subscription refund clawback skipped (no credits were granted)",
+                "subscription refund clawback skipped (no grant or beneficiary unavailable)",
                 transaction_id=receipt.transaction_id,
                 receipt_status=receipt.status,
             )
@@ -920,6 +971,7 @@ async def _apply_native_event(event: StoreEvent, db: AsyncSession, *, commit: bo
     )
     if subscription:
         await db.refresh(subscription, with_for_update=True)
+        subscription.calendar_refill_enabled = False
     now_ms = int(utcnow().replace(tzinfo=timezone.utc).timestamp() * 1000)
     expiry = event.expires_date_ms or (
         int((exact.payload or {}).get("expires_date_ms", 0)) if exact else 0
@@ -950,6 +1002,7 @@ async def _apply_native_event(event: StoreEvent, db: AsyncSession, *, commit: bo
         subscription = await credits_service.create_subscription(
             db, anchor.user_key, plan, commit=False, grant_credits=False
         )
+        subscription.calendar_refill_enabled = False
         subscription.current_period_end = datetime.fromtimestamp(
             expiry / 1000, timezone.utc
         ).replace(tzinfo=None)
@@ -967,6 +1020,7 @@ async def _apply_native_event(event: StoreEvent, db: AsyncSession, *, commit: bo
             status="verified",
             payload={
                 "original_transaction_id": event.original_transaction_id,
+                "credit_grant_user_key": anchor.user_key,
                 "granted_credits": 0,
             },
         )
@@ -992,11 +1046,14 @@ async def _apply_native_event(event: StoreEvent, db: AsyncSession, *, commit: bo
         if replacement_grant is not None or (
             event.grants_cycle and expiry > current_end and exact is None
         ):
+            first_grant = await claim_purchase(db, event.platform, event.transaction_id)
             granted = (
                 replacement_grant
                 if replacement_grant is not None
                 else subscription.credits_per_month or SUBSCRIPTION_PLANS[plan]["credits_per_month"]
             )
+            if not first_grant:
+                granted = 0
             if granted:
                 await credits_service.add_credits(
                     db,

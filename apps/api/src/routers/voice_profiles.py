@@ -6,6 +6,8 @@ Voice Profiles Router
 from __future__ import annotations
 
 import uuid
+import asyncio
+from datetime import timedelta
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -20,15 +22,48 @@ from src.core.audio_feature import require_voice_profiles_supported
 from src.core.dependencies import get_user_key
 from src.core.exceptions import InternalServerError, NotFoundError, ValidationError
 from src.core.utils import utcnow
-from src.models.db import VoiceProfile
+from src.models.db import StoragePurgeTask, VoiceProfile
 from src.services.storage import (
     key_from_public_url, storage_service, media_url, canonical_media_url, voice_sample_prefix,
 )
-from src.services.purge_queue import enqueue_purge_keys, run_purge_tasks
+from src.services.purge_queue import (UNATTEMPTED_GRACE_SECONDS, cancel_purge_task,
+                                      enqueue_purge_keys, run_purge_tasks)
+from src.services.privacy_journal_transaction import prepare_transaction_event, publish_committed_event
+from src.services.photo_lifecycle import lock_photo_account
 
 router = APIRouter()
 logger = structlog.get_logger()
 _MAX_SAMPLE_AUDIO_BYTES = 15 * 1024 * 1024
+_VOICE_UPLOAD_GUARD = 'voice_sample_upload_guard'
+
+
+def _consume_upload_result(task):
+    try:
+        task.exception()
+    except BaseException:
+        pass
+
+
+async def _lock_voice_upload_guard(db, *, user_key: str, key: str, uploading=False):
+    guard = await db.scalar(select(StoragePurgeTask).where(
+        StoragePurgeTask.user_key == user_key,
+        StoragePurgeTask.reason == _VOICE_UPLOAD_GUARD,
+        StoragePurgeTask.kind == 'keys', StoragePurgeTask.target == key,
+    ).order_by(StoragePurgeTask.id.desc()).limit(1).with_for_update())
+    expected_status = 'failed' if uploading else 'pending'
+    if (guard is None or guard.status != expected_status or guard.attempts != 0
+            or guard.created_at is None
+            or (uploading and guard.last_error != 'upload_completion_unknown')
+            or (not uploading and guard.created_at <= utcnow() - timedelta(seconds=UNATTEMPTED_GRACE_SECONDS))):
+        raise ValidationError('음성 샘플이 만료되었습니다. 다시 업로드해주세요.')
+    return guard
+
+
+async def _claim_voice_upload(db, *, user_key: str, url: str):
+    key = key_from_public_url(url)
+    if key and key.startswith(voice_sample_prefix(user_key)):
+        guard = await _lock_voice_upload_guard(db, user_key=user_key, key=key)
+        cancel_purge_task(guard)
 
 
 class VoiceProfileCreateRequest(BaseModel):
@@ -131,6 +166,7 @@ def _audio_extension(content_type: Optional[str], filename: Optional[str]) -> st
 @router.post("/upload-sample")
 async def upload_voice_sample(
     sample: UploadFile = File(..., description="음성 샘플 파일"),
+    db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
 ):
     require_voice_profiles_supported()
@@ -146,16 +182,48 @@ async def upload_voice_sample(
     ext = _audio_extension(sample.content_type, sample.filename)
     object_key = f"{voice_sample_prefix(user_key)}{utcnow().strftime('%Y%m%d')}_{uuid.uuid4().hex}{ext}"
 
+    # The task survives a crash or failure, and remains pending until a voice
+    # profile claims the sample in the same transaction that publishes it.
+    await lock_photo_account(db, user_key)
+    guard = enqueue_purge_keys(db, user_key=user_key, reason=_VOICE_UPLOAD_GUARD, keys=[object_key])[0]
+    # If the process or its PUT dies, completion is unknown. Keep this out of
+    # the automatic sweep and alert until the outcome is independently known.
+    guard.status = 'failed'
+    guard.last_error = 'upload_completion_unknown'
+    await db.flush()
+    await db.commit()
     try:
-        url = await storage_service.upload_bytes(
-            data=data,
-            key=object_key,
-            content_type=sample.content_type or "audio/mp4",
-        )
-    except Exception as exc:
+        # Keep both account and guard row locked while the storage call is in
+        # flight; the cleanup sweep skips locked guards on PostgreSQL.
+        await lock_photo_account(db, user_key)
+        guard = await _lock_voice_upload_guard(db, user_key=user_key, key=object_key, uploading=True)
+        upload_task = asyncio.create_task(storage_service.upload_bytes(
+            data=data, key=object_key, content_type=sample.content_type or "audio/mp4", bounded_upload=True,
+        ))
+        try:
+            done, _ = await asyncio.wait({upload_task}, timeout=90)
+            if not done:
+                raise TimeoutError('Voice upload deadline expired')
+            url = upload_task.result()
+        finally:
+            if not upload_task.done():
+                # Cancelling a task cannot prove that its S3 thread stopped.
+                # The precommitted failed guard continues to alert in that case.
+                upload_task.cancel()
+                upload_task.add_done_callback(_consume_upload_result)
+        if key_from_public_url(url) != object_key:
+            raise ValidationError('음성 샘플 저장을 확인하지 못했습니다.')
+        # Only a completed, verified response transitions to timed cleanup.
+        guard.status = 'pending'
+        guard.last_error = None
+        await db.commit()
+        if guard.created_at <= utcnow() - timedelta(seconds=UNATTEMPTED_GRACE_SECONDS):
+            raise ValidationError('음성 샘플이 만료되었습니다. 다시 업로드해주세요.')
+    except Exception:
+        await db.rollback()
         raise InternalServerError(
             "샘플 오디오 업로드에 실패했습니다. 잠시 후 다시 시도해주세요."
-        ) from exc
+        ) from None
 
     return {
         "sample_audio_url": media_url(url),
@@ -187,6 +255,7 @@ async def create_voice_profile(
     user_key: str = Depends(get_user_key),
 ):
     require_voice_profiles_supported()
+    await lock_photo_account(db, user_key)
     count_result = await db.execute(
         select(VoiceProfile.id).where(VoiceProfile.user_key == user_key)
     )
@@ -202,6 +271,7 @@ async def create_voice_profile(
         request.sample_audio_url, user_key=user_key
     )
     normalized_provider_voice_id = _normalize_optional_text(request.provider_voice_id)
+    await _claim_voice_upload(db, user_key=user_key, url=normalized_sample_url)
 
     profile = VoiceProfile(
         id=f"voice_{utcnow().strftime('%Y%m%d')}_{uuid.uuid4().hex[:8]}",
@@ -213,8 +283,10 @@ async def create_voice_profile(
         consented=True,
         active=True,
     )
+    journal_event = await prepare_transaction_event(db, user_key=user_key, action='voice_changed', resource_id=profile.id)
     db.add(profile)
     await db.commit()
+    await publish_committed_event(db, journal_event)
     await db.refresh(profile)
     logger.info(
         "Voice profile created",
@@ -232,6 +304,7 @@ async def update_voice_profile(
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
 ):
+    await lock_photo_account(db, user_key)
     result = await db.execute(
         select(VoiceProfile).where(
             VoiceProfile.id == profile_id,
@@ -259,6 +332,8 @@ async def update_voice_profile(
         data["sample_audio_url"] = _normalize_required_url(
             str(data["sample_audio_url"]), user_key=user_key
         )
+        if data['sample_audio_url'] != previous_sample_url and request.consented is not False:
+            await _claim_voice_upload(db, user_key=user_key, url=data['sample_audio_url'])
     if "relationship" in data:
         data["relationship"] = _normalize_optional_text(data["relationship"])
     if "provider_voice_id" in data:
@@ -271,6 +346,13 @@ async def update_voice_profile(
         if not consented_after_update:
             raise ValidationError("동의가 없는 음성 프로필은 활성화할 수 없습니다.")
 
+    journal_event = None
+    if request.consented is False:
+        journal_event = await prepare_transaction_event(db, user_key=user_key, action='voice_revoke', resource_id=profile_id)
+    elif any(field in data for field in ('sample_audio_url', 'provider_voice_id', 'active', 'consented')):
+        # Deliberately omit audio, URLs and provider identifiers from history.
+        # Replay must reject an unresolved changed voice rather than guess it.
+        journal_event = await prepare_transaction_event(db, user_key=user_key, action='voice_changed', resource_id=profile_id)
     for key, value in data.items():
         setattr(profile, key, value)
 
@@ -288,6 +370,7 @@ async def update_voice_profile(
 
     purge_tasks = _enqueue_sample_purge(db, user_key, purge_url)
     await db.commit()
+    await publish_committed_event(db, journal_event)
     await db.refresh(profile)
 
     if purge_url:
@@ -323,6 +406,7 @@ async def revoke_voice_profile_consent(
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
 ):
+    await lock_photo_account(db, user_key)
     result = await db.execute(
         select(VoiceProfile).where(
             VoiceProfile.id == profile_id,
@@ -332,6 +416,8 @@ async def revoke_voice_profile_consent(
     profile = result.scalar_one_or_none()
     if not profile:
         raise NotFoundError("음성 프로필", profile_id)
+
+    journal_event = await prepare_transaction_event(db, user_key=user_key, action='voice_revoke', resource_id=profile_id)
 
     # S1: 동의 철회는 삭제보다 강한 파기 트리거다(PIPA 철회-파기 의무). 원본 오디오를
     # 남기면 '철회했는데 목소리는 그대로'가 된다 — 파기 후 행의 참조도 끊는다.
@@ -343,6 +429,7 @@ async def revoke_voice_profile_consent(
     profile.sample_audio_url = ""
     purge_tasks = _enqueue_sample_purge(db, user_key, sample_audio_url)
     await db.commit()
+    await publish_committed_event(db, journal_event)
     await db.refresh(profile)
 
     failed_keys = await run_purge_tasks(db, purge_tasks)
@@ -371,6 +458,7 @@ async def delete_voice_profile(
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
 ):
+    await lock_photo_account(db, user_key)
     result = await db.execute(
         select(VoiceProfile).where(
             VoiceProfile.id == profile_id,
@@ -381,6 +469,8 @@ async def delete_voice_profile(
     if not profile:
         raise NotFoundError("음성 프로필", profile_id)
 
+    journal_event = await prepare_transaction_event(db, user_key=user_key, action='voice_delete', resource_id=profile_id)
+
     # S1: 행을 지우면 sample_audio_url이 사라져 키 역산이 불가능해진다(영구 고아).
     # 계정 삭제·캐릭터 삭제와 동일 순서 — 삭제 전 캡처, 커밋 후 파기.
     sample_audio_url = profile.sample_audio_url
@@ -388,6 +478,7 @@ async def delete_voice_profile(
     await db.delete(profile)
     purge_tasks = _enqueue_sample_purge(db, user_key, sample_audio_url)
     await db.commit()
+    await publish_committed_event(db, journal_event)
 
     failed_keys = await run_purge_tasks(db, purge_tasks)
     if failed_keys:

@@ -485,21 +485,28 @@ class CreditsService:
         user_key: str,
         plan: str,
         commit: bool = False,
+        subscription_id: Optional[int] = None,
     ) -> None:
-        """이전 소유자의 해당 plan active 구독만 만료(권한 이전, C1/G2).
+        """Transfer the receipt's entitlement, including cancelled paid time.
 
-        전 구독 일괄 만료는 타인의 정당한 다른 구독을 파기하므로 금지 — cancelled(잔여기간)는
-        보존하고 같은 plan의 active만 즉시 만료한다.
+        An unlinked legacy receipt must resolve to exactly one entitlement;
+        ambiguous ownership cannot safely transfer somebody else's purchase.
         """
         result = await db.execute(
             select(Subscription).where(
                 Subscription.user_key == user_key,
                 Subscription.plan == plan,
-                Subscription.status == "active",
+                Subscription.status.in_(["active", "cancelled"]),
+                Subscription.id == subscription_id if subscription_id is not None else True,
             )
         )
+        subscriptions = result.scalars().all()
+        if subscription_id is None and len(subscriptions) > 1:
+            from src.core.exceptions import ValidationError
+
+            raise ValidationError("복원할 구독을 확인할 수 없습니다.")
         now = utcnow()
-        for sub in result.scalars().all():
+        for sub in subscriptions:
             sub.status = "expired"
             sub.current_period_end = now - timedelta(seconds=1)
         if commit:
@@ -571,6 +578,7 @@ class CreditsService:
                 user_key=user_key,
                 plan=plan,
                 status="active",
+                calendar_refill_enabled=grant_credits,
                 credits_per_month=plan_info["credits_per_month"],
                 current_period_start=now,
                 current_period_end=now + timedelta(days=30),

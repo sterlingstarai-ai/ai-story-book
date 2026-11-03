@@ -5,7 +5,7 @@ Celery tasks for async book generation
 import asyncio
 from typing import Optional
 
-from celery import shared_task
+from src.worker import celery_app
 
 from src.core.errors import ErrorCode, client_safe_message
 import structlog
@@ -22,7 +22,7 @@ logger = structlog.get_logger()
 _TERMINAL_JOB_STATUSES = frozenset({"done", "failed"})
 
 
-@shared_task(max_retries=0, acks_late=True, reject_on_worker_lost=True,
+@celery_app.task(max_retries=0, acks_late=True, reject_on_worker_lost=True,
              soft_time_limit=330, time_limit=360)
 def generate_character_avatar_task(character_id: str, version: int, user_key: str):
     from src.services.character_avatar import generate_character_avatar
@@ -65,6 +65,13 @@ def run_async(coro):
     try:
         return loop.run_until_complete(coro)
     finally:
+        # Audio admission uses an async Redis pool. Close it while its owning
+        # loop is alive so the next Celery task cannot reuse a closed loop.
+        from src.core.rate_limit import rate_limiter
+        try:
+            loop.run_until_complete(rate_limiter.close())
+        except Exception as exc:
+            logger.warning("Worker Redis cleanup failed", error_type=type(exc).__name__)
         loop.close()
 
 
@@ -171,7 +178,7 @@ async def _claim_job_async(job_id: str) -> bool:
         return result.rowcount == 1
 
 
-@shared_task(
+@celery_app.task(
     bind=True,
     max_retries=0,
     acks_late=True,
@@ -274,7 +281,7 @@ async def _run_series_generation_async(
     )
 
 
-@shared_task(
+@celery_app.task(
     bind=True,
     max_retries=0,
     acks_late=True,
@@ -373,7 +380,7 @@ async def _run_tracked_job_async(job_id: str, label: str, coro_factory) -> dict:
     return {"status": "success", "job_id": job_id}
 
 
-@shared_task(
+@celery_app.task(
     bind=True,
     max_retries=2,
     acks_late=True,
@@ -421,7 +428,7 @@ def regenerate_page_task(
     )
 
 
-@shared_task(
+@celery_app.task(
     bind=True,
     max_retries=2,
     acks_late=True,
@@ -462,7 +469,7 @@ def inpaint_page_task(
     )
 
 
-@shared_task(
+@celery_app.task(
     bind=True,
     max_retries=2,
     acks_late=True,

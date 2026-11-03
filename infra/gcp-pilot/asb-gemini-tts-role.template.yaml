@@ -1,0 +1,7 @@
+title: AI Story Book Gemini TTS predict (project-wide)
+description: >-
+  Candidate role only. This permission may authorize other model prediction
+  resources in the project; it is not restricted to a single TTS model.
+stage: ALPHA
+includedPermissions:
+  - aiplatform.endpoints.predict

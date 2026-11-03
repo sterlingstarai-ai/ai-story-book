@@ -57,12 +57,16 @@ def external_infrastructure_errors(values):
             continue
         try:
             url = urlsplit(raw)
-            query = parse_qs(url.query)
-            if (not present(raw) or url.scheme not in {"postgres", "postgresql", "postgresql+asyncpg"}
+            query = parse_qs(url.query, keep_blank_values=True)
+            if (not present(raw) or url.scheme not in {"postgres", "postgresql", "postgresql+asyncpg", "postgresql+psycopg"}
                     or not url.hostname or not url.username or not url.password
                     or not url.path.strip("/") or url.port not in {None, 5432}
                     or query.get("sslmode", ["verify-full"]) != ["verify-full"]):
                 invalid.append(name + " (direct/session PostgreSQL endpoint required)")
+            binding = query.get("channel_binding")
+            if ((url.scheme == "postgresql+psycopg" and binding != ["require"])
+                    or (url.scheme != "postgresql+psycopg" and binding is not None)):
+                invalid.append(name + " (channel binding requires psycopg and require)")
             configured_ca = values.get("DATABASE_SSL_ROOT_CERT", "")
             if query.get("sslrootcert", [configured_ca]) != [configured_ca]:
                 invalid.append(name + " (conflicting CA settings)")
@@ -119,11 +123,32 @@ def assess(values):
             invalid.append(name)
         return value in {"true", "1", "yes", "on"}
 
-    for name in ("LLM_API_KEY", "LLM_MODEL", "IMAGE_API_KEY", "IMAGE_MODEL", "S3_ENDPOINT",
+    # Testing can bypass parental consent, rate limits and receipt checks.
+    # Hooks separately relax receipt validation, even when TESTING is false.
+    for name in ("DEBUG", "TESTING", "ENABLE_TEST_HOOKS"):
+        if enabled(name):
+            invalid.append(name + " (must be disabled for release)")
+    consent = values.get("REQUIRE_PARENTAL_CONSENT_ENABLED", "true").strip().lower()
+    if consent not in {"true", "1", "yes", "on"}:
+        invalid.append("REQUIRE_PARENTAL_CONSENT_ENABLED (required for release)")
+
+    for name in ("LLM_MODEL", "IMAGE_MODEL", "S3_ENDPOINT",
                  "S3_ACCESS_KEY", "S3_SECRET_KEY", "S3_BUCKET", "S3_PUBLIC_URL",
                  "ADMIN_API_KEY", "CORS_ORIGINS", "PROD_API_URL",
                  "PRIVACY_POLICY_URL", "TERMS_OF_SERVICE_URL"):
         need(name)
+    for name in ("LLM_API_KEY", "IMAGE_API_KEY"):
+        file_name = name + "_FILE"
+        path = values.get(file_name, "")
+        raw = values.get(name, "")
+        if raw and path:
+            invalid.append(name + " (key and file are mutually exclusive)")
+        elif path:
+            if (not path.startswith("/") or path.startswith("//")
+                    or os.path.normpath(path) != path or path == "/"):
+                invalid.append(file_name + " (absolute normalized container path required)")
+        else:
+            need(name)
     choice("LLM_PROVIDER", {"openai", "anthropic", "gemini"})
     choice("IMAGE_PROVIDER", {"openai", "gemini", "replicate", "fal"})
     choice("IAP_VERIFICATION_MODE", {"strict"})
@@ -187,13 +212,22 @@ def assess(values):
                 or (google_file and Path(google_file).is_file())):
             missing.append("GOOGLE_PLAY_AUTH")
     if audio:
-        choice("TTS_PROVIDER", {"openai", "google", "elevenlabs"})
+        choice("TTS_PROVIDER", {"openai", "google", "google_gemini", "elevenlabs"})
         choice("STT_PROVIDER", {"google", "openai"})
         tts_key = {"openai": "OPENAI_TTS_API_KEY", "google": "GOOGLE_TTS_API_KEY", "elevenlabs": "ELEVENLABS_API_KEY"}.get(values.get("TTS_PROVIDER"))
         stt_key = {"google": "GOOGLE_STT_API_KEY", "openai": "STT_API_KEY"}.get(values.get("STT_PROVIDER"))
         for name in (tts_key, stt_key):
             if name:
                 need(name)
+        if values.get("TTS_PROVIDER") == "google_gemini":
+            if not re.fullmatch(r"[a-z][a-z0-9-]{4,28}[a-z0-9]", values.get("GOOGLE_GEMINI_TTS_PROJECT", "")):
+                invalid.append("GOOGLE_GEMINI_TTS_PROJECT")
+            for name in ("GOOGLE_GEMINI_TTS_DAILY_REQUEST_LIMIT", "GOOGLE_GEMINI_TTS_MONTHLY_REQUEST_LIMIT"):
+                try:
+                    if int(values.get(name, "0")) <= 0:
+                        invalid.append(name)
+                except ValueError:
+                    invalid.append(name)
     if pod:
         invalid.append("POD_ORDERING_ENABLED (physical fulfillment is outside this release)")
     return {

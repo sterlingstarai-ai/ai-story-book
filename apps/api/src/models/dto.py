@@ -621,3 +621,10 @@ class AccountSessionResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: Literal["active"] = "active"
+
+
+class AccountMediaScopeResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version: Literal[1] = 1
+    scope_id: str = Field(pattern=r"^[0-9a-f]{64}$")

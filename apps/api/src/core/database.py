@@ -37,6 +37,10 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 # Async engine (for API)
 async_database_url, _async_connect_args = database_options(database_url, asynchronous=True, **_TLS_OPTIONS)
 _ASYNC_ENGINE_KWARGS = {"echo": settings.debug, "connect_args": _async_connect_args}
+# A suspended provider may close pooled connections.  Check on checkout only;
+# unlike a periodic heartbeat this does not keep an idle database active.
+if async_database_url.startswith("postgresql+psycopg://"):
+    _ASYNC_ENGINE_KWARGS["pool_pre_ping"] = True
 async_engine = create_async_engine(async_database_url, **_ASYNC_ENGINE_KWARGS)
 AsyncSessionLocal = async_sessionmaker(
     bind=async_engine,
@@ -87,6 +91,11 @@ Base = declarative_base()
 async def get_db():
     async with AsyncSessionLocal() as session:
         try:
+            from src.services.privacy_journal_runtime import configured_journal
+
+            journal = configured_journal()
+            if journal is not None:
+                session.info['privacy_journal'] = journal
             yield session
         finally:
             await session.close()

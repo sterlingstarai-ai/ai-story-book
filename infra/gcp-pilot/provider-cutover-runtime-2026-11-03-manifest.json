@@ -1,0 +1,29 @@
+{
+  "created_utc": "2026-11-03T09:10:03.679593+00:00",
+  "destination_root": "/opt/ai-story-book/current/scripts",
+  "expected_previous_sha256": {
+    "check_backup_status.py": "f40c28e9e28efa36c85304d5f392dadef444df8131363ed00a600d15cead871d"
+  },
+  "files": {
+    "check_backup_status.py": "1549a5146ead147ba55c341844709c369361c46e468d468eb03803431e9be3ea",
+    "provider_candidate_stage.py": "aff3439d84df65113b4f0e145980f8531a6eb16f43ac55f75e097d38c63db69f",
+    "provider_config_overlay.py": "79c4dc7e1dca74a742e1f511003590e547ca0ecbd3ce2287d72e338c43792020",
+    "provider_cutover.py": "6d1ebb142413b9ef136f1a9d59de59d4ed35aae34a0f49d31f8894851ed706a8",
+    "provider_cutover_drained.py": "1c93a5c738050bf1156bd9ade9a83bb6e176a0b1202634a7f3b4196c7210523d",
+    "provider_cutover_ingress.py": "1b973cd9d2ce6af09a794923b53e8d93da5b204a35904d40d02889f873f9ec9a",
+    "provider_cutover_journal.py": "a449f9eacccb4dce031e947e635ba0c21d7b1853eba358213d09961c51d9f9c7",
+    "provider_cutover_portless_exec.py": "1bcc52698e73710349c28262f68669207f12e046576227319f8d29ae5705a797",
+    "provider_cutover_probe.py": "549c8218ed9341319bc01e72ffcb88d8509d35565b555ce1a93f59192708b1ee",
+    "provider_cutover_probe_runner.py": "0aa70b2b6577388846e5ed08460898ed9ad4a124019aa28db63fe29efaa8529f",
+    "provider_cutover_production_adapter.py": "c92eda0d1c0d439342c9cd923aa17a6167ecfd5272cc196245199580fdb3d137",
+    "provider_cutover_production_entry.py": "21f0150ee930af6b5dc7d04c75d75bd5a119eff97ee30e04997e379c50e1dfd4",
+    "provider_cutover_production_guards.py": "b07b7f958f91d14d71bf2ae84f0f3a996c29046adf58c9d2f639cc8493c20b7c",
+    "provider_cutover_production_runtime.py": "1c20d9b4cfc017d55f11f26932211f05d81d684009b73eb12776c0f678e3725d",
+    "provider_cutover_queue_probe.py": "bd40f544b6e204869d1df0cbc96a43c3ca938fb3eb8f5438317febcf422aa888",
+    "provider_environment.py": "054a11e4035496f1226296969567f64e3b14953eb9d21bd6e61e20f8f6c9bc7b"
+  },
+  "guard_manifest_sha256": "7b5dc506b27b7e503587ae687a5cc4b5e36124ce802d65943d81a6b3c63843dc",
+  "installed": false,
+  "production_tested": false,
+  "version": 1
+}

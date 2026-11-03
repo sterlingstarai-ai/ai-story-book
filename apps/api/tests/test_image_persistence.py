@@ -173,7 +173,7 @@ async def test_replicate_persists_external_url(monkeypatch):
     monkeypatch.setattr(image_mod.asyncio, "sleep", _noop_sleep)
     captured = {}
 
-    async def _fake_persist(url, provider, page):
+    async def _fake_persist(url, provider, page, *, observation=None):
         captured.update(url=url, provider=provider)
         return f"https://s3.example.com/images/{provider}/abc.png"
 
@@ -209,7 +209,7 @@ async def test_fal_persists_external_url(monkeypatch):
     monkeypatch.setattr(settings, "image_api_key", "test-key")
     captured = {}
 
-    async def _fake_persist(url, provider, page):
+    async def _fake_persist(url, provider, page, *, observation=None):
         captured.update(url=url, provider=provider)
         return f"https://s3.example.com/images/{provider}/abc.png"
 

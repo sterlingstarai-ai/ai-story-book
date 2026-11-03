@@ -65,7 +65,9 @@ async def _has_active_photo_consent(db: AsyncSession, user_key: str) -> bool:
         .order_by(UserConsent.created_at.desc(), UserConsent.id.desc())
     )
     latest = result.scalars().first()
-    return latest is not None and bool(latest.granted) and bool(latest.photos)
+    return latest is not None and all((
+        latest.granted, latest.privacy, latest.data_processing, latest.photos,
+    ))
 
 
 async def require_photo_consent(db: AsyncSession, user_key: str) -> None:

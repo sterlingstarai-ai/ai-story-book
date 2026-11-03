@@ -1,0 +1,9 @@
+[Unit]
+Description=Renew AI Story Book pilot IP certificate
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/asb-renew-ip
+TimeoutStartSec=660

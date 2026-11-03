@@ -1,6 +1,7 @@
 import pytest
 import pytest_asyncio
 import os
+import io
 from typing import AsyncGenerator
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy import event
@@ -8,6 +9,8 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 
 # 테스트 환경 설정
 os.environ["TESTING"] = "true"
+os.environ["ASB_TEST_ISOLATED_SETTINGS"] = "1"
+os.environ["DAILY_GENERATION_BUDGET"] = "20"
 # #12: 테스트 DB 파일을 프로세스별로 분리한다. 고정 경로(./test.db)를 공유하면 동시에
 # 도는 다른 pytest 프로세스(로컬 병렬 실행·백그라운드 회귀)의 create_all/drop_all이
 # 서로의 스키마를 지워 'no such table'로 무작위 실패한다 — GDPR/erasure 회귀 게이트가
@@ -278,11 +281,7 @@ class _FakeS3Client:
             raise KeyError(key)
         body = self.objects[key]
 
-        class _Body:
-            def read(self_inner):
-                return body
-
-        return {"Body": _Body(), "ContentType": "application/octet-stream"}
+        return {"Body": io.BytesIO(body), "ContentType": "application/octet-stream"}
 
     def list_objects_v2(self, **kwargs):
         prefix = kwargs.get("Prefix", "")

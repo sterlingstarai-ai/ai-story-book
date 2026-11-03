@@ -73,19 +73,36 @@ class JobMonitor:
             try:
                 await self.check_and_recover_jobs()
             except Exception as e:
-                logger.error("Job monitor error", error=str(e))
+                logger.error("Job monitor error", error_type=type(e).__name__)
 
             # M8/R1-5: 계정삭제·동의철회에서 중단·실패한 아동 PII 파기 지시(outbox)를
             # 멱등 재실행한다. 이 스윕이 없으면 durable 레코드가 '기록만 되고 영원히
             # 실행되지 않는' 장부가 된다.
             try:
-                from src.services.purge_queue import sweep_pending_purges
                 from src.services.character_avatar import sweep_character_avatars
 
                 await sweep_character_avatars()
+            except Exception as e:
+                logger.error("Character avatar sweep error", error_type=type(e).__name__)
+
+            # These are independent durable work queues. A transient avatar
+            # failure must not prevent unrelated consent/account purges.
+            try:
+                from src.services.purge_queue import sweep_pending_purges
+
                 await sweep_pending_purges()
             except Exception as e:
-                logger.error("Storage purge sweep error", error=str(e))
+                logger.error("Storage purge sweep error", error_type=type(e).__name__)
+
+            try:
+                from src.services.privacy_journal_runtime import configured_journal
+                from src.services.privacy_journal_outbox import publish_pending_events
+
+                journal = configured_journal()
+                if journal is not None:
+                    await publish_pending_events(AsyncSessionLocal, journal)
+            except Exception as e:
+                logger.error("Privacy journal retry failed", error_type=type(e).__name__)
 
             await asyncio.sleep(MONITOR_INTERVAL_SECONDS)
 

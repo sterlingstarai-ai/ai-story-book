@@ -114,6 +114,7 @@ class _AIStoryBookAppState extends ConsumerState<AIStoryBookApp>
     _screenTimeNotifier = ref.read(screenTimeStateProvider.notifier);
     if (state == AppLifecycleState.resumed) {
       ref.read(iapPurchaseRecoveryProvider).retryPending();
+      ref.invalidate(bookMediaStoreProvider);
       _screenTimeNotifier.onAppResumed();
       return;
     }

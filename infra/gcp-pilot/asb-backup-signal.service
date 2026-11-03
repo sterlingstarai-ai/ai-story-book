@@ -1,0 +1,9 @@
+[Unit]
+Description=Publish backup health signal to Cloud Monitoring
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/ai-story-book/current/scripts/publish_backup_health.py
+TimeoutStartSec=90

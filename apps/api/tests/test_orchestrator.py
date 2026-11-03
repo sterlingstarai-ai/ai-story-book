@@ -885,6 +885,8 @@ async def test_regenerate_page_syncs_and_invalidates_bilingual(monkeypatch, non_
     draft_db = SimpleNamespace(draft=draft.model_dump())
     session = _RegenSession([book, page, draft_db])
     monkeypatch.setattr("src.core.database.AsyncSessionLocal", lambda: session)
+    retire_variants = AsyncMock()
+    monkeypatch.setattr("src.services.audio_assets.retire_page_variants", retire_variants)
 
     async def fake_rewrite(spec, story, page_number, feedback):
         return RewriteResult(page=1, revised_text="shorter en text")
@@ -900,6 +902,7 @@ async def test_regenerate_page_syncs_and_invalidates_bilingual(monkeypatch, non_
     assert page.audio_url is None
     assert page.audio_url_ko is None
     assert page.audio_url_en is None
+    retire_variants.assert_awaited_once_with(session, page.id, user_key=book.user_key)
     assert {task.target for task in session.added} == {
         "books/b1/a.mp3", "books/b1/ak.mp3", "books/b1/ae.mp3"
     }
