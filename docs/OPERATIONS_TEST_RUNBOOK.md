@@ -265,6 +265,8 @@ optional Kakao do not require their keys.
 ./scripts/final-external-preflight.sh --env-file infra/.env --json
 ```
 
+무료 제한 베타 후보에는 `--free-beta`를 추가한다. 초대 전용 생성, 신규 구매 비활성화, Gemini 낭독 설정과 모바일 빌더와 동일한 공개 HTTPS 주소 형식을 확인한다. 새 캐릭터와 기본 12쪽 동화 및 12쪽의 새 낭독을 하루에 시험하려면 공유 생성 한도가 최소 14회이며 Gemini 일일·월간 한도는 각각 최소 12회다. 이 수치는 한 권을 검증하기 위한 요청 수다. 운영 한도 변경은 별도 절차를 따른다.
+
 The external preflight loads only explicitly selected dotenv files without executing
 shell content; mobile values such as `PROD_API_URL` can be exported or provided with
 another `--env-file`. It reports `BLOCKED` for missing/placeholder/invalid settings and

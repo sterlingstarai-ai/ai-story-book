@@ -11,6 +11,10 @@ import pytest
 from src.core.config import settings
 from src.services.tts import GeminiCloudTTSProvider
 
+# A structural MPEG-2 Layer III frame at 24 kHz and 32 kbps lasts 24 ms.
+_FRAME = bytes.fromhex("fff344c4") + bytes(92)
+_NORMAL_AUDIO = _FRAME * 100
+
 
 class _Credential:
     token = "fixture-token"
@@ -34,12 +38,12 @@ async def test_gemini_styles_and_voices_preserve_text(gemini, monkeypatch):
 
     def handler(request):
         requests.append(request)
-        return httpx.Response(200, json={"audioContent": base64.b64encode(b"ID3demo").decode()})
+        return httpx.Response(200, json={"audioContent": base64.b64encode(_NORMAL_AUDIO).decode()})
 
     original = httpx.AsyncClient
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: original(transport=httpx.MockTransport(handler), **kw))
     for style, voice in [("natural", "Kore"), ("animated", "Puck"), ("bedtime", "Kore")]:
-        assert await GeminiCloudTTSProvider().synthesize("토리가 웃었어요.", voice, style=style) == b"ID3demo"
+        assert await GeminiCloudTTSProvider().synthesize("토리가 웃었어요.", voice, style=style) == _NORMAL_AUDIO
     assert gemini.await_count == 3
     payloads = [json.loads(request.content) for request in requests]
     assert all(p["input"]["text"] == "토리가 웃었어요." for p in payloads)
@@ -50,8 +54,12 @@ async def test_gemini_styles_and_voices_preserve_text(gemini, monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("status,content", [(403, {}), (200, {}), (200, {"audioContent": "not-valid!"}),
-                                             (200, {"audioContent": base64.b64encode(b"not-audio").decode()})])
+@pytest.mark.parametrize("status,content", [
+    (403, {}), (200, {}), (200, {"audioContent": "not-valid!"}),
+    (200, {"audioContent": base64.b64encode(b"ID3demo").decode()}),
+    (200, {"audioContent": base64.b64encode(_FRAME[:-1]).decode()}),
+    (200, {"audioContent": base64.b64encode(_FRAME * 1746).decode()}),  # 41.904 s for a short sentence
+])
 async def test_gemini_rejects_provider_error_and_bad_audio(gemini, monkeypatch, status, content):
     from src.services import provider_runtime
 
@@ -66,6 +74,13 @@ async def test_gemini_rejects_provider_error_and_bad_audio(gemini, monkeypatch, 
     state = await provider_runtime.provider_runtime_status(include_photo=False, include_audio=True)
     observation = next(item for item in state['observations'] if item['kind'] == 'tts')
     assert observation['reason'] == ('credentials_rejected' if status == 403 else 'invalid_response')
+
+
+def test_gemini_mp3_allows_tagged_audio_and_longer_pages():
+    from src.services.tts import _validate_gemini_mp3
+
+    tagged_audio = bytes.fromhex("49443304000000000000") + _FRAME * 1746 + b"TAG" + bytes(125)
+    _validate_gemini_mp3(tagged_audio, "어린 토끼가 숲속에서 엄마와 함께 긴 산책을 했어요. " * 3)
 
 
 @pytest.mark.asyncio

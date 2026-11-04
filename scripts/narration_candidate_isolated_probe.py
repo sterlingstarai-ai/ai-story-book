@@ -24,12 +24,8 @@ class Credentials:
         return None
 
 
-class Response:
-    status_code = 200
-    is_error = False
-
-    def json(self):
-        return {'audioContent': base64.b64encode(b'ID3synthetic-audio').decode()}
+# Structurally valid MPEG-2 frames for the offline transport fixture.
+_FIXTURE_MP3 = (bytes.fromhex('fff344c4') + bytes(92)) * 100
 
 
 class Client:
@@ -48,7 +44,7 @@ class Client:
         assert url == 'https://texttospeech.googleapis.com/v1/text:synthesize'
         assert headers['Authorization'] == 'Bearer synthetic-token'
         self.calls.append(json)
-        return Response()
+        return httpx.Response(200, json={'audioContent': base64.b64encode(_FIXTURE_MP3).decode()})
 
 
 async def main():
@@ -67,7 +63,7 @@ async def main():
     for voice in ('Kore', 'Puck'):
         for style in ('natural', 'animated', 'bedtime'):
             audio = await provider.synthesize('토끼가 숲을 걸었어요.', voice, language='ko', style=style)
-            assert audio == b'ID3synthetic-audio'
+            assert audio == _FIXTURE_MP3
     assert len(Client.calls) == 6
     assert {c['voice']['name'] for c in Client.calls} == {'Kore', 'Puck'}
     assert all(c['voice']['modelName'] == 'gemini-2.5-flash-tts' for c in Client.calls)

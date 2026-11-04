@@ -143,8 +143,11 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
           }
         });
       }
-      if (state.processingState == ProcessingState.completed &&
-          _sleepModeEnabled) {
+      if (mounted &&
+          _sleepModeEnabled &&
+          state.playing &&
+          state.processingState == ProcessingState.completed &&
+          _pageAudio.takeCompletion()) {
         unawaited(_handleSleepPlaybackCompleted());
       }
     });
@@ -1225,7 +1228,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
 
     _sleepAutoAdvancing = true;
     try {
-      await _pageController.nextPage(
+      await _pageController.animateToPage(
+        _currentPage + 1,
         duration: const Duration(milliseconds: 450),
         curve: Curves.easeInOut,
       );

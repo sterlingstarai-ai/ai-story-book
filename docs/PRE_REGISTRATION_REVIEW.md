@@ -42,6 +42,8 @@
 | Google Cloud 생성형 AI | 현행 서비스별 약관 **20(d), Age Restrictions**에도 같은 연령 제한이 있습니다. [Google Cloud 서비스별 약관](https://cloud.google.com/terms/service-terms) | Vertex AI로 연결만 바꾸면 해결된다고 보지 않습니다. 어린이용 생성형 AI 연결과 비공개 파일 저장 인프라는 구분해 판단합니다. |
 | OpenAI API | 미성년자 서비스에는 연령에 맞는 보호 조치가 필요하고, 13세 미만 또는 해당 지역 디지털 동의 연령 미만 아동의 개인정보는 **ZDR 적용 전에 처리하면 안 됩니다.** [Under-18 지침](https://developers.openai.com/api/docs/guides/safety-checks/under-18-api-guidance) | 실제 이름·사진이 들어가는 텍스트 생성·그림 생성·비전 검사 전체 경로에 대해 적합한 설정을 확인해야 합니다. 보호자가 대신 입력하면 예외가 된다고 해석하지 않습니다. |
 
+2026-11-04에 현재 낭독 연결을 추가로 확인했습니다. 앱은 `gemini-2.5-flash-tts`를 Cloud Text-to-Speech API로 호출합니다. Google의 서비스 목록에서 Text-to-Speech는 사전 학습 API에 속하며, Gemini-TTS 문서는 같은 모델에 Cloud Text-to-Speech와 Vertex AI 두 경로를 안내합니다. Cloud Text-to-Speech 경로에도 모델 예측 권한이 필요합니다. 공개 문서에서 이 조합의 아동 대상 앱 이용이 허용되는지 확인하지 못했습니다. 가상 본문을 사용한 내부 합성과 실기기 시험은 기술 검증으로 기록하고, 테스터에게 공개하기 전 현재 모델·API·사용 흐름을 명시해 제공자 이용 조건을 확인합니다. [서비스 목록](https://cloud.google.com/terms/services) · [서비스별 약관](https://cloud.google.com/terms/service-terms) · [Gemini-TTS 문서](https://docs.cloud.google.com/text-to-speech/docs/gemini-tts)
+
 OpenAI의 `store=false`는 ZDR(Zero Data Retention) 승인·설정을 대신하지 않습니다. ZDR은 OpenAI 사전 승인과 조직/프로젝트 적용 확인이 필요합니다. 최신 `gpt-image-2`는 ZDR 호환이며 레퍼런스 이미지·마스크 편집을 지원하지만, 해당 계정의 이용 가능 여부·조직 인증·ZDR 적용은 아직 확인하지 않았습니다. 잠재적 CSAM 탐지 시 입력 이미지를 수동 검토용으로 보관하는 예외도 있습니다. [데이터 보관 정책](https://developers.openai.com/api/docs/guides/your-data), [이미지 API 안내](https://developers.openai.com/api/docs/guides/image-generation)
 
 따라서 개인화 AI 제공자 연결은 **출시 미해결 항목**입니다. 공동 화면 검토는 격리 mock 환경에서 진행하고, 실제 아동 개인정보를 사용하는 새 외부 API 검증은 이용 조건을 확인한 뒤 계획합니다. 이 문서 작성 과정에서 API 실호출·키 변경·결제는 하지 않았습니다.

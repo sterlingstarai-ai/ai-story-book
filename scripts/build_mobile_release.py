@@ -7,14 +7,12 @@ Neither command publishes, registers an app, or changes store/account settings.
 
 import argparse
 import hashlib
-import ipaddress
 import json
 from pathlib import Path
 import shutil
 import subprocess
-from urllib.parse import urlsplit
 
-from final_external_preflight import present, public_https_endpoint
+from final_external_preflight import assess_bundled_policies, mobile_url_error
 
 ROOT = Path(__file__).resolve().parents[1]
 REQUIRED = {'PROD_API_URL', 'PRIVACY_POLICY_URL', 'TERMS_OF_SERVICE_URL'}
@@ -25,26 +23,9 @@ def release_configuration(values):
     if not isinstance(values, dict) or not REQUIRED <= values.keys() or values.keys() - REQUIRED - OPTIONAL:
         raise ValueError('Only the documented public mobile build fields are accepted; never pass a backend env file.')
     for key in REQUIRED:
-        value = values[key]
-        if not isinstance(value, str) or 'replace-me' in value or not present(value) or not public_https_endpoint(value):
-            raise ValueError(f'{key} requires a non-placeholder public HTTPS URL.')
-        parsed = urlsplit(value)
-        host = (parsed.hostname or '').rstrip('.')
-        try:
-            ipaddress.ip_address(host)
-        except ValueError:
-            pass
-        else:
-            raise ValueError(f'{key} requires a DNS hostname for the mobile release.')
-        reserved = ('example.com', 'example.net', 'example.org')
-        if (host.endswith(('.invalid', '.test', '.example'))
-                or any(host == domain or host.endswith('.' + domain) for domain in reserved)):
-            raise ValueError(f'{key} cannot use a documentation or test hostname.')
-        if value != value.strip() or '?' in value or '#' in value:
-            raise ValueError(f'{key} cannot contain surrounding whitespace, a query, or a fragment.')
-    api = urlsplit(values['PROD_API_URL'])
-    if api.path not in {'', '/'}:
-        raise ValueError('PROD_API_URL must be an origin without a path.')
+        error = mobile_url_error(key, values[key])
+        if error:
+            raise ValueError(error)
     if 'KAKAO_NATIVE_APP_KEY' in values and (not isinstance(values['KAKAO_NATIVE_APP_KEY'], str)
                                           or not values['KAKAO_NATIVE_APP_KEY'].isalnum()):
         raise ValueError('KAKAO_NATIVE_APP_KEY must be a nonempty public native application key.')
@@ -64,6 +45,9 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         values = release_configuration(json.loads(args.config.read_text()))
+        policies = assess_bundled_policies(ROOT)
+        if args.execute and not policies['ready']:
+            raise ValueError('Bundled privacy and terms documents require approval and an effective date before building.')
         if not shutil.which('flutter'):
             raise ValueError('Flutter is unavailable on PATH.')
         if args.platform == 'android' and not (ROOT / 'apps/mobile/android/key.properties').is_file():
@@ -72,6 +56,7 @@ def main(argv=None):
         if not args.execute:
             print(json.dumps({'status': 'BUILD_CONFIGURED_NOT_EXECUTED', 'platform': args.platform,
                               'public_define_names': sorted(values), 'remote_calls': 0,
+                              'bundled_policy_documents': policies,
                               'requires': ['public document content/ownership verification', 'production E2E', 'store signing/review']}))
             return 0
         wrapper = ['bash', '-c', 'set -euo pipefail; source "$1"; setup_mobile_toolchain; shift; exec "$@"',
@@ -79,11 +64,20 @@ def main(argv=None):
         result = subprocess.run(wrapper + command, cwd=ROOT / 'apps/mobile', check=False)
         if result.returncode:
             raise ValueError('Mobile build failed; inspect compiler output. No artifact was submitted.')
-        artifact = ROOT / 'apps/mobile/build/app/outputs/bundle/release/app-release.aab'
+        build_dir = ROOT / 'apps/mobile/build'
+        if args.platform == 'android':
+            artifact = build_dir / 'app/outputs/bundle/release/app-release.aab'
+            hash_field = 'artifact_sha256'
+        else:
+            artifact = build_dir / 'ios/iphoneos/Runner.app/Runner'
+            hash_field = 'ios_executable_sha256'
+        if not artifact.is_file() or artifact.stat().st_size == 0:
+            raise ValueError('Flutter completed without the expected mobile release artifact.')
+        with artifact.open('rb') as source:
+            digest = hashlib.file_digest(source, 'sha256').hexdigest()
         evidence = {'status': 'LOCAL_BUILD_NOT_SUBMITTED', 'platform': args.platform,
-                    'ios_signing_verified': False, 'store_submission': False, 'production_e2e_verified': False}
-        if args.platform == 'android' and artifact.is_file():
-            evidence['artifact_sha256'] = hashlib.sha256(artifact.read_bytes()).hexdigest()
+                    'ios_signing_verified': False, 'store_submission': False, 'production_e2e_verified': False,
+                    hash_field: digest}
         print(json.dumps(evidence))
         return 0
     except (OSError, ValueError) as error:

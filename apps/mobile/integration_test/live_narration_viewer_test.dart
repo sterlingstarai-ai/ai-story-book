@@ -1,6 +1,6 @@
-// Opt-in disposable backend acceptance. The prerecorded fixture is offline.
-// The file fixture exercises continuous playback and may synthesize up to one
-// narration per page. Use only a loopback backend with a synthetic account.
+// Opt-in acceptance with a synthetic account and a loopback backend.
+// Inline fixtures can serve prerecorded audio. The live file fixture can
+// synthesize up to one narration per page during continuous playback.
 import 'dart:convert';
 import 'dart:io';
 import 'package:ai_story_book/models/job_status.dart';
@@ -107,10 +107,16 @@ void main() {
       addTearDown(api.close);
       final id = fixture['book_id'] as String;
       final book = await api.getBook(id);
-      expect(book.pages.length, 4);
+      expect(book.pages.length, fixture['page_count'] as int? ?? 4);
+      final continuousPlayback =
+          livePlayback || fixture['continuous_playback'] == true;
       SharedPreferences.setMockInitialValues({
         ParentalControlService.consentGrantedKey: true,
         ParentalControlService.onboardingDoneKey: true,
+        if (fixture['voice'] case final String voice)
+          narrationVoicePreferenceKey: voice,
+        if (fixture['style'] case final String style)
+          narrationStylePreferenceKey: style,
       });
       final prefs = await SharedPreferences.getInstance();
       final container = ProviderContainer(
@@ -125,7 +131,7 @@ void main() {
         ],
       );
       addTearDown(container.dispose);
-      if (livePlayback) {
+      if (continuousPlayback) {
         final capabilities = await container.read(capabilitiesProvider.future);
         expect(narrationSupported(capabilities), isTrue);
       }
@@ -148,7 +154,7 @@ void main() {
       }
 
       await until(() => find.byType(PageView).evaluate().isNotEmpty);
-      if (livePlayback) {
+      if (continuousPlayback) {
         final l = await AppLocalizations.delegate.load(const Locale('ko'));
         await until(
           () =>
@@ -164,7 +170,11 @@ void main() {
         for (var page = 1; page <= book.pages.length; page++) {
           await until(() {
             final position = tester.widget<PageView>(view).controller!.page;
-            return position?.round() == page && pause.evaluate().isNotEmpty;
+            final visiblePage = position?.round();
+            if (visiblePage != null && visiblePage > page) {
+              fail('Expected narration on page $page before page $visiblePage');
+            }
+            return visiblePage == page && pause.evaluate().isNotEmpty;
           }, seconds: 150);
           expect(find.byType(SnackBar), findsNothing);
         }
@@ -184,7 +194,7 @@ void main() {
         expect(tester.takeException(), isNull);
         return;
       }
-      for (var n = 1; n <= 4; n++) {
+      for (var n = 1; n <= book.pages.length; n++) {
         await tester.tap(find.byIcon(Icons.chevron_right));
         await tester.pump(const Duration(milliseconds: 500));
         await until(() => find.byIcon(Icons.volume_up).evaluate().isNotEmpty);
@@ -203,7 +213,10 @@ void main() {
         }
       }
       if (api.expired.isNotEmpty) {
-        expect(api.refreshed, [1, 2, 3, 4]);
+        expect(
+          api.refreshed,
+          book.pages.map((page) => page.pageNumber).toList(),
+        );
       }
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump(const Duration(milliseconds: 500));
@@ -211,8 +224,7 @@ void main() {
     },
     skip:
         (fixtureJson.isEmpty && liveFixturePath.isEmpty) ||
-        (!Platform.isIOS &&
-            !(Platform.isAndroid && liveFixturePath.isNotEmpty)),
+        !(Platform.isIOS || Platform.isAndroid),
     timeout: const Timeout(Duration(minutes: 23)),
   );
 }

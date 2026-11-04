@@ -98,6 +98,47 @@ def test_enabled_optional_integrations_are_checked(configured):
     assert {"GOOGLE_TTS_API_KEY", "STT_API_KEY"} <= set(result["missing_or_placeholder"])
 
 
+@pytest.fixture
+def gemini_free_beta(configured):
+    return {**configured, "AUDIO_FEATURE_ENABLED": "true", "AUDIO_NARRATION_ONLY_ENABLED": "true",
+            "PROD_API_URL": "https://api.storybook-beta.net",
+            "TTS_PROVIDER": "google_gemini", "GOOGLE_GEMINI_TTS_PROJECT": "storybook-test",
+            "GOOGLE_GEMINI_TTS_DAILY_REQUEST_LIMIT": "12", "GOOGLE_GEMINI_TTS_MONTHLY_REQUEST_LIMIT": "12",
+            "GENERATION_ACCESS_MODE": "invite_only", "GENERATION_ALLOWED_USER_HASHES": "a" * 64,
+            "DAILY_GENERATION_BUDGET": "14"}
+
+
+def test_free_beta_accepts_narration_only_without_stt(gemini_free_beta):
+    assert preflight.assess(gemini_free_beta, free_beta=True)["status"] == "CONFIGURED_NOT_VERIFIED"
+    full_audio = {**gemini_free_beta, "AUDIO_NARRATION_ONLY_ENABLED": "false"}
+    assert "STT_PROVIDER" in preflight.assess(full_audio, free_beta=True)["missing_or_placeholder"]
+
+
+@pytest.mark.parametrize("field,value", [
+    ("DAILY_GENERATION_BUDGET", "13"),
+    ("GOOGLE_GEMINI_TTS_DAILY_REQUEST_LIMIT", "11"),
+    ("GOOGLE_GEMINI_TTS_MONTHLY_REQUEST_LIMIT", "11"),
+    ("GENERATION_ACCESS_MODE", "open"),
+    ("PURCHASES_ENABLED", "true"),
+    ("TTS_PROVIDER", "openai"),
+])
+def test_free_beta_requires_complete_book_capacity_and_invited_access(gemini_free_beta, field, value):
+    result = preflight.assess({**gemini_free_beta, field: value}, free_beta=True)
+    assert result["status"] == "BLOCKED"
+    assert any(item.startswith(field + " (") for item in result["invalid_configuration"])
+
+
+@pytest.mark.parametrize("field,value", [
+    ("PROD_API_URL", "https://8.8.8.8"),
+    ("PROD_API_URL", "https://api.storybook-beta.net/health"),
+    ("PRIVACY_POLICY_URL", "https://storybook.pages.dev/privacy?draft=1"),
+])
+def test_free_beta_checks_mobile_url_constraints(gemini_free_beta, field, value):
+    result = preflight.assess({**gemini_free_beta, field: value}, free_beta=True)
+    assert result["status"] == "BLOCKED"
+    assert any(item.startswith(field + " ") for item in result["invalid_configuration"])
+
+
 def test_json_report_never_exposes_keys_or_executes_dotenv_content(tmp_path, configured):
     marker = tmp_path / "must-not-exist"
     configured["LLM_API_KEY"] = f"$(touch {marker})"

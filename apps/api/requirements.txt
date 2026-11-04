@@ -1,5 +1,7 @@
 # FastAPI
-fastapi==0.115.0
+fastapi==0.162.0
+# Keep the request parser on the patched Starlette release checked with FastAPI.
+starlette==1.10.0
 uvicorn[standard]==0.32.0
 # 업로드 파싱 런타임 의존(pronunciation·voice-profiles·인페인트·characters 4경로).
 # 수정 이력: CVE-2024-53981(boundary DoS, <0.0.18) · CVE-2026-24486(경로순회 임의 파일쓰기,
@@ -19,6 +21,8 @@ psycopg[binary]==3.3.6
 
 # Celery
 celery[redis]==5.4.0
+# Kombu 5.7 requires redis-py >=6.1 at runtime, outside Celery 5.4's Redis range.
+kombu==5.6.2
 redis==5.2.0
 
 # Pydantic

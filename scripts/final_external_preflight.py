@@ -48,6 +48,28 @@ def public_https_endpoint(value):
         return False
 
 
+def mobile_url_error(name, value):
+    if not isinstance(value, str) or 'replace-me' in value or not present(value) or not public_https_endpoint(value):
+        return f'{name} requires a non-placeholder public HTTPS URL.'
+    parsed = urlsplit(value)
+    host = (parsed.hostname or '').rstrip('.')
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        pass
+    else:
+        return f'{name} requires a DNS hostname for the mobile release.'
+    reserved = ('example.com', 'example.net', 'example.org')
+    if (host.endswith(('.invalid', '.test', '.example'))
+            or any(host == domain or host.endswith('.' + domain) for domain in reserved)):
+        return f'{name} cannot use a documentation or test hostname.'
+    if value != value.strip() or '?' in value or '#' in value:
+        return f'{name} cannot contain surrounding whitespace, a query, or a fragment.'
+    if name == 'PROD_API_URL' and parsed.path not in {'', '/'}:
+        return 'PROD_API_URL must be an origin without a path.'
+    return None
+
+
 def external_infrastructure_errors(values):
     """Validate shapes only; never connect or expose a credential-bearing URL."""
     invalid = []
@@ -90,7 +112,7 @@ def external_infrastructure_errors(values):
     return invalid
 
 
-def assess(values):
+def assess(values, *, free_beta=False):
     """Presence is not proof of authorization, billing, legal approval or live behavior."""
     missing = []
     invalid = []
@@ -162,20 +184,43 @@ def assess(values):
         if present(values.get(name)) and len(values[name]) < 32:
             invalid.append(name)
     for name in ("PROD_API_URL", "PRIVACY_POLICY_URL", "TERMS_OF_SERVICE_URL"):
-        if present(values.get(name)) and not public_https_endpoint(values[name]):
+        if not present(values.get(name)):
+            continue
+        if free_beta:
+            error = mobile_url_error(name, values[name])
+            if error:
+                invalid.append(error)
+        elif not public_https_endpoint(values[name]):
             invalid.append(name)
     download = values.get("S3_DOWNLOAD_ENDPOINT") or values.get("S3_ENDPOINT", "")
     if present(download) and not public_https_endpoint(download):
         invalid.append("S3_DOWNLOAD_ENDPOINT (device-reachable HTTPS S3 API endpoint required)")
-    try:
-        if int(values.get("DAILY_GENERATION_BUDGET", "0")) <= 0:
-            invalid.append("DAILY_GENERATION_BUDGET")
-    except ValueError:
-        invalid.append("DAILY_GENERATION_BUDGET")
+    def count_limit(name, minimum, reason=""):
+        try:
+            value = int(values.get(name, "0"))
+        except ValueError:
+            invalid.append(name)
+        else:
+            if value < minimum:
+                invalid.append(name + reason)
 
     audio = enabled("AUDIO_FEATURE_ENABLED")
+    narration_only = enabled("AUDIO_NARRATION_ONLY_ENABLED")
+    tts_provider = values.get("TTS_PROVIDER", "").strip().lower()
     pod = enabled("POD_ORDERING_ENABLED")
     purchases = enabled("PURCHASES_ENABLED")
+    # The Create screen offers 8 and 12 story pages, with 12 selected by
+    # default. A new character and book each use one shared generation slot.
+    default_story_pages = 12
+    count_limit("DAILY_GENERATION_BUDGET", default_story_pages + 2 if free_beta else 1,
+                " (14 required for a character, book and 12 page narrations)" if free_beta else "")
+    if free_beta:
+        if access_mode != "invite_only":
+            invalid.append("GENERATION_ACCESS_MODE (invite_only required for free beta)")
+        if purchases:
+            invalid.append("PURCHASES_ENABLED (new purchases must be disabled for free beta)")
+        if not audio or tts_provider != "google_gemini":
+            invalid.append("TTS_PROVIDER (enabled Gemini narration required for free beta)")
     illustration_quality = enabled("ILLUSTRATION_QUALITY_ENABLED")
     photo_processing = enabled("PHOTO_PROCESSING_ENABLED")
     if photo_processing:
@@ -213,21 +258,21 @@ def assess(values):
             missing.append("GOOGLE_PLAY_AUTH")
     if audio:
         choice("TTS_PROVIDER", {"openai", "google", "google_gemini", "elevenlabs"})
-        choice("STT_PROVIDER", {"google", "openai"})
-        tts_key = {"openai": "OPENAI_TTS_API_KEY", "google": "GOOGLE_TTS_API_KEY", "elevenlabs": "ELEVENLABS_API_KEY"}.get(values.get("TTS_PROVIDER"))
-        stt_key = {"google": "GOOGLE_STT_API_KEY", "openai": "STT_API_KEY"}.get(values.get("STT_PROVIDER"))
+        tts_key = {"openai": "OPENAI_TTS_API_KEY", "google": "GOOGLE_TTS_API_KEY", "elevenlabs": "ELEVENLABS_API_KEY"}.get(tts_provider)
+        stt_key = None
+        if not narration_only:
+            choice("STT_PROVIDER", {"google", "openai"})
+            stt_provider = values.get("STT_PROVIDER", "").strip().lower()
+            stt_key = {"google": "GOOGLE_STT_API_KEY", "openai": "STT_API_KEY"}.get(stt_provider)
         for name in (tts_key, stt_key):
             if name:
                 need(name)
-        if values.get("TTS_PROVIDER") == "google_gemini":
+        if tts_provider == "google_gemini":
             if not re.fullmatch(r"[a-z][a-z0-9-]{4,28}[a-z0-9]", values.get("GOOGLE_GEMINI_TTS_PROJECT", "")):
                 invalid.append("GOOGLE_GEMINI_TTS_PROJECT")
             for name in ("GOOGLE_GEMINI_TTS_DAILY_REQUEST_LIMIT", "GOOGLE_GEMINI_TTS_MONTHLY_REQUEST_LIMIT"):
-                try:
-                    if int(values.get(name, "0")) <= 0:
-                        invalid.append(name)
-                except ValueError:
-                    invalid.append(name)
+                count_limit(name, default_story_pages if free_beta else 1,
+                            " (12 required for one complete book)" if free_beta else "")
     if pod:
         invalid.append("POD_ORDERING_ENABLED (physical fulfillment is outside this release)")
     return {
@@ -284,7 +329,11 @@ def main():
                         help="Explicit dotenv file; repeat to overlay files. Never executes shell content.")
     parser.add_argument("--check-planned-features", action="store_true",
                         help="Check digital purchase/audio prerequisites without enabling or deploying them")
+    parser.add_argument("--free-beta", action="store_true",
+                        help="Check invite-only Gemini narration and capacity for one default-length book")
     args = parser.parse_args()
+    if args.free_beta and args.check_planned_features:
+        parser.error("--free-beta and --check-planned-features are separate release modes")
     values = dict(os.environ)
     for path in args.env_file:
         if not path.is_file():
@@ -295,7 +344,8 @@ def main():
         # In-memory assessment only. Never mutate runtime configuration or charge anything.
         values.update({name: "true" for name in
                        ("PURCHASES_ENABLED", "AUDIO_FEATURE_ENABLED")})
-    result = assess(values)
+    result = assess(values, free_beta=args.free_beta)
+    result["free_beta"] = args.free_beta
     result["planned_features_only"] = args.check_planned_features
     result["bundled_policy_documents"] = assess_bundled_policies()
     if not result["bundled_policy_documents"]["ready"]:

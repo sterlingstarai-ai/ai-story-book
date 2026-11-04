@@ -15,8 +15,10 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 # Install Python dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
+RUN pip install --no-cache-dir --upgrade pip setuptools==84.2.1 && \
     pip install --no-cache-dir -r requirements.txt
+# The final image copies this venv. Keep pip's bundled code in the builder only.
+RUN pip check && python -m pip uninstall --yes pip
 
 # Production stage
 FROM python:3.11-slim as production
@@ -28,6 +30,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     curl \
     && rm -rf /var/lib/apt/lists/*
+
+# Patch the base interpreter's setuptools and its vendored packages as well.
+RUN python -m pip install --no-cache-dir --upgrade setuptools==84.2.1
 
 # Copy virtual environment from builder
 COPY --from=builder /opt/venv /opt/venv

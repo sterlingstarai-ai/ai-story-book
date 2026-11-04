@@ -119,6 +119,32 @@ class _RejectedUrlCache implements BaseCacheManager {
 }
 
 void main() {
+  test(
+    'one completion advances each loaded narration, including after stop',
+    () async {
+      final player = _Player();
+      final playback = PageAudioPlayback(
+        player,
+        onError: (error) => fail('$error'),
+      );
+      addTearDown(playback.dispose);
+
+      await playback.play('page-1', () async => '/page-1.mp3');
+      expect(playback.takeCompletion(), isFalse);
+      player.completed = true;
+      expect(playback.takeCompletion(), isTrue);
+      expect(playback.takeCompletion(), isFalse);
+
+      await playback.stop();
+      expect(playback.takeCompletion(), isFalse);
+      player.completed = false;
+      await playback.play('page-2', () async => '/page-2.mp3');
+      player.completed = true;
+      expect(playback.takeCompletion(), isTrue);
+      expect(playback.takeCompletion(), isFalse);
+    },
+  );
+
   test('rejected book audio refreshes once through authorized API', () async {
     final cache = _RejectedUrlCache(
       const LocalFileSystem().file('/unused.mp3'),

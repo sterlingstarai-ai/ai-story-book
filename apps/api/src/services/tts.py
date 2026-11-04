@@ -189,6 +189,47 @@ class RealtimeTTSProvider(BaseTTSProvider):
         return audio
 
 
+def _validate_gemini_mp3(audio: bytes, text: str) -> None:
+    """Reject incomplete or excessively long synthesis before publishing it."""
+    # Deliberately generous for pauses, slow bedtime delivery and spoken numbers.
+    duration_limit = max(18, 8 + 1.25 * sum(not char.isspace() for char in text))
+    offset = 0
+    if audio.startswith(b"ID3"):
+        if len(audio) < 10 or any(byte & 0x80 for byte in audio[6:10]):
+            raise ValueError("Invalid MP3 tag")
+        offset = 10 + sum(byte << shift for byte, shift in zip(audio[6:10], (21, 14, 7, 0)))
+        if audio[3] == 4 and audio[5] & 0x10:
+            offset += 10
+    end = len(audio)
+    if end - offset >= 128 and audio[-128:-125] == b"TAG":
+        end -= 128
+
+    duration = 0.0
+    while offset + 4 <= end:
+        sync, version_layer, encoding, _ = audio[offset:offset + 4]
+        version = (version_layer >> 3) & 3
+        bitrate_index = encoding >> 4
+        rate_index = (encoding >> 2) & 3
+        if (sync != 0xff or version_layer & 0xe6 != 0xe2 or version == 1
+                or bitrate_index in (0, 15) or rate_index == 3):
+            raise ValueError("Invalid MP3 frame")
+        if version == 3:  # MPEG-1 Layer III
+            samples = 1152
+            bitrates = (32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320)
+            sample_rate = (44100, 48000, 32000)[rate_index]
+        else:  # MPEG-2 or 2.5 Layer III
+            samples = 576
+            bitrates = (8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160)
+            sample_rate = (22050, 24000, 16000)[rate_index] // (2 if version == 0 else 1)
+        bitrate = bitrates[bitrate_index - 1] * 1000
+        offset += samples * bitrate // (8 * sample_rate) + ((encoding >> 1) & 1)
+        duration += samples / sample_rate
+        if duration > duration_limit:
+            raise ValueError("Gemini MP3 exceeds narration duration limit")
+    if not duration or offset != end:
+        raise ValueError("Incomplete MP3")
+
+
 class GeminiCloudTTSProvider(BaseTTSProvider):
     """Opt-in Gemini TTS via workload ADC; never uses long-lived API keys."""
 
@@ -256,8 +297,7 @@ class GeminiCloudTTSProvider(BaseTTSProvider):
             if not isinstance(encoded, str) or len(encoded) > 24_000_000:
                 raise ValueError("Gemini TTS returned invalid audio")
             audio = base64.b64decode(encoded, validate=True)
-            if not audio or not (audio.startswith(b"ID3") or (audio[0] == 0xff and len(audio) > 1 and audio[1] & 0xe0 == 0xe0)):
-                raise ValueError("Gemini TTS returned invalid audio")
+            _validate_gemini_mp3(audio, text)
         except (ValueError, binascii.Error):
             await observe_invalid_provider_response(observation)
             raise ValueError("Gemini TTS returned invalid audio") from None

@@ -192,8 +192,8 @@
       "Body_create_character_from_drawing_v1_characters_from_drawing_post": {
         "properties": {
           "drawing": {
+            "contentMediaType": "application/octet-stream",
             "description": "아이 그림 이미지",
-            "format": "binary",
             "title": "Drawing",
             "type": "string"
           },
@@ -240,8 +240,8 @@
             "title": "Name"
           },
           "photo": {
+            "contentMediaType": "application/octet-stream",
             "description": "캐릭터 생성용 사진",
-            "format": "binary",
             "title": "Photo",
             "type": "string"
           },
@@ -300,8 +300,8 @@
       "Body_evaluate_pronunciation_audio_v1_pronunciation_evaluate_audio_post": {
         "properties": {
           "audio_file": {
+            "contentMediaType": "application/octet-stream",
             "description": "아이 발화 오디오",
-            "format": "binary",
             "title": "Audio File",
             "type": "string"
           },
@@ -349,8 +349,8 @@
       "Body_inpaint_book_page_v1_books__job_id__pages__page_number__inpaint_post": {
         "properties": {
           "mask": {
+            "contentMediaType": "application/octet-stream",
             "description": "마스크 PNG(흰색=재생성할 영역)",
-            "format": "binary",
             "title": "Mask",
             "type": "string"
           },
@@ -371,8 +371,8 @@
       "Body_upload_voice_sample_v1_voice_profiles_upload_sample_post": {
         "properties": {
           "sample": {
+            "contentMediaType": "application/octet-stream",
             "description": "음성 샘플 파일",
-            "format": "binary",
             "title": "Sample",
             "type": "string"
           }
@@ -3697,6 +3697,13 @@
       },
       "ValidationError": {
         "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
           "loc": {
             "items": {
               "anyOf": [

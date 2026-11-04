@@ -179,11 +179,24 @@ class PageAudioPlayback extends ChangeNotifier {
   bool _loading = false;
   bool _disposed = false;
   int _epoch = 0;
+  int? _completedEpoch;
   String? _loadedKey;
   Future<void> _commands = Future<void>.value();
 
   bool get loading => _loading;
   bool get hasLoadedSource => _loadedKey != null;
+
+  /// Native state changes can emit completion again while stopping a source.
+  bool takeCompletion() {
+    if (_disposed ||
+        _loadedKey == null ||
+        !player.completed ||
+        _completedEpoch == _epoch) {
+      return false;
+    }
+    _completedEpoch = _epoch;
+    return true;
+  }
 
   /// Capture from resolveFile while play() is active. A later stop, play or
   /// disposal invalidates this particular request even if the user returns to

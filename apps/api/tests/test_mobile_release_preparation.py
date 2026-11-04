@@ -1,6 +1,8 @@
 """Public-only build inputs cannot leak backend keys or bypass release URL checks."""
 
+import hashlib
 import importlib.util
+import json
 from pathlib import Path
 import sys
 
@@ -64,3 +66,68 @@ def test_release_commands_keep_no_coded_api_credentials_and_no_publication():
     for command in (android, ios):
         assert len([item for item in command if item.startswith('--dart-define=')]) == 3
         assert not any('upload' in item or 'publish' in item for item in command)
+
+
+@pytest.mark.parametrize('platform', ['ios', 'android'])
+def test_execute_blocks_unapproved_bundled_documents(tmp_path, monkeypatch, capsys, platform):
+    monkeypatch.setattr(release, 'ROOT', tmp_path)
+    legal = tmp_path / 'apps/mobile/assets/legal'
+    legal.mkdir(parents=True)
+    for slug in ('privacy', 'terms'):
+        (legal / f'{slug}.ko.json').write_text(json.dumps({'publication_status': 'draft'}))
+    config = tmp_path / 'public-build.json'
+    config.write_text(json.dumps(valid()))
+    monkeypatch.setattr(release.subprocess, 'run', lambda *args, **kwargs: pytest.fail('Compiler invoked'))
+
+    assert release.main(['--config', str(config), '--platform', platform, '--execute']) == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result['status'] == 'BLOCKED'
+    assert 'Bundled privacy and terms' in result['message']
+
+
+@pytest.mark.parametrize('platform,relative_output,hash_field', [
+    ('ios', 'ios/iphoneos/Runner.app/Runner', 'ios_executable_sha256'),
+    ('android', 'app/outputs/bundle/release/app-release.aab', 'artifact_sha256'),
+])
+@pytest.mark.parametrize('has_artifact', [True, False])
+def test_execute_requires_approved_documents_and_expected_artifact(
+    tmp_path, monkeypatch, capsys, platform, relative_output, hash_field, has_artifact,
+):
+    monkeypatch.setattr(release, 'ROOT', tmp_path)
+    monkeypatch.setattr(release.shutil, 'which', lambda name: f'/tools/{name}')
+    legal = tmp_path / 'apps/mobile/assets/legal'
+    legal.mkdir(parents=True)
+    for slug in ('privacy', 'terms'):
+        (legal / f'{slug}.ko.json').write_text(json.dumps({
+            'publication_status': 'approved', 'effective_date': '2026-11-01',
+            'operator': 'Test operator', 'contact_email': 'qa@example.com',
+            'sections': ['Test policy'],
+        }))
+    config = tmp_path / 'public-build.json'
+    config.write_text(json.dumps(valid()))
+    if platform == 'android':
+        signing = tmp_path / 'apps/mobile/android/key.properties'
+        signing.parent.mkdir()
+        signing.touch()
+    commands = []
+
+    def run(command, **kwargs):
+        commands.append(command)
+        if has_artifact:
+            artifact = tmp_path / 'apps/mobile/build' / relative_output
+            artifact.parent.mkdir(parents=True)
+            artifact.write_bytes(b'fixture build output')
+        return release.subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(release.subprocess, 'run', run)
+    result = release.main(['--config', str(config), '--platform', platform, '--execute'])
+    assert commands[0][5:] == release.build_command(platform, release.release_configuration(valid()))
+    evidence = json.loads(capsys.readouterr().out)
+    if has_artifact:
+        assert result == 0
+        assert evidence['status'] == 'LOCAL_BUILD_NOT_SUBMITTED'
+        assert evidence[hash_field] == hashlib.sha256(b'fixture build output').hexdigest()
+    else:
+        assert result == 1
+        assert evidence['status'] == 'BLOCKED'
+        assert 'expected mobile release artifact' in evidence['message']
