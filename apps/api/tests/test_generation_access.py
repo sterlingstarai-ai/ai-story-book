@@ -61,6 +61,23 @@ async def test_uninvited_http_create_cannot_start_a_job(client, headers, valid_b
 
 
 @pytest.mark.asyncio
+async def test_invitation_id_is_scoped_to_the_current_beta_account(client, headers, monkeypatch):
+    path = "/v1/account/generation-invitation"
+    monkeypatch.setattr(settings, "free_plan_first_book_trial", True)
+    monkeypatch.setattr(settings, "generation_access_mode", "open")
+    assert (await client.get(path, headers=headers)).status_code == 404
+    monkeypatch.setattr(settings, "generation_access_mode", "invite_only")
+    assert (await client.get("/v1/config/capabilities")).json()["generation_invitation_supported"] is True
+    assert (await client.get(path)).status_code == 422
+    legacy = {"X-User-Key": "00000000-0000-0000-0000-000000000001"}
+    assert (await client.get(path, headers=legacy)).status_code == 404
+    response = await client.get(path, headers=headers)
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "private, no-store"
+    assert response.json() == {"invitation_id": generation_identity_hash(headers["X-User-Key"])}
+
+
+@pytest.mark.asyncio
 async def test_recovered_device_uses_stable_invited_account(client, headers, valid_book_spec, db_session, monkeypatch):
     from src.models.db import AccountIdentity
     from src.services.account_recovery import credential_hash
@@ -69,7 +86,10 @@ async def test_recovered_device_uses_stable_invited_account(client, headers, val
     db_session.add(AccountIdentity(user_key=owner, device_key_hash=credential_hash(device, kind="device")))
     await db_session.commit()
     monkeypatch.setattr(settings, "generation_access_mode", "invite_only")
+    monkeypatch.setattr(settings, "free_plan_first_book_trial", True)
     monkeypatch.setattr(settings, "generation_allowed_user_hashes", generation_identity_hash(owner))
+    invitation = await client.get("/v1/account/generation-invitation", headers={"X-User-Key": device})
+    assert invitation.json() == {"invitation_id": generation_identity_hash(owner)}
     response = await client.post("/v1/books", headers={"X-User-Key": device}, json=valid_book_spec)
     assert response.status_code == 200, response.text
 

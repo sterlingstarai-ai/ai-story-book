@@ -1674,6 +1674,21 @@
         "title": "FromPresetRequest",
         "type": "object"
       },
+      "GenerationInvitationResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "invitation_id": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Invitation Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "invitation_id"
+        ],
+        "title": "GenerationInvitationResponse",
+        "type": "object"
+      },
       "GenerationOptionsResponse": {
         "properties": {
           "allowed_styles": {
@@ -4140,6 +4155,50 @@
         "summary": "Public Share Page Image",
         "tags": [
           "Share"
+        ]
+      }
+    },
+    "/v1/account/generation-invitation": {
+      "get": {
+        "operationId": "get_generation_invitation_v1_account_generation_invitation_get",
+        "parameters": [
+          {
+            "description": "Device credential; legacy UUID or recovered device key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "Device credential; legacy UUID or recovered device key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerationInvitationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Generation Invitation",
+        "tags": [
+          "Account"
         ]
       }
     },

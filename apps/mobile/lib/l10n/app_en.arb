@@ -731,6 +731,10 @@
       }
     }
   },
+  "settingsBetaInvitationTitle": "Copy beta participation ID",
+  "settingsBetaInvitationSubtitle": "Send this ID to the beta organizer to activate your first story trial.",
+  "settingsBetaInvitationCopied": "Beta participation ID copied.",
+  "settingsBetaInvitationUnavailable": "Could not retrieve your beta participation ID.",
   "settingsLoadError": "Couldn't load settings.",
   "settingsSaved": "Settings saved.",
   "settingsSaveError": "Failed to save settings. Please try again shortly.",

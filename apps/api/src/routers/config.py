@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from src.core.config import settings
+from src.core.generation_access import generation_invitation_supported
 from src.core.audio_feature import audio_supported, narration_supported, voice_profiles_supported, narration_voice_selection_supported, narration_style_selection_supported
 from src.core.pod_feature import pod_ordering_supported
 from src.core.billing_feature import purchase_capabilities
@@ -16,6 +17,7 @@ async def get_capabilities() -> dict:
     """배포 환경 기능 가용성. 클라이언트 UI 게이팅용(예: 부분 재생성 메뉴 노출 여부)."""
     return {
         "free_first_book_trial": settings.free_plan_first_book_trial,
+        "generation_invitation_supported": generation_invitation_supported(),
         # image_provider가 replicate/fal일 때만 인페인트(부분 재생성) 가능
         "inpaint_supported": supports_inpaint(),
         # H1/G9: 오디오 기능 플래그 + TTS/STT 라이브 구성일 때만 낭독·발음 제공.

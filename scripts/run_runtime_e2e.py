@@ -135,6 +135,12 @@ def private_media_journey(base, env, report):
             capabilities = client.get("/v1/config/capabilities").json()
             check(capabilities.get("free_first_book_trial") is True and capabilities.get("purchases_supported") is False,
                   "Free beta advertises one trial book and keeps checkout disabled")
+            check(capabilities.get("generation_invitation_supported") is True,
+                  "Free beta offers account invitation ID lookup")
+            invitation = client.get("/v1/account/generation-invitation", headers=owner)
+            check(invitation.status_code == 200 and invitation.json().get("invitation_id") ==
+                  env["GENERATION_ALLOWED_USER_HASHES"],
+                  "Account invitation ID matches the generation allowlist entry")
             check(client.get("/v1/credits/balance", headers=owner).json().get("credits") == 1,
                   "A new account receives exactly one trial credit")
         page_count = 12 if first_book_trial else 4

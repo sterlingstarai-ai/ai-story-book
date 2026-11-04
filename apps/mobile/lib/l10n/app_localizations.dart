@@ -2686,6 +2686,30 @@ abstract class AppLocalizations {
   /// **'Daily reading time'**
   String get parentDashboardDailyChartTitle;
 
+  /// No description provided for @settingsBetaInvitationTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy beta participation ID'**
+  String get settingsBetaInvitationTitle;
+
+  /// No description provided for @settingsBetaInvitationSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Send this ID to the beta organizer to activate your first story trial.'**
+  String get settingsBetaInvitationSubtitle;
+
+  /// No description provided for @settingsBetaInvitationCopied.
+  ///
+  /// In en, this message translates to:
+  /// **'Beta participation ID copied.'**
+  String get settingsBetaInvitationCopied;
+
+  /// No description provided for @settingsBetaInvitationUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not retrieve your beta participation ID.'**
+  String get settingsBetaInvitationUnavailable;
+
   /// No description provided for @settingsLoadError.
   ///
   /// In en, this message translates to:

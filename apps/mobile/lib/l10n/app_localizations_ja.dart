@@ -1380,6 +1380,19 @@ class AppLocalizationsJa extends AppLocalizations {
   String get parentDashboardDailyChartTitle => '日別の読書時間';
 
   @override
+  String get settingsBetaInvitationTitle => 'ベータ参加IDをコピー';
+
+  @override
+  String get settingsBetaInvitationSubtitle =>
+      'このIDをベータ版の運営者に送ると、最初の絵本の体験を有効にできます。';
+
+  @override
+  String get settingsBetaInvitationCopied => 'ベータ参加IDをコピーしました。';
+
+  @override
+  String get settingsBetaInvitationUnavailable => 'ベータ参加IDを取得できませんでした。';
+
+  @override
   String get settingsLoadError => '設定を読み込めませんでした。';
 
   @override

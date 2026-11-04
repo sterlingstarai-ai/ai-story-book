@@ -2,6 +2,7 @@
 
 import hashlib
 import asyncio
+import re
 import uuid
 
 from fastapi import APIRouter, Depends, Header, Request, Response
@@ -11,12 +12,14 @@ from src.core.database import get_db
 from src.core.config import settings
 from src.core.dependencies import get_user_key
 from src.core.exceptions import APIError, RateLimitError
+from src.core.generation_access import generation_identity_hash, generation_invitation_supported
 from src.core.rate_limit import rate_limiter
 from src.core.utils import utcnow
 from src.models.db import AccountIdentity
 from src.models.dto import (
     AccountSessionResponse,
     AccountMediaScopeResponse,
+    GenerationInvitationResponse,
     RecoverAccountRequest,
     RecoverAccountResponse,
     RecoveryCodeResponse,
@@ -29,6 +32,7 @@ from src.services.photo_lifecycle import lock_photo_account
 router = APIRouter()
 RECOVERY_ATTEMPT_WINDOW = 600
 RECOVERY_ATTEMPT_LIMIT = 10
+_APP_ACCOUNT_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")
 
 
 async def check_recovery_rate_limit(request: Request) -> None:
@@ -64,6 +68,17 @@ async def check_recovery_rate_limit(request: Request) -> None:
 @router.get("/session", response_model=AccountSessionResponse)
 async def get_account_session(user_key: str = Depends(get_user_key)):
     return AccountSessionResponse()
+
+
+@router.get("/generation-invitation", response_model=GenerationInvitationResponse)
+async def get_generation_invitation(
+    response: Response,
+    user_key: str = Depends(get_user_key),
+):
+    if not generation_invitation_supported() or not _APP_ACCOUNT_ID.fullmatch(user_key):
+        raise APIError(404, "NOT_FOUND", "이 계정의 베타 참여 ID를 사용할 수 없습니다.")
+    response.headers["Cache-Control"] = "private, no-store"
+    return GenerationInvitationResponse(invitation_id=generation_identity_hash(user_key))
 
 
 @router.get('/media-scope', response_model=AccountMediaScopeResponse)

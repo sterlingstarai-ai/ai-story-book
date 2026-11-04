@@ -6,7 +6,9 @@ import 'package:ai_story_book/screens/settings_screen.dart';
 import 'package:ai_story_book/widgets/narration_style_previews.dart';
 import 'package:ai_story_book/services/api_client.dart';
 import 'package:ai_story_book/services/page_audio_playback.dart';
+import 'package:ai_story_book/services/parental_control_service.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -18,12 +20,15 @@ class _SettingsApi extends ApiClient {
     this.previewProvider,
     this.narrationSupported,
     this.audioSupported = true,
+    this.betaInvitationSupported = false,
   }) : super(baseUrl: 'http://localhost', userKey: 'test');
   final bool supported;
   final bool styleSupported;
   final String? previewProvider;
   final bool? narrationSupported;
   final bool audioSupported;
+  final bool betaInvitationSupported;
+  int invitationRequests = 0;
   @override
   Future<Map<String, dynamic>> getSettings() async => {};
   @override
@@ -35,7 +40,14 @@ class _SettingsApi extends ApiClient {
     'narration_voice_selection_supported': supported,
     'narration_style_selection_supported': styleSupported,
     if (previewProvider != null) 'narration_preview_provider': previewProvider,
+    'generation_invitation_supported': betaInvitationSupported,
   };
+
+  @override
+  Future<String> getGenerationInvitationId() async {
+    invitationRequests++;
+    return 'b' * 64;
+  }
 }
 
 class _PreviewPlayer implements NarrationPreviewPlayer {
@@ -77,6 +89,63 @@ class _DelayedPreviewPlayer extends _PreviewPlayer {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets('beta invitation copies only after the parent check', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    final api = _SettingsApi(false, betaInvitationSupported: true);
+    final copied = <Object?>[];
+    final messenger = tester.binding.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') copied.add(call.arguments);
+      return null;
+    });
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sharedPreferencesProvider.overrideWithValue(prefs),
+          apiClientProvider.overrideWithValue(api),
+        ],
+        child: const MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: Locale('ko'),
+          home: SettingsScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final tile = find.text('베타 참여 ID 복사', skipOffstage: false);
+    await tester.scrollUntilVisible(
+      tile,
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(tile);
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(api.invitationRequests, 0);
+    expect(copied, isEmpty);
+    Navigator.pop(tester.element(find.byType(AlertDialog)), false);
+    await tester.pumpAndSettle();
+    await prefs.setInt(
+      ParentalControlService.ageGateSessionKey,
+      DateTime.now().millisecondsSinceEpoch,
+    );
+    await tester.tap(tile);
+    await tester.pumpAndSettle();
+    expect(api.invitationRequests, 1);
+    expect(copied, [
+      {'text': 'b' * 64},
+    ]);
+    expect(find.text('베타 참여 ID를 복사했어요.'), findsOneWidget);
+  });
 
   testWidgets(
     'narration settings are available without pronunciation support',

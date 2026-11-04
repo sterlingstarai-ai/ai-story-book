@@ -7,6 +7,10 @@ from src.core.config import settings
 from src.core.exceptions import APIError
 
 
+def generation_invitation_supported() -> bool:
+    return settings.free_plan_first_book_trial and settings.generation_access_mode == "invite_only"
+
+
 def generation_identity_hash(user_key: str) -> str:
     return hashlib.sha256(f"asb:generation-access:v1\0{user_key}".encode()).hexdigest()
 

@@ -628,3 +628,9 @@ class AccountMediaScopeResponse(BaseModel):
 
     version: Literal[1] = 1
     scope_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class GenerationInvitationResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    invitation_id: str = Field(pattern=r"^[0-9a-f]{64}$")

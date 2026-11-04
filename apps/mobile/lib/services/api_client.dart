@@ -130,6 +130,19 @@ class ApiClient {
 
   // ==================== Account recovery ====================
 
+  Future<String> getGenerationInvitationId() async {
+    final response = await _dio.get(
+      '/v1/account/generation-invitation',
+      options: Options(headers: _headers),
+    );
+    final result = _asJsonMap(response.data, context: 'generation invitation');
+    final id = result['invitation_id'];
+    if (id is! String || !RegExp(r'^[0-9a-f]{64}$').hasMatch(id)) {
+      throw const FormatException('Invalid generation invitation ID');
+    }
+    return id;
+  }
+
   Future<bool> hasAccountRecovery() async {
     final response = await _dio.get(
       '/v1/account/recovery',

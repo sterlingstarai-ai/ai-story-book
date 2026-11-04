@@ -1441,6 +1441,20 @@ class AppLocalizationsEn extends AppLocalizations {
   String get parentDashboardDailyChartTitle => 'Daily reading time';
 
   @override
+  String get settingsBetaInvitationTitle => 'Copy beta participation ID';
+
+  @override
+  String get settingsBetaInvitationSubtitle =>
+      'Send this ID to the beta organizer to activate your first story trial.';
+
+  @override
+  String get settingsBetaInvitationCopied => 'Beta participation ID copied.';
+
+  @override
+  String get settingsBetaInvitationUnavailable =>
+      'Could not retrieve your beta participation ID.';
+
+  @override
   String get settingsLoadError => 'Couldn\'t load settings.';
 
   @override

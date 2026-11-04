@@ -1381,6 +1381,19 @@ class AppLocalizationsKo extends AppLocalizations {
   String get parentDashboardDailyChartTitle => '일별 읽기 시간';
 
   @override
+  String get settingsBetaInvitationTitle => '베타 참여 ID 복사';
+
+  @override
+  String get settingsBetaInvitationSubtitle =>
+      '복사한 ID를 베타 운영자에게 보내면 첫 동화 체험을 활성화할 수 있어요.';
+
+  @override
+  String get settingsBetaInvitationCopied => '베타 참여 ID를 복사했어요.';
+
+  @override
+  String get settingsBetaInvitationUnavailable => '베타 참여 ID를 가져오지 못했어요.';
+
+  @override
   String get settingsLoadError => '설정을 불러오지 못했어요.';
 
   @override

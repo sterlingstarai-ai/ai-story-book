@@ -2,6 +2,7 @@ import 'account_deletion_screen.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'account_recovery_screen.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -229,6 +230,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       return false;
     }
     return showAgeGateDialog(context, ref);
+  }
+
+  Future<void> _copyBetaInvitationId() async {
+    if (!await _ensureParentalAuth() || !mounted) return;
+    final l = AppLocalizations.of(context);
+    var message = l.settingsBetaInvitationCopied;
+    try {
+      final id = await ref.read(apiClientProvider).getGenerationInvitationId();
+      if (!mounted) return;
+      await Clipboard.setData(ClipboardData(text: id));
+    } catch (_) {
+      message = l.settingsBetaInvitationUnavailable;
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _revokeConsent() async {
@@ -495,6 +513,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           data: (value) => value['narration_voice_selection_supported'] == true,
           orElse: () => false,
         );
+    final betaInvitationSupported = ref.watch(
+      capabilitiesProvider.select(
+        (caps) => caps.valueOrNull?['generation_invitation_supported'] == true,
+      ),
+    );
     if (_isLoading) {
       return Scaffold(
         appBar: AppBar(title: Text(l.settingsTitle)),
@@ -606,6 +629,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               trailing: const Icon(Icons.chevron_right),
               onTap: () => Navigator.pushNamed(context, '/credits'),
             ),
+            if (betaInvitationSupported)
+              ListTile(
+                leading: const Icon(Icons.badge_outlined),
+                title: Text(l.settingsBetaInvitationTitle),
+                subtitle: Text(l.settingsBetaInvitationSubtitle),
+                trailing: const Icon(Icons.copy_outlined),
+                onTap: _copyBetaInvitationId,
+              ),
             ListTile(
               leading: const Icon(Icons.verified_user_outlined),
               title: Text(l.settingsPoliciesTitle),
