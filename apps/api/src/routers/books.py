@@ -211,12 +211,21 @@ async def _enforce_free_plan_feature_access(
     db: AsyncSession,
     user_key: str,
     feature: str,
+    *,
+    trial_narration_job_id: str | None = None,
 ) -> None:
     if not _is_free_plan_policy_enabled():
         return
 
     effective_plan = await _resolve_effective_plan(db, user_key)
     if effective_plan != "free":
+        return
+
+    if (
+        settings.free_plan_first_book_trial
+        and trial_narration_job_id is not None
+        and await credits_service.first_book_trial_job(db, user_key) == trial_narration_job_id
+    ):
         return
 
     feature_name = _FREE_PLAN_BLOCKED_FEATURES.get(feature, "해당")
@@ -1925,11 +1934,12 @@ async def get_page_audio(
     if audio_url:
         return {"audio_url": media_url(audio_url)}
 
-    # 신규 합성(비용 발생)은 유료 기능. 단, 비독자 저연령(3-5)은 오디오가 책을 소비하는
-    # 유일한 수단이므로 무료 플랜에서도 허용한다. 그 외 연령은 결제 게이트.
+    # Keep the existing 3–5 exception and include narration in the trial book.
     target_age = str(getattr(book, "target_age", "") or "").strip()
     if target_age != "3-5":
-        await _enforce_free_plan_feature_access(db, user_key, "audio")
+        await _enforce_free_plan_feature_access(
+            db, user_key, "audio", trial_narration_job_id=book.job_id,
+        )
 
     # 없으면 즉시 생성
     try:

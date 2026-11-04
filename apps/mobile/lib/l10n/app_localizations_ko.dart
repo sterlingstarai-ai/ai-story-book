@@ -79,7 +79,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get creditsFirstBookTrial => '새 계정 첫 동화 한 권 무료';
 
   @override
-  String get planFeaturesFreeTrial => '수채화와 카툰 삽화|3–5세 동화 한국어 낭독';
+  String get planFeaturesFreeTrial => '수채화와 카툰 삽화|무료 첫 동화 낭독';
 
   @override
   String onboardingPageIndicator(int current, int total) {

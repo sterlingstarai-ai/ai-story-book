@@ -56,7 +56,7 @@
   "onboardingSlide4Subtitle": "Pick a theme and create your first illustrated storybook.",
   "onboardingFirstBookTrialSubtitle": "New accounts get one illustrated storybook free.",
   "creditsFirstBookTrial": "First storybook free for new accounts",
-  "planFeaturesFreeTrial": "Watercolor and cartoon illustrations|Korean narration for ages 3–5 stories",
+  "planFeaturesFreeTrial": "Watercolor and cartoon illustrations|Narration for your first free story",
   "onboardingPageIndicator": "Page {current} of {total}",
   "@onboardingPageIndicator": {
     "description": "Accessibility label for the onboarding page indicator",

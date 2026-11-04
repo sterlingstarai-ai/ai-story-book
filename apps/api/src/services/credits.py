@@ -8,10 +8,13 @@ from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, case, func
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import aliased
 
 from ..models.db import UserCredits, Subscription, CreditTransaction, AccountIdentity
 from ..core.config import settings
 from ..core.utils import utcnow, local_month_bounds_utc
+
+_FIRST_BOOK_TRIAL_REFERENCE = "first_book_trial:v1"
 
 
 # 구독 플랜 정의
@@ -41,7 +44,7 @@ def subscription_plan_details(plan: str) -> dict:
     details = SUBSCRIPTION_PLANS.get(plan, {})
     if plan == "free" and settings.free_plan_first_book_trial:
         return {**details, "credits_per_month": 0,
-                "features": ["새 계정 첫 동화 1권 무료", "watercolor/cartoon 스타일", "3–5세 동화 낭독"]}
+                "features": ["새 계정 첫 동화 1권 무료", "watercolor/cartoon 스타일", "무료 첫 동화 낭독"]}
     return details
 
 
@@ -96,8 +99,30 @@ class CreditsService:
         # ledger or an existing balance cannot receive a second signup grant.
         balance.credits = 1
         db.add(CreditTransaction(user_key=user_key, amount=1, balance_after=1,
-            transaction_type="bonus", reference_id="first_book_trial:v1", description="첫 동화 무료 체험"))
+            transaction_type="bonus", reference_id=_FIRST_BOOK_TRIAL_REFERENCE, description="첫 동화 무료 체험"))
         await db.flush()
+
+    async def first_book_trial_job(self, db: AsyncSession, user_key: str) -> str | None:
+        """Identify the first non-refunded spend after the one-time trial grant."""
+        grant_id = select(func.min(CreditTransaction.id)).where(
+            CreditTransaction.user_key == user_key,
+            CreditTransaction.transaction_type == "bonus",
+            CreditTransaction.reference_id == _FIRST_BOOK_TRIAL_REFERENCE,
+            CreditTransaction.amount == 1,
+        ).scalar_subquery()
+        refund = aliased(CreditTransaction)
+        was_refunded = select(refund.id).where(
+            refund.user_key == user_key,
+            refund.transaction_type == "refund",
+            refund.reference_id == CreditTransaction.reference_id,
+        ).exists()
+        # Keep the original spend even when its book has since been deleted.
+        return await db.scalar(select(CreditTransaction.reference_id).where(
+            CreditTransaction.user_key == user_key,
+            CreditTransaction.id > grant_id,
+            CreditTransaction.transaction_type == "usage",
+            ~was_refunded,
+        ).order_by(CreditTransaction.id).limit(1))
 
     async def _grant_free_month(self, db: AsyncSession, user_key: str, *, newly_created: bool = False) -> None:
         """One atomic top-up per Korea calendar month, without a paid subscription.

@@ -27,6 +27,67 @@ class _LockRedis:
 
 
 @pytest.mark.asyncio
+async def test_free_trial_narrates_all_pages_of_only_the_trial_book(client, headers, db_session, monkeypatch):
+    from src.core.generation_access import generation_identity_hash
+    from src.core.rate_limit import rate_limiter
+    from src.models.db import CreditTransaction, Page
+    from src.services.tts import tts_service
+    from tests.factories import make_book_rows
+
+    owner = headers["X-User-Key"]
+    for name, value in {
+        "free_plan_first_book_trial": True,
+        "free_plan_enforcement_enabled": True,
+        "free_plan_enforce_in_testing": True,
+        "generation_access_mode": "invite_only",
+        "generation_allowed_user_hashes": generation_identity_hash(owner),
+        "tts_provider": "openai",
+        "openai_tts_api_key": "test-key",
+    }.items():
+        monkeypatch.setattr(settings, name, value)
+    monkeypatch.setattr(rate_limiter, "get_redis", AsyncMock(return_value=_LockRedis()))
+    synth = AsyncMock(return_value=b"synthetic audio")
+    monkeypatch.setattr(tts_service, "synthesize_page", synth)
+    monkeypatch.setattr(storage_service, "upload_bytes", AsyncMock(return_value="https://cdn.example.com/audio.mp3"))
+
+    trial_id, later_id = "trial-audio-book", "later-audio-book"
+    rows = make_book_rows([(trial_id, owner), (later_id, owner)])
+    trial, later = rows[1], rows[3]
+    trial.target_age = later.target_age = "7-9"
+    db_session.add_all(rows)
+    await db_session.flush()
+    db_session.add_all(Page(book_id=trial_id, page_number=n, text=f"{n}번째 동화 본문") for n in range(1, 13))
+    db_session.add(Page(book_id=later_id, page_number=1, text="두 번째 책의 본문"))
+    db_session.add_all([
+        CreditTransaction(user_key=owner, transaction_type=kind, reference_id=reference,
+                          amount=amount, balance_after=balance)
+        for kind, reference, amount, balance in (
+            ("bonus", "first_book_trial:v1", 1, 1),
+            ("usage", "failed-job", -1, 0),
+            ("refund", "failed-job", 1, 1),
+            ("usage", trial.job_id, -1, 0),
+            ("purchase", "pack", 1, 1),
+            ("usage", later.job_id, -1, 0),
+        )
+    ])
+    await db_session.commit()
+
+    async def narration(book_id, page):
+        return await client.get(f"/v1/books/{book_id}/pages/{page}/audio", headers=headers,
+                                params={"language": "ko", "style": "animated"})
+
+    assert (await narration(later_id, 1)).status_code == 402
+    for page in range(1, 13):
+        response = await narration(trial_id, page)
+        assert response.status_code == 200, response.text
+    assert (await narration(trial_id, 12)).status_code == 200
+    await db_session.delete(trial)
+    await db_session.commit()
+    assert (await narration(later_id, 1)).status_code == 402
+    assert synth.await_count == 12
+
+
+@pytest.mark.asyncio
 async def test_capabilities_advertise_current_audio_provider(client, monkeypatch):
     from src.routers import config as config_router
 

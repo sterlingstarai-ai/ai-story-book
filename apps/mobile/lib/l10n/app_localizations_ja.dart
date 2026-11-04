@@ -78,7 +78,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get creditsFirstBookTrial => '新規アカウントは最初の絵本1冊が無料';
 
   @override
-  String get planFeaturesFreeTrial => '水彩画とカートゥーンのイラスト|3～5歳向け絵本の韓国語読み聞かせ';
+  String get planFeaturesFreeTrial => '水彩画とカートゥーンのイラスト|最初の無料絵本の読み聞かせ';
 
   @override
   String onboardingPageIndicator(int current, int total) {

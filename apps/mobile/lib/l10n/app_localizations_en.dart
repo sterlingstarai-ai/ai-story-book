@@ -85,7 +85,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get planFeaturesFreeTrial =>
-      'Watercolor and cartoon illustrations|Korean narration for ages 3–5 stories';
+      'Watercolor and cartoon illustrations|Narration for your first free story';
 
   @override
   String onboardingPageIndicator(int current, int total) {

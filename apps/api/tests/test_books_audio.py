@@ -118,7 +118,7 @@ async def test_get_page_audio_rolls_back_when_commit_fails():
     from src.core.exceptions import InternalServerError
     from src.routers.books import get_page_audio
 
-    book = SimpleNamespace(id="book-123", user_key="user-123", language="ko", target_age="5-7")
+    book = SimpleNamespace(id="book-123", job_id="job-123", user_key="user-123", language="ko", target_age="5-7")
     page = SimpleNamespace(id="page-1", page_number=1, text="hello", text_ko=None, text_en=None, audio_url=None)
     fake_db = _FakeDbSession([book, page])
 
