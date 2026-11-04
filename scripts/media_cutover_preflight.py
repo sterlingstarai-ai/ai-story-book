@@ -6,6 +6,7 @@ permission to start an application or discard the source.
 """
 
 from contextlib import ExitStack, closing
+import re
 from uuid import uuid4
 
 from botocore.exceptions import ClientError
@@ -73,6 +74,71 @@ def verify_source_storage_permissions(read_client, retired_client, bucket):
         raise
     except Exception:
         raise MediaCutoverError('Source storage permissions could not be verified') from None
+
+
+def gcs_freeze_canary_payload(key):
+    if not isinstance(key, str) or re.fullmatch(r'asb-narration-freeze-canary-[0-9a-f]{32}', key) is None:
+        raise MediaCutoverError('Invalid GCS freeze canary key')
+    return ('AI Story Book narration restore proof: ' + key).encode('ascii')
+
+
+def verify_frozen_gcs_writer(values, canary):
+    """Require the configured GCS writer to have only read access during backup."""
+    bucket = values['S3_BUCKET']
+    if values['S3_ENDPOINT'] != 'https://storage.googleapis.com' or not bucket.startswith('asb-media-'):
+        raise MediaCutoverError('The GCS media bucket is not pinned')
+    canary_payload = gcs_freeze_canary_payload(canary)
+    key = 'asb-frozen-writer-probe-' + uuid4().hex
+    args = {'Bucket': bucket, 'Key': key}
+    try:
+        with closing(storage_client(values)) as client:
+            response = client.list_objects_v2(Bucket=bucket, MaxKeys=1)
+            if response.get('Name') != bucket or type(response.get('IsTruncated')) is not bool:
+                raise MediaCutoverError('Read access to the frozen bucket is unverified')
+            uploads = client.list_multipart_uploads(Bucket=bucket)
+            if uploads.get('IsTruncated') is not False or uploads.get('Uploads', []) != []:
+                raise MediaCutoverError('Unfinished GCS multipart writes remain')
+            _require_denied(lambda: client.head_object(**args), {404})
+            # A create-only grant may permit a direct upload independently of
+            # delete or multipart operations. Use only our random absent key.
+            payload = b'AI Story Book frozen writer verification'
+            try:
+                _require_denied(lambda: client.put_object(**args, Body=payload, IfNoneMatch='*'), {403})
+            finally:
+                try:
+                    result = client.get_object(**args)
+                except ClientError as exc:
+                    if exc.response.get('ResponseMetadata', {}).get('HTTPStatusCode') != 404:
+                        raise
+                else:
+                    with closing(result['Body']) as body:
+                        if body.read(len(payload) + 1) != payload:
+                            raise MediaCutoverError('Unexpected object at the probe key')
+                    client.delete_object(**args)
+                    raise MediaCutoverError('The frozen GCS credential created a probe object')
+            try:
+                upload = client.create_multipart_upload(**args)
+            except ClientError as exc:
+                if exc.response.get('ResponseMetadata', {}).get('HTTPStatusCode') != 403:
+                    raise
+            else:
+                if isinstance(upload.get('UploadId'), str):
+                    try:
+                        client.abort_multipart_upload(**args, UploadId=upload['UploadId'])
+                    except ClientError:
+                        pass
+                raise MediaCutoverError('The frozen GCS credential can still initiate writes')
+            # GCS can return 404 for deletion of an absent key without proving
+            # write denial. Verify our existing canary before testing delete.
+            result = client.get_object(Bucket=bucket, Key=canary)
+            with closing(result['Body']) as body:
+                if body.read(len(canary_payload) + 1) != canary_payload:
+                    raise MediaCutoverError('GCS freeze canary contents differ')
+            _require_denied(lambda: client.delete_object(Bucket=bucket, Key=canary), {403})
+    except MediaCutoverError:
+        raise
+    except Exception:
+        raise MediaCutoverError('GCS media write freeze could not be verified') from None
 
 
 def verify_staged_target_writer(values):

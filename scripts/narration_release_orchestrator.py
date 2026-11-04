@@ -1,10 +1,7 @@
-"""Fail-closed choreography for an additive narration release.
+"""Order the release steps and enforce the adapter's production boundary.
 
-This is an orchestration primitive, NOT a runnable deploy command. A future
-operator adapter must implement and independently verify each operation below.
-In particular it must stop external admission and all writers, hold the
-appropriate source fence, and install/test the boot recovery controls first.
-No production adapter is provided here.
+The adapter must stop admission and writers, keep the source fenced through
+backup and isolated restore, and verify the installed boot recovery controls.
 """
 import os
 from pathlib import Path
@@ -30,9 +27,8 @@ class NarrationReleaseError(RuntimeError):
     pass
 
 
-# The canonical path remains closed to schema and narration changes. The
-# exact storage-only adapter can detach an empty source before its old writer
-# is retired. It cannot promote a restored database or migrate the schema.
+# Production accepts only the pinned storage detach and post-detach
+# narration modes. Neither mode promotes a restored database.
 PRODUCTION_MARKER = Path('/var/lib/ai-story-book/narration-deploy/narration-recovery.json')
 
 
@@ -85,6 +81,17 @@ def _require_production_detach(operations, runtime, ids, images):
         raise NarrationReleaseError('Production narration release is blocked; only a pinned storage detach may run')
 
 
+def _require_production_narration(operations, runtime, ids, images):
+    from narration_pilot_adapter import NarrationPilotAdapter
+
+    if (type(operations) is not NarrationPilotAdapter or operations.runtime is not runtime
+            or operations.gcs_narration is not True or operations.storage_only is not False
+            or operations.expected_gcs_media is not True or operations.expected_narration_only is not True
+            or operations.offhost_restore is None or operations.identities != ids or operations.image_ids != images
+            or any(images.get('old_' + role) == images.get('new_' + role) for role in ('api', 'worker'))):
+        raise NarrationReleaseError('Production narration requires the pinned post-detach adapter')
+
+
 def release(*, state_dir, backup_state_dir, identities, image_ids, runtime, operations):
     """Execute a trusted adapter under the backup lock; retain marker on error.
 
@@ -103,9 +110,13 @@ def release(*, state_dir, backup_state_dir, identities, image_ids, runtime, oper
     _assert_shared_paths(path, backup_path)
     recovery_marker = path / 'narration-recovery.json'
     ids = _validate_ids(identities)
-    production_detach = recovery_marker == PRODUCTION_MARKER
+    production = recovery_marker == PRODUCTION_MARKER
+    production_narration = production and getattr(operations, 'gcs_narration', False) is True
+    production_detach = production and not production_narration
     if production_detach:
         _require_production_detach(operations, runtime, ids, image_ids)
+    if production_narration:
+        _require_production_narration(operations, runtime, ids, image_ids)
     guard = BackupServiceGuard(backup_path, runtime)
     fd = guard._locked()
     armed = False
@@ -116,6 +127,8 @@ def release(*, state_dir, backup_state_dir, identities, image_ids, runtime, oper
     def phase(name):
         if production_detach:
             syslog.syslog(syslog.LOG_NOTICE, 'asb-media-detach phase=' + name)
+        if production_narration:
+            syslog.syslog(syslog.LOG_NOTICE, 'asb-narration-release phase=' + name)
 
     try:
         assert_no_narration_recovery()
@@ -151,6 +164,8 @@ def release(*, state_dir, backup_state_dir, identities, image_ids, runtime, oper
         _require_true(operations.stop_and_drain(ids), 'Drain failed')
         _require_old_stopped(runtime, ids)
         _require_restart_disabled(runtime, ids)
+        if production_narration:
+            phase('freezing_storage')
         phase('backup_restore')
         _require_true(operations.backup_and_restore_verify(), 'Backup verification failed')
         _require_true(operations.migrate(), 'Migration verification failed')

@@ -1,4 +1,4 @@
-"""Verify the staged, schema-preserving Neon-to-GCS pilot media detach."""
+"""Run a pinned pilot media detach or the following GCS narration release."""
 import argparse
 import asyncio
 from contextlib import closing, contextmanager
@@ -45,19 +45,43 @@ def _env(path):
                                                              interpolate=False).items()}
 
 
-def _plan(path):
+def _plan(path, *, narration=False):
     plan = json.loads(private_file(path, max_bytes=4096))
     if (not isinstance(plan, dict) or set(plan) != {
         'project', 'generation', 'containers', 'images', 'proxy_id', 'proxy_image_id',
         'proxy_config_sha256', 'monitor_manifest_sha256', 'restore_public_key',
     } or any(not isinstance(plan[name], dict) or set(plan[name]) != set(SLOTS) for name in ('containers', 'images'))
-            or any(plan['images']['old_' + role] != plan['images']['new_' + role] for role in ('api', 'worker'))
+            or any((plan['images']['old_' + role] != plan['images']['new_' + role]) != narration
+                   for role in ('api', 'worker'))
             or not isinstance(plan['restore_public_key'], str) or len(plan['restore_public_key']) > 256):
         raise MediaDetachError('Private storage detach plan is invalid')
     key = load_pem_public_key(plan['restore_public_key'].encode('ascii'))
     if not isinstance(key, Ed25519PublicKey):
         raise MediaDetachError('An Ed25519 restore verifier is required')
     return plan, key
+
+
+def _retired_media(plan, prior_plan_path):
+    prior, _ = _plan(prior_plan_path)
+    if (prior['project'] != plan['project'] or prior['proxy_id'] != plan['proxy_id']
+            or any(prior['containers']['new_' + role] != plan['containers']['old_' + role]
+                   or prior['images']['new_' + role] != plan['images']['old_' + role]
+                   for role in ('api', 'worker'))):
+        raise MediaDetachError('Narration plan is not tied to the published storage detach')
+    runtime = DockerRuntime()
+    values = _env(prior_plan_path.parent / 'prior-configs' / 'pilot.env')
+    for role in ('api', 'worker'):
+        slot = 'old_' + role
+        identifier = prior['containers'][slot]
+        if runtime.inspect(identifier) != {'id': identifier, 'name': 'asb-pilot-' + role + '-before-media',
+                'image_id': prior['images'][slot], 'running': False, 'restart_policy': 'no'}:
+            raise MediaDetachError('Retired Neon container identity changed')
+        entries = [item.split('=', 1) for item in json.loads(runtime._run('inspect', identifier))[0]['Config']['Env']]
+        env = dict(entries)
+        if len(env) != len(entries) or any(env.get(field) != values.get(field) for field in (
+                'S3_ENDPOINT', 'S3_BUCKET', 'S3_ACCESS_KEY', 'S3_SECRET_KEY', 'S3_REGION')):
+            raise MediaDetachError('Retired Neon storage config changed')
+    return values
 
 
 def _configure_db(values):
@@ -70,7 +94,7 @@ def _configure_db(values):
 
 
 @contextmanager
-def _adapter(plan, public_key, mailbox=None):
+def _adapter(plan, public_key, mailbox=None, *, retired_neon=None, freeze_canary=None):
     from manage_privacy_purge_monitor import checked_file
 
     checked_file(CA_FILE)
@@ -121,16 +145,18 @@ def _adapter(plan, public_key, mailbox=None):
         with NarrationPilotAdapter(runtime=DockerRuntime(), identities=plan['containers'], image_ids=plan['images'],
             backup_arguments={'values': values, 'ca_file': CA_FILE, 'output_dir': BACKUPS,
                               'store': store, 'verify_journal': verify_journal},
-            expected_google_project=project, expected_daily_limit=1, expected_monthly_limit=1,
+            expected_google_project=project, expected_daily_limit=24 if retired_neon else 1,
+            expected_monthly_limit=120 if retired_neon else 1,
             proxy_id=plan['proxy_id'], proxy_image_id=plan['proxy_image_id'],
             expected_proxy_config_sha256=plan['proxy_config_sha256'],
             expected_monitor_manifest_sha256=plan['monitor_manifest_sha256'],
-            expected_gcs_media=True, storage_only=True, service_config_generation=plan['generation'],
-            offhost_restore=(public_key, attest)) as adapter:
+            expected_gcs_media=True, storage_only=retired_neon is None, service_config_generation=plan['generation'],
+            expected_narration_only=retired_neon is not None, offhost_restore=(public_key, attest),
+            retired_neon=retired_neon, freeze_canary=freeze_canary) as adapter:
             yield adapter
 
 
-def _recover_original(plan, public_key):
+def _recover_original(plan, public_key, *, retired_neon=None, freeze_canary=None):
     from narration_deploy_safety import _read_recovery_marker, quarantine
 
     marker = STATE / 'narration-recovery.json'
@@ -143,21 +169,40 @@ def _recover_original(plan, public_key):
                     'proxy': {'id': plan['proxy_id'], 'image_id': plan['proxy_image_id']}}
         if _read_recovery_marker(marker) != expected:
             raise MediaDetachError('The recovery marker does not identify the unpublished detach')
-        with _adapter(plan, public_key) as adapter:
+        narration = retired_neon is not None
+        context = (_adapter(plan, public_key, retired_neon=retired_neon, freeze_canary=freeze_canary)
+                   if narration else _adapter(plan, public_key))
+        with context as adapter:
             adapter._verify_stopped_proxy()
+            worker_running = False
             for slot, identifier in plan['containers'].items():
                 phase, role = slot.split('_')
                 name = 'asb-pilot-' + role if phase == 'old' else adapter._staged_name(role)
                 item = adapter.runtime.inspect(identifier)
                 if (item['id'] != identifier or item['name'] != name or item['image_id'] != plan['images'][slot]
-                        or item['restart_policy'] != 'no' or (phase == 'old' and item['running'])):
+                        or item['restart_policy'] != 'no'
+                        or (item['running'] and (narration and slot != 'old_worker' or not narration and phase == 'old'))):
                     raise MediaDetachError('Recovery requires the unchanged, stopped original generation')
-            quarantine(STATE, adapter.runtime)
+                if slot == 'old_worker':
+                    worker_running = item['running']
+            if not narration:
+                quarantine(STATE, adapter.runtime)
             try:
-                if adapter.resume_original_storage_before_publication() is not True:
+                result = (adapter.resume_original_storage_before_publication(worker_running=worker_running)
+                          if narration else adapter.resume_original_storage_before_publication())
+                if result is not True:
                     raise MediaDetachError('Original storage recovery is unverified')
             except BaseException:
-                quarantine(STATE, adapter.runtime)
+                if not narration:
+                    quarantine(STATE, adapter.runtime)
+                else:
+                    # Never terminate a still-draining worker on a failed
+                    # recovery attempt. Stop the exact ingress if it opened.
+                    proxy = adapter.runtime.inspect(plan['proxy_id'])
+                    if (proxy['name'] == 'asb-pilot-nginx' and proxy['image_id'] == plan['proxy_image_id']
+                            and proxy['running']):
+                        adapter.runtime.disable_restart(plan['proxy_id'])
+                        adapter.runtime.stop(plan['proxy_id'])
                 raise
         marker.unlink()
         directory = os.open(STATE, os.O_DIRECTORY | os.O_NOFOLLOW)
@@ -172,13 +217,17 @@ def _recover_original(plan, public_key):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--plan', type=Path, required=True)
+    parser.add_argument('--post-detach', type=Path, help='Pinned successful detach plan before a narration release')
+    parser.add_argument('--freeze-canary', help='Owned media object used to verify the GCS write freeze')
     parser.add_argument('--mailbox', help='Unique 32-character operation ID shared by the VM and the restore host')
     mode = parser.add_mutually_exclusive_group()
-    mode.add_argument('--execute', action='store_true', help='Switch the pinned images to GCS without changing the schema')
+    mode.add_argument('--execute', action='store_true', help='Execute the pinned media or narration plan')
     mode.add_argument('--recover-original', action='store_true', help='Resume only the unchanged, stopped original generation')
     mode.add_argument('--read', choices=('challenge', 'result'))
     mode.add_argument('--sign', action='store_true', help='Submit the verified restore signature on stdin')
     args = parser.parse_args()
+    if (args.post_detach is None) != (args.freeze_canary is None):
+        parser.error('Post-detach plans require exactly one freeze canary')
     if any((args.execute, args.read, args.sign)) != (args.mailbox is not None) or (
             args.mailbox is not None and re.fullmatch('[0-9a-f]{32}', args.mailbox) is None):
         parser.error('Supply a unique operation ID with execution, reading or signature submission')
@@ -192,10 +241,11 @@ def main():
     try:
         from manage_privacy_purge_monitor import require_pilot_vm
         require_pilot_vm()
-        plan, public_key = _plan(args.plan)
+        plan, public_key = _plan(args.plan, narration=args.post_detach is not None)
         if args.recover_original:
             signal.signal(signal.SIGTERM, _terminate)
-            _recover_original(plan, public_key)
+            retired_neon = _retired_media(plan, args.post_detach) if args.post_detach else None
+            _recover_original(plan, public_key, retired_neon=retired_neon, freeze_canary=args.freeze_canary)
             print(json.dumps({'status': 'ORIGINAL_STORAGE_RECOVERED', 'restore_authorized': False}))
             return 0
         if args.mailbox:
@@ -226,7 +276,9 @@ def main():
             owns_mailbox = True
             write_mailbox_record(mailbox, 'started', b'STORAGE_DETACH_STARTED\n')
             signal.signal(signal.SIGTERM, _terminate)
-            with _adapter(plan, public_key, mailbox) as adapter:
+            retired_neon = _retired_media(plan, args.post_detach) if args.post_detach else None
+            with _adapter(plan, public_key, mailbox, retired_neon=retired_neon,
+                          freeze_canary=args.freeze_canary) as adapter:
                 result = release(state_dir=STATE, backup_state_dir=BACKUP_STATE,
                     identities=plan['containers'], image_ids=plan['images'], runtime=adapter.runtime,
                     operations=adapter)
@@ -238,7 +290,8 @@ def main():
             if any(os.path.lexists(path) for path in (STATE / 'narration-recovery.json',
                     BACKUP_STATE / 'restart-required.json', PRIVACY_RECOVERY_MARKER)):
                 raise MediaDetachError('A recovery is pending')
-            with _adapter(plan, public_key) as adapter:
+            retired_neon = _retired_media(plan, args.post_detach) if args.post_detach else None
+            with _adapter(plan, public_key, retired_neon=retired_neon, freeze_canary=args.freeze_canary) as adapter:
                 if adapter.preflight(plan['containers']) is not True:
                     raise MediaDetachError('Storage detach preflight failed')
                 checkpoint = adapter.backup_arguments['verify_journal']()

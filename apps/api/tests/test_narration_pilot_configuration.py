@@ -405,8 +405,25 @@ def test_storage_generation_starts_worker_only_after_api_is_ready(sample, monkey
                      ('ready', prefix + 'api'), ('start', prefix + 'worker')]
 
 
+def test_post_detach_narration_checks_live_api_before_probing_tts(sample, monkeypatch):
+    module, adapter, _ = sample
+    adapter.gcs_narration = True
+    adapter.image_ids = {'new_api': 'candidate-image'}
+    calls = []
+    adapter.runtime = SimpleNamespace(_run=lambda *args: calls.append(args))
+    adapter._verify_api_ready = lambda api, *, live=False: calls.append(('live' if live else 'ready', api))
+    monkeypatch.setattr(module, 'bootstrap_isolated_narration',
+                        lambda api, image, _ledger: calls.append(('tts', api, image)))
+
+    adapter._start_generation('new_')
+
+    assert calls == [('start', 'new_api'), ('live', 'new_api'), ('tts', 'new_api', 'candidate-image'),
+                     ('ready', 'new_api'), ('start', 'new_worker')]
+
+
 @pytest.mark.parametrize('drift', [None, 'worker_running', 'candidate_renamed', 'different_marker'])
-def test_operator_recovery_requires_exact_unpublished_generation(sample, monkeypatch, tmp_path, drift):
+@pytest.mark.parametrize('post_detach', [False, True])
+def test_operator_recovery_requires_exact_unpublished_generation(sample, monkeypatch, tmp_path, drift, post_detach):
     import os
     from contextlib import nullcontext
     from unittest.mock import Mock
@@ -417,7 +434,8 @@ def test_operator_recovery_requires_exact_unpublished_generation(sample, monkeyp
         monkeypatch.setattr(runner, name, tmp_path if name in ('STATE', 'BACKUP_STATE') else tmp_path / name)
     monkeypatch.setattr(runner, 'BackupServiceGuard', lambda *_: SimpleNamespace(
         _locked=lambda: os.open(tmp_path, os.O_RDONLY)))
-    adapter.storage_only = True
+    adapter.storage_only = not post_detach
+    adapter.gcs_narration = post_detach
     adapter._verify_stopped_proxy = Mock()
     adapter.resume_original_storage_before_publication = Mock(return_value=True)
     plan = {'containers': adapter.identities, 'images': dict.fromkeys(adapter.identities, 'image'),
@@ -429,7 +447,7 @@ def test_operator_recovery_requires_exact_unpublished_generation(sample, monkeyp
     monkeypatch.setattr(module.safety, '_read_recovery_marker', lambda _: recorded)
     quarantine = Mock()
     monkeypatch.setattr(module.safety, 'quarantine', quarantine)
-    monkeypatch.setattr(runner, '_adapter', lambda *_: nullcontext(adapter))
+    monkeypatch.setattr(runner, '_adapter', lambda *_, **_kw: nullcontext(adapter))
 
     def inspect(slot):
         phase, role = slot.split('_')
@@ -440,14 +458,20 @@ def test_operator_recovery_requires_exact_unpublished_generation(sample, monkeyp
                 'running': drift == 'worker_running' and slot == 'old_worker'}
 
     adapter.runtime = SimpleNamespace(inspect=inspect)
-    if drift is None:
-        runner._recover_original(plan, None)
-        quarantine.assert_called_once_with(tmp_path, adapter.runtime)
-        adapter.resume_original_storage_before_publication.assert_called_once_with()
+    options = {'retired_neon': {}, 'freeze_canary': 'asb-narration-freeze-canary-' + 'c' * 32} if post_detach else {}
+    if drift is None or (post_detach and drift == 'worker_running'):
+        runner._recover_original(plan, None, **options)
+        if post_detach:
+            quarantine.assert_not_called()
+            adapter.resume_original_storage_before_publication.assert_called_once_with(
+                worker_running=drift == 'worker_running')
+        else:
+            quarantine.assert_called_once_with(tmp_path, adapter.runtime)
+            adapter.resume_original_storage_before_publication.assert_called_once_with()
         assert not marker.exists()
     else:
         with pytest.raises(runner.MediaDetachError):
-            runner._recover_original(plan, None)
+            runner._recover_original(plan, None, **options)
         quarantine.assert_not_called()
         adapter.resume_original_storage_before_publication.assert_not_called()
         assert marker.exists()

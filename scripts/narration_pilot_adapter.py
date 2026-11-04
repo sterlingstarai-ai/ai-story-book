@@ -1,11 +1,9 @@
-"""Concrete pilot container/backup adapter, closed until release guards exist.
+"""Bind pilot containers, storage permissions and recovery proof to a release.
 
-This module is not a CLI. It never authorizes a release or a production
-restore. Its preflight intentionally refuses operation until a real external
-writer fence, independent privacy/media recovery proof, and reboot-safe
-admission control have been implemented and independently verified.
+Preflight accepts the planned storage-only detach or a post-detach narration
+release with the retired writer denied and an independent restore verifier.
 """
-from contextlib import ExitStack
+from contextlib import ExitStack, closing
 import hashlib
 import io
 import json
@@ -23,12 +21,14 @@ from dotenv import dotenv_values
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 import narration_deploy_safety as safety
-from backup_external import database_environment
+from backup_external import database_environment, inventory, storage_client
 from manage_privacy_purge_monitor import (BUNDLE_FILES, PYTHON as MONITOR_PYTHON, ROOT as MONITOR_ROOT,
     UNIT_DIR, UNITS, checked_file, config_paths as monitor_config_paths, digest, run as run_monitor)
 
 from media_cutover_preflight import (
-    verify_empty_media_detach, verify_staged_media_cutover, verify_staged_target_writer,
+    MediaCutoverError, _verify_empty_source_history, gcs_freeze_canary_payload, verify_empty_media_detach,
+    verify_frozen_gcs_writer, verify_source_storage_permissions, verify_staged_media_cutover,
+    verify_staged_target_writer,
 )
 from narration_container_controls import NarrationContainerControls
 from narration_deploy_safety import WorkerDrainUnverified, _validate_ids
@@ -64,13 +64,15 @@ class NarrationPilotAdapter:
     contain credentials. They remain in memory and must never be logged.
     """
 
+    gcs_narration = False
+
     def __init__(self, *, runtime, identities, image_ids, backup_arguments, expected_google_project,
                  expected_daily_limit, expected_monthly_limit,
                  proxy_id, proxy_image_id, expected_proxy_config_sha256,
                  expected_monitor_manifest_sha256,
                  quarantine_arguments=None, witness_factory=None,
                  expected_narration_only=False, expected_gcs_media=False, service_config_generation=None,
-                 storage_only=False, offhost_restore=None):
+                 storage_only=False, offhost_restore=None, retired_neon=None, freeze_canary=None):
         self.runtime = runtime
         self.identities = _validate_ids(identities)
         self.image_ids = dict(image_ids)
@@ -95,8 +97,18 @@ class NarrationPilotAdapter:
         if type(storage_only) is not bool or (storage_only and (not expected_gcs_media or expected_narration_only)):
             raise PilotAdapterError('Storage-only transition mode is invalid')
         self.storage_only = storage_only
+        self.gcs_narration = retired_neon is not None
+        if self.gcs_narration and (not isinstance(retired_neon, dict) or storage_only
+                or not expected_gcs_media or not expected_narration_only or offhost_restore is None):
+            raise PilotAdapterError('Post-detach narration requires exact GCS and retired Neon bindings')
+        if self.gcs_narration:
+            gcs_freeze_canary_payload(freeze_canary)
+        elif freeze_canary is not None:
+            raise PilotAdapterError('Only post-detach narration uses a freeze canary')
+        self.freeze_canary = freeze_canary
+        self.retired_neon = dict(retired_neon) if self.gcs_narration else None
         if ('offhost_restore' in self.backup_arguments or (offhost_restore is not None and (
-                not storage_only or quarantine_arguments is not None or witness_factory is not None
+                not (storage_only or self.gcs_narration) or quarantine_arguments is not None or witness_factory is not None
                 or self.backup_arguments.get('image_id') is not None
                 or not isinstance(offhost_restore, tuple) or len(offhost_restore) != 2
                 or not isinstance(offhost_restore[0], Ed25519PublicKey) or not callable(offhost_restore[1])))):
@@ -231,7 +243,10 @@ class NarrationPilotAdapter:
             expected = dict(before)
             old_mounts = self._mounts(old)
             if self.expected_gcs_media:
-                expected.update(self._expected_media_changes(before))
+                if self.gcs_narration:
+                    expected['PRIVACY_JOURNAL_WITNESS_BUCKET'] = 'asb-journal-witness-' + self.expected_google_project
+                else:
+                    expected.update(self._expected_media_changes(before))
                 if old_mounts.count(OLD_CONFIG_OVERLAY) != 1:
                     raise PilotAdapterError('Reviewed configuration overlay is missing')
                 old_mounts.remove(OLD_CONFIG_OVERLAY)
@@ -398,15 +413,20 @@ class NarrationPilotAdapter:
             self._verify_candidate_ports()
             self._verified_service_configs()
             self._verify_boot_quarantine()
-            self._verify_media_rollback_candidates()
-            source, _, target = self._media_cutover_values()
-            verify_staged_target_writer(target)
-            # Confirm the planned detach while the original storage remains
-            # available. The migration still rechecks the retired credential.
-            environment = database_environment(source, self.backup_arguments['ca_file'])
-            with PostgresBackupFence(environment) as fence:
-                verify_empty_media_detach(fence, source, target, expected_revision=SOURCE_REVISION)
-        if self.storage_only and (self.offhost_restore is not None or (
+            if self.gcs_narration:
+                self._verify_retired_neon()
+                values = self.backup_arguments['values']
+                verify_staged_target_writer(values)
+                with PostgresBackupFence(database_environment(values, self.backup_arguments['ca_file'])) as fence:
+                    fence.verify_revision(SOURCE_REVISION)
+            else:
+                self._verify_media_rollback_candidates()
+                source, _, target = self._media_cutover_values()
+                verify_staged_target_writer(target)
+                environment = database_environment(source, self.backup_arguments['ca_file'])
+                with PostgresBackupFence(environment) as fence:
+                    verify_empty_media_detach(fence, source, target, expected_revision=SOURCE_REVISION)
+        if (self.storage_only or self.gcs_narration) and (self.offhost_restore is not None or (
                 self.quarantine_arguments is not None and callable(self.witness_factory))):
             if not _valid_checkpoint(self.backup_arguments['verify_journal']()):
                 raise PilotAdapterError('Live privacy journal cannot be verified before detach')
@@ -526,19 +546,50 @@ class NarrationPilotAdapter:
     def recovery_proxy(self):
         return {'id': self.proxy_id, 'image_id': self.proxy_image_id} if self.expected_gcs_media else None
 
+    @staticmethod
+    def _neon_reader_values(values):
+        raw = private_file(MEDIA_READER_PATH, max_bytes=1024).decode('ascii')
+        reader = re.fullmatch(
+            r'S3_ACCESS_KEY=(nak_live_[a-f0-9]{32})\nS3_SECRET_KEY=([A-Za-z0-9_+/=-]{16,512})\n', raw)
+        if not reader or reader[1] == values['S3_ACCESS_KEY'] or reader[2] == values['S3_SECRET_KEY']:
+            raise PilotAdapterError('A distinct staged source media reader is required')
+        return {**values, 'S3_ACCESS_KEY': reader[1], 'S3_SECRET_KEY': reader[2]}
+
+    def _verify_retired_neon(self):
+        values = self.backup_arguments['values']
+        old = self.retired_neon
+        if (values['S3_ENDPOINT'] != 'https://storage.googleapis.com'
+                or values['S3_BUCKET'] != 'asb-media-' + self.expected_google_project
+                or old['S3_ENDPOINT'] == values['S3_ENDPOINT'] or old['S3_BUCKET'] != 'storybook-private'):
+            raise PilotAdapterError('Current and retired storage identities differ from the plan')
+        with closing(storage_client(self._neon_reader_values(old))) as reader, closing(storage_client(old)) as retired:
+            verify_source_storage_permissions(reader, retired, old['S3_BUCKET'])
+            _verify_empty_source_history(reader, old['S3_BUCKET'])
+            if inventory(reader, old['S3_BUCKET']):
+                raise PilotAdapterError('Retired storage contains unaccounted media')
+
+    def _wait_for_gcs_permissions(self, verify):
+        deadline = time.monotonic() + 240
+        while True:
+            try:
+                verify(self.backup_arguments['values'])
+                return
+            except MediaCutoverError:
+                if time.monotonic() + 12 >= deadline:
+                    raise
+                time.sleep(12)
+
+    def _verify_gcs_frozen(self, values):
+        verify_frozen_gcs_writer(values, self.freeze_canary)
+
     def _media_cutover_values(self):
         before = self._environment(self._full_inspect(self.identities['old_api']))
         values = self.backup_arguments['values']
         if any(values.get(key) != before.get(key) for key in (
                 'S3_ACCESS_KEY', 'S3_SECRET_KEY', 'S3_ENDPOINT', 'S3_BUCKET', 'S3_REGION')):
             raise PilotAdapterError('Backup and retired source media identities differ')
-        raw = private_file(MEDIA_READER_PATH, max_bytes=1024).decode('ascii')
-        reader = re.fullmatch(
-            r'S3_ACCESS_KEY=(nak_live_[a-f0-9]{32})\nS3_SECRET_KEY=([A-Za-z0-9_+/=-]{16,512})\n', raw)
-        if not reader or reader[1] == values['S3_ACCESS_KEY'] or reader[2] == values['S3_SECRET_KEY']:
-            raise PilotAdapterError('A distinct staged source media reader is required')
         return (
-            {**values, 'S3_ACCESS_KEY': reader[1], 'S3_SECRET_KEY': reader[2]},
+            self._neon_reader_values(values),
             values,
             {**values, **self._expected_media_changes(before)},
         )
@@ -549,7 +600,11 @@ class NarrationPilotAdapter:
             raise PilotAdapterError('A backup fence is already active')
         try:
             backup_arguments = self.backup_arguments
-            if self.expected_gcs_media:
+            if self.gcs_narration:
+                self._wait_for_gcs_permissions(self._verify_gcs_frozen)
+                backup_arguments = {**backup_arguments, 'freeze_canary': self.freeze_canary,
+                                    'offhost_restore': self.offhost_restore}
+            elif self.expected_gcs_media:
                 self._media_cutover = self._media_cutover_values()
                 source, retired, target = self._media_cutover
                 backup_arguments = {**backup_arguments, 'values': source}
@@ -559,7 +614,7 @@ class NarrationPilotAdapter:
                 else:
                     backup_arguments['media_cutover'] = (retired, target)
             self.fence, self.evidence = self.stack.enter_context(fenced_backup_probe(**backup_arguments))
-            if self.storage_only and self.offhost_restore is not None:
+            if (self.storage_only or self.gcs_narration) and self.offhost_restore is not None:
                 if (self.evidence.get('status') != 'FENCED_BACKUP_OFFHOST_RESTORE_VERIFIED'
                         or self.evidence.get('media_restore_verified') is not True
                         or self.evidence.get('restore_authorized') is not False):
@@ -632,7 +687,10 @@ class NarrationPilotAdapter:
         self._require_preflight()
         if self.fence is None or self.evidence is None:
             raise PilotAdapterError('Verified backup fence is missing')
-        if self.expected_gcs_media:
+        if self.gcs_narration:
+            self._verify_retired_neon()
+            self._verify_gcs_frozen(self.backup_arguments['values'])
+        elif self.expected_gcs_media:
             if self._media_cutover is None:
                 raise PilotAdapterError('Verified media cutover configuration is missing')
             if self.storage_only:
@@ -648,7 +706,12 @@ class NarrationPilotAdapter:
         if self.storage_only:
             self.fence.verify_revision(SOURCE_REVISION)
         else:
-            self.fence.migrate(assert_backup_restored=lambda: self._restore_verified is True)
+            def assert_backup_restored():
+                if self.gcs_narration:
+                    self._verify_gcs_frozen(self.backup_arguments['values'])
+                return self._restore_verified is True
+
+            self.fence.migrate(assert_backup_restored=assert_backup_restored)
             self.fence.commit()
         self._migrated = True
         return True
@@ -664,6 +727,8 @@ class NarrationPilotAdapter:
         if self.expected_gcs_media:
             self._verify_stopped_proxy()
             self._verify_candidate_ports()
+        if self.gcs_narration:
+            self._wait_for_gcs_permissions(verify_staged_target_writer)
         for slot in ('new_api', 'new_worker'):
             item = self.runtime.inspect(self.identities[slot])
             if item.get('running') is not False or item.get('restart_policy') != 'no':
@@ -679,12 +744,8 @@ class NarrationPilotAdapter:
         self._verify_candidate_ports()
         self._verify_live_network(isolated=True)
         before = self._candidate_generation()
-        if self.expected_narration_only:
-            try:
-                bootstrap_isolated_narration(self.identities['new_api'], self.image_ids['new_api'],
-                                             NARRATION_BOOTSTRAP_LEDGER)
-            except Exception:
-                raise PilotAdapterError('Isolated narration provider could not be verified') from None
+        if self.expected_narration_only and not self.gcs_narration:
+            self._bootstrap_narration()
         self._wait_api_and_worker()
         self._verify_worker_queue(self.identities['new_worker'])
         self._verify_stopped_proxy()
@@ -772,29 +833,47 @@ class NarrationPilotAdapter:
         except Exception:
             raise PilotAdapterError('Cannot verify ' + phase) from None
 
-    def _verify_api_ready(self, api):
+    def _verify_api_ready(self, api, *, live=False):
+        endpoint = 'live' if live else 'ready'
         self.runtime._run('exec', api, 'python', '-c',
-                          "import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8000/health/ready',timeout=8); "
+                          f"import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8000/health/{endpoint}',timeout=8); "
                           "assert r.status==200")
 
-    def _start_generation(self, prefix):
+    def _wait_api_ready(self, api, *, live=False):
+        deadline = time.monotonic() + 240
+        while True:
+            try:
+                if live:
+                    self._verify_api_ready(api, live=True)
+                else:
+                    self._verify_api_ready(api)
+                return
+            except safety.NarrationSafetyError:
+                if self.runtime.inspect(api).get('running') is not True:
+                    raise PilotAdapterError('Storage generation API exited before readiness') from None
+                if time.monotonic() + 3 >= deadline:
+                    raise PilotAdapterError('Storage generation API did not become ready') from None
+                time.sleep(3)
+
+    def _bootstrap_narration(self):
+        try:
+            bootstrap_isolated_narration(self.identities['new_api'], self.image_ids['new_api'],
+                                         NARRATION_BOOTSTRAP_LEDGER)
+        except Exception:
+            raise PilotAdapterError('Isolated narration provider could not be verified') from None
+
+    def _start_generation(self, prefix, *, worker_running=False):
         api = self.identities[prefix + 'api']
         self.runtime._run('start', api)
-        if self.storage_only:
+        if self.storage_only or self.gcs_narration:
             # On the pilot VM, starting both cold Python processes at once
             # delayed readiness. Keep admission closed and warm one at a time.
-            deadline = time.monotonic() + 240
-            while True:
-                try:
-                    self._verify_api_ready(api)
-                    break
-                except safety.NarrationSafetyError:
-                    if self.runtime.inspect(api).get('running') is not True:
-                        raise PilotAdapterError('Storage generation API exited before readiness') from None
-                    if time.monotonic() + 3 >= deadline:
-                        raise PilotAdapterError('Storage generation API did not become ready') from None
-                    time.sleep(3)
-        self.runtime._run('start', self.identities[prefix + 'worker'])
+            if self.gcs_narration and prefix == 'new_':
+                self._wait_api_ready(api, live=True)
+                self._bootstrap_narration()
+            self._wait_api_ready(api)
+        if not worker_running:
+            self.runtime._run('start', self.identities[prefix + 'worker'])
 
     def _wait_api_and_worker(self, *, original=False):
         for attempt in range(10):
@@ -809,26 +888,34 @@ class NarrationPilotAdapter:
                     raise
                 time.sleep(2)
 
-    def resume_original_storage_before_publication(self):
+    def resume_original_storage_before_publication(self, *, worker_running=False):
         """Recover from a failed detach before any container or settings were renamed."""
-        if not self.storage_only or self.offhost_restore is None:
+        if not (self.storage_only or self.gcs_narration) or self.offhost_restore is None:
             raise PilotAdapterError('Original storage recovery is unavailable')
         self.stack.close()
         self.fence = None
         self._verify_stopped_proxy()
-        self._verify_media_rollback_candidates()
         self._verified_service_configs()
-        source, _, _ = self._media_cutover_values()
+        if self.gcs_narration:
+            self._verify_retired_neon()
+            source = self.backup_arguments['values']
+            self._wait_for_gcs_permissions(verify_staged_target_writer)
+        else:
+            if worker_running:
+                raise PilotAdapterError('Storage detach recovery requires a stopped worker')
+            self._verify_media_rollback_candidates()
+            source, _, _ = self._media_cutover_values()
         with PostgresBackupFence(database_environment(source, self.backup_arguments['ca_file'])) as fence:
             fence.verify_revision(SOURCE_REVISION)
         for slot in ('old_api', 'old_worker'):
             identifier = self.identities[slot]
             item = self.runtime.inspect(identifier)
             expected = {'id': identifier, 'name': 'asb-pilot-' + slot.removeprefix('old_'),
-                        'image_id': self.image_ids[slot], 'running': False, 'restart_policy': 'no'}
+                        'image_id': self.image_ids[slot],
+                        'running': worker_running and slot == 'old_worker', 'restart_policy': 'no'}
             if item != expected:
                 raise PilotAdapterError('Original container changed during storage detach')
-        self._start_generation('old_')
+        self._start_generation('old_', worker_running=worker_running)
         self._wait_api_and_worker(original=True)
         self.runtime._run('start', self.proxy_id)
         self._verify_proxy()

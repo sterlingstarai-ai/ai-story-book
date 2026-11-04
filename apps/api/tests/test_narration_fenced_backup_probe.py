@@ -86,6 +86,45 @@ def test_remote_manifest_mismatch_rejects_before_restore(context):
     assert not state['active']
 
 
+@pytest.mark.parametrize('writes_resume', [False, True])
+def test_offhost_restore_requires_gcs_freeze_through_final_verification(context, monkeypatch, writes_resume):
+    from base64 import b64encode
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    module, state, events, kwargs = context
+    attestation = importlib.import_module('narration_detach_attestation')
+    signer = Ed25519PrivateKey.generate()
+    state['writable'] = False
+
+    def verify_frozen(_values, _canary):
+        assert state['active']
+        events.append('freeze')
+        if state['writable']:
+            raise module.FencedBackupProbeError('GCS became writable')
+
+    capture = module.capture_quiesced_backup
+
+    def backup(**options):
+        options['verify_storage_fence']()
+        return capture(**options)
+
+    def attest(challenge):
+        state['writable'] = writes_resume
+        return b64encode(signer.sign(attestation._fresh_message(challenge))).decode('ascii')
+
+    monkeypatch.setattr(module, 'verify_frozen_gcs_writer', verify_frozen)
+    monkeypatch.setattr(module, 'capture_quiesced_backup', backup)
+    kwargs.update(image_id=None, freeze_canary='asb-narration-freeze-canary-' + 'd' * 32,
+                  offhost_restore=(signer.public_key(), attest))
+    if writes_resume:
+        with pytest.raises(module.FencedBackupProbeError, match='GCS became writable'):
+            module.capture_and_probe(**kwargs)
+    else:
+        assert module.capture_and_probe(**kwargs)['media_restore_verified'] is True
+    assert events == ['freeze', 'freeze', 'backup', 'verify', 'remote', 'verify', 'freeze']
+    assert not state['active']
+
+
 @pytest.mark.parametrize('alter', [None, 'nonce', 'manifest_sha256', 'journal_sha256', 'issued_at'])
 def test_offhost_restore_is_bound_to_exact_fenced_backup(context, monkeypatch, alter):
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey

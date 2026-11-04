@@ -26,7 +26,7 @@ class NarrationBackupError(RuntimeError):
 
 
 def capture_quiesced_backup(*, values, ca_file, output_dir, store, verify_journal, fence=None,
-                            verify_empty_media=None):
+                            verify_empty_media=None, verify_storage_fence=None):
     """Create and independently recheck remote bytes, retaining the DB fence.
 
     `verify_journal` must independently compare current outbox to the protected
@@ -46,6 +46,8 @@ def capture_quiesced_backup(*, values, ca_file, output_dir, store, verify_journa
     manager = PostgresBackupFence(environment) if fence is None else nullcontext(fence)
     with manager as fence:
         fence.verify()
+        if verify_storage_fence is not None:
+            verify_storage_fence()
         revision = run_pg(QUERY + ['SELECT version_num FROM public.alembic_version ORDER BY version_num'], environment).strip()
         if revision != SOURCE_REVISION.encode():
             raise NarrationBackupError('Unexpected source database revision')
@@ -67,6 +69,8 @@ def capture_quiesced_backup(*, values, ca_file, output_dir, store, verify_journa
             assert_quiescent(environment, QUERY)
             if verify_journal() != before:
                 raise NarrationBackupError('Privacy journal changed before backup completion')
+            if verify_storage_fence is not None:
+                verify_storage_fence()
             if verify_empty_media is not None:
                 verify_empty_media()
                 return
