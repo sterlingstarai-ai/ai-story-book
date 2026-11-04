@@ -1,6 +1,7 @@
 // Real native audio plugin lifecycle, independent of provider billing/voices.
-import 'dart:io';
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:ai_story_book/services/page_audio_playback.dart';
@@ -85,6 +86,43 @@ void main() {
         playback.dispose();
         await native.dispose();
         await file.delete();
+      }
+    },
+    skip: !Platform.isIOS && !Platform.isAndroid,
+  );
+
+  testWidgets(
+    'native player decodes and advances all bundled narrator previews',
+    (tester) async {
+      final player = AudioPlayer();
+      final errors = <Object>[];
+      try {
+        for (final prefix in [
+          'narration_preview',
+          'narration_preview_google',
+          'narration_preview_google_male',
+        ]) {
+          for (final style in ['natural', 'animated', 'bedtime']) {
+            final asset = 'assets/audio/${prefix}_$style.mp3';
+            final duration = await player.setAsset(asset);
+            expect(
+              duration,
+              greaterThan(const Duration(seconds: 1)),
+              reason: asset,
+            );
+            final progress = player.positionStream.firstWhere(
+              (position) => position >= const Duration(milliseconds: 250),
+            );
+            unawaited(player.play().catchError(errors.add));
+            await progress.timeout(const Duration(seconds: 8));
+            expect(player.playing, isTrue, reason: asset);
+            await player.stop();
+            expect(player.playing, isFalse, reason: asset);
+          }
+        }
+        expect(errors, isEmpty);
+      } finally {
+        await player.dispose();
       }
     },
     skip: !Platform.isIOS && !Platform.isAndroid,

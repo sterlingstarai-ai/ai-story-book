@@ -6,6 +6,7 @@
 - 처음 자동 생성에서는 4쪽에서 아이들이 설계도를 보며 의논하는 대신 역할 카드에 그림을 그리는 장면이 들어가 품질 검사에서 거절됐다. 4쪽만 별도 교정하고 전권 삽화 검사를 통과했다. 자동 생성 실패 기록을 보존했다. 새 책의 글·삽화 생성 및 교정 지침에는 본문에서 계획하는 일을 현재 수행 중인 행동으로 바꾸지 않도록 반영했다. [자동 생성 결과](acceptance/2026-11-04-manual-review-age7to9/result.json) · [교정본 결과](acceptance/2026-11-04-manual-review-age7to9-corrected/result.json)
 - 같은 7–9세 교정본을 호환 모드를 끈 16 KiB Android 가상 기기에서 검사했다. 한 번의 실행으로 표지와 본문 삽화 13장을 화면에서 디코딩하고, 보관한 구연동화 낭독이 1–12쪽을 순서대로 재생한 뒤 완독을 기록하는 것을 확인했다. 캡처에서 확인한 수면 모드 상태바 대비는 이후 수정했고, 작은 화면의 하단 버튼과 함께 위젯 테스트로 검증했다. [Android 결과](acceptance/2026-11-05-android-age7to9/result.json)
 - 동화 만들기 화면에서도 이야기 성우·구연동화·잠자리 세 스타일의 한국어 샘플을 비교할 수 있다. 설정과 같은 내장 샘플을 사용하며, 새 동화 요청이나 크레딧 차감 없이 들어볼 수 있다. 320×480 화면과 글자 크기 140%에서 세 버튼과 닫기를 검사했다. [미리 듣기 화면](acceptance/2026-11-05-create-narration-preview/create-narration-previews-small.png)
+- 미리 듣기가 포함된 `3a2252a`의 내장 샘플 9개를 iOS 27.2 시뮬레이터와 호환 모드를 끈 16 KiB Android 가상 기기에서 각각 재생해 네이티브 플레이어의 재생 위치가 움직이는지 확인했다. 개발용 iOS 앱과 Android 번들에도 동일한 파일 9개가 포함됐고, Android arm64 라이브러리는 ELF 구간 정렬이 16 KiB 이상이다. iOS 개발용 앱은 무서명이며 Android 번들은 디버그 서명이다. 공개 정책 URL 없는 iOS 릴리스 빌드는 컴파일 단계에서 차단됐다. [빌드와 검증 기록](acceptance/2026-11-05-native-narration-previews/result.json)
 
 ## 2026-11-04 후보 재검증
 
@@ -147,7 +148,7 @@ ImagePrompts 보완 전 전체 검사 **1,169개 통과**는 [별도 스냅샷](
 ## 배포 순서
 
 1. [DEPLOYMENT.md](DEPLOYMENT.md)에 따라 운영 서버·DNS·TLS와 비공개 미디어를 구성합니다. 앱과 API의 URL은 HTTPS로 고정합니다.
-2. `infra/.env.example` 계약을 기준으로 운영 설정을 채웁니다. 초기값은 `PURCHASES_ENABLED=false`, `AUDIO_FEATURE_ENABLED=false`, `POD_ORDERING_ENABLED=false`, `IAP_VERIFICATION_MODE=strict`, `DAILY_GENERATION_BUDGET=20`, `LLM_TIMEOUT=90`입니다. 생성 횟수 제한은 금액 한도가 아니므로 공급자 측 예산 설정도 유지합니다.
+2. `infra/.env.example` 계약을 기준으로 별도 베타 환경을 구성합니다. 초대 계정 해시와 함께 `GENERATION_ACCESS_MODE=invite_only`, `FREE_PLAN_FIRST_BOOK_TRIAL=true`를 설정합니다. 낭독은 `AUDIO_FEATURE_ENABLED=true`, `AUDIO_NARRATION_ONLY_ENABLED=true`, `TTS_PROVIDER=google_gemini`로 설정합니다. `PURCHASES_ENABLED=false`, `POD_ORDERING_ENABLED=false`, `IAP_VERIFICATION_MODE=strict`, `DAILY_GENERATION_BUDGET=20`, `LLM_TIMEOUT=90`을 적용합니다. 공유 생성 한도와 별도로 Gemini 일일·월간 한도에 12쪽 낭독 여유가 있어야 합니다. 생성 횟수 제한은 금액 한도가 아니므로 공급자 측 예산 설정도 유지합니다.
 3. 실제 공개 개인정보처리방침·이용약관·지원 페이지가 로그인 없이 열리는지 확인합니다. 호스팅 서비스의 기본 HTTPS 주소도 사용할 수 있으며 별도 도메인은 필수가 아닙니다. `PRIVACY_POLICY_URL`·`TERMS_OF_SERVICE_URL`은 운영자·모바일 빌드 설정이므로 백엔드 Settings나 API/worker Compose 환경에 전달하지 않습니다. 아래 세 환경 변수에는 실제 검증한 주소를 먼저 설정해야 합니다. 미설정이면 명령이 중단되며, 예시 주소를 실제 운영 주소로 간주하지 않습니다. 이후 검증을 통과시키고 SHA 이미지가 GHCR에 존재하는지 확인합니다.
 
 ```bash
@@ -156,7 +157,7 @@ ImagePrompts 보완 전 전체 검사 **1,169개 통과**는 [별도 스냅샷](
 : "${TERMS_OF_SERVICE_URL:?실제 공개 HTTPS 이용약관 주소를 설정하세요}"
 export PROD_API_URL PRIVACY_POLICY_URL TERMS_OF_SERVICE_URL
 ./scripts/check-env.sh --mode production --env-file infra/.env
-./scripts/final-external-preflight.sh --env-file infra/.env --json
+./scripts/final-external-preflight.sh --free-beta --env-file infra/.env --json
 ./scripts/run_backup_restore_rehearsal.sh
 ```
 
