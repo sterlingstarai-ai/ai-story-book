@@ -444,24 +444,11 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
               child: const ColoredBox(color: Colors.black),
             ),
           ),
-          if (_sleepModeEnabled)
+          if (_sleepModeEnabled && !_showControls)
             Positioned(
               top: MediaQuery.of(context).padding.top + AppSpacing.md,
               right: AppSpacing.md,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.sm,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.blackOverlayStrong,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  l.viewerSleepRemaining(_sleepRemainingText()),
-                  style: AppTextStyles.caption.copyWith(color: Colors.white),
-                ),
-              ),
+              child: IgnorePointer(child: _buildSleepBadge(l)),
             ),
         ],
       ),
@@ -759,6 +746,22 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   bool _audioSupportedFrom(Map<String, dynamic>? caps) =>
       caps?['audio_supported'] == true;
 
+  Widget _buildSleepBadge(AppLocalizations l) => Container(
+    key: const Key('viewer_sleep_countdown'),
+    padding: const EdgeInsets.symmetric(
+      horizontal: AppSpacing.sm,
+      vertical: AppSpacing.xs,
+    ),
+    decoration: BoxDecoration(
+      color: AppColors.blackOverlayStrong,
+      borderRadius: BorderRadius.circular(999),
+    ),
+    child: Text(
+      l.viewerSleepRemaining(_sleepRemainingText()),
+      style: AppTextStyles.caption.copyWith(color: Colors.white),
+    ),
+  );
+
   Widget _buildControls(BookResult book, int totalPages) {
     final l = AppLocalizations.of(context);
     final audioOk = narrationSupported(
@@ -851,8 +854,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
               // 학습 모드 상시 진입(C1: 옵션 메뉴 깊숙이 → 하단 상시 노출로 접근성↑)
               _buildLearningBar(book),
               // 페이지 인디케이터 (텍스트형으로 오버플로우 방지)
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.xs,
                 children: [
                   Container(
                     padding: const EdgeInsets.symmetric(
@@ -872,6 +877,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                       ),
                     ),
                   ),
+                  if (_sleepModeEnabled && _showControls) _buildSleepBadge(l),
                 ],
               ),
 

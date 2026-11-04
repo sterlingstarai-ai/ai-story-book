@@ -122,6 +122,35 @@ Future<void> _teardownViewer(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets('sleep countdown leaves reader controls reachable', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 480);
+    tester.view.devicePixelRatio = 1;
+    tester.platformDispatcher.textScaleFactorTestValue = 1.4;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    await _pumpViewer(tester, audioSupported: true);
+    final l = AppLocalizations.of(tester.element(find.byType(ViewerScreen)));
+    final more = find.byTooltip(l.viewerMoreOptionsTooltip);
+    final countdown = find.byKey(const Key('viewer_sleep_countdown'));
+
+    await tester.tap(more);
+    await tester.pumpAndSettle();
+    final start = find.text(l.viewerSleepModeStart);
+    await tester.ensureVisible(start);
+    await tester.tap(start);
+    await tester.pumpAndSettle();
+
+    expect(countdown, findsOneWidget);
+    expect(tester.getRect(countdown).overlaps(tester.getRect(more)), isFalse);
+    await tester.tap(more);
+    await tester.pumpAndSettle();
+    expect(find.text(l.viewerSleepModeStop), findsOneWidget);
+    await _teardownViewer(tester);
+  });
+
   for (final export in [
     'cover',
     'pdf',
