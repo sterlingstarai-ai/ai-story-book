@@ -91,7 +91,9 @@ For an isolated integration rehearsal, use the disposable runtime gate:
 
 Use `./scripts/run_runtime_e2e.sh --suite first-book-trial` to verify the single
 signup credit, twelve signed page images, idempotent retry, and exhausted
-credit handling with checkout disabled. AI providers remain deterministic mocks.
+credit handling with checkout disabled. An invited synthetic account generates
+the book. Another synthetic account keeps its credit when generation is denied.
+AI providers remain deterministic mocks.
 
 For a localhost-only interactive review after those checks, add
 `--suite media --serve --api-port 18280`. The runner keeps its isolated source,

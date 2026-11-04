@@ -7,6 +7,7 @@ Illustration review uses a deterministic all-pages test double, not live vision.
 
 import argparse
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -29,6 +30,17 @@ IMAGES = ("postgres:15-alpine", "redis:7-alpine", MINIO_TEST_IMAGE)
 
 class GateFailure(RuntimeError):
     pass
+
+
+def first_book_trial_environment():
+    owner = str(uuid.uuid4())
+    allowed_hash = hashlib.sha256(f"asb:generation-access:v1\0{owner}".encode()).hexdigest()
+    return {
+        "FREE_PLAN_FIRST_BOOK_TRIAL": "true",
+        "GENERATION_ACCESS_MODE": "invite_only",
+        "GENERATION_ALLOWED_USER_HASHES": allowed_hash,
+        "RUNTIME_TRIAL_OWNER": owner,
+    }
 
 
 def clean_environment():
@@ -114,7 +126,7 @@ def private_media_journey(base, env, report):
               "Real database, Redis, storage and job monitor are healthy")
         check(ready.status_code == 503 and services.get("provider_keys") == "unhealthy",
               "Readiness correctly rejects mock provider release configuration")
-        owner = {"X-User-Key": str(uuid.uuid4())}
+        owner = {"X-User-Key": env["RUNTIME_TRIAL_OWNER"] if first_book_trial else str(uuid.uuid4())}
         foreign = {"X-User-Key": str(uuid.uuid4())}
         consent = client.post("/v1/consent", headers=owner, json={
             "privacy": True, "photos": False, "data_processing": True})
@@ -130,6 +142,15 @@ def private_media_journey(base, env, report):
             "topic": "친구와 함께하는 작은 도서관", "language": "ko",
             "target_age": "3-5", "style": "watercolor", "page_count": page_count,
         }
+        if first_book_trial:
+            outsider_consent = client.post("/v1/consent", headers=foreign, json={
+                "privacy": True, "photos": False, "data_processing": True})
+            check(outsider_consent.status_code == 200, "Uninvited account can grant parental consent")
+            denied = client.post("/v1/books", headers=foreign, json=spec)
+            check(denied.status_code == 503 and denied.headers.get("retry-after") == "3600",
+                  "Uninvited account cannot start book generation")
+            check(client.get("/v1/credits/balance", headers=foreign).json().get("credits") == 1,
+                  "Denied request does not spend the uninvited account's trial credit")
         request_headers = {**owner, "X-Idempotency-Key": str(uuid.uuid4())}
         created = client.post("/v1/books", headers=request_headers, json=spec)
         check(created.status_code == 200, "HTTP generation request enters Celery")
@@ -463,7 +484,7 @@ def main():
                 IAP_VERIFICATION_MODE="strict",
                 RATE_LIMIT_REQUESTS="100000", DAILY_GENERATION_BUDGET="100", OBJC_DISABLE_INITIALIZE_FORK_SAFETY="YES")
             if args.suite == "first-book-trial":
-                runtime_env["FREE_PLAN_FIRST_BOOK_TRIAL"] = "true"
+                runtime_env.update(first_book_trial_environment())
             runtime_env[MARKER_NAME] = MARKER_VALUE
             if args.serve:
                 runtime_env["CORS_ORIGINS"] = args.web_origin
