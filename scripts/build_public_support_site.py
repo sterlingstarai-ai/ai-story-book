@@ -1,8 +1,4 @@
-"""Build local app support pages; missing verified contacts/policy approval fails closed.
-
-No hosting command, telemetry, form backend or external network request is made.
-Production policy pages are copied byte-for-byte from explicitly approved files.
-"""
+"""Build app support pages locally or verify their publication over HTTPS."""
 
 import argparse
 from datetime import datetime, timezone
@@ -14,7 +10,10 @@ import json
 from pathlib import Path
 import re
 import shutil
+from tempfile import TemporaryDirectory
+from urllib.error import URLError
 from urllib.parse import quote, urlsplit
+from urllib.request import HTTPRedirectHandler, ProxyHandler, build_opener
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_KEYS = {
@@ -145,6 +144,8 @@ def build(config_path, output_dir, *, preview=False):
         "files": {str(p.relative_to(output_dir)): hashlib.sha256(p.read_bytes()).hexdigest()
                   for p in sorted(output_dir.rglob("*")) if p.is_file()},
     }
+    if not preview:
+        manifest["site_url"] = config["site_url"]
     (output_dir / "build-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     for p in output_dir.rglob("*"):
         if p.is_file():
@@ -152,13 +153,47 @@ def build(config_path, output_dir, *, preview=False):
     return manifest
 
 
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def verify_published(config_path):
+    # Regenerate from the approved inputs instead of trusting a stored manifest.
+    with TemporaryDirectory(prefix="storybook-public-site-") as temporary:
+        output_dir = Path(temporary) / "site"
+        manifest = build(config_path, output_dir)
+        origin = manifest["site_url"].rstrip("/")
+        opener = build_opener(ProxyHandler({}), NoRedirect())
+        for filename in manifest["files"]:
+            relative_path = filename.removesuffix("index.html")
+            media_type = {".css": "text/css", ".txt": "text/plain"}.get(Path(filename).suffix, "text/html")
+            expected = (output_dir / filename).read_bytes()
+            try:
+                with opener.open(f"{origin}/{relative_path}", timeout=10) as response:
+                    require(response.status == 200, "PUBLIC_SITE_HTTP_STATUS_INVALID")
+                    require("Content-Type" in response.headers and response.headers.get_content_type() == media_type,
+                            "PUBLIC_SITE_MEDIA_TYPE_INVALID")
+                    require(response.read(len(expected) + 1) == expected, "PUBLIC_SITE_CONTENT_MISMATCH")
+            except URLError:
+                raise ValueError("PUBLIC_SITE_REQUEST_FAILED") from None
+        return len(manifest["files"])
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", required=True, type=Path)
-    parser.add_argument("--output-dir", required=True, type=Path)
-    parser.add_argument("--private-preview", action="store_true")
+    parser.add_argument("--output-dir", type=Path)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--private-preview", action="store_true")
+    mode.add_argument("--verify-published", action="store_true")
     args = parser.parse_args()
+    if args.verify_published == (args.output_dir is not None):
+        parser.error("--output-dir is required for builds and unavailable with --verify-published")
     try:
+        if args.verify_published:
+            print(json.dumps({"status": "verified", "files_checked": verify_published(args.config)}))
+            return
         result = build(args.config, args.output_dir, preview=args.private_preview)
     except (ValueError, OSError, KeyError, TypeError) as exc:
         # Avoid exposing config values or private paths in build logs.

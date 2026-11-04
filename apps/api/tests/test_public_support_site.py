@@ -1,9 +1,12 @@
 """No network or accounts: public-site builds require actual approval inputs."""
 
+from email.message import Message
 import hashlib
 import importlib.util
+from io import BytesIO
 import json
 from pathlib import Path
+from urllib.error import HTTPError
 
 import pytest
 
@@ -57,6 +60,63 @@ def test_validated_policy_bytes_are_preserved_and_external_deletion_link_exists(
     assert "mailto:support@storybook-fixture.org?subject=" in deletion
     assert "복구 코드, 비밀번호, 아이 사진을 보내지 마세요" in deletion
     assert "<form" not in deletion and "<script" not in deletion
+
+
+@pytest.mark.parametrize("failure,reason", [
+    (None, None),
+    ("old_policy", "PUBLIC_SITE_CONTENT_MISMATCH"),
+    ("redirect", "PUBLIC_SITE_REQUEST_FAILED"),
+    ("wrong_type", "PUBLIC_SITE_MEDIA_TYPE_INVALID"),
+])
+def test_verify_published_checks_exact_public_routes(tmp_path, monkeypatch, failure, reason):
+    config_path, config, _ = fixture_config(tmp_path)
+    output = tmp_path / "production"
+    site.build(config_path, output)
+    origin = config["site_url"]
+    paths = {
+        "/": "index.html", "/privacy/": "privacy/index.html", "/terms/": "terms/index.html",
+        "/support/": "support/index.html", "/delete-account/": "delete-account/index.html",
+        "/site.css": "site.css", "/robots.txt": "robots.txt",
+    }
+    requested = set()
+
+    class Opener:
+        def open(self, url, *, timeout):
+            assert timeout > 0 and url.startswith(origin + "/")
+            path = url.removeprefix(origin)
+            requested.add(path)
+            if path == "/privacy/" and failure == "redirect":
+                raise HTTPError(url, 302, "Found", {}, None)
+            data = (output / paths[path]).read_bytes()
+            response = BytesIO(b"outdated" if path == "/privacy/" and failure == "old_policy" else data)
+            response.status = 200
+            response.headers = Message()
+            response.headers["Content-Type"] = {"/site.css": "text/css", "/robots.txt": "text/plain"}.get(path, "text/html; charset=utf-8")
+            if path == "/privacy/" and failure == "wrong_type":
+                response.headers.replace_header("Content-Type", "text/plain")
+            return response
+
+    def opener_factory(proxy, redirect):
+        assert proxy.proxies == {}
+        assert redirect.redirect_request(None, None, 302, None, None, "https://other-host.org/") is None
+        return Opener()
+
+    monkeypatch.setattr(site, "build_opener", opener_factory)
+    if reason:
+        with pytest.raises(ValueError, match=reason):
+            site.verify_published(config_path)
+    else:
+        assert site.verify_published(config_path) == len(paths)
+        assert requested == set(paths)
+
+
+def test_verify_published_never_contacts_host_for_unapproved_policy(tmp_path, monkeypatch):
+    config_path, config, _ = fixture_config(tmp_path)
+    config["legal_copy_approved"] = False
+    config_path.write_text(json.dumps(config))
+    monkeypatch.setattr(site, "build_opener", lambda *_: pytest.fail("unexpected network access"))
+    with pytest.raises(ValueError, match="APPROVED_POLICY_COPY_REQUIRED"):
+        site.verify_published(config_path)
 
 
 def test_policy_change_after_approval_cannot_be_published(tmp_path):

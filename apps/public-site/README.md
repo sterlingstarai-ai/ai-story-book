@@ -40,4 +40,14 @@ python3 scripts/build_public_support_site.py \
 
 활성 콘텐츠 검사는 스크립트·임베드·폼 태그, 이벤트 속성, HTML 엔티티나 공백으로 숨긴 JavaScript 링크를 잡는 추가 방어다. 모든 HTML 공격을 판정하는 보안 검토나 정책 원문 승인을 대신하지 않는다.
 
-정책 승인과 실제 지원 연락처가 연결된 후 공개 호스팅의 HTTPS, 로그인 없는 접근, 문의 작성 링크, 삭제 요청 접수와 소유 확인을 실제로 검증한다. 모바일에는 `PRIVACY_POLICY_URL`과 `TERMS_OF_SERVICE_URL`을 새 빌드에 명시적으로 전달하고, 스토어에는 지원 URL과 필요한 삭제 리소스 URL을 등록한다.
+## 게시 후 검증
+
+공개 호스팅에 올린 후 저장소 루트에서 실행한다.
+
+```bash
+python3 scripts/build_public_support_site.py \
+  --config /absolute/private/public-site-config.json \
+  --verify-published
+```
+
+승인된 입력에서 임시로 다시 생성한 파일을 공개 HTTPS 응답과 바이트 단위로 대조한다. 다섯 페이지와 CSS, `robots.txt`가 리디렉션이나 로그인 없이 HTTP 200으로 응답하고 올바른 콘텐츠 유형을 반환해야 통과한다. 문의 작성 링크, 삭제 요청 접수와 소유 확인은 운영 절차로 별도 검증한다. 모바일에는 `PRIVACY_POLICY_URL`과 `TERMS_OF_SERVICE_URL`을 새 빌드에 명시적으로 전달하고, 스토어에는 지원 URL과 필요한 삭제 리소스 URL을 등록한다.
