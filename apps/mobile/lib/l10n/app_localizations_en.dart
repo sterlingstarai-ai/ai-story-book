@@ -239,18 +239,41 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get createAgeHelp3to5 =>
-      'Simple words, 1-2 short sentences, repetition and sound words';
+      'Usually 3 short sentences, with simple words, sounds and movement';
 
   @override
   String get createAgeHelp5to7 =>
-      'Familiar words, 2-3 sentences, feelings and simple dialogue';
+      'Usually 3–4 sentences, with reasons and short dialogue';
 
   @override
   String get createAgeHelp7to9 =>
-      'Richer words, 2-4 sentences, cause and effect';
+      'Usually 4–6 sentences, with clues and choices that shape the story';
 
   @override
-  String get createAgeHelpAdult => 'No length limit, dense narrative';
+  String get createAgeHelpAdult =>
+      'More layered storytelling and subtle emotions';
+
+  @override
+  String get createAgePreviewTitle => 'Preview by age';
+
+  @override
+  String get createAgePreviewHide => 'Hide the preview';
+
+  @override
+  String get createAgePreviewCaption =>
+      'The same scene, with a sample of the style and length';
+
+  @override
+  String get createAgePreview3to5 =>
+      'Flutter, flutter! A blue ribbon danced behind the bush. Haru pointed and said, “There’s our kite, Bori! Let’s call our teacher.”';
+
+  @override
+  String get createAgePreview5to7 =>
+      'A blue ribbon peeked out of the bush when the wind blew. Haru recognized it from the kite they had flown that morning. Bori stepped closer, then stopped at the thorns. “Let’s keep an eye on the kite and call our teacher.”';
+
+  @override
+  String get createAgePreview7to9 =>
+      'Haru noticed that the same blue ribbon appeared between the branches every time the wind blew. Bori thought someone might have dropped a piece of string, but Haru spotted two knots at the end. They had tied those knots together when the kite’s tail came loose that morning. Bori stopped at the thorny branches. “Keep watching the ribbon while I get our teacher.”';
 
   @override
   String get createLanguageLabel => 'Story language';
@@ -2260,7 +2283,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get viewerSleepModeDescription =>
-      'Dim screen + auto audio playback + auto page turn';
+      'Dark reading background with continuous narration';
 
   @override
   String get viewerPrint => 'Print';

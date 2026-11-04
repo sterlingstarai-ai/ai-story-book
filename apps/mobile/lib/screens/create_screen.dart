@@ -70,6 +70,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
   late final Future<void> _profileDefaultsReady;
   bool _editedName = false;
   bool _editedAge = false;
+  bool _showAgePreview = false;
 
   TargetAge? _ageChoice;
   TargetAge get _selectedAge =>
@@ -435,6 +436,12 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
         : optionsAsync.asData?.value;
     final allowedStyles = options?.allowedStyles ?? const <BookStyle>[];
     final selectedStyle = _styleFor(options);
+    final agePreview = switch (_selectedAge) {
+      TargetAge.age3to5 => l.createAgePreview3to5,
+      TargetAge.age5to7 => l.createAgePreview5to7,
+      TargetAge.age7to9 => l.createAgePreview7to9,
+      TargetAge.adult => null,
+    };
 
     // 추천 빠른 시작 템플릿 — 보편 테마(글로벌). 탭하면 주제·테마를 채워준다.
     final templates =
@@ -527,6 +534,52 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                 const SizedBox(height: AppSpacing.sm),
                 // 연령별 문체 안내 (선택에 따라 라이브 업데이트)
                 _AgeHelpBanner(text: _ageHelpText(l)),
+                if (agePreview != null) ...[
+                  TextButton.icon(
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size(0, AppSizing.minTouchTarget),
+                    ),
+                    onPressed: () => setState(() {
+                      _showAgePreview = !_showAgePreview;
+                    }),
+                    icon: Icon(
+                      _showAgePreview ? Icons.expand_less : Icons.expand_more,
+                    ),
+                    label: Text(
+                      _showAgePreview
+                          ? l.createAgePreviewHide
+                          : l.createAgePreviewTitle,
+                    ),
+                  ),
+                  if (_showAgePreview)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(AppSpacing.md),
+                      decoration: BoxDecoration(
+                        color: AppPalette.of(context).surface,
+                        borderRadius: BorderRadius.circular(AppRadius.md),
+                        border: Border.all(
+                          color: AppPalette.of(context).divider,
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            l.createAgePreviewCaption,
+                            style: AppTextStyles.caption.copyWith(
+                              color: AppPalette.of(context).textSecondary,
+                            ),
+                          ),
+                          const SizedBox(height: AppSpacing.sm),
+                          Text(
+                            agePreview,
+                            style: AppTextStyles.body.copyWith(height: 1.55),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
 
                 const SizedBox(height: AppSpacing.lg),
 

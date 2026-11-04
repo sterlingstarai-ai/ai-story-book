@@ -229,16 +229,37 @@ class AppLocalizationsJa extends AppLocalizations {
   String get createAgeLabel => 'お子さまの年齢層';
 
   @override
-  String get createAgeHelp3to5 => 'やさしい言葉、1〜2文の短い文、繰り返しと擬音語';
+  String get createAgeHelp3to5 => 'ふだんは短い3文ほど。やさしい言葉と音や動き';
 
   @override
-  String get createAgeHelp5to7 => '身近な言葉、2〜3文、感情と簡単な会話';
+  String get createAgeHelp5to7 => 'ふだんは3〜4文。行動の理由と短い会話';
 
   @override
-  String get createAgeHelp7to9 => '豊かな言葉、2〜4文、原因と結果';
+  String get createAgeHelp7to9 => 'ふだんは4〜6文。手がかりと選択がつながる物語';
 
   @override
-  String get createAgeHelpAdult => '長さ制限なし、密度の高い物語';
+  String get createAgeHelpAdult => '読み応えのある展開と繊細な気持ちの描写';
+
+  @override
+  String get createAgePreviewTitle => '年齢別の本文を試し読み';
+
+  @override
+  String get createAgePreviewHide => '試し読みを閉じる';
+
+  @override
+  String get createAgePreviewCaption => '同じ場面で比べる、文章の雰囲気と長さの例';
+
+  @override
+  String get createAgePreview3to5 =>
+      'ひらひら、しげみのうしろで青いリボンがゆれました。ハルが指さすと、ボリも目を丸くしました。「ぼくたちのたこだ！ 先生を呼ぼう！」';
+
+  @override
+  String get createAgePreview5to7 =>
+      '風がふくと、しげみの間から青いリボンが顔を出しました。ハルは朝、たこに結んだリボンだと気づきました。ボリは一歩近づきましたが、とげを見て立ち止まりました。「ここからたこを見ながら、先生を呼ぼう。」';
+
+  @override
+  String get createAgePreview7to9 =>
+      '風がふくたびに、枝のすき間から同じ青いリボンがのぞくことにハルは気づきました。ボリはだれかが落としたひもだと思いましたが、ハルは先にある二つの結び目を見つけました。朝、たこのしっぽがほどけて、二人で結び直したときの目印でした。ボリはとげのある枝の前で足を止めました。「リボンを見ていて。先生を呼んでくるよ。」';
 
   @override
   String get createLanguageLabel => '物語の言語';
@@ -2152,7 +2173,7 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
-  String get viewerSleepModeDescription => '画面を暗く＋音声自動再生＋ページ自動めくり';
+  String get viewerSleepModeDescription => '暗い背景で読み上げ、次のページへ自動で進みます';
 
   @override
   String get viewerPrint => '印刷する';

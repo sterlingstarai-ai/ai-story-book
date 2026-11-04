@@ -125,8 +125,12 @@ Future<Widget> _app(
 }
 
 void main() {
-  testWidgets('first-book default supports narration and remains editable',
+  testWidgets('first-book age preview compares the same scene before creation',
       (tester) async {
+    tester.view.physicalSize = const Size(393, 852);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(await _app(
       const CreateScreen(),
       capabilities: const {'free_first_book_trial': true},
@@ -134,9 +138,19 @@ void main() {
     await tester.pumpAndSettle();
     final l = await AppLocalizations.delegate.load(const Locale('ko'));
     expect(find.text(l.createAgeHelp3to5), findsOneWidget);
+    expect(find.text(l.createAgePreview3to5), findsNothing);
+    await tester.tap(find.text(l.createAgePreviewTitle));
+    await tester.pumpAndSettle();
+    expect(find.text(l.createAgePreview3to5), findsOneWidget);
     await tester.tap(find.widgetWithText(ChoiceChip, l.libraryAge5to7));
     await tester.pumpAndSettle();
     expect(find.text(l.createAgeHelp5to7), findsOneWidget);
+    expect(find.text(l.createAgePreview5to7), findsOneWidget);
+    await tester.tap(find.widgetWithText(ChoiceChip, l.libraryAge7to9));
+    await tester.pumpAndSettle();
+    expect(find.text(l.createAgePreview7to9), findsOneWidget);
+    expect(find.text(l.createAgePreview3to5), findsNothing);
+    await captureDesign(tester, 'creation-age-preview-7-to-9');
   });
 
   setUpAll(loadDesignFonts);

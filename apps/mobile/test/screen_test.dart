@@ -209,14 +209,13 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // 기본 연령(5-7세) 안내가 표시된다.
-      expect(find.text('익숙한 단어, 2~3문장, 감정과 간단한 대화'), findsOneWidget);
+      final l = AppLocalizations.of(tester.element(find.byType(CreateScreen)));
+      expect(find.text(l.createAgeHelp5to7), findsOneWidget);
 
-      // 다른 연령대(3-5세)를 선택하면 안내가 라이브로 갱신된다.
-      await tester.tap(find.text('3-5세'));
+      await tester.tap(find.text(l.libraryAge3to5));
       await tester.pumpAndSettle();
-      expect(find.text('쉬운 단어, 1~2개의 짧은 문장, 반복과 의성어'), findsOneWidget);
-      expect(find.text('익숙한 단어, 2~3문장, 감정과 간단한 대화'), findsNothing);
+      expect(find.text(l.createAgeHelp3to5), findsOneWidget);
+      expect(find.text(l.createAgeHelp5to7), findsNothing);
     });
 
     testWidgets('shows only approved story language chips', (tester) async {

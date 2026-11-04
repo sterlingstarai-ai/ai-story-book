@@ -523,26 +523,62 @@ abstract class AppLocalizations {
   /// No description provided for @createAgeHelp3to5.
   ///
   /// In en, this message translates to:
-  /// **'Simple words, 1-2 short sentences, repetition and sound words'**
+  /// **'Usually 3 short sentences, with simple words, sounds and movement'**
   String get createAgeHelp3to5;
 
   /// No description provided for @createAgeHelp5to7.
   ///
   /// In en, this message translates to:
-  /// **'Familiar words, 2-3 sentences, feelings and simple dialogue'**
+  /// **'Usually 3–4 sentences, with reasons and short dialogue'**
   String get createAgeHelp5to7;
 
   /// No description provided for @createAgeHelp7to9.
   ///
   /// In en, this message translates to:
-  /// **'Richer words, 2-4 sentences, cause and effect'**
+  /// **'Usually 4–6 sentences, with clues and choices that shape the story'**
   String get createAgeHelp7to9;
 
   /// No description provided for @createAgeHelpAdult.
   ///
   /// In en, this message translates to:
-  /// **'No length limit, dense narrative'**
+  /// **'More layered storytelling and subtle emotions'**
   String get createAgeHelpAdult;
+
+  /// No description provided for @createAgePreviewTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Preview by age'**
+  String get createAgePreviewTitle;
+
+  /// No description provided for @createAgePreviewHide.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide the preview'**
+  String get createAgePreviewHide;
+
+  /// No description provided for @createAgePreviewCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'The same scene, with a sample of the style and length'**
+  String get createAgePreviewCaption;
+
+  /// No description provided for @createAgePreview3to5.
+  ///
+  /// In en, this message translates to:
+  /// **'Flutter, flutter! A blue ribbon danced behind the bush. Haru pointed and said, “There’s our kite, Bori! Let’s call our teacher.”'**
+  String get createAgePreview3to5;
+
+  /// No description provided for @createAgePreview5to7.
+  ///
+  /// In en, this message translates to:
+  /// **'A blue ribbon peeked out of the bush when the wind blew. Haru recognized it from the kite they had flown that morning. Bori stepped closer, then stopped at the thorns. “Let’s keep an eye on the kite and call our teacher.”'**
+  String get createAgePreview5to7;
+
+  /// No description provided for @createAgePreview7to9.
+  ///
+  /// In en, this message translates to:
+  /// **'Haru noticed that the same blue ribbon appeared between the branches every time the wind blew. Bori thought someone might have dropped a piece of string, but Haru spotted two knots at the end. They had tied those knots together when the kite’s tail came loose that morning. Bori stopped at the thorny branches. “Keep watching the ribbon while I get our teacher.”'**
+  String get createAgePreview7to9;
 
   /// No description provided for @createLanguageLabel.
   ///
@@ -4135,7 +4171,7 @@ abstract class AppLocalizations {
   /// No description provided for @viewerSleepModeDescription.
   ///
   /// In en, this message translates to:
-  /// **'Dim screen + auto audio playback + auto page turn'**
+  /// **'Dark reading background with continuous narration'**
   String get viewerSleepModeDescription;
 
   /// No description provided for @viewerPrint.

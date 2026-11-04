@@ -3,12 +3,16 @@
 // 감사 확정 #2: 서버 플래그가 readiness에만 배선돼 낭독 UI가 그대로 살아있고 탭마다
 // 에러가 났다. 서버는 capabilities.audio_supported를 내려주고, 뷰어는 그 값으로 낭독
 // 버튼·발음 메뉴를 숨긴다. 이 테스트는 위젯 트리에서 버튼 존재/부재를 직접 확인한다.
+import 'dart:io';
+
 import 'package:ai_story_book/l10n/app_localizations.dart';
 import 'package:ai_story_book/models/job_status.dart';
 import 'package:ai_story_book/providers/providers.dart';
 import 'package:ai_story_book/services/api_client.dart';
+import 'package:ai_story_book/services/book_media_store.dart';
 import 'package:ai_story_book/services/parental_control_service.dart';
 import 'package:ai_story_book/screens/viewer_screen.dart';
+import 'package:ai_story_book/utils/constants.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -19,6 +23,19 @@ import 'package:shared_preferences/shared_preferences.dart';
 class _StubApiClient extends ApiClient {
   _StubApiClient() : super(baseUrl: 'http://127.0.0.1:1', userKey: 'test-user');
   int pdfRequests = 0;
+  int narrationRequests = 0;
+
+  @override
+  Future<String> getPageAudioUrl(
+    String id,
+    int page, {
+    String language = 'ko',
+    String voice = 'default',
+    String style = 'legacy',
+  }) async {
+    narrationRequests++;
+    throw StateError('synthetic narration boundary');
+  }
 
   @override
   Future<List<int>> downloadPdf(String bookId) async {
@@ -39,6 +56,25 @@ class _StubApiClient extends ApiClient {
   }) async => {};
 }
 
+class _EmptyMediaStore extends BookMediaStore {
+  _EmptyMediaStore(SharedPreferences prefs)
+    : super(
+        prefs,
+        baseDirectory: () async => Directory.systemTemp,
+        scopeDigest: 'a' * 64,
+      );
+
+  @override
+  Future<T?> withReadableBook<T>(
+    String bookId,
+    Future<T> Function() operation,
+  ) => operation();
+
+  @override
+  Future<File?> lookup(String bookId, String key, {required String extension}) async =>
+      null;
+}
+
 BookResult _book() => BookResult(
   bookId: 'book-1',
   jobId: 'job-1',
@@ -52,6 +88,7 @@ Future<void> _pumpViewer(
   required bool audioSupported,
   bool? narrationSupported,
   bool podSupported = false,
+  bool stubMedia = false,
   BookResult? book,
   _StubApiClient? api,
   ParentalControlService? parental,
@@ -64,6 +101,13 @@ Future<void> _pumpViewer(
       overrides: [
         sharedPreferencesProvider.overrideWithValue(prefs),
         apiClientProvider.overrideWithValue(api ?? _StubApiClient()),
+        if (stubMedia)
+          bookMediaStoreProvider.overrideWith(
+            (ref) async => BookMediaContext(
+              _EmptyMediaStore(prefs),
+              serverVerified: false,
+            ),
+          ),
         if (parental != null)
           parentalControlServiceProvider.overrideWithValue(parental),
         bookDetailProvider(
@@ -122,6 +166,21 @@ Future<void> _teardownViewer(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets(
+    'tapping the story requests narration and leaves controls visible',
+    (tester) async {
+      final api = _StubApiClient();
+      await _pumpViewer(tester, audioSupported: true, api: api, stubMedia: true);
+      final story = find.text('토끼가 숲으로 갔어요.');
+      expect(story.hitTestable(), findsOneWidget);
+      await tester.tap(story);
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(api.narrationRequests, 1);
+      expect(find.byKey(const Key('viewer_bottom_controls')), findsOneWidget);
+      await _teardownViewer(tester);
+    },
+  );
+
   testWidgets('sleep countdown leaves reader controls reachable', (
     tester,
   ) async {
@@ -135,6 +194,13 @@ void main() {
     final l = AppLocalizations.of(tester.element(find.byType(ViewerScreen)));
     final more = find.byTooltip(l.viewerMoreOptionsTooltip);
     final countdown = find.byKey(const Key('viewer_sleep_countdown'));
+    final controls = find.byKey(const Key('viewer_bottom_controls'));
+    expect(
+      tester.getRect(find.byType(PageView)).bottom,
+      tester.getRect(controls).top,
+    );
+    expect(tester.getSize(more).height, greaterThanOrEqualTo(64));
+    expect(find.byTooltip(l.viewerCloseTooltip), findsNothing);
 
     await tester.tap(more);
     await tester.pumpAndSettle();
@@ -144,10 +210,25 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(countdown, findsOneWidget);
+    expect(
+      find.ancestor(
+        of: find.byKey(const ValueKey('reader-content-1')),
+        matching: find.byWidgetPredicate(
+          (widget) =>
+              widget is ColoredBox &&
+              widget.color == const AppPalette(true).background,
+        ),
+      ),
+      findsOneWidget,
+    );
     expect(tester.getRect(countdown).overlaps(tester.getRect(more)), isFalse);
+    // The synthetic client cannot supply audio, so let its error snackbar exit.
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
     await tester.tap(more);
     await tester.pumpAndSettle();
     expect(find.text(l.viewerSleepModeStop), findsOneWidget);
+    expect(find.text(l.viewerCloseTooltip), findsOneWidget);
     await _teardownViewer(tester);
   });
 
@@ -245,10 +326,10 @@ void main() {
     final illustration = find.byWidgetPredicate(
       (widget) => widget is Semantics && widget.properties.label == '1페이지 삽화',
     );
-    final closeButton = find.byTooltip('닫기');
+    final controls = find.byKey(const Key('viewer_bottom_controls'));
     expect(
-      tester.getRect(illustration).top,
-      greaterThanOrEqualTo(tester.getRect(closeButton).bottom),
+      tester.getRect(illustration).bottom,
+      lessThanOrEqualTo(tester.getRect(controls).top),
     );
     await tester.ensureVisible(story);
     await tester.pump();
@@ -304,7 +385,7 @@ void main() {
     },
   );
 
-  testWidgets('reader keeps artwork below the title and iPhone cutout', (
+  testWidgets('reader leaves the iPhone cutout clear without a title bar', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(402, 874);
@@ -317,11 +398,9 @@ void main() {
     final illustration = find.byWidgetPredicate(
       (widget) => widget is Semantics && widget.properties.label == '1페이지 삽화',
     );
-    expect(
-      tester.getRect(illustration).top,
-      greaterThanOrEqualTo(tester.getRect(find.byTooltip('닫기')).bottom),
-    );
-    expect(tester.getRect(illustration).top, greaterThan(62));
+    expect(find.byTooltip('닫기'), findsNothing);
+    expect(tester.getRect(illustration).top, greaterThanOrEqualTo(62));
+    expect(tester.getRect(illustration).top, lessThan(70));
     expect(tester.takeException(), isNull);
     await _teardownViewer(tester);
   });
@@ -357,7 +436,8 @@ void main() {
   testWidgets('오디오 지원 배포에서는 낭독 버튼이 노출된다 (과잉 차단 방지)', (tester) async {
     await _pumpViewer(tester, audioSupported: true);
     expect(find.byIcon(Icons.volume_up), findsOneWidget);
-    expect(find.text('AI 낭독'), findsOneWidget);
+    final l = AppLocalizations.of(tester.element(find.byType(ViewerScreen)));
+    expect(find.byTooltip(l.viewerPlayAudioTooltip), findsOneWidget);
     await _teardownViewer(tester);
   });
 

@@ -230,16 +230,37 @@ class AppLocalizationsKo extends AppLocalizations {
   String get createAgeLabel => '아이 연령대';
 
   @override
-  String get createAgeHelp3to5 => '쉬운 단어, 1~2개의 짧은 문장, 반복과 의성어';
+  String get createAgeHelp3to5 => '쉬운 말로 보통 3개의 짧은 문장, 소리와 움직임';
 
   @override
-  String get createAgeHelp5to7 => '익숙한 단어, 2~3문장, 감정과 간단한 대화';
+  String get createAgeHelp5to7 => '보통 3~4문장, 행동의 이유와 짧은 대화';
 
   @override
-  String get createAgeHelp7to9 => '풍부한 단어, 2~4문장, 원인과 결과';
+  String get createAgeHelp7to9 => '보통 4~6문장, 단서와 선택이 이어지는 이야기';
 
   @override
-  String get createAgeHelpAdult => '길이 제한 없음, 밀도 있는 서사';
+  String get createAgeHelpAdult => '쪽마다 밀도 있는 서사와 섬세한 감정';
+
+  @override
+  String get createAgePreviewTitle => '연령별 본문 예시';
+
+  @override
+  String get createAgePreviewHide => '본문 예시 접기';
+
+  @override
+  String get createAgePreviewCaption => '같은 장면의 문체와 분량 예시';
+
+  @override
+  String get createAgePreview3to5 =>
+      '팔랑팔랑, 덤불 뒤에서 파란 리본이 흔들렸어요. 하루가 손가락으로 가리키자 보리도 눈을 크게 떴어요. “저기 우리 연이 있으니 선생님을 부르자!”';
+
+  @override
+  String get createAgePreview5to7 =>
+      '바람이 불자 덤불 사이로 파란 리본이 고개를 내밀었어요. 하루는 아침에 연에 묶었던 리본인 걸 알아봤어요. 보리가 한 걸음 다가가다가 가시를 보고 멈췄어요. “여기서 연을 지켜보며 선생님을 부르자.”';
+
+  @override
+  String get createAgePreview7to9 =>
+      '하루는 바람이 불 때마다 덤불 틈에서 같은 파란 리본이 나타나는 걸 지켜봤어요. 보리는 누군가 흘린 끈이라고 생각했지만, 하루는 리본 끝에 매듭이 두 개 있는 걸 알아봤어요. 아침에 연 꼬리가 풀려서 둘이 함께 묶은 매듭이었거든요. 보리가 가시 돋친 가지 앞에서 멈췄어요. “네가 리본을 보고 있으면 내가 선생님을 불러올게.”';
 
   @override
   String get createLanguageLabel => '이야기 언어';
@@ -2153,7 +2174,7 @@ class AppLocalizationsKo extends AppLocalizations {
   }
 
   @override
-  String get viewerSleepModeDescription => '화면 어둡게 + 오디오 자동재생 + 페이지 자동넘김';
+  String get viewerSleepModeDescription => '어두운 배경에서 낭독하고 다음 쪽으로 자동 이동';
 
   @override
   String get viewerPrint => '인쇄하기';

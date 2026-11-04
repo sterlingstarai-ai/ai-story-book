@@ -268,6 +268,12 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
 
     return Scaffold(
       backgroundColor: Colors.black,
+      bottomNavigationBar: _showControls
+          ? bookAsync.maybeWhen(
+              data: (book) => _buildControls(book, book.pages.length + 1),
+              orElse: () => null,
+            )
+          : null,
       body: bookAsync.when(
         data: (book) => _buildViewer(book),
         loading: () =>
@@ -312,146 +318,121 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     _restoreReadingProgressIfNeeded(totalPages);
     final currentWarning = _currentGenerationWarning(book);
 
-    return GestureDetector(
-      onTap: _toggleControls,
-      child: Stack(
-        children: [
-          // 페이지 뷰
-          PageView.builder(
-            controller: _pageController,
-            itemCount: totalPages,
-            onPageChanged: (index) async {
-              final stopped = _pageAudio.stop();
-              setState(() {
-                _currentPage = index;
-                _audioProgress = 0;
-                _audioProgressPage = index;
-              });
-              if (index > _maxPageReached) {
-                _maxPageReached = index;
-              }
-              unawaited(_saveReadingProgress(index, totalPages));
-              await stopped;
-              if (mounted &&
-                  _currentPage == index &&
-                  _sleepModeEnabled &&
-                  index > 0) {
-                await _playPageAudio(book, restart: true);
-              }
-            },
-            itemBuilder: (context, index) {
-              if (index == 0) {
-                // 표지
-                return _CoverPage(
-                  bookId: book.bookId,
-                  title: book.getTitle(_selectedLanguage),
-                  imageUrl: book.coverImageUrl,
-                  controlsVisible: _showControls,
-                );
-              } else {
-                // 본문 페이지
-                final page = book.pages[index - 1];
-                final secondaryText = _dualLanguageEnabled
-                    ? (_selectedLanguage == 'ko' ? page.textEn : page.textKo)
-                    : null;
-                return _ContentPage(
-                  bookId: book.bookId,
-                  topControlsInset: _showControls
-                      ? MediaQuery.paddingOf(context).top +
-                            AppSizing.minTouchTarget +
-                            AppSpacing.sm * 2
-                      : MediaQuery.paddingOf(context).top,
-                  controlsInset: _showControls
-                      ? 144 +
-                            (page.hasLearningContent ? 80 : 0) +
-                            MediaQuery.paddingOf(context).bottom +
-                            (MediaQuery.textScalerOf(context).scale(24) - 24)
-                                .clamp(0, 48)
-                      : 0,
-                  onComplete: index == totalPages - 1 && !_completionHandled
-                      ? () => _completeReading(book)
-                      : null,
-                  pageNumber: page.pageNumber,
-                  text: page.getText(_selectedLanguage),
-                  secondaryText: secondaryText,
-                  imageUrl: page.imageUrl,
-                  page: page,
-                  selectedLanguage: _selectedLanguage,
-                  followReadingEnabled: _followReadingEnabled,
-                  followProgress: _audioProgressPage == index
-                      ? _audioProgress
-                      : 0,
-                  onShowLearning: () => _showLearningMode(book, page),
-                );
-              }
-            },
-          ),
-          if (currentWarning != null)
-            Positioned(
-              top: MediaQuery.of(context).padding.top + AppSpacing.md,
-              left: AppSpacing.md,
-              right: AppSpacing.md,
-              child: IgnorePointer(
-                ignoring: true,
-                child: AnimatedOpacity(
-                  opacity: _showControls ? 1 : 0.92,
-                  duration: const Duration(milliseconds: 200),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.md,
-                      vertical: AppSpacing.sm,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.warning.withValues(alpha: 0.92),
-                      borderRadius: BorderRadius.circular(AppRadius.md),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          Icons.warning_amber_rounded,
-                          color: Colors.white,
-                        ),
-                        const SizedBox(width: AppSpacing.sm),
-                        Expanded(
-                          child: Text(
-                            currentWarning.message,
-                            style: AppTextStyles.bodySmall.copyWith(
-                              color: Colors.white,
-                            ),
+    final audioOk = narrationSupported(
+      ref.watch(capabilitiesProvider).valueOrNull,
+    );
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // 페이지 뷰
+        PageView.builder(
+          controller: _pageController,
+          itemCount: totalPages,
+          onPageChanged: (index) async {
+            final stopped = _pageAudio.stop();
+            setState(() {
+              _currentPage = index;
+              _audioProgress = 0;
+              _audioProgressPage = index;
+            });
+            if (index > _maxPageReached) {
+              _maxPageReached = index;
+            }
+            unawaited(_saveReadingProgress(index, totalPages));
+            await stopped;
+            if (mounted &&
+                _currentPage == index &&
+                _sleepModeEnabled &&
+                index > 0) {
+              await _playPageAudio(book, restart: true);
+            }
+          },
+          itemBuilder: (context, index) {
+            if (index == 0) {
+              // 표지
+              return _CoverPage(
+                bookId: book.bookId,
+                title: book.getTitle(_selectedLanguage),
+                imageUrl: book.coverImageUrl,
+                onTap: _toggleControls,
+              );
+            } else {
+              // 본문 페이지
+              final page = book.pages[index - 1];
+              final secondaryText = _dualLanguageEnabled
+                  ? (_selectedLanguage == 'ko' ? page.textEn : page.textKo)
+                  : null;
+              return _ContentPage(
+                bookId: book.bookId,
+                showInlineLearning: !_showControls,
+                sleepMode: _sleepModeEnabled,
+                onIllustrationTap: _toggleControls,
+                onNarrate: audioOk && index == _currentPage
+                    ? () {
+                        if (!_showControls)
+                          setState(() => _showControls = true);
+                        unawaited(_toggleAudio(book));
+                      }
+                    : null,
+                onComplete: index == totalPages - 1 && !_completionHandled
+                    ? () => _completeReading(book)
+                    : null,
+                pageNumber: page.pageNumber,
+                text: page.getText(_selectedLanguage),
+                secondaryText: secondaryText,
+                imageUrl: page.imageUrl,
+                page: page,
+                selectedLanguage: _selectedLanguage,
+                followReadingEnabled: _followReadingEnabled,
+                followProgress: _audioProgressPage == index
+                    ? _audioProgress
+                    : 0,
+                onShowLearning: () => _showLearningMode(book, page),
+              );
+            }
+          },
+        ),
+        if (currentWarning != null)
+          Positioned(
+            top: MediaQuery.of(context).padding.top + AppSpacing.md,
+            left: AppSpacing.md,
+            right: AppSpacing.md,
+            child: IgnorePointer(
+              ignoring: true,
+              child: AnimatedOpacity(
+                opacity: _showControls ? 1 : 0.92,
+                duration: const Duration(milliseconds: 200),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.md,
+                    vertical: AppSpacing.sm,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.warning.withValues(alpha: 0.92),
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.warning_amber_rounded,
+                        color: Colors.white,
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: Text(
+                          currentWarning.message,
+                          style: AppTextStyles.bodySmall.copyWith(
+                            color: Colors.white,
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
               ),
             ),
-
-          // 컨트롤
-          IgnorePointer(
-            ignoring: !_showControls,
-            child: AnimatedOpacity(
-              opacity: _showControls ? 1.0 : 0.0,
-              duration: const Duration(milliseconds: 200),
-              child: _buildControls(book, totalPages),
-            ),
           ),
-          IgnorePointer(
-            ignoring: true,
-            child: AnimatedOpacity(
-              opacity: _sleepModeEnabled ? 0.34 : 0,
-              duration: const Duration(milliseconds: 200),
-              child: const ColoredBox(color: Colors.black),
-            ),
-          ),
-          if (_sleepModeEnabled && !_showControls)
-            Positioned(
-              top: MediaQuery.of(context).padding.top + AppSpacing.md,
-              right: AppSpacing.md,
-              child: IgnorePointer(child: _buildSleepBadge(l)),
-            ),
-        ],
-      ),
+      ],
     );
   }
 
@@ -746,263 +727,162 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   bool _audioSupportedFrom(Map<String, dynamic>? caps) =>
       caps?['audio_supported'] == true;
 
-  Widget _buildSleepBadge(AppLocalizations l) => Container(
-    key: const Key('viewer_sleep_countdown'),
-    padding: const EdgeInsets.symmetric(
-      horizontal: AppSpacing.sm,
-      vertical: AppSpacing.xs,
-    ),
-    decoration: BoxDecoration(
-      color: AppColors.blackOverlayStrong,
-      borderRadius: BorderRadius.circular(999),
-    ),
-    child: Text(
-      l.viewerSleepRemaining(_sleepRemainingText()),
-      style: AppTextStyles.caption.copyWith(color: Colors.white),
-    ),
-  );
-
   Widget _buildControls(BookResult book, int totalPages) {
     final l = AppLocalizations.of(context);
+    final palette = _sleepModeEnabled
+        ? const AppPalette(true)
+        : AppPalette.of(context);
     final audioOk = narrationSupported(
       ref.watch(capabilitiesProvider).valueOrNull,
     );
-    return Column(
-      children: [
-        // 상단 바
-        Container(
-          padding: EdgeInsets.only(
-            top: MediaQuery.of(context).padding.top + AppSpacing.sm,
-            left: AppSpacing.md,
-            right: AppSpacing.md,
-            bottom: AppSpacing.sm,
-          ),
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                AppColors.blackOverlayStrong,
-                AppColors.blackOverlayStrong,
-                Colors.transparent,
-              ],
-              stops: [0, 0.9, 1],
-            ),
-          ),
-          child: Row(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.close, color: Colors.white),
-                tooltip: l.viewerCloseTooltip,
-                onPressed: () => Navigator.pop(context),
-              ),
-              Expanded(
-                child: Text(
-                  book.getTitle(_selectedLanguage),
-                  style: AppTextStyles.heading3.copyWith(color: Colors.white),
-                  textAlign: TextAlign.center,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              // 언어 토글 버튼
-              _LanguageToggle(
-                selectedLanguage: _selectedLanguage,
-                hasTranslation: book.titleKo != null || book.titleEn != null,
-                onToggle: () async {
-                  final wasPlaying = _isPlaying;
-                  await _pageAudio.stop();
-                  if (!mounted) {
-                    return;
-                  }
-                  setState(() {
-                    _selectedLanguage = _selectedLanguage == 'ko' ? 'en' : 'ko';
-                  });
-                  if (wasPlaying && _currentPage > 0) {
-                    await _toggleAudio(book);
-                  }
-                },
-              ),
-              IconButton(
-                icon: const Icon(Icons.more_vert, color: Colors.white),
-                tooltip: l.viewerMoreOptionsTooltip,
-                onPressed: () => _showOptionsMenu(book),
-              ),
-            ],
-          ),
-        ),
+    final page = _currentPage > 0 && _currentPage <= book.pages.length
+        ? book.pages[_currentPage - 1]
+        : null;
+    final showLearning =
+        page?.hasLearningContent == true &&
+        MediaQuery.sizeOf(context).width >= 5 * AppSizing.minTouchTarget;
+    const iconSize = 23.0;
+    final buttonStyle = IconButton.styleFrom(
+      minimumSize: const Size.square(AppSizing.minTouchTarget),
+      padding: EdgeInsets.zero,
+      foregroundColor: palette.textPrimary,
+    );
+    final metaStyle = AppTextStyles.caption.copyWith(
+      color: palette.textSecondary,
+    );
 
-        const Spacer(),
-
-        // 하단 바
-        Container(
-          padding: EdgeInsets.only(
-            left: AppSpacing.lg,
-            right: AppSpacing.lg,
-            top: AppSpacing.md,
-            bottom: MediaQuery.of(context).padding.bottom + AppSpacing.md,
-          ),
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.bottomCenter,
-              end: Alignment.topCenter,
-              colors: [AppColors.blackOverlayStrong, Colors.transparent],
-            ),
-          ),
-          child: Column(
-            children: [
-              // 학습 모드 상시 진입(C1: 옵션 메뉴 깊숙이 → 하단 상시 노출로 접근성↑)
-              _buildLearningBar(book),
-              // 페이지 인디케이터 (텍스트형으로 오버플로우 방지)
-              Wrap(
+    return ColoredBox(
+      key: const Key('viewer_bottom_controls'),
+      color: palette.surface,
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Divider(height: 1, color: palette.divider),
+            Padding(
+              padding: const EdgeInsets.only(top: AppSpacing.xs),
+              child: Wrap(
                 alignment: WrapAlignment.center,
                 spacing: AppSpacing.sm,
-                runSpacing: AppSpacing.xs,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.md,
-                      vertical: AppSpacing.xs,
+                  Text(
+                    _currentPage == 0
+                        ? l.viewerCover
+                        : l.viewerPageIndicator(_currentPage, totalPages - 1),
+                    style: metaStyle,
+                  ),
+                  if (_sleepModeEnabled)
+                    Text(
+                      l.viewerSleepRemaining(_sleepRemainingText()),
+                      key: const Key('viewer_sleep_countdown'),
+                      style: metaStyle,
                     ),
-                    decoration: BoxDecoration(
-                      color: AppColors.blackOverlayStrong,
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      _currentPage == 0
-                          ? l.viewerCover
-                          : l.viewerPageIndicator(_currentPage, totalPages - 1),
-                      style: AppTextStyles.caption.copyWith(
-                        color: Colors.white,
+                ],
+              ),
+            ),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  IconButton(
+                    style: buttonStyle,
+                    iconSize: iconSize,
+                    icon: const Icon(Icons.chevron_left),
+                    tooltip: l.viewerPreviousPageTooltip,
+                    onPressed: _currentPage == 0
+                        ? null
+                        : () {
+                            _pageController.previousPage(
+                              duration: const Duration(milliseconds: 300),
+                              curve: Curves.easeInOut,
+                            );
+                          },
+                  ),
+                  if (_currentPage > 0 && audioOk)
+                    IconButton(
+                      style: buttonStyle,
+                      tooltip: _isPlaying
+                          ? l.viewerPauseAudioTooltip
+                          : l.viewerPlayAudioTooltip,
+                      onPressed: _isLoadingAudio
+                          ? null
+                          : () => _toggleAudio(book),
+                      icon: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: palette.primaryLight,
+                          shape: BoxShape.circle,
+                        ),
+                        child: SizedBox.square(
+                          dimension: 38,
+                          child: Center(
+                            child: _isLoadingAudio
+                                ? SizedBox.square(
+                                    dimension: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: palette.primary,
+                                    ),
+                                  )
+                                : Icon(
+                                    _isPlaying ? Icons.pause : Icons.volume_up,
+                                    size: iconSize,
+                                    color: palette.primary,
+                                  ),
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                  if (_sleepModeEnabled && _showControls) _buildSleepBadge(l),
-                ],
-              ),
-
-              const SizedBox(height: AppSpacing.md),
-
-              // 네비게이션 버튼
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  _NavButton(
-                    icon: Icons.chevron_left,
-                    tooltip: l.viewerPreviousPageTooltip,
-                    enabled: _currentPage > 0,
-                    onPressed: () {
-                      _pageController.previousPage(
-                        duration: const Duration(milliseconds: 300),
-                        curve: Curves.easeInOut,
-                      );
-                    },
-                  ),
-                  // 오디오 재생 버튼 (페이지에서만, 오디오 지원 배포에서만)
-                  if (_currentPage > 0 && audioOk)
-                    _AudioButton(
-                      isPlaying: _isPlaying,
-                      isLoading: _isLoadingAudio,
-                      onPressed: () => _toggleAudio(book),
-                    )
-                  else
-                    const SizedBox(width: AppSizing.minTouchTarget),
-                  const SizedBox.shrink(),
-                  _NavButton(
-                    icon: Icons.chevron_right,
+                  IconButton(
+                    style: buttonStyle,
+                    iconSize: iconSize,
+                    icon: const Icon(Icons.chevron_right),
                     tooltip: l.viewerNextPageTooltip,
-                    enabled: _currentPage < totalPages - 1,
-                    onPressed: () {
-                      _pageController.nextPage(
-                        duration: const Duration(milliseconds: 300),
-                        curve: Curves.easeInOut,
-                      );
-                    },
+                    onPressed: _currentPage >= totalPages - 1
+                        ? null
+                        : () {
+                            _pageController.nextPage(
+                              duration: const Duration(milliseconds: 300),
+                              curve: Curves.easeInOut,
+                            );
+                          },
+                  ),
+                  if (showLearning && page != null)
+                    IconButton(
+                      key: const Key('viewer_learning_bar'),
+                      style: buttonStyle,
+                      iconSize: iconSize,
+                      icon: const Icon(Icons.menu_book_rounded),
+                      tooltip: l.viewerLearn,
+                      onPressed: () => _showLearningMode(book, page),
+                    ),
+                  IconButton(
+                    style: buttonStyle,
+                    iconSize: iconSize,
+                    icon: const Icon(Icons.more_vert),
+                    tooltip: l.viewerMoreOptionsTooltip,
+                    onPressed: () => _showOptionsMenu(book),
                   ),
                 ],
               ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// 학습 모드 상시 진입 바 — 현재 페이지에 학습 콘텐츠가 있을 때만 노출.
-  /// (커버/콘텐츠 없으면 빈 위젯, 옵션 메뉴를 거치지 않고 한 번에 학습 모드로.)
-  Widget _buildLearningBar(BookResult book) {
-    final l = AppLocalizations.of(context);
-    if (_currentPage <= 0 || _currentPage > book.pages.length) {
-      return const SizedBox.shrink();
-    }
-    final page = book.pages[_currentPage - 1];
-    final vocab = page.vocab?.length ?? 0;
-    final quiz = page.quiz?.length ?? 0;
-    final compr = page.comprehensionQuestions?.length ?? 0;
-    if (vocab == 0 && quiz == 0 && compr == 0) {
-      return const SizedBox.shrink();
-    }
-    final parts = <String>[
-      if (vocab > 0) l.viewerLearningWordCount(vocab),
-      if (quiz > 0) l.viewerLearningQuizCount(quiz),
-      if (compr > 0) l.viewerLearningQuestionCount(compr),
-    ];
-    final label = l.viewerLearningBar(parts.join(' · '));
-    final compact =
-        MediaQuery.sizeOf(context).width < 360 ||
-        MediaQuery.textScalerOf(context).scale(14) > 17;
-    return Semantics(
-      button: true,
-      label: label,
-      excludeSemantics: true,
-      child: Padding(
-        padding: const EdgeInsets.only(bottom: AppSpacing.md),
-        child: GestureDetector(
-          key: const Key('viewer_learning_bar'),
-          onTap: () => _showLearningMode(book, page),
-          child: Container(
-            width: double.infinity,
-            constraints: const BoxConstraints(
-              minHeight: AppSizing.minTouchTarget,
             ),
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.md,
-              vertical: 13,
-            ),
-            decoration: BoxDecoration(
-              color: AppColors.primary,
-              borderRadius: BorderRadius.circular(AppRadius.md),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(
-                  Icons.menu_book_rounded,
-                  color: Colors.white,
-                  size: 18,
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: Text(
-                    compact ? l.viewerLearn : label,
-                    textAlign: TextAlign.center,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 14,
-                      height: 1.3,
-                      letterSpacing: 0,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
+          ],
         ),
       ),
     );
+  }
+
+  Future<void> _toggleLanguage(BookResult book) async {
+    final wasPlaying = _isPlaying;
+    await _pageAudio.stop();
+    if (!mounted) return;
+    setState(() {
+      _selectedLanguage = _selectedLanguage == 'ko' ? 'en' : 'ko';
+    });
+    if (wasPlaying && _currentPage > 0) {
+      await _toggleAudio(book);
+    }
   }
 
   Future<void> _toggleAudio(BookResult book) async {
@@ -1455,6 +1335,30 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            ListTile(
+              minTileHeight: AppSizing.minTouchTarget,
+              leading: const Icon(Icons.close),
+              title: Text(l.viewerCloseTooltip),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.pop(this.context);
+              },
+            ),
+            if (book.titleKo != null || book.titleEn != null)
+              ListTile(
+                minTileHeight: AppSizing.minTouchTarget,
+                leading: const Icon(Icons.swap_horiz),
+                title: Text(l.viewerLanguageToggleTooltip),
+                subtitle: Text(
+                  _selectedLanguage == 'ko'
+                      ? l.viewerLanguageKo
+                      : l.viewerLanguageEn,
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  unawaited(_toggleLanguage(book));
+                },
+              ),
             if (book.learningAssets == null)
               Padding(
                 padding: const EdgeInsets.all(AppSpacing.md),
@@ -2449,91 +2353,94 @@ class _ShareButton extends StatelessWidget {
 /// 표지 페이지
 class _CoverPage extends StatelessWidget {
   final String bookId;
-  final bool controlsVisible;
   final String title;
   final String imageUrl;
+  final VoidCallback onTap;
 
   const _CoverPage({
     required this.bookId,
-    required this.controlsVisible,
     required this.title,
     required this.imageUrl,
+    required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        Semantics(
-          label: l.viewerCoverImageSemantics(title),
-          image: true,
-          child: imageUrl.trim().isEmpty
-              ? Container(
-                  color: AppColors.primary,
-                  child: const Icon(
-                    Icons.auto_stories_rounded,
-                    color: Colors.white,
-                    size: 64,
-                  ),
-                )
-              : ScopedBookImage(
-                  bookId: bookId,
-                  imageUrl: imageUrl,
-                  fit: BoxFit.contain,
-                  placeholder: const Center(
-                    child: CircularProgressIndicator(color: Colors.white),
-                  ),
-                  error: Container(
+    return GestureDetector(
+      onTap: onTap,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Semantics(
+            label: l.viewerCoverImageSemantics(title),
+            image: true,
+            child: imageUrl.trim().isEmpty
+                ? Container(
                     color: AppColors.primary,
                     child: const Icon(
-                      Icons.broken_image,
+                      Icons.auto_stories_rounded,
                       color: Colors.white,
                       size: 64,
                     ),
+                  )
+                : ScopedBookImage(
+                    bookId: bookId,
+                    imageUrl: imageUrl,
+                    fit: BoxFit.contain,
+                    placeholder: const Center(
+                      child: CircularProgressIndicator(color: Colors.white),
+                    ),
+                    error: Container(
+                      color: AppColors.primary,
+                      child: const Icon(
+                        Icons.broken_image,
+                        color: Colors.white,
+                        size: 64,
+                      ),
+                    ),
                   ),
-                ),
-        ),
-        Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [Colors.transparent, AppColors.blackOverlayStrong],
+          ),
+          Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Colors.transparent, AppColors.blackOverlayStrong],
+              ),
             ),
           ),
-        ),
-        Positioned(
-          left: AppSpacing.lg,
-          right: AppSpacing.lg,
-          bottom: controlsVisible ? 160 : 100,
-          child: Text(
-            title,
-            // 표지 제목만 삽화 위에 겹쳐 그린다. 시스템 글자 크기를 그대로 곱하면
-            // 접근성 크기에서 세 줄로 불어나 인물과 그림을 통째로 덮었다(스크롤도 없음).
-            // 본문 글자 크기는 그대로 두고, 이 겹치는 제목만 배율과 줄 수를 제한한다.
-            textScaler: TextScaler.linear(
-              MediaQuery.textScalerOf(context).scale(1.0).clamp(1.0, 1.3),
+          Positioned(
+            left: AppSpacing.lg,
+            right: AppSpacing.lg,
+            bottom: MediaQuery.paddingOf(context).bottom + AppSpacing.xl,
+            child: Text(
+              title,
+              // 표지 제목만 삽화 위에 겹쳐 그린다. 시스템 글자 크기를 그대로 곱하면
+              // 접근성 크기에서 세 줄로 불어나 인물과 그림을 통째로 덮었다(스크롤도 없음).
+              // 본문 글자 크기는 그대로 두고, 이 겹치는 제목만 배율과 줄 수를 제한한다.
+              textScaler: TextScaler.linear(
+                MediaQuery.textScalerOf(context).scale(1.0).clamp(1.0, 1.3),
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 32,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+                shadows: [
+                  Shadow(
+                    offset: Offset(0, 2),
+                    blurRadius: 8,
+                    color: Colors.black54,
+                  ),
+                ],
+              ),
+              textAlign: TextAlign.center,
             ),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 32,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-              shadows: [
-                Shadow(
-                  offset: Offset(0, 2),
-                  blurRadius: 8,
-                  color: Colors.black54,
-                ),
-              ],
-            ),
-            textAlign: TextAlign.center,
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -2542,8 +2449,10 @@ class _CoverPage extends StatelessWidget {
 class _ContentPage extends StatelessWidget {
   final String bookId;
   final VoidCallback? onComplete;
-  final double topControlsInset;
-  final double controlsInset;
+  final bool showInlineLearning;
+  final bool sleepMode;
+  final VoidCallback onIllustrationTap;
+  final VoidCallback? onNarrate;
   final int pageNumber;
   final String text;
   final String? secondaryText;
@@ -2557,8 +2466,10 @@ class _ContentPage extends StatelessWidget {
   const _ContentPage({
     required this.bookId,
     this.onComplete,
-    required this.topControlsInset,
-    required this.controlsInset,
+    required this.showInlineLearning,
+    required this.sleepMode,
+    required this.onIllustrationTap,
+    this.onNarrate,
     required this.pageNumber,
     required this.text,
     this.secondaryText,
@@ -2574,12 +2485,13 @@ class _ContentPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
     final hasLearning = page.hasLearningContent;
+    final palette = AppPalette(sleepMode || AppPalette.of(context).isDark);
 
     return ColoredBox(
-      color: AppColors.background,
+      color: palette.background,
       child: Column(
         children: [
-          SizedBox(height: topControlsInset),
+          SizedBox(height: MediaQuery.paddingOf(context).top),
           Expanded(
             child: LayoutBuilder(
               builder: (context, constraints) {
@@ -2594,39 +2506,42 @@ class _ContentPage extends StatelessWidget {
                           constraints.maxHeight *
                               (onComplete == null ? 0.6 : 0.45),
                         ),
-                        child: Semantics(
-                          label: l.viewerPageImageSemantics(pageNumber),
-                          image: true,
-                          child: imageUrl.trim().isEmpty
-                              ? Container(
-                                  width: double.infinity,
-                                  color: AppColors.divider,
-                                  child: const Icon(
-                                    Icons.image_outlined,
-                                    size: 64,
-                                    color: AppColors.textSecondary,
-                                  ),
-                                )
-                              : ScopedBookImage(
-                                  bookId: bookId,
-                                  imageUrl: imageUrl,
-                                  fit: BoxFit.contain,
-                                  width: double.infinity,
-                                  placeholder: Container(
-                                    color: AppColors.divider,
-                                    child: const Center(
-                                      child: CircularProgressIndicator(),
-                                    ),
-                                  ),
-                                  error: Container(
+                        child: GestureDetector(
+                          onTap: onIllustrationTap,
+                          child: Semantics(
+                            label: l.viewerPageImageSemantics(pageNumber),
+                            image: true,
+                            child: imageUrl.trim().isEmpty
+                                ? Container(
+                                    width: double.infinity,
                                     color: AppColors.divider,
                                     child: const Icon(
-                                      Icons.broken_image,
+                                      Icons.image_outlined,
                                       size: 64,
                                       color: AppColors.textSecondary,
                                     ),
+                                  )
+                                : ScopedBookImage(
+                                    bookId: bookId,
+                                    imageUrl: imageUrl,
+                                    fit: BoxFit.contain,
+                                    width: double.infinity,
+                                    placeholder: Container(
+                                      color: AppColors.divider,
+                                      child: const Center(
+                                        child: CircularProgressIndicator(),
+                                      ),
+                                    ),
+                                    error: Container(
+                                      color: AppColors.divider,
+                                      child: const Icon(
+                                        Icons.broken_image,
+                                        size: 64,
+                                        color: AppColors.textSecondary,
+                                      ),
+                                    ),
                                   ),
-                                ),
+                          ),
                         ),
                       ),
                       Padding(
@@ -2634,35 +2549,36 @@ class _ContentPage extends StatelessWidget {
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            _HighlightedStoryText(
-                              text: text,
-                              progress: followProgress,
-                              enabled: followReadingEnabled,
-                              style: const TextStyle(
-                                fontSize: 20,
-                                height: 1.8,
-                                color: AppColors.textPrimary,
+                            GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: onNarrate,
+                              child: _HighlightedStoryText(
+                                text: text,
+                                progress: followProgress,
+                                enabled: followReadingEnabled,
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  height: 1.8,
+                                  color: palette.textPrimary,
+                                ),
+                                highlightColor: palette.primary,
                               ),
-                              highlightColor: AppColors.primary,
                             ),
                             if (secondaryText != null &&
                                 secondaryText!.trim().isNotEmpty) ...[
                               const SizedBox(height: AppSpacing.lg),
-                              const Divider(
-                                color: AppColors.divider,
-                                height: 1,
-                              ),
+                              Divider(color: palette.divider, height: 1),
                               const SizedBox(height: AppSpacing.lg),
                               _HighlightedStoryText(
                                 text: secondaryText!,
                                 progress: 0,
                                 enabled: false,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 17,
                                   height: 1.7,
-                                  color: AppColors.textSecondary,
+                                  color: palette.textSecondary,
                                 ),
-                                highlightColor: AppColors.primary,
+                                highlightColor: palette.primary,
                               ),
                             ],
                             if (onComplete != null) ...[
@@ -2673,13 +2589,13 @@ class _ContentPage extends StatelessWidget {
                                 onPressed: onComplete,
                               ),
                             ],
-                            if (hasLearning && controlsInset == 0)
+                            if (hasLearning && showInlineLearning)
                               TextButton.icon(
                                 onPressed: onShowLearning,
                                 icon: const Icon(Icons.school, size: 18),
                                 label: Text(l.viewerLearn),
                                 style: TextButton.styleFrom(
-                                  foregroundColor: AppColors.primary,
+                                  foregroundColor: palette.primary,
                                 ),
                               ),
                           ],
@@ -2691,7 +2607,8 @@ class _ContentPage extends StatelessWidget {
               },
             ),
           ),
-          SizedBox(height: controlsInset),
+          if (showInlineLearning)
+            SizedBox(height: MediaQuery.paddingOf(context).bottom),
         ],
       ),
     );
@@ -2755,166 +2672,6 @@ class _HighlightedStoryText extends StatelessWidget {
       text: TextSpan(
         style: DefaultTextStyle.of(context).style.merge(style),
         children: spans,
-      ),
-    );
-  }
-}
-
-/// 네비게이션 버튼
-class _NavButton extends StatelessWidget {
-  final IconData icon;
-  final bool enabled;
-  final VoidCallback onPressed;
-  final String tooltip;
-
-  const _NavButton({
-    required this.icon,
-    required this.enabled,
-    required this.onPressed,
-    required this.tooltip,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      label: tooltip,
-      button: true,
-      enabled: enabled,
-      child: GestureDetector(
-        onTap: enabled ? onPressed : null,
-        child: Container(
-          width: AppSizing.minTouchTarget,
-          height: AppSizing.minTouchTarget,
-          decoration: BoxDecoration(
-            color: enabled ? AppColors.primary : Colors.transparent,
-            borderRadius: BorderRadius.circular(AppSizing.minTouchTarget / 2),
-          ),
-          child: Icon(
-            icon,
-            color: enabled ? Colors.white : AppColors.whiteOverlayLight,
-            size: 32,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 오디오 재생 버튼
-class _AudioButton extends StatelessWidget {
-  final bool isPlaying;
-  final bool isLoading;
-  final VoidCallback onPressed;
-
-  const _AudioButton({
-    required this.isPlaying,
-    required this.isLoading,
-    required this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final l = AppLocalizations.of(context);
-    return Semantics(
-      label: isPlaying ? l.viewerPauseAudioTooltip : l.viewerPlayAudioTooltip,
-      button: true,
-      child: GestureDetector(
-        onTap: isLoading ? null : onPressed,
-        child: Container(
-          width: AppSizing.minTouchTarget,
-          height: AppSizing.minTouchTarget,
-          decoration: BoxDecoration(
-            color: AppColors.primary,
-            borderRadius: BorderRadius.circular(AppSizing.minTouchTarget / 2),
-          ),
-          child: isLoading
-              ? const Padding(
-                  padding: EdgeInsets.all(12),
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
-                )
-              : Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      isPlaying ? Icons.pause : Icons.volume_up,
-                      color: Colors.white,
-                      size: 24,
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Text(
-                          l.viewerAiNarration,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 11,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 언어 토글 버튼
-class _LanguageToggle extends StatelessWidget {
-  final String selectedLanguage;
-  final bool hasTranslation;
-  final VoidCallback onToggle;
-
-  const _LanguageToggle({
-    required this.selectedLanguage,
-    required this.hasTranslation,
-    required this.onToggle,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    if (!hasTranslation) return const SizedBox.shrink();
-
-    final l = AppLocalizations.of(context);
-    return Semantics(
-      label: l.viewerLanguageToggleTooltip,
-      button: true,
-      child: GestureDetector(
-        onTap: onToggle,
-        child: Container(
-          constraints: const BoxConstraints(
-            minWidth: AppSizing.minTouchTarget,
-            minHeight: AppSizing.minTouchTarget,
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: AppColors.whiteOverlay,
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                selectedLanguage == 'ko'
-                    ? l.viewerLanguageKo
-                    : l.viewerLanguageEn,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
-                ),
-              ),
-              const SizedBox(width: 4),
-              const Icon(Icons.swap_horiz, color: Colors.white, size: 16),
-            ],
-          ),
-        ),
       ),
     );
   }
