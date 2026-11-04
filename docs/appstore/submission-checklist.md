@@ -1,6 +1,6 @@
 # Store Submission Checklist
 
-2026-09-06 기준: 무료 제한 베타, 신규 구매·오디오·실물 주문 비활성. 공동 최종 앱 검토 전에는 앱 레코드/식별자 생성, 업로드, 등록, 심사 제출을 실행하지 않는다. 아래 체크는 작업 목록이며 완료 표시는 실제 증거가 있을 때만 한다.
+무료 제한 베타에서는 신규 구매와 실물 주문을 끈다. 낭독은 실제 베타 서버에서 합성과 기기 재생이 검증된 범위로 안내한다. 발음 평가와 가족 음성은 별도 기능으로 취급한다. 공동 최종 앱 검토 전에는 앱 레코드/식별자 생성, 업로드, 등록, 심사 제출을 실행하지 않는다. 아래 체크는 작업 목록이며 완료 표시는 실제 증거가 있을 때만 한다.
 
 ## Common
 - [ ] App name and bundle identifiers are final
@@ -29,7 +29,8 @@
 
 ## Final QA Before Submit
 - [ ] First-run flow: consent -> onboarding -> home
-- [ ] Story creation and viewer flow
+- [ ] Invite-only generation allows an invited account and refuses an uninvited account before paid provider calls
+- [ ] One complete fictional story on each target device, including cover, every illustration, and narration through the last page
 - [ ] New purchase entry points remain disabled; existing restore behavior matches the beta description
 - [ ] Data deletion flow
 - [ ] Offline and network recovery flow

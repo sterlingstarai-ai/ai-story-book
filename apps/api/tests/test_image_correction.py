@@ -58,8 +58,9 @@ def test_full_repair_context_fits_reference_provider_request_without_losing_tail
     # stricter live acceptance request guard with a full negative prompt/reference.
     assert len(wire) <= 5000
     assert original.positive_prompt in wire and narrative in wire
-    assert "Create a new composition for the action" in wire
-    assert "do not invent an alternative event" in wire
+    assert "The narrative overrides conflicting staging" in wire
+    assert "Show all stated actors" in wire
+    assert "Show each prop only in its current state and place" in wire
     assert wire.endswith(original.negative_prompt)
 
 

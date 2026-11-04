@@ -143,6 +143,24 @@ async def test_singleflight_rejects_concurrency_and_holds_lock_on_failure(monkey
 
 
 @pytest.mark.asyncio
+async def test_singleflight_releases_lock_when_local_budget_denies_synthesis(monkeypatch):
+    from src.core.exceptions import APIError
+    from src.core.rate_limit import rate_limiter
+    from src.services.audio_assets import variant_singleflight
+
+    redis = _LockRedis()
+    monkeypatch.setattr(rate_limiter, 'get_redis', AsyncMock(return_value=redis))
+    args = ('user', 'book', 1, 'ko', 'warm')
+    with pytest.raises(APIError, match='daily limit'):
+        async with variant_singleflight(*args):
+            raise APIError(429, 'SERVICE_BUDGET_EXCEEDED', 'daily limit')
+    assert not redis.entries
+    async with variant_singleflight(*args):
+        assert len(redis.entries) == 1
+    assert not redis.entries
+
+
+@pytest.mark.asyncio
 async def test_singleflight_redis_failure_blocks_generation(monkeypatch):
     from src.core.exceptions import APIError
     from src.core.rate_limit import rate_limiter

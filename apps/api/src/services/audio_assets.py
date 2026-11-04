@@ -24,8 +24,8 @@ return redis.call('del', KEYS[1]) else return 0 end"""
 async def variant_singleflight(user_key, book_id, page_number, language, voice, style="legacy", provider="openai"):
     """Suppress duplicate live requests; fail closed if the shared lock is unavailable.
 
-    A failed or cancelled operation keeps its bounded lock until expiry so a
-    potentially still-running provider request is not immediately duplicated.
+    An uncertain failure or cancellation keeps its bounded lock until expiry
+    so a potentially still-running provider request is not duplicated.
     TTL is recovery, not proof against Redis loss or a long network partition.
     """
     identity = '\0'.join((user_key, book_id, str(page_number), language, voice, style, provider))
@@ -39,18 +39,22 @@ async def variant_singleflight(user_key, book_id, page_number, language, voice, 
     if not acquired:
         raise APIError(409, 'AUDIO_GENERATION_IN_PROGRESS', '이 목소리를 생성 중입니다. 잠시 후 다시 시도해 주세요.',
                        headers={'Retry-After': '10'})
+    release_lock = True
     try:
         yield
-    except BaseException:
-        # The remote provider might still process an interrupted request.
+    except BaseException as error:
+        # Both local budget guards reject before sending a synthesis request.
+        release_lock = (
+            isinstance(error, APIError) and error.error_code == 'SERVICE_BUDGET_EXCEEDED'
+        )
         raise
-    else:
-        try:
-            await client.eval(_UNLOCK, 1, key, token)
-        except Exception:
-            # The completed recording is already cached. TTL safely recovers
-            # the lock, and an old owner must not delete a newer owner's lock.
-            pass
+    finally:
+        if release_lock:
+            try:
+                await client.eval(_UNLOCK, 1, key, token)
+            except Exception:
+                # The bounded TTL recovers a lock Redis could not release.
+                pass
 
 
 @dataclass(frozen=True)

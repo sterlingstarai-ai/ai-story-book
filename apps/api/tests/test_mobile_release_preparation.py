@@ -42,6 +42,19 @@ def test_missing_legal_url_and_blank_kakao_key_fail_before_build():
         release.release_configuration({**valid(), 'KAKAO_NATIVE_APP_KEY': ''})
 
 
+@pytest.mark.parametrize('name,value', [
+    ('PROD_API_URL', 'https://8.8.8.8'),
+    ('PROD_API_URL', 'https://api.example.org'),
+    ('PROD_API_URL', 'https://api.story.app?'),
+    ('PRIVACY_POLICY_URL', ' https://story.app/privacy'),
+    ('PRIVACY_POLICY_URL', 'https://story.app/privacy?draft=1'),
+    ('TERMS_OF_SERVICE_URL', 'https://story.app/terms#'),
+])
+def test_release_builder_rejects_urls_the_app_cannot_use(name, value):
+    with pytest.raises(ValueError):
+        release.release_configuration({**valid(), name: value})
+
+
 def test_release_commands_keep_no_coded_api_credentials_and_no_publication():
     values = release.release_configuration(valid())
     android = release.build_command('android', values)

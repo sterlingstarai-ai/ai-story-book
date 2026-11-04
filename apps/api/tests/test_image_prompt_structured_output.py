@@ -28,6 +28,22 @@ def inputs(valid_character):
     return spec, StoryDraft.model_validate(draft), character
 
 
+@pytest.mark.asyncio
+async def test_character_sheet_requests_bounded_style_notes(monkeypatch, valid_character):
+    spec, story, character = inputs(valid_character)
+    payload = character.model_dump()
+    payload["visual_style_notes"] = "a" * 200
+    requests = _mock_provider(monkeypatch, "openai", "gpt-6-astra", payload)
+    result = await llm.call_character_sheet_generation(spec, story)
+    assert result.visual_style_notes == payload["visual_style_notes"]
+    _, request = requests[0]
+    output = request["text"]["format"]
+    assert output["name"] == "character_sheet"
+    assert output["strict"] is True
+    assert output["schema"]["properties"]["visual_style_notes"]["maxLength"] == 200
+    assert "200자를 넘기지 않는다" in request["input"][0]["content"]
+
+
 def test_image_schema_preserves_nulls_and_bounds_without_changing_dto_defaults():
     canonical = ImagePrompts.model_json_schema()
     before = deepcopy(canonical)

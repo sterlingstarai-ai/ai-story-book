@@ -8,6 +8,7 @@ import '../utils/constants.dart';
 import '../widgets/app_shell.dart';
 import '../widgets/common_widgets.dart';
 import '../widgets/scoped_book_image.dart';
+import '../widgets/storybook_illustration.dart';
 import '../widgets/credit_shortage_modal.dart';
 import '../providers/providers.dart';
 import '../services/analytics.dart';
@@ -592,11 +593,12 @@ class _CreateBookCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
+    final palette = AppPalette.of(context);
     return Material(
-      color: AppPalette.of(context).primaryLight,
+      color: palette.primaryLight,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadius.lg),
-        side: const BorderSide(color: AppColors.primaryMedium),
+        borderRadius: BorderRadius.circular(AppRadius.xl),
+        side: BorderSide(color: palette.divider),
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
@@ -604,29 +606,34 @@ class _CreateBookCard extends StatelessWidget {
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.all(AppSpacing.md),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          child: Row(
             children: [
-              Row(
-                children: [
-                  Icon(
-                    Icons.add_rounded,
-                    color: AppPalette.of(context).primary,
-                    size: 32,
-                  ),
-                  const SizedBox(width: AppSpacing.md),
-                  Expanded(
-                    child: Text(
+              StorybookIllustration(width: compact ? 48 : 72),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
                       l.homeCreateCardTitle,
-                      style: AppTextStyles.heading3,
+                      style: AppTextStyles.heading3.copyWith(
+                        color: palette.textPrimary,
+                      ),
                     ),
-                  ),
-                ],
+                    if (!compact) ...[
+                      const SizedBox(height: AppSpacing.xs),
+                      Text(
+                        l.homeCreateCardSubtitle,
+                        style: AppTextStyles.bodySmall.copyWith(
+                          color: palette.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
               ),
-              if (!compact) ...[
-                const SizedBox(height: AppSpacing.sm),
-                Text(l.homeCreateCardSubtitle, style: AppTextStyles.bodySmall),
-              ],
+              const SizedBox(width: AppSpacing.sm),
+              Icon(Icons.chevron_right_rounded, color: palette.primary),
             ],
           ),
         ),

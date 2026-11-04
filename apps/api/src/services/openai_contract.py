@@ -23,6 +23,7 @@ RESPONSES_MODELS = frozenset({"gpt-6-astra", "gpt-5.6-sol", "gpt-5.6"})
 MAX_RESPONSE_OUTPUT_TOKENS = 32_000
 _OUTPUT_FORMAT_NAMES = {
     "StoryDraft": "story_draft", "ImagePrompts": "image_prompts",
+    "CharacterSheet": "character_sheet",
     "BookIllustrationReview": "book_illustration_review",
     "AvatarIllustrationReview": "avatar_illustration_review",
 }

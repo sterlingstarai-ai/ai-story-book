@@ -18,10 +18,10 @@ CORRECTION_INSTRUCTIONS = {
     "duplicate_character": "Draw each named character exactly once; remove clones and extra bystanders.",
     "identity_swap": "Restore each character's own face, hair, outfit and colors; do not exchange identities.",
     "action_mismatch": (
-        "Create a new composition for the action: show actors, contact, direction, destination "
-        "and the required object state; show visible pages in an open book, do not invent a state. "
-        "Ascending and descending differ. Preserve identities, clothing and style; use story props, "
-        "do not invent an alternative event. Do not duplicate a wearable pair in use and on the ground; "
+        "The narrative overrides conflicting staging. Show all stated actors, contact, direction, "
+        "destination and object state; show visible pages in an open book, do not invent a state. "
+        "Ascending and descending differ. Keep identities, clothes and style. Show each prop only "
+        "in its current state and place. Do not duplicate a wearable pair in use and on the ground; "
         "keep story-required spares. Ordinary shoes and unused skates may coexist."
     ),
 }

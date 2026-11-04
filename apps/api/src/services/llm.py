@@ -848,7 +848,11 @@ async def call_character_sheet_generation(
     )
 
     response = await call_llm(
-        system_prompt, user_prompt, max_tokens=2000, temperature=0.7
+        system_prompt,
+        user_prompt,
+        max_tokens=2000,
+        temperature=0.7,
+        response_schema=CharacterSheet.model_json_schema(),
     )
     return parse_json_response(response, CharacterSheet)
 

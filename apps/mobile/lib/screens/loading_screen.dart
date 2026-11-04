@@ -7,6 +7,7 @@ import '../models/models.dart';
 import '../providers/providers.dart';
 import '../utils/constants.dart';
 import '../widgets/common_widgets.dart';
+import '../widgets/storybook_illustration.dart';
 
 /// M29: 실패 잡의 표시 텍스트 조합.
 ///
@@ -87,71 +88,78 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
                   double.infinity,
                 ),
               ),
-              child: jobStatusAsync.when(
-                data: (status) {
-                  // 완료 시 뷰어로 이동 (guard against double navigation)
-                  if (status.isComplete &&
-                      status.result != null &&
-                      !_hasNavigated) {
-                    _hasNavigated = true;
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (mounted) {
-                        ref.invalidate(libraryProvider);
-                        ref.invalidate(libraryBrowseProvider);
-                        Navigator.pushReplacementNamed(
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 460),
+                  child: jobStatusAsync.when(
+                    data: (status) {
+                      // 완료 시 뷰어로 이동 (guard against double navigation)
+                      if (status.isComplete &&
+                          status.result != null &&
+                          !_hasNavigated) {
+                        _hasNavigated = true;
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (mounted) {
+                            ref.invalidate(libraryProvider);
+                            ref.invalidate(libraryBrowseProvider);
+                            Navigator.pushReplacementNamed(
+                              context,
+                              '/viewer',
+                              arguments: status.result!.bookId,
+                            );
+                          }
+                        });
+                        return _buildCompletedContent(l);
+                      }
+
+                      if (status.isComplete && status.result == null) {
+                        return _buildErrorContent(
                           context,
-                          '/viewer',
-                          arguments: status.result!.bookId,
+                          JobStatus(
+                            jobId: widget.jobId,
+                            status: JobState.failed,
+                            progress: status.progress,
+                            errorCode: 'STATUS_UNAVAILABLE',
+                          ),
                         );
                       }
-                    });
-                    return _buildCompletedContent(l);
-                  }
 
-                  if (status.isComplete && status.result == null) {
-                    return _buildErrorContent(
-                      context,
+                      // 실패 시 에러 표시
+                      if (status.isFailed) {
+                        return _buildErrorContent(context, status);
+                      }
+
+                      // 진행 중
+                      return _buildProgressContent(l, status);
+                    },
+                    loading: () => _buildProgressContent(
+                      l,
                       JobStatus(
                         jobId: widget.jobId,
-                        status: JobState.failed,
-                        progress: status.progress,
-                        errorCode: 'STATUS_UNAVAILABLE',
+                        status: JobState.queued,
+                        progress: 0,
+                        currentStep: l.loadingStepWaiting,
                       ),
-                    );
-                  }
-
-                  // 실패 시 에러 표시
-                  if (status.isFailed) {
-                    return _buildErrorContent(context, status);
-                  }
-
-                  // 진행 중
-                  return _buildProgressContent(l, status);
-                },
-                loading: () => _buildProgressContent(
-                  l,
-                  JobStatus(
-                    jobId: widget.jobId,
-                    status: JobState.queued,
-                    progress: 0,
-                    currentStep: l.loadingStepWaiting,
+                    ),
+                    error: (error, _) {
+                      // H17: 폴링 타임아웃은 서버 실패와 구분한다. 원문(TimeoutException…
+                      // 한국어) 노출 대신 로컬라이즈 문구로, 주 액션은 신규 생성이 아니라
+                      // 현재 잡 재조회로(크레딧 재차감·서재 중복 방지).
+                      final isTimeout = error is TimeoutException;
+                      return _buildErrorContent(
+                        context,
+                        JobStatus(
+                          jobId: widget.jobId,
+                          status: JobState.failed,
+                          progress: 0,
+                          errorCode: isTimeout
+                              ? 'TIMEOUT'
+                              : 'STATUS_UNAVAILABLE',
+                        ),
+                      );
+                    },
                   ),
                 ),
-                error: (error, _) {
-                  // H17: 폴링 타임아웃은 서버 실패와 구분한다. 원문(TimeoutException…
-                  // 한국어) 노출 대신 로컬라이즈 문구로, 주 액션은 신규 생성이 아니라
-                  // 현재 잡 재조회로(크레딧 재차감·서재 중복 방지).
-                  final isTimeout = error is TimeoutException;
-                  return _buildErrorContent(
-                    context,
-                    JobStatus(
-                      jobId: widget.jobId,
-                      status: JobState.failed,
-                      progress: 0,
-                      errorCode: isTimeout ? 'TIMEOUT' : 'STATUS_UNAVAILABLE',
-                    ),
-                  );
-                },
               ),
             ),
           ),
@@ -161,58 +169,62 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
   }
 
   Widget _buildProgressContent(AppLocalizations l, JobStatus status) {
+    final palette = AppPalette.of(context);
     return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // 애니메이션 아이콘
-        _AnimatedBookIcon(),
-
+        const Center(child: StorybookIllustration()),
         const SizedBox(height: AppSpacing.xl),
-
-        // 제목
         Text(
           l.loadingTitle,
-          style: AppTextStyles.heading2,
-          textAlign: TextAlign.center,
-        ),
-
-        const SizedBox(height: AppSpacing.sm),
-
-        Text(
-          _getStepDescription(l, status.currentStep, status.progress),
-          style: AppTextStyles.bodySmall,
-          textAlign: TextAlign.center,
-        ),
-
-        const SizedBox(height: AppSpacing.xl),
-
-        // 진행률
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-          child: ProgressIndicatorBar(progress: status.progress),
-        ),
-
-        const SizedBox(height: AppSpacing.xxl),
-
-        // 팁
-        Container(
-          padding: const EdgeInsets.all(AppSpacing.md),
-          decoration: BoxDecoration(
-            color: AppPalette.of(context).primaryLight,
-            borderRadius: BorderRadius.circular(AppRadius.md),
+          style: AppTextStyles.heading1.copyWith(
+            color: palette.textPrimary,
+            height: 1.25,
           ),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: AppSpacing.xl),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            color: palette.surface,
+            border: Border.all(color: palette.divider),
+            borderRadius: BorderRadius.circular(AppRadius.xl),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Semantics(
+                  liveRegion: true,
+                  child: Text(
+                    _getStepDescription(l, status.currentStep, status.progress),
+                    style: AppTextStyles.heading3.copyWith(
+                      color: palette.textPrimary,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                ProgressIndicatorBar(progress: status.progress),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(
-                Icons.lightbulb_outline,
-                color: AppPalette.of(context).primary,
-              ),
+              Icon(Icons.lightbulb_outline, size: 20, color: palette.primary),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Text(
                   _selectedTip(l),
                   style: AppTextStyles.bodySmall.copyWith(
-                    color: AppPalette.of(context).primary,
+                    color: palette.textSecondary,
+                    height: 1.45,
                   ),
                 ),
               ),
@@ -356,78 +368,5 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
   int _pickTipIndex() {
     const tipCount = 5;
     return DateTime.now().millisecond % tipCount;
-  }
-}
-
-/// 애니메이션 책 아이콘
-class _AnimatedBookIcon extends StatefulWidget {
-  @override
-  State<_AnimatedBookIcon> createState() => _AnimatedBookIconState();
-}
-
-class _AnimatedBookIconState extends State<_AnimatedBookIcon>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _animation;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      duration: const Duration(seconds: 2),
-      vsync: this,
-    )..repeat(reverse: true);
-
-    _animation = Tween<double>(
-      begin: 0.9,
-      end: 1.1,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (MediaQuery.disableAnimationsOf(context)) {
-      _controller.stop();
-      _controller.value = 0.5;
-    } else if (!_controller.isAnimating) {
-      _controller.repeat(reverse: true);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _animation,
-      builder: (context, child) {
-        return Transform.scale(scale: _animation.value, child: child);
-      },
-      child: Container(
-        width: 120,
-        height: 120,
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [AppColors.primary, AppColors.secondary],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(AppRadius.xl),
-          boxShadow: const [
-            BoxShadow(
-              color: AppColors.primaryStrong,
-              blurRadius: 30,
-              offset: Offset(0, 10),
-            ),
-          ],
-        ),
-        child: const Icon(Icons.auto_stories, size: 60, color: Colors.white),
-      ),
-    );
   }
 }

@@ -7,6 +7,7 @@ Neither command publishes, registers an app, or changes store/account settings.
 
 import argparse
 import hashlib
+import ipaddress
 import json
 from pathlib import Path
 import shutil
@@ -27,14 +28,23 @@ def release_configuration(values):
         value = values[key]
         if not isinstance(value, str) or 'replace-me' in value or not present(value) or not public_https_endpoint(value):
             raise ValueError(f'{key} requires a non-placeholder public HTTPS URL.')
-        host = urlsplit(value).hostname or ''
-        if host.endswith(('.invalid', '.test', '.example')) or host in {'example.com', 'example.net', 'example.org'}:
+        parsed = urlsplit(value)
+        host = (parsed.hostname or '').rstrip('.')
+        try:
+            ipaddress.ip_address(host)
+        except ValueError:
+            pass
+        else:
+            raise ValueError(f'{key} requires a DNS hostname for the mobile release.')
+        reserved = ('example.com', 'example.net', 'example.org')
+        if (host.endswith(('.invalid', '.test', '.example'))
+                or any(host == domain or host.endswith('.' + domain) for domain in reserved)):
             raise ValueError(f'{key} cannot use a documentation or test hostname.')
-        if urlsplit(value).fragment:
-            raise ValueError(f'{key} cannot contain a fragment.')
+        if value != value.strip() or '?' in value or '#' in value:
+            raise ValueError(f'{key} cannot contain surrounding whitespace, a query, or a fragment.')
     api = urlsplit(values['PROD_API_URL'])
-    if api.path not in {'', '/'} or api.query:
-        raise ValueError('PROD_API_URL must be an origin without a path or query.')
+    if api.path not in {'', '/'}:
+        raise ValueError('PROD_API_URL must be an origin without a path.')
     if 'KAKAO_NATIVE_APP_KEY' in values and (not isinstance(values['KAKAO_NATIVE_APP_KEY'], str)
                                           or not values['KAKAO_NATIVE_APP_KEY'].isalnum()):
         raise ValueError('KAKAO_NATIVE_APP_KEY must be a nonempty public native application key.')
