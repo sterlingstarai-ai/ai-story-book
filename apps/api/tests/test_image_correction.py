@@ -47,6 +47,14 @@ def test_action_correction_requests_the_story_required_visible_object_state():
     assert "The children leave the book open to dry." in expanded.positive_prompt
 
 
+def test_action_correction_distinguishes_a_plan_from_the_action_being_planned():
+    text = "The teacher studies the rain barrel blueprint while the children discuss who will decorate the barrel."
+    with image_correction_scope(page_text=text, issues=["action_mismatch"]):
+        expanded = provider_prompt_with_correction(complete_prompt())
+    assert "Depict planning as talk, not action; objects only on plans stay on paper." in expanded.positive_prompt
+    assert text in expanded.positive_prompt
+
+
 def test_full_repair_context_fits_reference_provider_request_without_losing_tail():
     original = complete_prompt().model_copy(update={"negative_prompt": "n" * 600})
     narrative = "The tap fills the watering can through its top opening. " + "x" * 540

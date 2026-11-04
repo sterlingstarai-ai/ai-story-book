@@ -19,10 +19,11 @@ CORRECTION_INSTRUCTIONS = {
     "identity_swap": "Restore each character's own face, hair, outfit and colors; do not exchange identities.",
     "action_mismatch": (
         "The narrative overrides conflicting staging. Show all stated actors, contact, direction, "
-        "destination and object state; show visible pages in an open book, do not invent a state. "
-        "Ascending and descending differ. Keep identities, clothes and style. Show each prop only "
-        "in its current state and place. Do not duplicate a wearable pair in use and on the ground; "
-        "keep story-required spares. Ordinary shoes and unused skates may coexist."
+        "destination and object state. Show visible pages in an open book; do not invent a state. "
+        "Depict planning as talk, not action; objects only on plans stay on paper. "
+        "Distinguish ascent from descent. Keep identities, clothes and style. Show each prop only "
+        "in its current state and place. No duplicate wearables; keep stated spares. "
+        "Shoes and unused skates may coexist."
     ),
 }
 MAX_CORRECTION_NARRATIVE = 600
