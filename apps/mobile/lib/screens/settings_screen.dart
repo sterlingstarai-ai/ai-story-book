@@ -30,6 +30,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _isLoading = true;
   bool _isSaving = false;
   bool _isDeleting = false;
+  bool _copyingBetaInvitation = false;
   String? _errorMessage;
 
   String _language = 'ko';
@@ -233,15 +234,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _copyBetaInvitationId() async {
-    if (!await _ensureParentalAuth() || !mounted) return;
+    if (_copyingBetaInvitation) return;
+    setState(() => _copyingBetaInvitation = true);
     final l = AppLocalizations.of(context);
     var message = l.settingsBetaInvitationCopied;
     try {
+      if (!await _ensureParentalAuth() || !mounted) return;
       final id = await ref.read(apiClientProvider).getGenerationInvitationId();
       if (!mounted) return;
       await Clipboard.setData(ClipboardData(text: id));
     } catch (_) {
       message = l.settingsBetaInvitationUnavailable;
+    } finally {
+      if (mounted) setState(() => _copyingBetaInvitation = false);
     }
     if (!mounted) return;
     ScaffoldMessenger.of(
@@ -635,7 +640,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 title: Text(l.settingsBetaInvitationTitle),
                 subtitle: Text(l.settingsBetaInvitationSubtitle),
                 trailing: const Icon(Icons.copy_outlined),
-                onTap: _copyBetaInvitationId,
+                onTap: _copyingBetaInvitation ? null : _copyBetaInvitationId,
               ),
             ListTile(
               leading: const Icon(Icons.verified_user_outlined),

@@ -29,6 +29,7 @@ class _SettingsApi extends ApiClient {
   final bool audioSupported;
   final bool betaInvitationSupported;
   int invitationRequests = 0;
+  Future<String>? pendingInvitation;
   @override
   Future<Map<String, dynamic>> getSettings() async => {};
   @override
@@ -46,7 +47,7 @@ class _SettingsApi extends ApiClient {
   @override
   Future<String> getGenerationInvitationId() async {
     invitationRequests++;
-    return 'b' * 64;
+    return pendingInvitation ?? ('b' * 64);
   }
 }
 
@@ -138,9 +139,17 @@ void main() {
       ParentalControlService.ageGateSessionKey,
       DateTime.now().millisecondsSinceEpoch,
     );
+    final invitation = Completer<String>();
+    api.pendingInvitation = invitation.future;
     await tester.tap(tile);
     await tester.pumpAndSettle();
     expect(api.invitationRequests, 1);
+    await tester.tap(tile);
+    await tester.pumpAndSettle();
+    expect(api.invitationRequests, 1);
+    expect(copied, isEmpty);
+    invitation.complete('b' * 64);
+    await tester.pumpAndSettle();
     expect(copied, [
       {'text': 'b' * 64},
     ]);

@@ -31,6 +31,16 @@ def test_admission_is_explicit_and_fail_closed(monkeypatch, mode, hashes, user, 
         assert exc.value.status_code == 503
 
 
+def test_updated_invitation_config_takes_effect_after_a_cached_lookup(monkeypatch):
+    monkeypatch.setattr(settings, "generation_access_mode", "invite_only")
+    allowed = generation_identity_hash("invited")
+    monkeypatch.setattr(settings, "generation_allowed_user_hashes", allowed)
+    require_generation_access("invited")
+    monkeypatch.setattr(settings, "generation_allowed_user_hashes", allowed + ",broken")
+    with pytest.raises(APIError):
+        require_generation_access("invited")
+
+
 @pytest.mark.asyncio
 async def test_uninvited_generation_does_not_consume_budget(monkeypatch):
     from src.routers import books
