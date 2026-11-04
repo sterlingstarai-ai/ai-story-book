@@ -14,6 +14,7 @@ import 'package:ai_story_book/services/parental_control_service.dart';
 import 'package:ai_story_book/screens/viewer_screen.dart';
 import 'package:ai_story_book/utils/constants.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -209,6 +210,15 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(countdown, findsOneWidget);
+    final readerSystemBars = tester
+        .widget<AnnotatedRegion<SystemUiOverlayStyle>>(
+          find.descendant(
+            of: find.byType(ViewerScreen),
+            matching: find.byType(AnnotatedRegion<SystemUiOverlayStyle>),
+          ),
+        );
+    expect(readerSystemBars.value.statusBarIconBrightness, Brightness.light);
+    expect(readerSystemBars.value.statusBarBrightness, Brightness.dark);
     expect(
       find.ancestor(
         of: find.byKey(const ValueKey('reader-content-1')),

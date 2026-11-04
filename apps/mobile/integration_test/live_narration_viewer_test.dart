@@ -159,35 +159,46 @@ void main() {
       }
 
       await until(() => find.byType(PageView).evaluate().isNotEmpty);
-      if (imagesOnly) {
-        final urls = [book.coverImageUrl, ...book.pages.map((p) => p.imageUrl)];
+      final verifyIllustrations =
+          imagesOnly || fixture['verify_illustrations'] == true;
+      final urls = [book.coverImageUrl, ...book.pages.map((p) => p.imageUrl)];
+      final view = find.byType(PageView);
+      bool illustrationDecoded(String url) {
+        final illustration = find.byWidgetPredicate(
+          (widget) => widget is ScopedBookImage && widget.imageUrl == url,
+        );
+        return find
+            .descendant(
+              of: illustration,
+              matching: find.byWidgetPredicate(
+                (widget) =>
+                    widget is RawImage &&
+                    (widget.image?.width ?? 0) > 300 &&
+                    (widget.image?.height ?? 0) > 300,
+              ),
+            )
+            .evaluate()
+            .isNotEmpty;
+      }
+
+      if (verifyIllustrations) {
         expect(urls.toSet(), hasLength(urls.length));
-        final view = find.byType(PageView);
-        for (final (index, url) in urls.indexed) {
+        for (final url in urls) {
           expect(Uri.parse(url).origin, uri.origin);
-          final illustration = find.byWidgetPredicate(
-            (widget) => widget is ScopedBookImage && widget.imageUrl == url,
-          );
-          final decoded = find.descendant(
-            of: illustration,
-            matching: find.byWidgetPredicate(
-              (widget) =>
-                  widget is RawImage &&
-                  (widget.image?.width ?? 0) > 300 &&
-                  (widget.image?.height ?? 0) > 300,
-            ),
-          );
+        }
+        await until(() => illustrationDecoded(urls.first), seconds: 45);
+      }
+      if (imagesOnly) {
+        for (final (index, url) in urls.indexed.skip(1)) {
+          await tester.tap(find.byIcon(Icons.chevron_right));
+          await tester.pump(const Duration(milliseconds: 500));
           await until(
             () =>
                 tester.widget<PageView>(view).controller?.page?.round() ==
                     index &&
-                decoded.evaluate().isNotEmpty,
+                illustrationDecoded(url),
             seconds: 45,
           );
-          if (index < urls.length - 1) {
-            await tester.tap(find.byIcon(Icons.chevron_right));
-            await tester.pump(const Duration(milliseconds: 500));
-          }
         }
         await tester.pumpWidget(const SizedBox.shrink());
         expect(tester.takeException(), isNull);
@@ -204,7 +215,6 @@ void main() {
         await until(() => sleepMode.evaluate().isNotEmpty);
         await tester.ensureVisible(sleepMode);
         await tester.tap(sleepMode);
-        final view = find.byType(PageView);
         final pause = find.byIcon(Icons.pause);
         for (var page = 1; page <= book.pages.length; page++) {
           await until(() {
@@ -213,7 +223,9 @@ void main() {
             if (visiblePage != null && visiblePage > page) {
               fail('Expected narration on page $page before page $visiblePage');
             }
-            return visiblePage == page && pause.evaluate().isNotEmpty;
+            return visiblePage == page &&
+                pause.evaluate().isNotEmpty &&
+                (!verifyIllustrations || illustrationDecoded(urls[page]));
           }, seconds: 150);
           expect(find.byType(SnackBar), findsNothing);
         }
@@ -236,6 +248,9 @@ void main() {
       for (var n = 1; n <= book.pages.length; n++) {
         await tester.tap(find.byIcon(Icons.chevron_right));
         await tester.pump(const Duration(milliseconds: 500));
+        if (verifyIllustrations) {
+          await until(() => illustrationDecoded(urls[n]), seconds: 45);
+        }
         await until(() => find.byIcon(Icons.volume_up).evaluate().isNotEmpty);
         expect(find.byIcon(Icons.pause), findsNothing);
         await tester.tap(find.byIcon(Icons.volume_up));

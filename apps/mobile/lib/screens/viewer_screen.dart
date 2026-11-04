@@ -266,7 +266,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     });
     final bookAsync = ref.watch(bookDetailProvider(widget.bookId));
 
-    return Scaffold(
+    final reader = Scaffold(
       backgroundColor: Colors.black,
       bottomNavigationBar: _showControls
           ? bookAsync.maybeWhen(
@@ -298,6 +298,23 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
           ),
         ),
       ),
+    );
+    final darkReaderBackground =
+        bookAsync.valueOrNull == null ||
+        _currentPage == 0 ||
+        _sleepModeEnabled ||
+        AppPalette.of(context).isDark;
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: darkReaderBackground
+            ? Brightness.light
+            : Brightness.dark,
+        statusBarBrightness: darkReaderBackground
+            ? Brightness.dark
+            : Brightness.light,
+      ),
+      child: reader,
     );
   }
 
