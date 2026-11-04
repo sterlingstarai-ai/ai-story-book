@@ -1150,6 +1150,12 @@ abstract class AppLocalizations {
   /// **'Creating your storybook'**
   String get loadingTitle;
 
+  /// No description provided for @loadingIllustrationExample.
+  ///
+  /// In en, this message translates to:
+  /// **'Sample illustration'**
+  String get loadingIllustrationExample;
+
   /// No description provided for @loadingCompleted.
   ///
   /// In en, this message translates to:
@@ -6377,7 +6383,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsNarrationStyleAnimated.
   ///
   /// In en, this message translates to:
-  /// **'Animation'**
+  /// **'Expressive storytelling'**
   String get settingsNarrationStyleAnimated;
 
   /// No description provided for @settingsNarrationStyleBedtime.
@@ -6389,13 +6395,13 @@ abstract class AppLocalizations {
   /// No description provided for @settingsNarrationPreviewHelp.
   ///
   /// In en, this message translates to:
-  /// **'Compare three Korean AI samples of the same sentence in the default voice. Animation varies dialogue tone; it does not cast separate voices.'**
+  /// **'Hear the same Korean sentence in three styles with the default AI voice. Expressive storytelling varies the delivery of each line.'**
   String get settingsNarrationPreviewHelp;
 
   /// No description provided for @settingsNarrationPreviewGoogleHelp.
   ///
   /// In en, this message translates to:
-  /// **'Compare three Korean AI samples of the same sentence in your selected voice. Animation varies dialogue tone; it does not cast separate voices.'**
+  /// **'Hear the same Korean sentence in three styles with your selected AI voice. Expressive storytelling varies the delivery of each line.'**
   String get settingsNarrationPreviewGoogleHelp;
 
   /// No description provided for @settingsNarrationPreview.

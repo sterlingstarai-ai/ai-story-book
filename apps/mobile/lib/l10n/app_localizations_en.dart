@@ -587,6 +587,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get loadingTitle => 'Creating your storybook';
 
   @override
+  String get loadingIllustrationExample => 'Sample illustration';
+
+  @override
   String get loadingCompleted => 'All done!';
 
   @override
@@ -3591,18 +3594,18 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsNarrationStyleNatural => 'Storyteller';
 
   @override
-  String get settingsNarrationStyleAnimated => 'Animation';
+  String get settingsNarrationStyleAnimated => 'Expressive storytelling';
 
   @override
   String get settingsNarrationStyleBedtime => 'Bedtime';
 
   @override
   String get settingsNarrationPreviewHelp =>
-      'Compare three Korean AI samples of the same sentence in the default voice. Animation varies dialogue tone; it does not cast separate voices.';
+      'Hear the same Korean sentence in three styles with the default AI voice. Expressive storytelling varies the delivery of each line.';
 
   @override
   String get settingsNarrationPreviewGoogleHelp =>
-      'Compare three Korean AI samples of the same sentence in your selected voice. Animation varies dialogue tone; it does not cast separate voices.';
+      'Hear the same Korean sentence in three styles with your selected AI voice. Expressive storytelling varies the delivery of each line.';
 
   @override
   String settingsNarrationPreview(String style) {

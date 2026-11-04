@@ -557,6 +557,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get loadingTitle => '동화책을 만들고 있어요';
 
   @override
+  String get loadingIllustrationExample => '예시 삽화';
+
+  @override
   String get loadingCompleted => '완성되었어요!';
 
   @override
@@ -3414,18 +3417,18 @@ class AppLocalizationsKo extends AppLocalizations {
   String get settingsNarrationStyleNatural => '이야기 성우';
 
   @override
-  String get settingsNarrationStyleAnimated => '애니메이션';
+  String get settingsNarrationStyleAnimated => '구연동화';
 
   @override
   String get settingsNarrationStyleBedtime => '잠자리';
 
   @override
   String get settingsNarrationPreviewHelp =>
-      '기본 음색으로 같은 문장의 한국어 AI 음성 세 가지를 들어보세요. 애니메이션은 대사 어조를 살리며 배역별 별도 음성은 아닙니다.';
+      '기본 목소리로 같은 문장을 세 가지 스타일로 들어보세요. 구연동화는 한 목소리로 대사마다 억양을 달리해요.';
 
   @override
   String get settingsNarrationPreviewGoogleHelp =>
-      '선택한 목소리로 같은 문장의 한국어 AI 음성 세 가지를 들어보세요. 애니메이션은 대사 어조를 살리며 배역별 별도 음성은 아닙니다.';
+      '선택한 목소리로 같은 문장을 세 가지 스타일로 들어보세요. 구연동화는 한 목소리로 대사마다 억양을 달리해요.';
 
   @override
   String settingsNarrationPreview(String style) {

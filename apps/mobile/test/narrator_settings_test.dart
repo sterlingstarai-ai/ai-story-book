@@ -247,7 +247,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(dropdown);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('애니메이션').last);
+    await tester.tap(find.text('구연동화').last);
     await tester.pumpAndSettle();
     await tester.tap(find.text('저장').first);
     await tester.pumpAndSettle();
@@ -285,7 +285,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    for (final label in ['이야기 성우 미리 듣기', '애니메이션 미리 듣기', '잠자리 미리 듣기']) {
+    for (final label in ['이야기 성우 미리 듣기', '구연동화 미리 듣기', '잠자리 미리 듣기']) {
       final button = find.text(label, skipOffstage: false);
       await tester.scrollUntilVisible(
         button,
@@ -345,7 +345,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(first);
       await tester.pump();
-      final second = find.text('애니메이션 미리 듣기', skipOffstage: false);
+      final second = find.text('구연동화 미리 듣기', skipOffstage: false);
       await Scrollable.ensureVisible(tester.element(second), alignment: .5);
       await tester.pump();
       await tester.tap(second);
@@ -385,7 +385,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    final button = find.text('애니메이션 미리 듣기', skipOffstage: false);
+    final button = find.text('구연동화 미리 듣기', skipOffstage: false);
     await tester.scrollUntilVisible(
       button,
       200,

@@ -343,11 +343,42 @@ void main() {
                   progress: 40,
                   currentStep: 'backend_internal_stage'))),
         ]));
+    await tester.runAsync(() => precacheImage(
+        const AssetImage('assets/branding/creation-garden.jpg'),
+        tester.element(find.byType(LoadingScreen))));
     await tester.pumpAndSettle();
     expect(find.text('backend_internal_stage'), findsNothing);
     final l = await AppLocalizations.delegate.load(const Locale('ko'));
     expect(find.text(l.loadingStepPreparing), findsOneWidget);
     await captureDesign(tester, 'creation-loading-dark-reduced-motion');
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('sample art and real progress fit the normal phone layout',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    await tester.pumpWidget(await _app(const LoadingScreen(jobId: 'fixture'),
+        brightness: Brightness.light,
+        overrides: [
+          jobPollingProvider('fixture').overrideWith((ref) => Stream.value(
+              JobStatus(
+                  jobId: 'fixture',
+                  status: JobState.running,
+                  progress: 72,
+                  currentStep: 'generate_images'))),
+        ]));
+    await tester.runAsync(() => precacheImage(
+        const AssetImage('assets/branding/creation-garden.jpg'),
+        tester.element(find.byType(LoadingScreen))));
+    await tester.pumpAndSettle();
+    final l = await AppLocalizations.delegate.load(const Locale('ko'));
+    expect(find.text(l.loadingIllustrationExample), findsOneWidget);
+    expect(find.text(l.loadingStepGenerateImages), findsOneWidget);
+    expect(find.text('72%'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await captureDesign(tester, 'creation-loading-light');
   });
 }

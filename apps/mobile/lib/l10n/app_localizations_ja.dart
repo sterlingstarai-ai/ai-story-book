@@ -556,6 +556,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get loadingTitle => '絵本を作っています';
 
   @override
+  String get loadingIllustrationExample => '挿絵の見本';
+
+  @override
   String get loadingCompleted => '完成しました！';
 
   @override
@@ -3405,18 +3408,18 @@ class AppLocalizationsJa extends AppLocalizations {
   String get settingsNarrationStyleNatural => '物語の語り手';
 
   @override
-  String get settingsNarrationStyleAnimated => 'アニメ';
+  String get settingsNarrationStyleAnimated => '表情豊かな読み聞かせ';
 
   @override
   String get settingsNarrationStyleBedtime => 'おやすみ';
 
   @override
   String get settingsNarrationPreviewHelp =>
-      '同じ文章を基本の声で読む韓国語AI音声を3種類聴き比べます。アニメは台詞の調子を変えますが、登場人物ごとに別の声を使いません。';
+      '基本のAI音声で同じ韓国語の文を3つのスタイルで聴き比べましょう。表情豊かな読み聞かせでは、台詞ごとに抑揚が変わります。';
 
   @override
   String get settingsNarrationPreviewGoogleHelp =>
-      '選んだ声で同じ文章を読む韓国語AI音声を3種類聴き比べます。アニメは台詞の調子を変えますが、登場人物ごとに別の声を使いません。';
+      '選んだAI音声で同じ韓国語の文を3つのスタイルで聴き比べましょう。表情豊かな読み聞かせでは、台詞ごとに抑揚が変わります。';
 
   @override
   String settingsNarrationPreview(String style) {

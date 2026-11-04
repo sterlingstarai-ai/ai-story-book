@@ -62,13 +62,6 @@ class LoadingScreen extends ConsumerStatefulWidget {
 
 class _LoadingScreenState extends ConsumerState<LoadingScreen> {
   bool _hasNavigated = false; // Prevent double navigation
-  late final int _selectedTipIndex;
-
-  @override
-  void initState() {
-    super.initState();
-    _selectedTipIndex = _pickTipIndex();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -174,22 +167,21 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Center(child: StorybookIllustration()),
-        const SizedBox(height: AppSpacing.xl),
         Text(
           l.loadingTitle,
           style: AppTextStyles.heading1.copyWith(
             color: palette.textPrimary,
             height: 1.25,
           ),
-          textAlign: TextAlign.center,
         ),
-        const SizedBox(height: AppSpacing.xl),
+        const SizedBox(height: AppSpacing.md),
+        _buildCreationArtwork(l, palette),
+        const SizedBox(height: AppSpacing.md),
         DecoratedBox(
           decoration: BoxDecoration(
             color: palette.surface,
             border: Border.all(color: palette.divider),
-            borderRadius: BorderRadius.circular(AppRadius.xl),
+            borderRadius: BorderRadius.circular(AppRadius.lg),
           ),
           child: Padding(
             padding: const EdgeInsets.all(AppSpacing.lg),
@@ -206,7 +198,9 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
                   ),
                 ),
                 const SizedBox(height: AppSpacing.md),
-                ProgressIndicatorBar(progress: status.progress),
+                ProgressIndicatorBar(
+                  progress: status.progress.clamp(0, 100).toInt(),
+                ),
               ],
             ),
           ),
@@ -221,7 +215,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Text(
-                  _selectedTip(l),
+                  l.loadingTip3,
                   style: AppTextStyles.bodySmall.copyWith(
                     color: palette.textSecondary,
                     height: 1.45,
@@ -232,6 +226,56 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildCreationArtwork(AppLocalizations l, AppPalette palette) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(AppRadius.xl),
+      child: AspectRatio(
+        aspectRatio: 1.6,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Image.asset(
+              'assets/branding/creation-garden.jpg',
+              fit: BoxFit.cover,
+              alignment: const Alignment(0, -0.32),
+              excludeFromSemantics: true,
+              errorBuilder: (_, __, ___) => ColoredBox(
+                color: palette.primaryLight,
+                child: const Center(child: StorybookIllustration()),
+              ),
+            ),
+            PositionedDirectional(
+              start: AppSpacing.md,
+              end: AppSpacing.md,
+              bottom: AppSpacing.md,
+              child: Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: palette.surface,
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.sm,
+                      vertical: AppSpacing.xs,
+                    ),
+                    child: Text(
+                      l.loadingIllustrationExample,
+                      style: AppTextStyles.caption.copyWith(
+                        color: palette.textPrimary,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -348,25 +392,5 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
 
     // Unknown backend stages are implementation details, not reading guidance.
     return descriptions[step] ?? l.loadingStepPreparing;
-  }
-
-  List<String> _tips(AppLocalizations l) {
-    return [
-      l.loadingTip1,
-      l.loadingTip2,
-      l.loadingTip3,
-      l.loadingTip4,
-      l.loadingTip5,
-    ];
-  }
-
-  String _selectedTip(AppLocalizations l) {
-    final tips = _tips(l);
-    return tips[_selectedTipIndex % tips.length];
-  }
-
-  int _pickTipIndex() {
-    const tipCount = 5;
-    return DateTime.now().millisecond % tipCount;
   }
 }
