@@ -186,6 +186,11 @@ async def _enforce_free_plan_create_limits(
             details={"reason": PaymentReason.FREE_PLAN_STYLE},
         )
 
+    if settings.free_plan_first_book_trial:
+        # One signup credit is the trial limit. Existing/purchased credits can
+        # still be spent after the trial without a recurring monthly grant.
+        return
+
     monthly_limit = max(1, int(getattr(settings, "free_plan_monthly_book_limit", 2) or 2))
     monthly_created = await _count_monthly_book_creations(db, user_key)
     if monthly_created >= monthly_limit:

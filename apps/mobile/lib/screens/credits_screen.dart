@@ -377,6 +377,9 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
   Widget _buildSubscriptionCard(bool purchasesSupported) {
     final l = AppLocalizations.of(context);
     final subscription = _asMap(_creditsStatus?['subscription']);
+    final firstBookTrial =
+        subscription['plan'] == 'free' &&
+        subscription['credits_per_month'] == 0;
     final subscriptionStatus = (_coerceText(subscription['status']) ?? 'active')
         .toLowerCase();
     final isCancelled = subscriptionStatus == 'cancelled';
@@ -478,22 +481,25 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
             ],
           ),
           const SizedBox(height: AppSpacing.md),
-          Wrap(
-            spacing: AppSpacing.lg,
-            runSpacing: AppSpacing.md,
-            children: [
-              _buildSubscriptionInfo(
-                l.creditsMonthlyCredits,
-                l.creditsCreditCount(
-                  _parseAmount(subscription['credits_per_month']),
+          if (firstBookTrial)
+            Text(l.creditsFirstBookTrial)
+          else
+            Wrap(
+              spacing: AppSpacing.lg,
+              runSpacing: AppSpacing.md,
+              children: [
+                _buildSubscriptionInfo(
+                  l.creditsMonthlyCredits,
+                  l.creditsCreditCount(
+                    _parseAmount(subscription['credits_per_month']),
+                  ),
                 ),
-              ),
-              _buildSubscriptionInfo(
-                l.creditsNextRenewal,
-                _formatDate(subscription['current_period_end']),
-              ),
-            ],
-          ),
+                _buildSubscriptionInfo(
+                  l.creditsNextRenewal,
+                  _formatDate(subscription['current_period_end']),
+                ),
+              ],
+            ),
           const SizedBox(height: AppSpacing.md),
           Wrap(
             spacing: 8,
@@ -584,11 +590,14 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
     final price = _parseAmount(plan['price']);
     final storePrice = _storePrices[_subscriptionProductMap[planId]];
     final creditsPerMonth = _parseAmount(plan['credits_per_month']);
-    final features = localizedPlanFeatures(
-      l,
-      planId,
-      _asList(plan['features']).map((f) => f.toString()).toList(),
-    );
+    final firstBookTrial = planId == 'free' && creditsPerMonth == 0;
+    final features = firstBookTrial
+        ? l.planFeaturesFreeTrial.split('|')
+        : localizedPlanFeatures(
+            l,
+            planId,
+            _asList(plan['features']).map((f) => f.toString()).toList(),
+          );
     final isCurrentPlan =
         _coerceText(_asMap(_creditsStatus?['subscription'])['plan']) == planId;
 
@@ -645,7 +654,9 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            l.creditsMonthlyCreatable(creditsPerMonth),
+            firstBookTrial
+                ? l.creditsFirstBookTrial
+                : l.creditsMonthlyCreatable(creditsPerMonth),
             style: TextStyle(color: AppPalette.of(context).textSecondary),
           ),
           const SizedBox(height: AppSpacing.md),

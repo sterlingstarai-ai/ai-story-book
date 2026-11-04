@@ -15,6 +15,7 @@ from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
+from src.core.config import settings
 from src.core.database import get_db
 from src.main import app
 from src.models.db import AccountIdentity, ChildProfile, CreditTransaction, Job, UserCredits
@@ -120,30 +121,34 @@ async def test_four_http_retries_commit_one_job_credit_budget_and_dispatch(
     dispatch.assert_awaited_once()
 
 
-async def test_concurrent_first_month_free_allowance_is_claimed_once(creation_pg):
+@pytest.mark.parametrize("first_book_trial,amount,transaction_type", [(False, 2, "free_monthly"), (True, 1, "bonus")])
+async def test_concurrent_free_allowance_is_claimed_once(creation_pg, monkeypatch, first_book_trial, amount, transaction_type):
     from src.services.credits import CreditsService
+    monkeypatch.setattr(settings, "free_plan_first_book_trial", first_book_trial)
     maker, owner, _ = creation_pg
     service = CreditsService()
     async def read_new_balance():
         async with maker() as session:
             return await service.get_credits(session, owner)
     balances = await asyncio.wait_for(asyncio.gather(*[read_new_balance() for _ in range(6)]), 15)
-    assert balances == [2] * 6
+    assert balances == [amount] * 6
     async with maker() as session:
         grants = (await session.execute(select(CreditTransaction).where(
             CreditTransaction.user_key == owner,
-            CreditTransaction.transaction_type == 'free_monthly',
+            CreditTransaction.transaction_type == transaction_type,
         ))).scalars().all()
-        assert len(grants) == 1 and grants[0].amount == 2
-        assert await session.scalar(select(UserCredits.credits).where(UserCredits.user_key == owner)) == 2
+        assert len(grants) == 1 and grants[0].amount == amount
+        assert await session.scalar(select(UserCredits.credits).where(UserCredits.user_key == owner)) == amount
 
 
-async def test_free_claim_and_balance_roll_back_together(creation_pg):
+@pytest.mark.parametrize("first_book_trial,amount", [(False, 2), (True, 1)])
+async def test_free_claim_and_balance_roll_back_together(creation_pg, monkeypatch, first_book_trial, amount):
     from src.services.credits import CreditsService
+    monkeypatch.setattr(settings, "free_plan_first_book_trial", first_book_trial)
     maker, owner, _ = creation_pg
     async with maker() as session:
         result = await CreditsService().get_or_create_credits(session, owner, commit=False)
-        assert result.credits == 2
+        assert result.credits == amount
         await session.rollback()
     async with maker() as session:
         assert await session.get(UserCredits, owner) is None

@@ -20,7 +20,10 @@
   "onboardingSlide3Title": "毎日の読書習慣",
   "onboardingSlide3Subtitle": "ストリークで毎日の読書習慣を育てます。",
   "onboardingSlide4Title": "無料ではじめる",
-  "onboardingSlide4Subtitle": "毎月最大2冊の絵本を無料で作れます。",
+  "onboardingSlide4Subtitle": "テーマを選んで、最初の絵本を作りましょう。",
+  "onboardingFirstBookTrialSubtitle": "新規アカウントでは最初の絵本1冊を無料で作れます。",
+  "creditsFirstBookTrial": "新規アカウントは最初の絵本1冊が無料",
+  "planFeaturesFreeTrial": "水彩画とカートゥーンのイラスト|3～5歳向け絵本の韓国語読み聞かせ",
   "onboardingPageIndicator": "{total}ページ中{current}ページ目",
   "@onboardingPageIndicator": {
     "placeholders": {

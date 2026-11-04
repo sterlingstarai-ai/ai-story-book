@@ -22,7 +22,7 @@ from src.core.exceptions import (
     NotFoundError,
     ValidationError,
 )
-from src.services.credits import credits_service, SUBSCRIPTION_PLANS
+from src.services.credits import credits_service, SUBSCRIPTION_PLANS, subscription_plan_details
 
 logger = structlog.get_logger()
 
@@ -119,27 +119,28 @@ async def get_credits_status(
     subscription = await credits_service.get_active_subscription(db, user_key)
     subscription_response = None
     if subscription:
-        plan_info = SUBSCRIPTION_PLANS.get(subscription.plan, {})
+        plan_info = subscription_plan_details(subscription.plan)
         subscription_response = SubscriptionResponse(
             plan=subscription.plan,
             plan_name=plan_info.get("name", subscription.plan),
             status=subscription.status,
-            credits_per_month=subscription.credits_per_month,
+            credits_per_month=0 if subscription.plan == "free" and settings.free_plan_first_book_trial
+            else subscription.credits_per_month,
             current_period_end=subscription.current_period_end,
             features=plan_info.get("features", []),
         )
 
     # 사용 가능한 플랜
-    available_plans = [
-        SubscriptionPlan(
+    available_plans = []
+    for plan_id in SUBSCRIPTION_PLANS:
+        plan_info = subscription_plan_details(plan_id)
+        available_plans.append(SubscriptionPlan(
             id=plan_id,
             name=plan_info["name"],
             price=plan_info["price"],
             credits_per_month=plan_info["credits_per_month"],
             features=plan_info["features"],
-        )
-        for plan_id, plan_info in SUBSCRIPTION_PLANS.items()
-    ]
+        ))
 
     return CreditsStatusResponse(
         credits=CreditsResponse(

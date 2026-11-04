@@ -300,7 +300,7 @@ validate_provider_settings() {
     ""|disable|allow|prefer|require|verify-ca|verify-full) ;;
     *) log_fail "DATABASE_SSL_MODE is not supported"; failed=true ;;
   esac
-  for flag_name in PURCHASES_ENABLED POD_ORDERING_ENABLED AUDIO_FEATURE_ENABLED ILLUSTRATION_QUALITY_ENABLED PHOTO_PROCESSING_ENABLED S3_AUTO_CREATE_BUCKET; do
+  for flag_name in PURCHASES_ENABLED POD_ORDERING_ENABLED AUDIO_FEATURE_ENABLED ILLUSTRATION_QUALITY_ENABLED PHOTO_PROCESSING_ENABLED S3_AUTO_CREATE_BUCKET FREE_PLAN_FIRST_BOOK_TRIAL; do
     local flag_value
     flag_value="$(printf '%s' "${!flag_name:-false}" | tr '[:upper:]' '[:lower:]')"
     case "$flag_value" in true|false|1|0|yes|no|on|off) ;;

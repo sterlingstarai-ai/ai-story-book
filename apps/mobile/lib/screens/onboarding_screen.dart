@@ -26,28 +26,30 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     Icons.card_giftcard,
   ];
 
-  List<_Slide> _slides(AppLocalizations l) => [
-        (
-          icon: _icons[0],
-          title: l.onboardingSlide1Title,
-          subtitle: l.onboardingSlide1Subtitle,
-        ),
-        (
-          icon: _icons[1],
-          title: l.onboardingSlide2Title,
-          subtitle: l.onboardingSlide2Subtitle,
-        ),
-        (
-          icon: _icons[2],
-          title: l.onboardingSlide3Title,
-          subtitle: l.onboardingSlide3Subtitle,
-        ),
-        (
-          icon: _icons[3],
-          title: l.onboardingSlide4Title,
-          subtitle: l.onboardingSlide4Subtitle,
-        ),
-      ];
+  List<_Slide> _slides(AppLocalizations l, {required bool firstBookTrial}) => [
+    (
+      icon: _icons[0],
+      title: l.onboardingSlide1Title,
+      subtitle: l.onboardingSlide1Subtitle,
+    ),
+    (
+      icon: _icons[1],
+      title: l.onboardingSlide2Title,
+      subtitle: l.onboardingSlide2Subtitle,
+    ),
+    (
+      icon: _icons[2],
+      title: l.onboardingSlide3Title,
+      subtitle: l.onboardingSlide3Subtitle,
+    ),
+    (
+      icon: _icons[3],
+      title: l.onboardingSlide4Title,
+      subtitle: firstBookTrial
+          ? l.onboardingFirstBookTrialSubtitle
+          : l.onboardingSlide4Subtitle,
+    ),
+  ];
 
   @override
   void dispose() {
@@ -71,7 +73,10 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
-    final slides = _slides(l);
+    final firstBookTrial =
+        ref.watch(capabilitiesProvider).valueOrNull?['free_first_book_trial'] ==
+        true;
+    final slides = _slides(l, firstBookTrial: firstBookTrial);
     final isLast = _page == slides.length - 1;
 
     return Scaffold(
@@ -117,8 +122,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                                 color: AppColors.primary,
                               ),
                               SizedBox(
-                                  height:
-                                      compact ? AppSpacing.md : AppSpacing.xl),
+                                height: compact ? AppSpacing.md : AppSpacing.xl,
+                              ),
                               Text(
                                 slide.title,
                                 style: compact

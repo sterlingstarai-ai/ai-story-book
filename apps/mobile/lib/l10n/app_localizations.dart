@@ -223,8 +223,26 @@ abstract class AppLocalizations {
   /// No description provided for @onboardingSlide4Subtitle.
   ///
   /// In en, this message translates to:
-  /// **'Create up to two storybooks each month for free.'**
+  /// **'Pick a theme and create your first illustrated storybook.'**
   String get onboardingSlide4Subtitle;
+
+  /// No description provided for @onboardingFirstBookTrialSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'New accounts get one illustrated storybook free.'**
+  String get onboardingFirstBookTrialSubtitle;
+
+  /// No description provided for @creditsFirstBookTrial.
+  ///
+  /// In en, this message translates to:
+  /// **'First storybook free for new accounts'**
+  String get creditsFirstBookTrial;
+
+  /// No description provided for @planFeaturesFreeTrial.
+  ///
+  /// In en, this message translates to:
+  /// **'Watercolor and cartoon illustrations|Korean narration for ages 3–5 stories'**
+  String get planFeaturesFreeTrial;
 
   /// Accessibility label for the onboarding page indicator
   ///

@@ -69,7 +69,17 @@ class AppLocalizationsKo extends AppLocalizations {
   String get onboardingSlide4Title => '첫 책 무료 시작';
 
   @override
-  String get onboardingSlide4Subtitle => '무료로 매달 최대 2권의 동화책을 만들어보세요.';
+  String get onboardingSlide4Subtitle => '주제를 골라 그림이 있는 첫 동화책을 만들어 보세요.';
+
+  @override
+  String get onboardingFirstBookTrialSubtitle =>
+      '새 계정은 그림이 있는 첫 동화책 한 권을 무료로 만들 수 있어요.';
+
+  @override
+  String get creditsFirstBookTrial => '새 계정 첫 동화 한 권 무료';
+
+  @override
+  String get planFeaturesFreeTrial => '수채화와 카툰 삽화|3–5세 동화 한국어 낭독';
 
   @override
   String onboardingPageIndicator(int current, int total) {

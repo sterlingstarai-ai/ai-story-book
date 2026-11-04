@@ -291,6 +291,7 @@ class Settings(BaseSettings):
     free_plan_enforcement_enabled: bool = True
     free_plan_enforce_in_testing: bool = False
     free_plan_monthly_book_limit: int = 2
+    free_plan_first_book_trial: bool = False
 
     # Parental consent enforcement (PIPA/COPPA) — gates child photo/face data collection
     require_parental_consent_enabled: bool = True

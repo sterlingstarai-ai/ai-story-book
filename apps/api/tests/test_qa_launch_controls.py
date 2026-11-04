@@ -50,6 +50,64 @@ async def test_free_refill_korea_boundary_preserves_paid_balance(db_session, mon
     clock[0] = datetime(2026, 10, 31, 15)
     assert await service.get_credits(db_session, 'boundary') == 12
 
+
+@pytest.mark.asyncio
+async def test_first_book_trial_does_not_refill_and_failed_book_can_retry(db_session, monkeypatch):
+    import src.services.credits as module
+    service, clock = CreditsService(), [datetime(2026, 9, 30, 14, 59)]
+    monkeypatch.setattr(settings, 'free_plan_first_book_trial', True)
+    monkeypatch.setattr(module, 'utcnow', lambda: clock[0])
+    assert await service.get_credits(db_session, 'trial') == 1
+    assert await service.use_credit(db_session, 'trial', reference_id='job_trial_fail')
+    assert not await service.use_credit(db_session, 'trial', reference_id='job_trial_blocked')
+    assert await service.refund_for_job(db_session, 'trial', 'job_trial_fail')
+    assert not await service.refund_for_job(db_session, 'trial', 'job_trial_fail')
+    assert await service.use_credit(db_session, 'trial', reference_id='job_trial_success')
+    clock[0] += timedelta(days=32)
+    assert await service.get_credits(db_session, 'trial') == 0
+    assert await db_session.scalar(select(func.count(CreditTransaction.id)).where(
+        CreditTransaction.user_key == 'trial', CreditTransaction.reference_id == 'first_book_trial:v1')) == 1
+
+
+@pytest.mark.asyncio
+async def test_first_book_trial_preserves_existing_and_restored_ledgers(db_session, monkeypatch):
+    monkeypatch.setattr(settings, 'free_plan_first_book_trial', True)
+    db_session.add(UserCredits(user_key='existing', credits=7, total_purchased=7, total_used=0))
+    db_session.add(CreditTransaction(user_key='restored-ledger', amount=1, balance_after=1,
+                                    transaction_type='bonus', reference_id='first_book_trial:v1'))
+    await db_session.commit()
+    service = CreditsService()
+    assert await service.get_credits(db_session, 'existing') == 7
+    assert await service.get_credits(db_session, 'restored-ledger') == 0
+
+
+@pytest.mark.asyncio
+async def test_first_book_trial_blocks_unfunded_creation_then_accepts_paid_balance(
+    client, headers, valid_book_spec, db_session, monkeypatch,
+):
+    from src.routers import books
+    monkeypatch.setattr(settings, 'free_plan_first_book_trial', True)
+    monkeypatch.setattr(settings, 'free_plan_enforce_in_testing', True)
+    service = CreditsService()
+    monkeypatch.setattr(books, 'credits_service', service)
+    spec = {**valid_book_spec, 'style': 'watercolor'}
+    capability = await client.get('/v1/config/capabilities')
+    assert capability.json()['free_first_book_trial'] is True
+    first = await client.post('/v1/books', headers={**headers, 'X-Idempotency-Key': 'first-trial-book'}, json=spec)
+    assert first.status_code == 200, first.text
+    retry = await client.post('/v1/books', headers={**headers, 'X-Idempotency-Key': 'first-trial-book'}, json=spec)
+    assert retry.status_code == 200 and retry.json()['job_id'] == first.json()['job_id']
+    second = await client.post('/v1/books', headers={**headers, 'X-Idempotency-Key': 'second-trial-book'}, json=spec)
+    assert second.status_code == 402, second.text
+    status = (await client.get('/v1/credits/status', headers=headers)).json()
+    assert status['credits']['credits'] == 0
+    assert next(plan for plan in status['available_plans'] if plan['id'] == 'free')['credits_per_month'] == 0
+    await service.add_credits(db_session, headers['X-User-Key'], 2,
+                              transaction_type='purchase', reference_id='trial-test-purchase')
+    for key in ('funded-book-2', 'funded-book-3'):
+        response = await client.post('/v1/books', headers={**headers, 'X-Idempotency-Key': key}, json=spec)
+        assert response.status_code == 200, response.text
+
 @pytest.mark.asyncio
 async def test_legacy_spending_and_explicit_free_subscription_do_not_double_grant(db_session):
     from src.core.utils import utcnow

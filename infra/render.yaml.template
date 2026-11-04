@@ -171,6 +171,8 @@ services:
     value: '60'
   - key: GENERATION_ACCESS_MODE
     value: invite_only
+  - key: FREE_PLAN_FIRST_BOOK_TRIAL
+    value: 'true'
   - key: GENERATION_ALLOWED_USER_HASHES
     sync: false
   - key: DAILY_GENERATION_BUDGET
@@ -597,6 +599,11 @@ services:
       name: __PREFIX__-api
       type: web
       envVarKey: GENERATION_ACCESS_MODE
+  - key: FREE_PLAN_FIRST_BOOK_TRIAL
+    fromService:
+      name: __PREFIX__-api
+      type: web
+      envVarKey: FREE_PLAN_FIRST_BOOK_TRIAL
   - key: GENERATION_ALLOWED_USER_HASHES
     fromService:
       name: __PREFIX__-api

@@ -74,7 +74,18 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get onboardingSlide4Subtitle =>
-      'Create up to two storybooks each month for free.';
+      'Pick a theme and create your first illustrated storybook.';
+
+  @override
+  String get onboardingFirstBookTrialSubtitle =>
+      'New accounts get one illustrated storybook free.';
+
+  @override
+  String get creditsFirstBookTrial => 'First storybook free for new accounts';
+
+  @override
+  String get planFeaturesFreeTrial =>
+      'Watercolor and cartoon illustrations|Korean narration for ages 3–5 stories';
 
   @override
   String onboardingPageIndicator(int current, int total) {

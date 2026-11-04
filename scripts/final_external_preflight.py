@@ -217,6 +217,8 @@ def assess(values, *, free_beta=False):
     if free_beta:
         if access_mode != "invite_only":
             invalid.append("GENERATION_ACCESS_MODE (invite_only required for free beta)")
+        if not enabled("FREE_PLAN_FIRST_BOOK_TRIAL"):
+            invalid.append("FREE_PLAN_FIRST_BOOK_TRIAL (one signup book required for free beta)")
         if purchases:
             invalid.append("PURCHASES_ENABLED (new purchases must be disabled for free beta)")
         if not audio or tts_provider != "google_gemini":

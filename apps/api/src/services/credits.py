@@ -10,6 +10,7 @@ from sqlalchemy import select, update, case, func
 from sqlalchemy.exc import IntegrityError
 
 from ..models.db import UserCredits, Subscription, CreditTransaction, AccountIdentity
+from ..core.config import settings
 from ..core.utils import utcnow, local_month_bounds_utc
 
 
@@ -36,6 +37,14 @@ SUBSCRIPTION_PLANS = {
 }
 
 
+def subscription_plan_details(plan: str) -> dict:
+    details = SUBSCRIPTION_PLANS.get(plan, {})
+    if plan == "free" and settings.free_plan_first_book_trial:
+        return {**details, "credits_per_month": 0,
+                "features": ["새 계정 첫 동화 1권 무료", "watercolor/cartoon 스타일", "3–5세 동화 낭독"]}
+    return details
+
+
 class CreditsService:
     """크레딧 관리 서비스"""
 
@@ -45,7 +54,7 @@ class CreditsService:
         user_key: str,
         commit: bool = True,
     ) -> UserCredits:
-        """Read balance and lazily grant the current free calendar-month allowance."""
+        """Read balance and apply the configured free grant policy."""
         from .photo_lifecycle import lock_photo_account
         await lock_photo_account(db, user_key)
         identity = await db.get(AccountIdentity, user_key)
@@ -61,16 +70,34 @@ class CreditsService:
                     user_credits = UserCredits(user_key=user_key, credits=0,
                                                total_purchased=0, total_used=0)
                     db.add(user_credits)
-                    created_now = True
                     await db.flush()
+                created_now = True
             except IntegrityError:
                 user_credits = (await db.execute(select(UserCredits).where(
                     UserCredits.user_key == user_key))).scalar_one()
-        await self._grant_free_month(db, user_key, newly_created=created_now)
+        if settings.free_plan_first_book_trial:
+            if created_now:
+                await self._grant_first_book(db, user_credits)
+        else:
+            await self._grant_free_month(db, user_key, newly_created=created_now)
         if commit:
             await db.commit()
         await db.refresh(user_credits)
         return user_credits
+
+    async def _grant_first_book(self, db: AsyncSession, balance: UserCredits) -> None:
+        user_key = balance.user_key
+        prior_transaction = await db.scalar(select(CreditTransaction.id).where(
+            CreditTransaction.user_key == user_key).limit(1))
+        subscription = await self.get_active_subscription(db, user_key)
+        if prior_transaction is not None or (subscription is not None and subscription.plan != "free"):
+            return
+        # The unique balance row and this grant commit together. A restored
+        # ledger or an existing balance cannot receive a second signup grant.
+        balance.credits = 1
+        db.add(CreditTransaction(user_key=user_key, amount=1, balance_after=1,
+            transaction_type="bonus", reference_id="first_book_trial:v1", description="첫 동화 무료 체험"))
+        await db.flush()
 
     async def _grant_free_month(self, db: AsyncSession, user_key: str, *, newly_created: bool = False) -> None:
         """One atomic top-up per Korea calendar month, without a paid subscription.
@@ -100,7 +127,6 @@ class CreditsService:
             CreditTransaction.created_at >= month_start,
             CreditTransaction.created_at < month_end,
         ))).scalar_one()
-        from src.core.config import settings
         allowance = max(1, settings.free_plan_monthly_book_limit)
         target = max(0, allowance + min(0, int(spent)))
         amount = max(0, target - balance)
@@ -555,7 +581,7 @@ class CreditsService:
         if plan not in SUBSCRIPTION_PLANS:
             raise ValueError(f"Invalid plan: {plan}")
 
-        plan_info = SUBSCRIPTION_PLANS[plan]
+        plan_info = subscription_plan_details(plan)
         now = utcnow()
 
         # 동시 create의 경쟁 패자는 (user_key) WHERE status='active' 부분 유니크(M17)에서

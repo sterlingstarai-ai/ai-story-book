@@ -105,6 +105,7 @@ def gemini_free_beta(configured):
             "TTS_PROVIDER": "google_gemini", "GOOGLE_GEMINI_TTS_PROJECT": "storybook-test",
             "GOOGLE_GEMINI_TTS_DAILY_REQUEST_LIMIT": "12", "GOOGLE_GEMINI_TTS_MONTHLY_REQUEST_LIMIT": "12",
             "GENERATION_ACCESS_MODE": "invite_only", "GENERATION_ALLOWED_USER_HASHES": "a" * 64,
+            "FREE_PLAN_FIRST_BOOK_TRIAL": "true",
             "DAILY_GENERATION_BUDGET": "14"}
 
 
@@ -119,6 +120,7 @@ def test_free_beta_accepts_narration_only_without_stt(gemini_free_beta):
     ("GOOGLE_GEMINI_TTS_DAILY_REQUEST_LIMIT", "11"),
     ("GOOGLE_GEMINI_TTS_MONTHLY_REQUEST_LIMIT", "11"),
     ("GENERATION_ACCESS_MODE", "open"),
+    ("FREE_PLAN_FIRST_BOOK_TRIAL", "false"),
     ("PURCHASES_ENABLED", "true"),
     ("TTS_PROVIDER", "openai"),
 ])
