@@ -22,16 +22,18 @@ LLM_MODELS = {
 }
 IMAGE_MODELS = frozenset({"gemini-3-pro-image", "gemini-3.1-flash-image", "gpt-image-2"})
 LLM_TOKEN_LIMITS = {"anthropic": 8000, "openai": 16000}
-ACCEPTANCE_PAGE_COUNTS = (4, 8)
+ACCEPTANCE_PAGE_COUNTS = (4, 8, 12)
 JOURNAL_VERSION = 2
 
 
 def request_limits(page_count, quality_enabled):
     """No caller-controlled numeric limit: only a supported book size and gate flag."""
     if (type(page_count) is not int or page_count not in ACCEPTANCE_PAGE_COUNTS
-            or type(quality_enabled) is not bool):
+            or type(quality_enabled) is not bool or (page_count == 12 and not quality_enabled)):
         raise RuntimeError("LIVE_ACCEPTANCE_INVALID_BOOK_SELECTION")
-    return {"llm": 16, "image": page_count + 1 + (2 if quality_enabled else 0)}
+    # Match the product's repair pool while keeping a fixed, independent HTTP ceiling.
+    repair_pages = 3 if page_count == 12 else 2
+    return {"llm": 16, "image": page_count + 1 + (repair_pages if quality_enabled else 0)}
 
 
 def image_dimensions(body):

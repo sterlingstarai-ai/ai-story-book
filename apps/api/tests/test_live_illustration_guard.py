@@ -12,6 +12,7 @@ import httpx
 from PIL import Image
 import pytest
 
+from src.services.illustration_policy import book_image_request_limit
 from tests.test_live_acceptance_guard import guard, write_cost_fixture
 
 PRIVATE = "private-child-name-key-and-signed-image-query"
@@ -48,7 +49,7 @@ def image_part(*, snake=False):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("pages,limit", [(4, 7), (8, 11)])
+@pytest.mark.parametrize("pages,limit", [(4, 7), (8, 11), (12, 16)])
 async def test_normal_failures_and_repairs_share_one_bounded_image_counter(
     monkeypatch, tmp_path, pages, limit,
 ):
@@ -102,7 +103,7 @@ async def test_vision_and_generation_share_the_unchanged_sixteen_llm_limit(monke
 
 
 @pytest.mark.parametrize("pages,enabled", [
-    ("6", "true"), ("12", "true"), ("100", "true"), ("4.0", "true"),
+    ("6", "true"), ("12", "false"), ("100", "true"), ("4.0", "true"),
     ("4", "1"), ("4", "unbounded"), ("4", "TRUE"),
 ])
 def test_unbounded_or_ambiguous_guard_configuration_is_rejected(monkeypatch, tmp_path, pages, enabled):
@@ -209,7 +210,7 @@ def test_new_dimension_evidence_never_falls_back_to_legacy_final_files(tmp_path,
     assert PRIVATE not in str(caught.value)
 
 
-@pytest.mark.parametrize("pages,expected", [(4, 7), (8, 11)])
+@pytest.mark.parametrize("pages,expected", [(4, 7), (8, 11), (12, 16)])
 def test_paid_harness_forces_quality_flag_and_owned_limits(scripts, pages, expected):
     book, _ = scripts
     config = SimpleNamespace(llm_provider="openai", llm_model="gpt-5.6-sol")
@@ -217,11 +218,13 @@ def test_paid_harness_forces_quality_flag_and_owned_limits(scripts, pages, expec
         "ILLUSTRATION_QUALITY_ENABLED": "true", "LIVE_ACCEPTANCE_PAGE_COUNT": str(pages),
     }
     assert book.request_limits(pages, True) == {"llm": 16, "image": expected}
+    assert expected == book_image_request_limit(pages)
     with pytest.raises(RuntimeError, match="REQUIRES_VERIFIED_OPENAI"):
         book.quality_gate_environment(pages, SimpleNamespace(llm_provider="anthropic", llm_model="claude-sonnet-5"))
 
 
-def test_one_book_runtime_and_result_carry_the_same_gate_and_limits(monkeypatch, tmp_path, scripts):
+@pytest.mark.parametrize("pages,limit,capture", [(4, 7, False), (12, 16, True)])
+def test_one_book_runtime_and_result_carry_the_same_gate_and_limits(monkeypatch, tmp_path, scripts, pages, limit, capture):
     book, _ = scripts
     root = tmp_path / "repository"
     api = root / "apps/api"
@@ -230,6 +233,7 @@ def test_one_book_runtime_and_result_carry_the_same_gate_and_limits(monkeypatch,
     (api / "alembic.ini").write_text("inert fixture")
     (root / "scripts").mkdir()
     (root / "scripts/live_acceptance_guard.py").write_text("# inert snapshot fixture\n")
+    (root / "scripts/fictional_review_capture.py").write_text("# inert snapshot fixture\n")
     output = root / "docs/acceptance/run"
     monkeypatch.setattr(book, "ROOT", root)
     monkeypatch.setattr(book, "require_ignored_path", lambda _path: None)
@@ -247,17 +251,28 @@ def test_one_book_runtime_and_result_carry_the_same_gate_and_limits(monkeypatch,
     monkeypatch.setattr(book, "stop_process_group", lambda _process: None)
     monkeypatch.setattr(book.httpx, "get", lambda *_args, **_kwargs: SimpleNamespace(status_code=200))
     monkeypatch.setattr(book, "journey", lambda *_args: None)
-    args = SimpleNamespace(output_dir=output, reader_profile_file=None, age="5-7", case=1, page_count=4, hold_seconds=0)
+    args = SimpleNamespace(output_dir=output, reader_profile_file=None, age="5-7", case=1, page_count=pages,
+                           hold_seconds=0, retain_fictional_review_evidence=capture)
     assert book.run_acceptance(args) == 0
     runtime = next(value for value in runtimes if "LIVE_ACCEPTANCE_PAGE_COUNT" in value)
-    assert runtime["LIVE_ACCEPTANCE_PAGE_COUNT"] == "4"
+    assert runtime["LIVE_ACCEPTANCE_PAGE_COUNT"] == str(pages)
     assert runtime["ILLUSTRATION_QUALITY_ENABLED"] == "true"
     assert runtime["AUDIO_FEATURE_ENABLED"] == runtime["PURCHASES_ENABLED"] == runtime["POD_ORDERING_ENABLED"] == "false"
     report = json.loads((output / "result.json").read_text())
     assert report["illustration_quality_enabled"] is True
     assert report["provider_journal_version"] == 2
-    assert report["request_limits"] == {"llm": 16, "image": 7}
+    assert report["request_limits"] == {"llm": 16, "image": limit}
+    assert (runtime.get("LIVE_FICTIONAL_REVIEW_CAPTURE") == "true") is capture
     assert "inert-test-key" not in json.dumps(report)
+
+
+def test_twelve_page_text_run_rejects_private_reader_profile_before_setup(tmp_path, scripts):
+    book, _ = scripts
+    output = tmp_path / "acceptance"
+    args = SimpleNamespace(output_dir=output, reader_profile_file=tmp_path / "private.json", page_count=12)
+    with pytest.raises(book.GateFailure, match="TWELVE_PAGE_RUN_REQUIRES_FICTIONAL_INPUT"):
+        book.run_acceptance(args)
+    assert not output.exists()
 
 
 @pytest.mark.parametrize("error,expected", [

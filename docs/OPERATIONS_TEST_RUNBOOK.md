@@ -153,11 +153,15 @@ apps/api/venv/bin/python scripts/run_live_book_acceptance.py --live \
 
 Every new paid full-book run enables illustration review and therefore requires
 `gpt-6-astra` or `gpt-5.6-sol`; text-only comparisons can still evaluate Anthropic.
-Image models remain `gemini-3-pro-image` and `gemini-3.1-flash-image`. The selected
-provider endpoint and model are enforced before HTTP. Four-page runs allow at most
-16 LLM and 7 image requests; eight-page runs allow 16 LLM and 11 image requests.
-Failed attempts, initial generation retries, and at most two page repairs share
-these limits. Only page counts 4 and 8 are accepted. OpenAI output, including
+Image models include `gemini-3-pro-image`, `gemini-3.1-flash-image`, and `gpt-image-2`
+with a matching configured provider. The selected provider endpoint and model are
+enforced before HTTP. The 4-, 8-, and 12-page runs allow at most 16 LLM requests and
+7, 11, and 16 image requests, respectively. Failed attempts, initial generation retries,
+and up to two page repairs (three for 12 pages) share the image allowance. To check
+the default book size, use `--page-count 12 --age 3-5` with fully fictional input and
+no `--reader-profile-file`. Optional `--retain-fictional-review-evidence` captures
+private illustration inputs for 4- and 12-page fictional runs, including when review
+blocks the book. OpenAI output, including
 reasoning, is limited to 16,000 tokens per request; visual reviews use the narrower
 6,144-token ceiling. OpenAI requires `store:false` and rejects non-default service
 tiers. Existing Gemini request bodies are unchanged. See [the publication gate](ILLUSTRATION_QUALITY_GATE.md).

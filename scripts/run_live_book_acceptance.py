@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Explicitly paid one-book acceptance against isolated real dependencies.
 
-One fictional character and one 4- or 8-page book per invocation. The illustration
-release gate is enabled. A shared HTTP journal limits all processes to 16 selected
-LLM requests and page_count + cover + 2 image requests, including failed
-attempts and repairs. This is a small acceptance sample, not the full A1 quality gate.
+One fictional character and one 4-, 8-, or 12-page book per invocation. The
+illustration release gate is enabled. A shared HTTP journal caps all processes
+at 16 LLM requests and 7, 11, or 16 image requests, including failed attempts
+and repairs. This is one acceptance sample, not the full A1 quality gate.
 Only already-cached local Docker images are used. No production env is loaded.
 The default is fully synthetic. An optional private reader profile supplies a
 protagonist name and optionally gender/age. Appearance stays fictional; no photos are used.
@@ -332,7 +332,7 @@ def main():
     parser.add_argument("--reader-profile-file", type=Path,
                         help="Private Git-ignored 0600 JSON: protagonist_name, optional character_gender/character_age")
     parser.add_argument("--retain-fictional-review-evidence", action="store_true",
-                        help="Retain private QA inputs for the 4-page fully fictional case only")
+                        help="Retain private QA inputs for a fully fictional 4- or 12-page case")
     parser.add_argument("--age", choices=("3-5", "5-7", "7-9"), default="5-7")
     parser.add_argument("--case", type=int, choices=range(1, 6), default=1)
     parser.add_argument("--page-count", type=int, choices=ACCEPTANCE_PAGE_COUNTS, default=8)
@@ -353,6 +353,8 @@ def main():
 
 def run_acceptance(args, *, profile=None):
     """Run the owned disposable stack; optional photo profile supplies its guarded journey."""
+    require(profile is not None or args.page_count != 12 or args.reader_profile_file is None,
+            "TWELVE_PAGE_RUN_REQUIRES_FICTIONAL_INPUT")
     directory = args.output_dir.resolve()
     require(directory.is_relative_to((ROOT / "docs/acceptance").resolve())
             and directory != (ROOT / "docs/acceptance").resolve() and not directory.exists(),
@@ -364,7 +366,7 @@ def run_acceptance(args, *, profile=None):
         require_ignored_path(directory / filename)
     reader_profile = load_reader_profile(args.reader_profile_file, args.age)
     text_capture = bool(getattr(args, "retain_fictional_review_evidence", False))
-    require(not text_capture or (profile is None and reader_profile is None and args.page_count == 4),
+    require(not text_capture or (profile is None and reader_profile is None and args.page_count in (4, 12)),
             "REAL_CHILD_REVIEW_CAPTURE_FORBIDDEN")
     config = profile.config if profile is not None else load_runtime_config(args)
     quality_environment = profile.environment if profile is not None else quality_gate_environment(args.page_count, config)
