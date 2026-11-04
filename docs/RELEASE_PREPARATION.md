@@ -55,6 +55,8 @@
 
 테스터는 앱의 **설정 → 베타 참여 ID 복사**에서 보호자 확인을 거쳐 64자리 ID를 운영자에게 보낸다. 운영자는 다른 초대 ID를 유지한 채 `GENERATION_ALLOWED_USER_HASHES`의 쉼표 구분 목록에 받은 ID를 추가하고, 기존 배포 절차에 따라 API·worker에 설정을 반영한다. 복구 후에도 동일 계정은 같은 참여 ID를 사용한다. 앱 계정 키와 복구 코드는 운영자가 받지 않는다. [격리 환경 첫 권 및 초대 검증](acceptance/2026-11-05-beta-invitation/result.json)
 
+최신 서버 후보 `c6c9c7d`의 Linux amd64 API·worker 이미지를 빌드했다. 두 이미지의 소스 해시를 해당 커밋과 대조하고, 격리 PostgreSQL·Redis·Celery·비공개 MinIO에서 첫 권 12쪽 생성과 12쪽 다운로드, 초대 ID 대조, 비초대 계정 크레딧 유지, 두 번째 권 거부를 포함한 43개 검사를 통과했다. 글·그림은 모의 제공자를 사용했다. 로컬 `infra/.env`의 무료 베타 사전 검사는 공개 API·정책 주소, 승인된 내장 정책과 별도 베타 운영 설정이 필요해 차단됐다. [서버 후보 검증 기록](acceptance/2026-11-05-free-beta-final-oci/result.json)
+
 격리 PostgreSQL·Redis·Celery·비공개 저장소에서 신규 계정의 12쪽 동화, 이미지 다운로드, 재시도 시 같은 작업 반환, 두 번째 생성의 402 응답을 확인했다. 글·그림은 모의 제공자를 사용했다. 결제 지원이 확인된 앱에서는 잔액이 소진되면 낱권 구매를 먼저 표시하고 구독을 별도로 제공한다. 결제가 꺼진 베타에서는 서재와 잔액을 안내한다. [첫 권 체험 검증](acceptance/2026-11-04-first-book-runtime/result.json)
 
 생성 대기 화면에는 가상 동화 《하루와 초록 싹》의 예시 삽화를 넣었다. 단계와 비율은 서버 잡의 값을 표시한다. 기본 크기와 작은 화면의 큰 글씨·다크 모드에서 렌더링을 확인했다. 낭독 설정의 표시 이름은 이야기 성우·구연동화·잠자리이며, 기존 설정 값과 미리듣기 파일을 사용한다. [밝은 화면](acceptance/2026-11-04-first-book-loading-design/creation-loading-light.png) · [작은 화면 다크 모드](acceptance/2026-11-04-first-book-loading-design/creation-loading-dark-reduced-motion.png)
