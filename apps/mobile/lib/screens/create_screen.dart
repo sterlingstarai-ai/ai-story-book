@@ -71,7 +71,13 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
   bool _editedName = false;
   bool _editedAge = false;
 
-  TargetAge _selectedAge = TargetAge.age5to7;
+  TargetAge? _ageChoice;
+  TargetAge get _selectedAge =>
+      _ageChoice ??
+      (ref.read(capabilitiesProvider).valueOrNull?['free_first_book_trial'] ==
+              true
+          ? TargetAge.age3to5
+          : TargetAge.age5to7);
   String _selectedLanguage =
       'ko'; // 이야기 생성 언어 (didChangeDependencies에서 로캘 기반 초기화)
   BookStyle _selectedStyle = BookStyle.watercolor;
@@ -96,7 +102,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
       if (!mounted || profile == null) return;
       setState(() {
         if (!_editedName) _protagonistController.text = profile.name;
-        if (!_editedAge) _selectedAge = profile.targetAge;
+        if (!_editedAge) _ageChoice = profile.targetAge;
       });
     } catch (_) {
       // Optional defaults must not prevent a parent from entering details.
@@ -252,6 +258,8 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
         return;
       }
 
+      // Keep retries stable if the capabilities request finishes after submit.
+      _ageChoice ??= _selectedAge;
       final spec = BookSpec(
         topic: _topicController.text.trim(),
         language: _selectedLanguage,
@@ -282,7 +290,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
           .logEvent(
             AnalyticsEvents.bookCreateRequested,
             params: {
-              'target_age': _selectedAge.value,
+              'target_age': spec.targetAge,
               'style': selectedStyle.value,
               'has_protagonist': _protagonistController.text.trim().isNotEmpty,
             },
@@ -416,6 +424,11 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
     final charactersAsync = ref.watch(charactersProvider);
+    ref.watch(
+      capabilitiesProvider.select(
+        (caps) => caps.valueOrNull?['free_first_book_trial'] == true,
+      ),
+    );
     final optionsAsync = ref.watch(generationOptionsProvider);
     final options = optionsAsync.isLoading || optionsAsync.hasError
         ? null
@@ -495,7 +508,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                         if (selected) {
                           setState(() {
                             _editedAge = true;
-                            _selectedAge = age;
+                            _ageChoice = age;
                           });
                         }
                       },

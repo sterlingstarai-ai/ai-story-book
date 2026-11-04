@@ -115,6 +115,7 @@ class HomeScreen extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref,
     HomeStreakSnapshot streak,
+    bool firstBookTrial,
   ) async {
     if (streak.todayBookId != null) {
       Navigator.pushNamed(context, '/viewer', arguments: streak.todayBookId);
@@ -129,15 +130,28 @@ class HomeScreen extends ConsumerWidget {
     // #20: 날짜가 바뀌면 새 키 — 어제 실패한 키로 오늘 요청하면 서버가 어제 잡을 반환한다.
     final now = DateTime.now();
     final todaySig = '${now.year}-${now.month}-${now.day}|$language';
-    if (keyNotifier.state == null || sigNotifier.state != todaySig) {
+    // A capability refresh during a retry must not change the requested age.
+    final previousSig = sigNotifier.state;
+    final String age;
+    if (keyNotifier.state != null &&
+        previousSig != null &&
+        previousSig.startsWith('$todaySig|')) {
+      age = previousSig.substring(todaySig.length + 1);
+    } else {
+      final profile = ref.read(activeChildProfileProvider).valueOrNull;
+      age =
+          (firstBookTrial
+                  ? profile?.targetAge ?? TargetAge.age3to5
+                  : TargetAge.age5to7)
+              .value;
       keyNotifier.state = const Uuid().v4();
-      sigNotifier.state = todaySig;
+      sigNotifier.state = '$todaySig|$age';
     }
     try {
       final jobId = await ref
           .read(apiClientProvider)
           .generateTodayStory(
-            targetAge: '5-7',
+            targetAge: age,
             style: 'watercolor',
             language: language,
             idempotencyKey: keyNotifier.state,
@@ -167,6 +181,11 @@ class HomeScreen extends ConsumerWidget {
     final libraryAsync = ref.watch(libraryProvider);
     final charactersAsync = ref.watch(charactersProvider);
     final streakAsync = ref.watch(homeStreakProvider);
+    final firstBookTrial = ref.watch(
+      capabilitiesProvider.select(
+        (caps) => caps.valueOrNull?['free_first_book_trial'] == true,
+      ),
+    );
     final growthAsync = ref.watch(growthReportProvider);
     final growthSubtitle = growthAsync.maybeWhen(
       data: (g) => (g.vocabLearned > 0 || g.quizTotal > 0)
@@ -329,7 +348,8 @@ class HomeScreen extends ConsumerWidget {
                 child: streakAsync.when(
                   data: (streak) => _StreakSummaryCard(
                     data: streak,
-                    onTapPrimary: () => _onTodayPrimary(context, ref, streak),
+                    onTapPrimary: () =>
+                        _onTodayPrimary(context, ref, streak, firstBookTrial),
                   ),
                   loading: () => const _StreakLoadingCard(),
                   error: (_, __) => _StreakErrorCard(

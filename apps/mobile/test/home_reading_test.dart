@@ -27,6 +27,7 @@ class _TodayFailure extends ApiClient {
   _TodayFailure(this.status) : super(baseUrl: 'http://test', userKey: 'test');
 
   final int status;
+  String? requestedAge;
 
   @override
   Future<String> generateTodayStory({
@@ -36,6 +37,7 @@ class _TodayFailure extends ApiClient {
     String language = 'ko',
     String? idempotencyKey,
   }) async {
+    requestedAge = targetAge;
     throw DioException(
       requestOptions: RequestOptions(path: '/v1/streak/today/generate'),
       error: ApiError(
@@ -129,8 +131,11 @@ Future<void> _scrollTo(WidgetTester tester, Finder target) async {
 
 void main() {
   for (final status in [402, 503]) {
-    testWidgets('today story failure routes by API error ($status)', (tester) async {
+    testWidgets('today story failure routes by API error ($status)', (
+      tester,
+    ) async {
       final navigation = <RouteSettings>[];
+      final api = _TodayFailure(status);
       await _pump(
         tester,
         load: () async => [],
@@ -146,8 +151,10 @@ void main() {
           readDates: {},
         ),
         overrides: [
-          apiClientProvider.overrideWithValue(_TodayFailure(status)),
-          capabilitiesProvider.overrideWith((ref) async => const {}),
+          apiClientProvider.overrideWithValue(api),
+          capabilitiesProvider.overrideWith(
+            (ref) async => {'free_first_book_trial': status == 402},
+          ),
         ],
       );
       final l = await AppLocalizations.delegate.load(const Locale('ko'));
@@ -155,6 +162,7 @@ void main() {
       await _scrollTo(tester, create);
       await tester.tap(create);
       await tester.pumpAndSettle();
+      expect(api.requestedAge, status == 402 ? '3-5' : '5-7');
       if (status == 402) {
         expect(find.text(l.creditBetaLimitTitle), findsOneWidget);
         final close = find.text(l.creditShortageClose);
@@ -174,7 +182,9 @@ void main() {
       tester,
       load: () async => [_book('latest', '읽다 만 동화')],
       navigation: [],
-      overrides: [homeReadingProgressProvider('latest').overrideWith((ref) async => 5)],
+      overrides: [
+        homeReadingProgressProvider('latest').overrideWith((ref) async => 5),
+      ],
     );
     expect(
       find.descendant(

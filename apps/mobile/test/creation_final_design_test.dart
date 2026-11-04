@@ -100,6 +100,7 @@ Future<Widget> _app(
   String language = 'ko',
   Brightness brightness = Brightness.light,
   _Api? api,
+  Map<String, dynamic> capabilities = const {'audio_supported': true},
   List<Override> overrides = const [],
 }) async {
   SharedPreferences.setMockInitialValues({});
@@ -108,8 +109,7 @@ Future<Widget> _app(
     overrides: [
       sharedPreferencesProvider.overrideWithValue(prefs),
       apiClientProvider.overrideWithValue(api ?? _Api()),
-      capabilitiesProvider
-          .overrideWith((ref) async => {'audio_supported': true}),
+      capabilitiesProvider.overrideWith((ref) async => capabilities),
       charactersProvider.overrideWith(_Characters.new),
       ...overrides,
     ],
@@ -125,6 +125,20 @@ Future<Widget> _app(
 }
 
 void main() {
+  testWidgets('first-book default supports narration and remains editable',
+      (tester) async {
+    await tester.pumpWidget(await _app(
+      const CreateScreen(),
+      capabilities: const {'free_first_book_trial': true},
+    ));
+    await tester.pumpAndSettle();
+    final l = await AppLocalizations.delegate.load(const Locale('ko'));
+    expect(find.text(l.createAgeHelp3to5), findsOneWidget);
+    await tester.tap(find.widgetWithText(ChoiceChip, l.libraryAge5to7));
+    await tester.pumpAndSettle();
+    expect(find.text(l.createAgeHelp5to7), findsOneWidget);
+  });
+
   setUpAll(loadDesignFonts);
   for (final language in ['ko', 'en', 'ja']) {
     for (final brightness in Brightness.values) {

@@ -1701,7 +1701,7 @@ final todayAttemptKeyProvider = StateProvider<String?>((ref) => null);
 
 /// #20: 오늘의 동화 멱등키가 '어느 날짜의 생성'인지 함께 보관한다. 날짜 서명 없이
 /// '??='만 쓰면 어제 실패한 키가 오늘 재사용돼 서버가 어제 잡을 그대로 돌려준다
-/// (오늘의 동화가 조용히 생성되지 않음).
+/// (오늘의 동화가 조용히 생성되지 않음). 재시도용 요청 연령도 함께 보관한다.
 final todayAttemptSigProvider = StateProvider<String?>((ref) => null);
 
 class BookCreationNotifier extends AsyncNotifier<void> {
