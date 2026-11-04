@@ -1,7 +1,12 @@
+import importlib
 import importlib.util
+import json
 import sqlite3
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -51,3 +56,43 @@ def test_missing_or_insecure_ledger_fails_closed(ledger):
     ledger.unlink()
     with pytest.raises(budget.ProbeBudgetError):
         budget.claim(ledger, now=1_000_000)
+
+
+@pytest.mark.parametrize(('reason', 'expected'), [
+    ('quota_exhausted', 'REQUIRED'),
+    ('credentials_rejected', 'UNAVAILABLE'),
+])
+def test_refresh_can_recover_quota_before_observation_expires(monkeypatch, capsys, reason, expected):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[3] / 'scripts'))
+    runner = importlib.import_module('run_pilot_provider_refresh')
+    settings = SimpleNamespace(
+        testing=False, provider_observation_ttl_seconds=86400,
+        llm_provider='openai', llm_model='gpt-5.6-sol', image_provider='openai',
+        image_model='gpt-image-2', audio_feature_enabled=False,
+    )
+    state = {'status': 'unavailable', 'observations': [
+        {'kind': 'llm', 'reason': reason, 'status': 'unavailable'},
+        {'kind': 'image', 'status': 'healthy'},
+    ]}
+    monkeypatch.setitem(sys.modules, 'src.core.config', SimpleNamespace(settings=settings))
+    monkeypatch.setitem(sys.modules, 'src.services.provider_runtime',
+                        SimpleNamespace(provider_runtime_status=AsyncMock(return_value=state)))
+    exec(runner._CHECK, {})
+    assert capsys.readouterr().out.strip() == expected
+
+
+def test_candidate_bootstrap_spends_only_its_narration_claim(monkeypatch, tmp_path):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[3] / 'scripts'))
+    runner = importlib.import_module('run_pilot_provider_refresh')
+    identifier, image = 'a' * 64, 'sha256:' + 'b' * 64
+    inspect = json.dumps({'Id': identifier, 'Image': image, 'Name': '/asb-narration-next-api',
+                          'Running': True, 'Restart': 'no'}).encode()
+    docker = Mock(side_effect=[inspect, b'REQUIRED_TTS\n', b'TTS_VERIFIED\n', b'FRESH_AUDIO\n'])
+    claim = Mock(return_value=True)
+    monkeypatch.setattr(runner, 'docker', docker)
+    monkeypatch.setattr(runner, 'claim', claim)
+    ledger = tmp_path / 'narration.sqlite'
+    runner.bootstrap_isolated_narration(identifier, image, ledger)
+    claim.assert_called_once_with(ledger)
+    assert [call.kwargs['data'] for call in docker.call_args_list[1:]] == [
+        runner._CHECK, runner._TTS_PROBE, runner._CHECK]

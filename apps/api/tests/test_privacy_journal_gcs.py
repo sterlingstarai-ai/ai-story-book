@@ -2,6 +2,7 @@
 
 import importlib
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.parse import unquote
 
 import httpx
@@ -12,6 +13,27 @@ import pytest
 def modules(monkeypatch):
     monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[3] / 'scripts'))
     return importlib.import_module('src.services.privacy_journal'), importlib.import_module('src.services.privacy_journal_gcs')
+
+
+def test_adc_reuses_valid_credentials_and_resets_after_fork(modules, monkeypatch):
+    import google.auth
+    import threading
+
+    _, gcs = modules
+    monkeypatch.setattr(gcs, '_ADC', threading.local())
+    pid = [1]
+    monkeypatch.setattr(gcs.os, 'getpid', lambda: pid[0])
+    calls = []
+
+    def credentials(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(valid=True, token=f'fixture-{len(calls)}'), None
+
+    monkeypatch.setattr(google.auth, 'default', credentials)
+    assert gcs.application_default_token() == 'fixture-1'
+    assert gcs.application_default_token() == 'fixture-1'
+    pid[0] = 2
+    assert gcs.application_default_token() == 'fixture-2'
 
 
 def test_encrypted_records_use_create_only_and_roundtrip(modules):

@@ -52,6 +52,10 @@ def test_missing_or_wrong_anchor_and_wrong_previous_are_rejected():
     scan = JournalScan((), 0)
     checkpoint = make_checkpoint(checkpoints, 1, scan)
     head = append_checkpoint_head(heads, namespace=NAMESPACE, key=HEAD_KEY, checkpoint=checkpoint)
+    assert append_checkpoint_head(heads, namespace=NAMESPACE, key=HEAD_KEY, checkpoint=checkpoint) == head
+    with pytest.raises(JournalError):
+        append_checkpoint_head(heads, namespace=NAMESPACE, key=HEAD_KEY,
+                               checkpoint=dict(checkpoint, sha256='a' * 64))
     args = {'namespace': NAMESPACE, 'head_key': HEAD_KEY, 'checkpoint_key': CHECKPOINT_KEY,
             'candidate_head': head, 'now': 101, 'max_age': 10}
     for anchor in (None, {'sequence': 1, 'sha256': '0' * 64}):

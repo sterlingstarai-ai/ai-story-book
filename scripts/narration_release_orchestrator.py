@@ -8,6 +8,8 @@ No production adapter is provided here.
 """
 import os
 from pathlib import Path
+import syslog
+import traceback
 
 import narration_deploy_safety as safety
 from narration_container_controls import NarrationContainerControls
@@ -15,6 +17,7 @@ from backup_service_guard import BackupServiceGuard, assert_no_narration_recover
 from narration_deploy_safety import (
     PRIVACY_RECOVERY_MARKER,
     NarrationSafetyError,
+    WorkerDrainUnverified,
     _assert_shared_paths,
     _private_directory,
     _validate_ids,
@@ -27,9 +30,9 @@ class NarrationReleaseError(RuntimeError):
     pass
 
 
-# No operator flag can lift this gate. Remove it only after independent host
-# reboot testing, external write fencing and privacy/media restore evidence
-# have been implemented and reviewed. Local isolated fixture paths still work.
+# The canonical path remains closed to schema and narration changes. The
+# exact storage-only adapter can detach an empty source before its old writer
+# is retired. It cannot promote a restored database or migrate the schema.
 PRODUCTION_MARKER = Path('/var/lib/ai-story-book/narration-deploy/narration-recovery.json')
 
 
@@ -71,6 +74,17 @@ def _require_old_stopped(runtime, ids):
             raise NarrationReleaseError('Old container is still running or unverified')
 
 
+def _require_production_detach(operations, runtime, ids, images):
+    from narration_pilot_adapter import NarrationPilotAdapter
+
+    if (type(operations) is not NarrationPilotAdapter or operations.runtime is not runtime
+            or operations.storage_only is not True or operations.expected_gcs_media is not True
+            or operations.expected_narration_only is not False or operations.offhost_restore is None
+            or operations.identities != ids or operations.image_ids != images
+            or any(images.get('old_' + role) != images.get('new_' + role) for role in ('api', 'worker'))):
+        raise NarrationReleaseError('Production narration release is blocked; only a pinned storage detach may run')
+
+
 def release(*, state_dir, backup_state_dir, identities, image_ids, runtime, operations):
     """Execute a trusted adapter under the backup lock; retain marker on error.
 
@@ -87,59 +101,123 @@ def release(*, state_dir, backup_state_dir, identities, image_ids, runtime, oper
     path = _private_directory(state_dir)
     backup_path = _private_directory(backup_state_dir)
     _assert_shared_paths(path, backup_path)
-    if path / 'narration-recovery.json' == PRODUCTION_MARKER:
-        raise NarrationReleaseError('Production narration release is blocked pending reboot and recovery verification')
+    recovery_marker = path / 'narration-recovery.json'
     ids = _validate_ids(identities)
+    production_detach = recovery_marker == PRODUCTION_MARKER
+    if production_detach:
+        _require_production_detach(operations, runtime, ids, image_ids)
     guard = BackupServiceGuard(backup_path, runtime)
     fd = guard._locked()
     armed = False
+    publication_recorded = False
+    publish_attempted = False
+    proxy = None
+
+    def phase(name):
+        if production_detach:
+            syslog.syslog(syslog.LOG_NOTICE, 'asb-media-detach phase=' + name)
+
     try:
         assert_no_narration_recovery()
-        for marker in (path / 'narration-recovery.json', backup_path / 'restart-required.json',
+        for marker in (recovery_marker, backup_path / 'restart-required.json',
                        PRIVACY_RECOVERY_MARKER):
             _must_be_absent(marker)
         # Never rely on the caller's success boolean for image identity.
         NarrationContainerControls(runtime).verify_pinned_images(ids, image_ids)
         _require_true(operations.preflight(ids), 'Preflight failed')
-        # arm while holding the same backup lock used by legacy recoveries.
-        _write_marker(path, ids)
-        armed = True
-        _require_true(operations.stop_and_drain(ids), 'Drain failed')
-        _require_old_stopped(runtime, ids)
+        phase('preflight_verified')
+        # Docker may start containers before systemd can read the marker.
+        # Disarm them before persisting a recovery state or stopping admission.
         _require_true(operations.disable_restart(ids), 'Restart policy is unsafe')
         _require_restart_disabled(runtime, ids)
+        recovery_proxy = getattr(operations, 'recovery_proxy', None)
+        if recovery_proxy is not None:
+            proxy = recovery_proxy()
+            if proxy is not None:
+                proxy = safety._validate_proxy(proxy, ids)
+                item = runtime.inspect(proxy['id'])
+                if (item.get('id') != proxy['id'] or item.get('name') != 'asb-pilot-nginx'
+                        or item.get('image_id') != proxy['image_id'] or item.get('restart_policy') != 'no'):
+                    raise NarrationReleaseError('Proxy restart policy is unsafe')
+        # arm while holding the same backup lock used by legacy recoveries.
+        try:
+            _write_marker(path, ids, proxy=proxy)
+        except BaseException:
+            # The marker can be visible even if directory fsync failed.
+            armed = os.path.lexists(recovery_marker)
+            raise
+        armed = True
+        phase('draining')
+        _require_true(operations.stop_and_drain(ids), 'Drain failed')
+        _require_old_stopped(runtime, ids)
+        _require_restart_disabled(runtime, ids)
+        phase('backup_restore')
         _require_true(operations.backup_and_restore_verify(), 'Backup verification failed')
         _require_true(operations.migrate(), 'Migration verification failed')
+        phase('isolated_start')
         _require_true(operations.start_isolated(ids), 'Isolated start failed')
         _require_true(operations.verify_isolated(), 'Isolated readiness failed')
+        publish_attempted = True
+        phase('publishing')
         _require_true(operations.publish(), 'Publication failed')
         _require_true(operations.verify_published(), 'Published readiness failed')
         _require_restart_disabled(runtime, ids)
-        # All containers remain restart=no while the recovery marker exists.
-        # Docker may restart containers before the recovery unit on a host
-        # reboot, so enabling restart with an armed marker defeats quarantine.
-        (path / 'narration-recovery.json').unlink()
+        if proxy is not None:
+            item = runtime.inspect(proxy['id'])
+            if (item.get('id') != proxy['id'] or item.get('name') != 'asb-pilot-nginx'
+                    or item.get('image_id') != proxy['image_id'] or item.get('restart_policy') != 'no'):
+                raise NarrationReleaseError('Proxy identity or restart policy changed')
+            # Persist a distinct record before enabling restarts. Boot
+            # recovery may resume only this verified published generation.
+            _write_marker(path, ids, proxy=proxy, published_images=image_ids)
+            publication_recorded = True
+            _require_true(operations.enable_new_restart(ids), 'Restart policy verification failed')
+        # Once the published generation has restart policies in place, the
+        # recovery record can be removed.
+        recovery_marker.unlink()
         dir_fd = os.open(path, os.O_RDONLY | getattr(os, 'O_DIRECTORY', 0))
         try:
             os.fsync(dir_fd)
         finally:
             os.close(dir_fd)
-        # A crash between marker removal and this step may leave the new
-        # services stopped after reboot; it cannot revive the older images.
-        # If this operation fails in-process, re-arm and quarantine below.
-        _require_true(operations.enable_new_restart(ids), 'Restart policy verification failed')
+        if proxy is None:
+            _require_true(operations.enable_new_restart(ids), 'Restart policy verification failed')
         armed = False
+        phase('published_verified')
         return {'status': 'RELEASE_SEQUENCE_COMPLETED', 'restore_authorized': False}
-    except BaseException:
-        if armed:
+    except WorkerDrainUnverified:
+        # Ingress and the old API have stopped. Keep the armed marker and
+        # leave the old worker alive so it can finish previously accepted work.
+        phase('worker_drain_unverified')
+        raise
+    except BaseException as exc:
+        location = traceback.extract_tb(exc.__traceback__)[-1]
+        phase(f'failed type={type(exc).__name__} location={Path(location.filename).name}:{location.lineno}')
+        if armed and not publication_recorded:
             try:
                 # An error after unlink but before directory fsync leaves the
                 # marker's persistence ambiguous. Recreate it before trying
                 # quarantine so boot recovery is not silently disarmed.
-                marker = path / 'narration-recovery.json'
-                if not marker.exists() and not marker.is_symlink():
-                    _write_marker(path, ids)
+                if not os.path.lexists(recovery_marker):
+                    _write_marker(path, ids, proxy=proxy)
                 quarantine(path, runtime)
+                if production_detach and not getattr(operations, '_publication_started', publish_attempted):
+                    try:
+                        _require_true(operations.resume_original_storage_before_publication(), 'Original storage recovery failed')
+                        recovery_marker.unlink()
+                        directory = os.open(path, os.O_DIRECTORY | os.O_NOFOLLOW)
+                        try:
+                            os.fsync(directory)
+                        finally:
+                            os.close(directory)
+                        phase('original_recovered')
+                    except Exception as recovery_error:
+                        location = traceback.extract_tb(recovery_error.__traceback__)[-1]
+                        phase(f'original_recovery_failed type={type(recovery_error).__name__} '
+                              f'location={Path(location.filename).name}:{location.lineno}')
+                        if not os.path.lexists(recovery_marker):
+                            _write_marker(path, ids, proxy=proxy)
+                        quarantine(path, runtime)
             except (NarrationSafetyError, OSError):
                 # Recovery requires manual intervention if the filesystem or
                 # container runtime cannot persist or enforce this fence.

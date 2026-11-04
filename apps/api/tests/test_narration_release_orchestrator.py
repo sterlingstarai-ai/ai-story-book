@@ -19,7 +19,7 @@ def modules(monkeypatch, tmp_path):
 
 SLOTS = ['old_api', 'old_worker', 'new_api', 'new_worker']
 IMAGES = {slot: 'sha256:' + 'e' * 64 for slot in SLOTS}
-STEPS = ['preflight', 'stop_and_drain', 'disable_restart', 'backup_and_restore_verify',
+STEPS = ['preflight', 'disable_restart', 'stop_and_drain', 'backup_and_restore_verify',
          'migrate', 'start_isolated', 'verify_isolated', 'publish',
          'verify_published', 'enable_new_restart']
 
@@ -77,7 +77,7 @@ def test_failure_never_falls_back_to_old_image(modules, tmp_path, failure):
         modules.release(state_dir=tmp_path, backup_state_dir=tmp_path, identities=ids, image_ids=IMAGES,
                         runtime=runtime, operations=ops)
     assert ops.calls == STEPS[:STEPS.index(failure) + 1]
-    if failure == 'preflight':
+    if failure in {'preflight', 'disable_restart'}:
         assert not (tmp_path / 'narration-recovery.json').exists()
         assert runtime.disabled == []
     else:
@@ -101,6 +101,11 @@ def test_restart_is_enabled_only_after_published_checks_and_marker_removal(modul
     ids = dict(zip(SLOTS, [x * 64 for x in 'abcd']))
 
     class MarkerCheckingOperations(Operations):
+        def stop_and_drain(self, identities):
+            assert (tmp_path / 'narration-recovery.json').is_file()
+            assert all(item['restart_policy'] == 'no' for item in self.runtime.items.values())
+            return super().__getattr__('stop_and_drain')(identities)
+
         def publish(self):
             assert (tmp_path / 'narration-recovery.json').is_file()
             self.calls.append('publish')
@@ -123,7 +128,8 @@ def test_restart_is_enabled_only_after_published_checks_and_marker_removal(modul
     assert ops.calls == STEPS
 
 
-def test_unlink_fsync_failure_rearms_and_quarantines(modules, tmp_path, monkeypatch):
+@pytest.mark.parametrize('failure_call', [2, 3])
+def test_directory_fsync_failure_retains_marker_and_quarantines(modules, tmp_path, monkeypatch, failure_call):
     ids = dict(zip(SLOTS, [x * 64 for x in 'abcd']))
     runtime = Runtime(ids)
     real_fsync = modules.os.fsync
@@ -132,7 +138,7 @@ def test_unlink_fsync_failure_rearms_and_quarantines(modules, tmp_path, monkeypa
     def fail_once(fd):
         nonlocal calls
         calls += 1
-        if calls == 3:
+        if calls == failure_call:
             raise OSError('synthetic directory fsync failure')
         return real_fsync(fd)
 
@@ -154,14 +160,15 @@ def test_adapter_cannot_self_attest_disabled_restart(modules, tmp_path):
         modules.release(state_dir=tmp_path, backup_state_dir=tmp_path, identities=ids, image_ids=IMAGES,
                         runtime=runtime, operations=ops)
     assert ops.calls == STEPS[:STEPS.index('disable_restart') + 1]
-    assert (tmp_path / 'narration-recovery.json').is_file()
-    assert all(not item['running'] for item in runtime.items.values())
+    assert not (tmp_path / 'narration-recovery.json').exists()
+    assert all(item['running'] for item in runtime.items.values())
 
 
 def test_adapter_cannot_self_attest_old_containers_stopped(modules, tmp_path):
     ids = dict(zip(SLOTS, [x * 64 for x in 'abcd']))
     runtime = Runtime(ids)
-    ops = Operations()  # claims drain succeeded while old containers still run
+    ops = Operations(runtime=runtime)
+    ops.stop_and_drain = lambda _ids: ops.calls.append('stop_and_drain') or True
     with pytest.raises(modules.NarrationReleaseError, match='still running or unverified'):
         modules.release(state_dir=tmp_path, backup_state_dir=tmp_path, identities=ids,
                         image_ids=IMAGES, runtime=runtime, operations=ops)
@@ -202,6 +209,26 @@ def test_production_marker_is_blocked_before_any_runtime_mutation(modules, tmp_p
     assert not (tmp_path / 'narration-recovery.json').exists()
 
 
+@pytest.mark.parametrize('failure, changed_names, rollback', [
+    ('backup_and_restore_verify', False, True), ('publish', False, True), ('publish', True, False),
+])
+def test_storage_detach_recovers_original_only_before_publication(
+        modules, tmp_path, monkeypatch, failure, changed_names, rollback):
+    ids = dict(zip(SLOTS, [x * 64 for x in 'abcd']))
+    runtime = Runtime(ids)
+    ops = Operations(failure, runtime)
+    ops._publication_started = changed_names
+    called = []
+    ops.resume_original_storage_before_publication = lambda: not called.append(True)
+    monkeypatch.setattr(modules, 'PRODUCTION_MARKER', tmp_path / 'narration-recovery.json')
+    monkeypatch.setattr(modules, '_require_production_detach', lambda *_: None)
+    with pytest.raises(KeyboardInterrupt):
+        modules.release(state_dir=tmp_path, backup_state_dir=tmp_path, identities=ids, image_ids=IMAGES,
+                        runtime=runtime, operations=ops)
+    assert bool(called) is rollback
+    assert (tmp_path / 'narration-recovery.json').exists() is not rollback
+
+
 def test_unexpected_image_is_rejected_before_marker_or_callbacks(modules, tmp_path):
     ids = dict(zip(SLOTS, [x * 64 for x in 'abcd']))
     runtime = Runtime(ids)
@@ -213,3 +240,22 @@ def test_unexpected_image_is_rejected_before_marker_or_callbacks(modules, tmp_pa
     assert ops.calls == []
     assert runtime.disabled == []
     assert not (tmp_path / 'narration-recovery.json').exists()
+
+
+def test_unverified_queue_drain_preserves_worker_and_marker(modules, tmp_path):
+    ids = dict(zip(SLOTS, [x * 64 for x in 'abcd']))
+    runtime = Runtime(ids)
+
+    class PendingQueue(Operations):
+        def stop_and_drain(self, identities):
+            self.runtime.stop(identities['old_api'])
+            raise modules.WorkerDrainUnverified('accepted work remains')
+
+    with pytest.raises(modules.WorkerDrainUnverified):
+        modules.release(state_dir=tmp_path, backup_state_dir=tmp_path, identities=ids,
+                        image_ids=IMAGES, runtime=runtime, operations=PendingQueue(runtime=runtime))
+
+    assert (tmp_path / 'narration-recovery.json').is_file()
+    assert not runtime.items[ids['old_api']]['running']
+    assert runtime.items[ids['old_worker']]['running']
+    assert runtime.items[ids['old_worker']]['restart_policy'] == 'no'

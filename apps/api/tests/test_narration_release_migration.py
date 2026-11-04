@@ -15,7 +15,7 @@ def fixture(monkeypatch, tmp_path):
     ca.chmod(0o600)
     values = {'DATABASE_SSL_MODE': 'verify-full', 'DATABASE_URL': 'postgresql://u:fixture@127.0.0.1/example'}
     calls = []
-    revisions = [b'5de7a40b6c12', b'e7b93d2a601f']
+    revisions = [b'5de7a40b6c12', b'f32a7b4d190c']
     monkeypatch.setattr(module, 'database_environment', lambda *_: {})
     monkeypatch.setattr(module, 'assert_quiescent', lambda *_: calls.append('idle'))
     monkeypatch.setattr(module, 'run_pg', lambda *_: revisions.pop(0))
@@ -24,7 +24,7 @@ def fixture(monkeypatch, tmp_path):
         calls.append('migrate')
         assert Path(argv[1]).name == 'linux_parent_death_exec.py'
         assert argv[3] == '--'
-        assert argv[-2:] == ['upgrade', 'e7b93d2a601f']
+        assert argv[-2:] == ['upgrade', 'f32a7b4d190c']
         assert 'fixture' not in ' '.join(argv)
         assert kwargs['env']['DATABASE_URL'] == kwargs['env']['DATABASE_MIGRATION_URL']
         return SimpleNamespace(returncode=0)
@@ -41,7 +41,7 @@ def test_pinned_migration_requires_repeated_safety_checks(fixture):
         return True
 
     result = module.apply_migration(values=values, ca_file=ca, assert_release_safety=safe)
-    assert result['revision'] == 'e7b93d2a601f'
+    assert result['revision'] == 'f32a7b4d190c'
     assert result['restore_authorized'] is False
     assert calls == ['safety', 'idle', 'safety', 'migrate', 'safety']
 

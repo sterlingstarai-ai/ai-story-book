@@ -7,6 +7,7 @@ authorizes opening the restored system. Reruns are required after failures.
 """
 
 from collections import defaultdict
+import json
 import os
 import re
 from urllib.parse import urlsplit
@@ -28,6 +29,23 @@ _USER_KEY = re.compile(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-
 _EVENT_ID = re.compile(r'^[0-9a-f]{32}$')
 _ACTIONS = {'account_delete', 'consent_revoke', 'consent_grant', 'photo_revoke', 'credential_revoke'} | RESOURCE_ACTIONS
 _MAX_PURGE_LIST_KEYS = 100000
+
+
+def encode_replay_transfer(scan, journal_sha256, legacy_public_url):
+    """Encode an already authenticated scan for private sandbox stdin."""
+    events = []
+    for entry in scan.committed:
+        item = {'id': entry.event_id, 'action': entry.action, 'subject': entry.subject,
+                'revision': entry.revision, 'credential_state': credential_state_to_payload(entry.credential_state)}
+        for key, value in (
+            ('resource_id', entry.resource_id), ('consent_state', consent_state_to_payload(entry.consent_state)),
+            ('deletion_receipt', deletion_receipt_to_payload(entry.deletion_receipt)),
+        ):
+            if value is not None:
+                item[key] = value
+        events.append(item)
+    return json.dumps({'events': events, 'journal_sha256': journal_sha256,
+                       'legacy_public_url': legacy_public_url}, separators=(',', ':')).encode()
 
 
 async def _require_disposable_fixture(db):
@@ -155,11 +173,12 @@ def _validated_journal_events(scan: JournalScan):
             raise ReplayIncomplete('Journal revisions are incomplete; target must remain isolated')
 
     for entries in events.values():
+        entries.sort(key=lambda item: item.revision)
         requests = [entry.deletion_receipt.request_id for entry in entries if entry.deletion_receipt is not None]
         if len(requests) != len(set(requests)):
             raise ReplayIncomplete('Journal deletion requests conflict; target must remain isolated')
         deleted_profiles = set()
-        for entry in sorted(entries, key=lambda item: item.revision):
+        for entry in entries:
             if entry.action == 'profile_delete':
                 deleted_profiles.add(entry.resource_id)
             if entry.deletion_receipt is not None and entry.deletion_receipt.profile_id in deleted_profiles:
@@ -172,7 +191,7 @@ def _validated_journal_events(scan: JournalScan):
     # in a backup, so an inconsistent record cannot leave a partial replay.
     for entries in events.values():
         deleted = False
-        for entry in sorted(entries, key=lambda item: item.revision):
+        for entry in entries:
             if entry.action == 'account_delete':
                 deleted = True
             elif deleted and entry.action == 'consent_grant':
@@ -197,7 +216,7 @@ def plan_quarantined_replay(scan: JournalScan) -> dict:
             'privacy_replay_authorized': False, 'restore_authorized': False}
 
 
-async def _apply_replay_core(db, scan: JournalScan, *, backup_marker=None) -> dict:
+async def _apply_replay_core(db, scan: JournalScan, *, backup_marker=None, sandbox_token=None) -> dict:
     """Shared mutation implementation, presently restricted to disposable targets.
 
     This internal entry point deliberately enforces the fixture check itself:
@@ -206,13 +225,25 @@ async def _apply_replay_core(db, scan: JournalScan, *, backup_marker=None) -> di
     verifier, not a caller-supplied predicate or a boolean authorization flag.
     """
     events, ids = _validated_journal_events(scan)
-    await _require_disposable_fixture(db)
+    if sandbox_token is None:
+        await _require_disposable_fixture(db)
+    else:
+        from quarantined_replay_preflight import verify_replay_destination
+        await verify_replay_destination(db, sandbox_token)
 
-    # This intentionally records no sample, URL or provider credential. Until a
-    # concrete verified-state recovery exists, even a later revoke cannot be
-    # inferred from an incomplete voice history. Fail before any mutation.
-    if any(entry.action == 'voice_changed' for entries in events.values() for entry in entries):
-        raise ReplayIncomplete('Voice state requires verified recovery; target must remain isolated')
+    # The journal cannot reconstruct an active voice. A later explicit erasure
+    # of the same voice or account makes the earlier change unnecessary.
+    for entries in events.values():
+        erased_voices = set()
+        erased_account = False
+        for entry in reversed(entries):
+            if entry.action == 'account_delete':
+                erased_account = True
+            elif entry.action in {'voice_delete', 'voice_revoke'}:
+                erased_voices.add(entry.resource_id)
+            elif (entry.action == 'voice_changed' and not erased_account
+                  and entry.resource_id not in erased_voices):
+                raise ReplayIncomplete('Voice state requires verified recovery; target must remain isolated')
 
     if backup_marker is not None:
         # The caller must have separately verified the marker's source. This
@@ -235,6 +266,7 @@ async def _apply_replay_core(db, scan: JournalScan, *, backup_marker=None) -> di
     from src.routers.shares import revoke_share
     from src.routers.users import _delete_user_data
     from src.routers.voice_profiles import delete_voice_profile, revoke_voice_profile_consent
+    from src.services.storage import key_from_public_url, voice_sample_prefix
 
     resource_handlers = {
         'book_delete': (Book, delete_book),
@@ -278,8 +310,7 @@ async def _apply_replay_core(db, scan: JournalScan, *, backup_marker=None) -> di
             if await session.scalar(select(1).select_from(table).where(table.c.user_key == user_key).limit(1)):
                 raise ReplayIncomplete('Deleted account still has rows; target must remain isolated')
 
-    async def verify_recorded_state(session, user_key, entries, *, stage):
-        ordered = sorted(entries, key=lambda item: item.revision)
+    async def verify_recorded_state(session, user_key, ordered, *, stage):
         if any(entry.action == 'account_delete' for entry in ordered):
             await verify_tombstone(session, user_key)
             return
@@ -331,6 +362,8 @@ async def _apply_replay_core(db, scan: JournalScan, *, backup_marker=None) -> di
             'book_delete': Book, 'character_delete': Character,
             'profile_delete': ChildProfile, 'voice_delete': VoiceProfile,
         }
+        profile_deletions = {entry.resource_id: entry.revision for entry in ordered
+                             if entry.action == 'profile_delete'}
         for entry in ordered:
             if entry.action in deleted_models:
                 if await session.get(deleted_models[entry.action], entry.resource_id) is not None:
@@ -354,10 +387,7 @@ async def _apply_replay_core(db, scan: JournalScan, *, backup_marker=None) -> di
                     raise ReplayIncomplete(f'Share {stage} state disagrees; target must remain isolated')
             if entry.deletion_receipt is not None:
                 info = entry.deletion_receipt
-                removed_profile = info.profile_id is not None and any(
-                    later.action == 'profile_delete' and later.resource_id == info.profile_id
-                    and later.revision > entry.revision for later in ordered
-                )
+                removed_profile = profile_deletions.get(info.profile_id, 0) > entry.revision
                 receipt = await session.get(BookDeletionReceipt, (user_key, info.request_id))
                 if ((removed_profile and receipt is not None) or (not removed_profile and (
                     receipt is None or receipt.book_id != entry.resource_id or receipt.profile_id != info.profile_id
@@ -376,10 +406,17 @@ async def _apply_replay_core(db, scan: JournalScan, *, backup_marker=None) -> di
             raise ReplayIncomplete('Storage deletion is incomplete; target must remain isolated')
         await _verify_completed_purges(session)
 
+    def require_owned_voice_media(subject, url):
+        if url:
+            key = key_from_public_url(url)
+            if not key or not key.startswith((voice_sample_prefix(subject), f'voice-samples/{subject}/')):
+                raise ReplayIncomplete('Voice media cannot be located safely; target must remain isolated')
+
     try:
         # Validate every checkpoint before changing any target data. The
         # complete external history and its high-water mark are still unproved.
         checkpoints = {}
+        checkpoint_revisions = defaultdict(list)
         expected_by_id = {entry.event_id: entry for entries in events.values() for entry in entries}
         all_checkpoint_rows = list((await db.scalars(select(PrivacyJournalOutbox))).all())
         for row in all_checkpoint_rows:
@@ -391,14 +428,9 @@ async def _apply_replay_core(db, scan: JournalScan, *, backup_marker=None) -> di
                     or entry.consent_state != consent_state_from_payload(row.consent_state)
                     or entry.deletion_receipt != deletion_receipt_from_payload(row.deletion_receipt)):
                 raise ReplayIncomplete('Backup checkpoint disagrees with journal; target must remain isolated')
-        for subject, entries in events.items():
-            expected = {entry.revision: entry for entry in entries}
-            rows = [row for row in all_checkpoint_rows if row.user_key == subject]
-            for row in rows:
-                entry = expected.get(row.revision)
-                if entry is None or entry.event_id != row.event_id or entry.action != row.action:
-                    raise ReplayIncomplete('Backup checkpoint disagrees with journal; target must remain isolated')
-            versions = sorted(row.revision for row in rows)
+            checkpoint_revisions[row.user_key].append(row.revision)
+        for subject in events:
+            versions = sorted(checkpoint_revisions.get(subject, ()))
             if versions != list(range(1, len(versions) + 1)):
                 raise ReplayIncomplete('Backup checkpoint is incomplete; target must remain isolated')
             checkpoints[subject] = len(versions)
@@ -407,11 +439,21 @@ async def _apply_replay_core(db, scan: JournalScan, *, backup_marker=None) -> di
         # committing changes to even an unrelated subject. Recheck during
         # application as well; neither check proves continuous isolation.
         for subject, entries in events.items():
+            if any(entry.action == 'account_delete' and entry.revision > checkpoints[subject] for entry in entries):
+                samples = await db.scalars(select(VoiceProfile.sample_audio_url).where(
+                    VoiceProfile.user_key == subject))
+                for url in samples:
+                    require_owned_voice_media(subject, url)
             for entry in entries:
                 if entry.action in RESOURCE_ACTIONS:
-                    resource = await db.get(resource_handlers[entry.action][0], entry.resource_id)
+                    model = VoiceProfile if entry.action == 'voice_changed' else resource_handlers[entry.action][0]
+                    resource = await db.get(model, entry.resource_id)
                     if resource is not None and resource.user_key != subject:
                         raise ReplayIncomplete('Resource ownership mismatch; target must remain isolated')
+                    if (entry.action in {'voice_delete', 'voice_revoke'}
+                            and entry.revision > checkpoints[subject]
+                            and resource is not None):
+                        require_owned_voice_media(subject, resource.sample_audio_url)
                 if entry.deletion_receipt is not None:
                     info = entry.deletion_receipt
                     receipt = await db.get(BookDeletionReceipt, (subject, info.request_id))
@@ -432,7 +474,7 @@ async def _apply_replay_core(db, scan: JournalScan, *, backup_marker=None) -> di
 
         applied = 0
         for subject, entries in events.items():
-            for entry in sorted(entries, key=lambda item: item.revision):
+            for entry in entries:
                 if entry.revision <= checkpoints[subject]:
                     continue
                 if entry.action == 'account_delete':
@@ -479,7 +521,7 @@ async def _apply_replay_core(db, scan: JournalScan, *, backup_marker=None) -> di
                     identity.recovery_code_created_at = state.recovery_created_at if state else None
                     identity.updated_at = utcnow()
                     await db.commit()
-                elif entry.action in RESOURCE_ACTIONS:
+                elif entry.action in RESOURCE_ACTIONS and entry.action != 'voice_changed':
                     model, handler = resource_handlers[entry.action]
                     resource = await db.get(model, entry.resource_id)
                     if resource is not None:

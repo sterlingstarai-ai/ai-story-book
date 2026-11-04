@@ -1,5 +1,6 @@
 """Failure-path tests for the guarded backup cycle using synthetic data."""
 
+from contextlib import contextmanager
 import importlib
 import json
 from pathlib import Path
@@ -82,6 +83,40 @@ def test_changed_journal_prevents_publication_and_restarts_services(modules, tmp
     assert all(runtime.states.values()) and store.writes == []
 
 
+def test_lost_fence_during_upload_prevents_verified_marker(modules, tmp_path):
+    automatic, guard_module = modules
+    runtime = Runtime()
+    guard = guard_module.BackupServiceGuard(tmp_path / 'state', runtime)
+    folder = tmp_path / 'external-fixture'
+    backup(folder)
+    store = Store()
+    closed = []
+
+    @contextmanager
+    def boundary():
+        def capture():
+            assert not any(runtime.states.values())
+            return {'status': 'BACKUP_CREATED_NOT_RESTORE_VERIFIED', 'backup_set': folder.name}
+
+        def verify(result):
+            assert store.writes[-1].endswith('/manifest.json')
+            assert result['backup_set'] == folder.name
+            assert not any(runtime.states.values())
+            raise RuntimeError('lost media fence')
+
+        try:
+            yield capture, verify
+        finally:
+            closed.append(True)
+
+    publisher = importlib.import_module('publish_backup_gcs')
+    with pytest.raises(publisher.BackupPublishError, match='publication failed'):
+        automatic.run_guarded_backup(guard=guard, verify_idle=lambda: None, verify_journal=checkpoint,
+            publication_boundary=boundary, output_dir=tmp_path, store=store, run_id='a' * 32)
+    assert closed and all(runtime.states.values())
+    assert store.marker is None
+
+
 def test_busy_preflight_avoids_stopping_services(modules, tmp_path):
     automatic, guard_module = modules
     runtime = Runtime()
@@ -157,3 +192,23 @@ def test_mixed_journal_must_match_before_and_after_backup(modules, tmp_path, fai
                 take_backup=take, output_dir=tmp_path, store=store, run_id='a' * 32)
         assert store.writes == [] and store.marker is None
     assert all(runtime.states.values())
+
+
+def test_scheduled_backup_rejects_divergent_live_database(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[3] / 'scripts'))
+    scheduler = importlib.import_module('run_scheduled_backup')
+    values = {
+        'DATABASE_URL': 'postgresql://fixture:secret@pool.example.invalid/storybook?channel_binding=require',
+        'DATABASE_MIGRATION_URL': 'postgresql://fixture:secret@direct.example.invalid/storybook?channel_binding=require',
+        'DATABASE_SSL_MODE': 'verify-full',
+    }
+    runtime_env = {role: dict(values) for role in ('asb-pilot-api', 'asb-pilot-worker')}
+    runtime = SimpleNamespace(_run=lambda args, **_: json.dumps(
+        [f'{key}={value}' for key, value in runtime_env[args[-1]].items()]))
+    ca_file = tmp_path / 'ca.pem'
+    scheduler.assert_runtime_database_binding(runtime, values, ca_file)
+    runtime_env['asb-pilot-worker']['DATABASE_URL'] = values['DATABASE_URL'].replace('/storybook?', '/other?')
+    with pytest.raises(scheduler.ScheduledBackupError, match='database settings do not match'):
+        scheduler.assert_runtime_database_binding(runtime, values, ca_file)

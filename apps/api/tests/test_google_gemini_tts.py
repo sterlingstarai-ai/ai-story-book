@@ -53,11 +53,19 @@ async def test_gemini_styles_and_voices_preserve_text(gemini, monkeypatch):
 @pytest.mark.parametrize("status,content", [(403, {}), (200, {}), (200, {"audioContent": "not-valid!"}),
                                              (200, {"audioContent": base64.b64encode(b"not-audio").decode()})])
 async def test_gemini_rejects_provider_error_and_bad_audio(gemini, monkeypatch, status, content):
+    from src.services import provider_runtime
+
+    monkeypatch.setattr(settings, 'tts_provider', 'google_gemini')
+    monkeypatch.setattr(settings, 'audio_feature_enabled', True)
+    monkeypatch.setattr(provider_runtime, '_LOCAL_OBSERVATIONS', {})
     original = httpx.AsyncClient
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: original(
         transport=httpx.MockTransport(lambda _: httpx.Response(status, json=content)), **kw))
     with pytest.raises(ValueError):
         await GeminiCloudTTSProvider().synthesize("테스트", style="natural")
+    state = await provider_runtime.provider_runtime_status(include_photo=False, include_audio=True)
+    observation = next(item for item in state['observations'] if item['kind'] == 'tts')
+    assert observation['reason'] == ('credentials_rejected' if status == 403 else 'invalid_response')
 
 
 @pytest.mark.asyncio

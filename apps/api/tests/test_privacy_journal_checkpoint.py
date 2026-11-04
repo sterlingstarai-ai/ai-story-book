@@ -87,7 +87,7 @@ async def test_capture_fences_source_and_stores_checkable_witness(monkeypatch):
     state = []
 
     @asynccontextmanager
-    async def fake_fence(db, supplied):
+    async def fake_fence(db, supplied, *, legacy_source=False, freeze_tables=False):
         assert supplied is journal
         state.append('held')
         yield checkpoint(scan), scan
@@ -100,6 +100,12 @@ async def test_capture_fences_source_and_stores_checkable_witness(monkeypatch):
     assert state == ['held', 'released']
     assert result['restore_authorized'] is False
     assert verify(witness, scan, result['sha256'])['status'] == 'WITNESSED_PREFIX_MATCHES'
+    assert await checkpoints.capture_fenced_checkpoint(object(), journal, witness,
+        namespace=NAMESPACE, generation=1, key=KEY, now=105) == result
+    scan = JournalScan((event(1), event(2)), 0)
+    with pytest.raises(JournalError):
+        await checkpoints.capture_fenced_checkpoint(object(), journal, witness,
+            namespace=NAMESPACE, generation=1, key=KEY, now=106)
 
 
 @pytest.mark.asyncio
@@ -110,13 +116,13 @@ async def test_cancellation_does_not_release_source_fence_during_witness_write(m
     entered, finish, released = threading.Event(), threading.Event(), asyncio.Event()
 
     @asynccontextmanager
-    async def fake_fence(db, supplied):
+    async def fake_fence(db, supplied, *, legacy_source=False, freeze_tables=False):
         try:
             yield checkpoint(scan), scan
         finally:
             released.set()
 
-    def slow_store(*args):
+    def slow_store(*args, **kwargs):
         entered.set()
         if not finish.wait(5):
             raise RuntimeError('timeout')

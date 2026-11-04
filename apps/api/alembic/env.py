@@ -19,6 +19,7 @@ from src.models.generation_budget import GenerationBudgetActivation  # noqa: F40
 # Import all models to register them with SQLAlchemy metadata for Alembic
 from src.models.db import (  # noqa: F401
     AccountIdentity,
+    MediaWriteIntent,
     PrivacyJournalOutbox,
     PrivacyJournalRetryCursor,
     Job,

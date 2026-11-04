@@ -8,7 +8,7 @@ from src.services import privacy_witness_watch as watch
 @pytest.mark.asyncio
 async def test_snapshot_watch_alerts_when_new_source_event_is_unanchored(monkeypatch):
     @asynccontextmanager
-    async def fence(db, journal):
+    async def fence(db, journal, *, legacy_source=False, freeze_tables=False):
         yield {'event_count': 2}, object()
 
     monkeypatch.setattr(watch, 'hold_consistent_source', fence)
@@ -23,7 +23,7 @@ async def test_snapshot_watch_alerts_when_new_source_event_is_unanchored(monkeyp
 @pytest.mark.asyncio
 async def test_snapshot_watch_never_releases_restoration_and_fails_closed(monkeypatch):
     @asynccontextmanager
-    async def fence(db, journal):
+    async def fence(db, journal, *, legacy_source=False, freeze_tables=False):
         yield {'event_count': 2}, object()
 
     monkeypatch.setattr(watch, 'hold_consistent_source', fence)
@@ -36,7 +36,7 @@ async def test_snapshot_watch_never_releases_restoration_and_fails_closed(monkey
     fence_calls = []
 
     @asynccontextmanager
-    async def must_not_lock(db, journal):
+    async def must_not_lock(db, journal, *, legacy_source=False, freeze_tables=False):
         fence_calls.append(True)
         yield {'event_count': 2}, object()
 

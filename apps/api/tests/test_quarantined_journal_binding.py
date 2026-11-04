@@ -3,10 +3,12 @@ import hashlib
 import importlib
 import io
 import json
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy.engine import make_url
 
 from src.services.privacy_journal import JournalEntry, JournalScan
 from src.services.privacy_journal_verify import fingerprint_entries
@@ -16,6 +18,34 @@ from src.services.privacy_journal_verify import fingerprint_entries
 def modules(monkeypatch):
     monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[3] / 'scripts'))
     return importlib.import_module('quarantined_backup_receiver'), importlib.import_module('quarantined_replay_adapter')
+
+
+def test_live_boundary_source_disallows_driver_endpoint_overrides(modules):
+    boundary = importlib.import_module('live_privacy_boundary')
+    url = make_url('postgresql+psycopg://fixture@source.example/storybook'
+                   '?sslmode=verify-full&channel_binding=require')
+    assert boundary.source_identity(url)
+    for override in ({'host': 'other.example'}, {'hostaddr': '192.0.2.1'}, {'dbname': 'other'}):
+        with pytest.raises(boundary.LivePrivacyBoundaryError):
+            boundary.source_identity(url.update_query_dict(override))
+
+
+@pytest.mark.asyncio
+async def test_live_boundary_rejects_replaced_transaction(modules):
+    boundary = importlib.import_module('live_privacy_boundary')
+    session = SimpleNamespace(get_transaction=lambda: SimpleNamespace(is_active=True))
+    db = SimpleNamespace(sync_session=session)
+    fence = boundary.LivePrivacyBoundary(db, None, {}, 'fixture', 1)
+    with pytest.raises(boundary.LivePrivacyBoundaryError, match='no longer verified'):
+        await fence.verify()
+
+
+@pytest.mark.asyncio
+async def test_isolated_replay_does_not_accept_success_message_from_failed_child(modules):
+    live = importlib.import_module('live_fenced_replay_preflight')
+    process = SimpleNamespace(is_alive=lambda: False, join=lambda timeout: None, exitcode=1)
+    with pytest.raises(live.LiveFencedReplayError, match='did not exit cleanly'):
+        await live._wait_successful_exit(process, time.monotonic() + 1)
 
 
 def _frame(kind, value):
@@ -62,7 +92,24 @@ def test_verified_witness_must_contain_exact_restored_outbox(monkeypatch, module
         result = binding if argv[-2].endswith('quarantined_outbox_binding.py') else target
         return SimpleNamespace(returncode=0, stdout=json.dumps(result).encode())
     monkeypatch.setattr(adapter.subprocess, 'run', run)
-    assert adapter._evaluate(lambda: {}, 'b' * 64, 'c' * 32, timeout=10) is True
+    counts = {'backup_event_count': 1, 'later_event_count': 0}
+    assert adapter._evaluate(lambda: {}, 'b' * 64, 'c' * 32, timeout=10) == counts
+    assert adapter._evaluate(lambda: {}, 'b' * 64, 'c' * 32, timeout=10,
+                             live_journal_binding=(1, digest), require_exact_backup=True) == counts
+    newer = JournalEntry('d' * 32, 'account_delete', '00000000-0000-4000-8000-000000000012', 1)
+    newer_scan = JournalScan((item, newer), 0)
+    monkeypatch.setattr(adapter, '_verified_witnessed_scan', lambda **_: newer_scan)
+    assert adapter._evaluate(lambda: {}, 'b' * 64, 'c' * 32, timeout=10,
+                             live_journal_binding=(2, fingerprint_entries(newer_scan.committed))) == {
+                                 'backup_event_count': 1, 'later_event_count': 1}
+    with pytest.raises(ValueError, match='newer privacy events'):
+        adapter._evaluate(lambda: {}, 'b' * 64, 'c' * 32, timeout=10,
+                          live_journal_binding=(2, fingerprint_entries(newer_scan.committed)), require_exact_backup=True)
+    monkeypatch.setattr(adapter, '_verified_witnessed_scan', lambda **_: scan)
+    for stale in ((2, digest), (1, '0' * 64)):
+        with pytest.raises(ValueError, match='fenced live source'):
+            adapter._evaluate(lambda: {}, 'b' * 64, 'c' * 32, timeout=10,
+                              live_journal_binding=stale)
     binding['event_ids'] = ['d' * 32]
     with pytest.raises(ValueError, match='does not contain'):
         adapter._evaluate(lambda: {}, 'b' * 64, 'c' * 32, timeout=10)

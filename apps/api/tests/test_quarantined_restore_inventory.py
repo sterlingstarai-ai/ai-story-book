@@ -56,6 +56,20 @@ class QuarantinedInventoryTests(unittest.TestCase):
             with self.subTest(pages=pages), self.assertRaises(RestoreRuntimeError):
                 _read_media(FakeStorage(pages), 'synthetic', [])
 
+    def test_unexpected_header_rejects_object_and_closes_response(self):
+        body = io.BytesIO(b'one')
+
+        class StorageWithUnexpectedHeader(FakeStorage):
+            def get_object(self, *, Bucket, Key):
+                return {'Body': body, 'ContentEncoding': 'gzip'}
+
+        pages = [{'IsTruncated': False, 'Contents': [{'Key': 'a'}]}]
+        objects = [{'key': 'a', 'size': 3, 'sha256': hashlib.sha256(b'one').hexdigest(),
+                    'content_encoding': None}]
+        with self.assertRaisesRegex(RestoreRuntimeError, 'metadata differs'):
+            _read_media(StorageWithUnexpectedHeader(pages), 'synthetic', objects)
+        self.assertTrue(body.closed)
+
     def test_botocore_paginator_stopping_on_truncated_page_is_rejected(self):
         client = boto3.client('s3', endpoint_url='http://127.0.0.1:9',
                               aws_access_key_id='fixture', aws_secret_access_key='fixture',

@@ -12,7 +12,10 @@ from abc import ABC, abstractmethod
 from ..core.config import settings
 from src.core.cost_budget import require_daily_generation_budget
 from src.core.gemini_tts_budget import require_gemini_tts_request_budget
-from src.services.provider_runtime import begin_provider_request, observe_provider_response, observe_validated_provider_success
+from src.services.provider_runtime import (
+    begin_provider_request, observe_invalid_provider_response,
+    observe_provider_response, observe_validated_provider_success,
+)
 from src.services.narration_style import STYLE_DIRECTIONS
 
 logger = structlog.get_logger()
@@ -242,18 +245,24 @@ class GeminiCloudTTSProvider(BaseTTSProvider):
             async with httpx.AsyncClient(timeout=60) as client:
                 response = await client.post("https://texttospeech.googleapis.com/v1/text:synthesize",
                     json=payload, headers={"Authorization": f"Bearer {token}", "x-goog-user-project": project})
-            await observe_provider_response(observation, response)
-            if response.is_error:
-                raise ValueError(f"Gemini TTS request failed: HTTP {response.status_code}")
-            encoded = response.json().get("audioContent")
+        except httpx.HTTPError:
+            raise ValueError("Gemini TTS request failed") from None
+        await observe_provider_response(observation, response, defer_success=True)
+        if not response.is_success:
+            raise ValueError(f"Gemini TTS request failed: HTTP {response.status_code}")
+        try:
+            data = response.json()
+            encoded = data.get("audioContent") if isinstance(data, dict) else None
             if not isinstance(encoded, str) or len(encoded) > 24_000_000:
                 raise ValueError("Gemini TTS returned invalid audio")
             audio = base64.b64decode(encoded, validate=True)
             if not audio or not (audio.startswith(b"ID3") or (audio[0] == 0xff and len(audio) > 1 and audio[1] & 0xe0 == 0xe0)):
                 raise ValueError("Gemini TTS returned invalid audio")
-            return audio
-        except (httpx.HTTPError, KeyError, TypeError, binascii.Error):
-            raise ValueError("Gemini TTS request failed") from None
+        except (ValueError, binascii.Error):
+            await observe_invalid_provider_response(observation)
+            raise ValueError("Gemini TTS returned invalid audio") from None
+        await observe_validated_provider_success(observation)
+        return audio
 
 
 class GoogleTTSProvider(BaseTTSProvider):

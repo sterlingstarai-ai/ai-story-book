@@ -34,18 +34,20 @@ def claim(path: Path, *, now: int | None = None) -> bool:
                 or directory.st_mode & 0o077 or not stat.S_ISREG(info.st_mode)
                 or info.st_uid != os.geteuid() or info.st_mode & 0o077 or info.st_nlink != 1):
             raise ProbeBudgetError('ledger permissions invalid')
-        with sqlite3.connect(f'file:{path}?mode=rw', uri=True, timeout=5, isolation_level=None) as db:
+        with sqlite3.connect(f'{path.absolute().as_uri()}?mode=rw', uri=True, timeout=5, isolation_level=None) as db:
             db.execute('BEGIN IMMEDIATE')
             version = db.execute('PRAGMA user_version').fetchone()[0]
             if version != 1:
                 raise ProbeBudgetError('ledger version invalid')
-            rows = db.execute('SELECT claimed_at FROM claims ORDER BY claimed_at').fetchall()
-            if any(type(row[0]) is not int or row[0] < 1 or row[0] > now for row in rows):
+            last, recent, invalid = db.execute('''
+                SELECT MAX(claimed_at), COUNT(CASE WHEN claimed_at > ? THEN 1 END),
+                    COUNT(CASE WHEN typeof(claimed_at) != 'integer'
+                        OR claimed_at < 1 OR claimed_at > ? THEN 1 END)
+                FROM claims
+            ''', (now - 31 * 86400, now)).fetchone()
+            if invalid:
                 raise ProbeBudgetError('ledger clock or data invalid')
-            if rows and now - rows[-1][0] < 18 * 3600:
-                db.rollback()
-                return False
-            if sum(now - row[0] < 31 * 86400 for row in rows) >= 41:
+            if (last is not None and now - last < 18 * 3600) or recent >= 41:
                 db.rollback()
                 return False
             db.execute('INSERT INTO claims (claimed_at) VALUES (?)', (now,))

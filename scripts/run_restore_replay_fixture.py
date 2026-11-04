@@ -26,7 +26,7 @@ async def main():
     require_local_fixture()
     from src.core.database import AsyncSessionLocal, async_engine
     from src.core.exceptions import APIError
-    from src.models.db import AccountIdentity, ChildProfile
+    from src.models.db import AccountIdentity, ChildProfile, VoiceProfile
     from src.services.account_recovery import credential_hash, recover_account, resolve_user_key
     from fixture_journal_store import load_fixture_journal
     from replay_privacy_journal import replay_quarantined
@@ -41,6 +41,8 @@ async def main():
     elif scenario == 'consent':
         subject = '00000000-0000-4000-8000-000000000003'
         actions = ('profile_delete', 'consent_revoke', 'consent_grant', 'consent_revoke', 'credential_revoke')
+        if os.environ.get('ASB_FIXTURE_VOICE_ERASURE') == '1':
+            actions += ('voice_changed', 'voice_delete')
         device = 'asb_device_' + 'B' * 43
         recovery = 'ASB-R1-' + 'E' * 43
     else:
@@ -78,6 +80,8 @@ async def main():
             else:
                 raise RuntimeError('Synthetic old recovery credential still works')
             if scenario == 'consent':
+                if 'voice_delete' in actions and await session.get(VoiceProfile, 'voice-fixture') is not None:
+                    raise RuntimeError('Synthetic deleted voice was restored')
                 if await session.get(ChildProfile, 'profile-fixture') is not None:
                     raise RuntimeError('Synthetic deleted profile was restored')
                 if await resolve_user_key(session, 'asb_device_' + 'F' * 43) != subject:

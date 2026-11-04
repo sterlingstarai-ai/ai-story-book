@@ -44,12 +44,16 @@ class GCSCheckpointStore(GCSImmutableStore):
         try:
             with self._client.stream(
                 'GET', f'https://storage.googleapis.com/storage/v1/b/{self._bucket}/o/{encoded}',
-                params={'alt': 'media'}, headers=self._headers(),
+                params={'alt': 'media'}, headers={**self._headers(), 'Accept-Encoding': 'identity'},
             ) as response:
                 if response.status_code != 200:
                     raise JournalError('Checkpoint object could not be read')
+                if response.headers.get('content-encoding', '').strip().lower() not in ('', 'identity'):
+                    raise JournalError('Checkpoint object encoding is invalid')
                 chunks, size = [], 0
-                for chunk in response.iter_bytes():
+                source = ([response.content] if response.is_stream_consumed
+                          else response.iter_raw(chunk_size=64 * 1024))
+                for chunk in source:
                     size += len(chunk)
                     if size > _MAX_BYTES:
                         raise JournalError('Checkpoint object is too large')

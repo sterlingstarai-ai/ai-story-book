@@ -10,7 +10,7 @@ import hashlib
 import json
 import re
 
-from sqlalchemy import select
+from sqlalchemy import literal, select, text
 
 from src.models.db import PrivacyJournalOutbox
 from src.services.privacy_journal import (
@@ -85,12 +85,28 @@ async def verify_backup_checkpoint(db, scan: JournalScan, marker: dict) -> dict:
         raise JournalVerificationError('Backup checkpoint could not be verified') from None
 
 
-async def verify_current_outbox(db, scan: JournalScan) -> dict:
+async def verify_current_outbox(db, scan: JournalScan, *, legacy_source=False) -> dict:
     if (not isinstance(scan, JournalScan) or scan.restore_authorized is not False
             or type(scan.pending_count) is not int or scan.pending_count != 0):
         raise JournalVerificationError('Journal has unresolved records')
     try:
-        rows = list((await db.scalars(select(PrivacyJournalOutbox))).all())
+        if legacy_source:
+            revision = (await db.execute(text('SELECT version_num FROM public.alembic_version'))).scalars().all()
+            if revision != ['5de7a40b6c12']:
+                raise JournalVerificationError('Unexpected legacy outbox revision')
+            columns = (await db.execute(text("""SELECT column_name FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'privacy_journal_outbox'"""))).scalars().all()
+            if set(columns) != {'event_id', 'action', 'user_key', 'revision', 'credential_state',
+                                'resource_id', 'consent_state', 'created_at', 'published_at'}:
+                raise JournalVerificationError('Unexpected legacy outbox columns')
+            outbox = PrivacyJournalOutbox
+            rows = (await db.execute(select(
+                outbox.event_id, outbox.action, outbox.user_key, outbox.revision,
+                outbox.credential_state, outbox.resource_id, outbox.consent_state, outbox.published_at,
+                literal(None).label('deletion_receipt'),
+            ))).all()
+        else:
+            rows = (await db.scalars(select(PrivacyJournalOutbox))).all()
         expected = {}
         revisions = defaultdict(list)
         for row in rows:

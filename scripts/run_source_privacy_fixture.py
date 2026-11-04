@@ -17,6 +17,7 @@ async def main():
     from src.routers.consent import ConsentGrantRequest, grant_consent, revoke_consent
     from src.routers.profiles import delete_profile
     from src.routers.users import delete_my_data
+    from src.routers.voice_profiles import delete_voice_profile
     from src.services.privacy_journal_outbox import prepare_privacy_event, publish_privacy_event
     from fixture_journal_store import load_fixture_journal
 
@@ -90,6 +91,17 @@ async def main():
                         granted=False, photos=False, revoked_at=utcnow()))
                 await db.commit()
             await publish_privacy_event(AsyncSessionLocal, journal, event_id)
+        if scenario == 'consent' and os.environ.get('ASB_FIXTURE_VOICE_ERASURE') == '1':
+            async with AsyncSessionLocal() as db:
+                event_id = await prepare_privacy_event(db, journal, user_key=owner,
+                    action='voice_changed', resource_id='voice-fixture')
+                await db.commit()
+            await publish_privacy_event(AsyncSessionLocal, journal, event_id)
+            async with AsyncSessionLocal() as db:
+                db.info['privacy_journal'] = journal
+                result = await delete_voice_profile('voice-fixture', db=db, user_key=owner)
+                if result.get('purge_retry_pending') or result.get('status') != 'success':
+                    raise RuntimeError('Synthetic voice deletion failed')
         # The historical grant uses the same journaled API path as a real
         # grant. An unrecorded grant cannot prove the backup's state is safe.
         print('Synthetic source privacy events committed and journaled')

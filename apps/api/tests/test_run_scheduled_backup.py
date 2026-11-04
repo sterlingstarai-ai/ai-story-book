@@ -3,6 +3,7 @@
 import importlib
 import configparser
 from collections import namedtuple
+import hashlib
 import json
 from pathlib import Path
 
@@ -19,6 +20,27 @@ def test_dry_run_does_not_create_state_or_stop_services(module, tmp_path):
     state = tmp_path / 'state'
     assert module.main(['--state-dir', str(state)]) == 0
     assert not state.exists()
+
+
+def test_mirrored_backup_source_is_bound_to_image_and_contents(module, monkeypatch, tmp_path):
+    root = tmp_path / 'sources'
+    monkeypatch.setattr(module, 'BACKUP_API_SOURCES', root)
+    digest = 'a' * 64
+    image = 'local-image@sha256:' + digest
+    directory = root / digest
+    source = directory / 'src' / 'fixture.py'
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b'fixture = True\n')
+    hashes = {'src/fixture.py': hashlib.sha256(source.read_bytes()).hexdigest()}
+    source_hash = hashlib.sha256(json.dumps(hashes, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    for name, value in (('image-id', image), ('source-sha256', source_hash)):
+        marker = directory / name
+        marker.write_text(value + '\n')
+        marker.chmod(0o600)
+    assert module.backup_api_source(image, mirrored=True) == directory
+    source.write_bytes(b'fixture = False\n')
+    with pytest.raises(module.ScheduledBackupError, match='has changed'):
+        module.backup_api_source(image, mirrored=True)
 
 
 def test_private_file_refuses_loose_permissions_and_symlinks(module, tmp_path):
@@ -109,6 +131,24 @@ def test_backup_requires_both_live_writers_to_match_journal_buckets(module):
         with pytest.raises(module.ScheduledBackupError) as failure:
             module.assert_runtime_journal_binding(Runtime([configured, configured]), 'primary', '')
         assert 'synthetic-secret' not in str(failure.value)
+
+
+def test_backup_requires_both_writers_to_match_media(module):
+    class Runtime:
+        def __init__(self, replies):
+            self.replies = iter(replies)
+
+        def _run(self, command, *, timeout):
+            return json.dumps(next(self.replies))
+
+    values = {'S3_ENDPOINT': 'https://storage.googleapis.com', 'S3_BUCKET': 'test-bucket',
+              'S3_REGION': 'test-region', 'S3_ACCESS_KEY': 'fixture-access', 'S3_SECRET_KEY': 'fixture-secret'}
+    exact = [f'{key}={value}' for key, value in values.items()]
+    module.assert_runtime_media_binding(Runtime([exact, exact]), values)
+    for invalid in (exact[:-1], exact + ['S3_BUCKET=wrong'], exact[:-1] + ['S3_SECRET_KEY=different']):
+        with pytest.raises(module.ScheduledBackupError) as failure:
+            module.assert_runtime_media_binding(Runtime([exact, invalid]), values)
+        assert 'fixture-secret' not in str(failure.value)
 
 
 def test_backup_requires_s3_witness_and_credentials_to_match_both_writers(module):

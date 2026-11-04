@@ -19,7 +19,7 @@ async def test_cancelled_backfill_keeps_fence_until_copy_thread_finishes(monkeyp
     journal = PrivacyJournal(source, b'k' * 32)
 
     @asynccontextmanager
-    async def fake_fence(db, source_journal):
+    async def fake_fence(db, source_journal, *, legacy_source=False):
         try:
             yield {'event_count': 0}, object()
         finally:

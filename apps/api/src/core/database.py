@@ -42,6 +42,30 @@ _ASYNC_ENGINE_KWARGS = {"echo": settings.debug, "connect_args": _async_connect_a
 if async_database_url.startswith("postgresql+psycopg://"):
     _ASYNC_ENGINE_KWARGS["pool_pre_ping"] = True
 async_engine = create_async_engine(async_database_url, **_ASYNC_ENGINE_KWARGS)
+# Route sessions can already hold connections while writing media. Reserve
+# independent capacity for the write journal so saturated routes can finish.
+_media_write_engine = (
+    create_async_engine(async_database_url, pool_size=2, max_overflow=0, pool_timeout=10,
+                        **_ASYNC_ENGINE_KWARGS)
+    if async_database_url.startswith("postgresql+") else None
+)
+
+
+def media_write_engine():
+    # Celery task loops cannot share pooled async connections.
+    if _media_write_engine is None or isinstance(async_engine.pool, NullPool):
+        return async_engine
+    return _media_write_engine
+
+
+async def dispose_async_engines():
+    try:
+        await async_engine.dispose()
+    finally:
+        if _media_write_engine is not None:
+            await _media_write_engine.dispose()
+
+
 AsyncSessionLocal = async_sessionmaker(
     bind=async_engine,
     class_=AsyncSession,

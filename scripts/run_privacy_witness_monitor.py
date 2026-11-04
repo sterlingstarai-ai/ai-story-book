@@ -29,6 +29,10 @@ def arguments(argv=None):
     for name in ('journal-bucket', 'journal-witness-bucket', 'checkpoint-bucket', 'head-bucket'):
         parser.add_argument('--' + name)
     parser.add_argument('--max-age', type=int, default=600)
+    parser.add_argument('--signing-key-file', type=Path)
+    parser.add_argument('--expected-source-identity')
+    parser.add_argument('--capture-head', action='store_true')
+    parser.add_argument('--legacy-source', action='store_true')
     return parser.parse_args(argv)
 
 
@@ -44,6 +48,17 @@ async def check(args):
         args.journal_key_file, args.checkpoint_key_file, args.head_key_file)]
     if any(len(key) != 32 for key in keys) or len(set(keys)) != 3:
         raise ValueError('Invalid witness keys')
+    if (bool(args.signing_key_file or args.capture_head) != bool(args.expected_source_identity)
+            or (args.signing_key_file and args.capture_head)
+            or (args.legacy_source and not (args.capture_head or args.signing_key_file))):
+        raise ValueError('Capture and signing require an independently pinned source and separate runs')
+    signing_key = None
+    if args.signing_key_file:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        signing_seed = private_file(args.signing_key_file, max_bytes=32)
+        if signing_seed in keys:
+            raise ValueError('Signing and encryption keys must be distinct')
+        signing_key = Ed25519PrivateKey.from_private_bytes(signing_seed)
     reference = json.loads(private_file(args.trusted_reference_file, max_bytes=1024))
     if (not isinstance(reference, dict) or set(reference) != {'version', 'namespace', 'head'}
             or type(reference['version']) is not int or reference['version'] != 1):
@@ -69,10 +84,12 @@ async def check(args):
     sys.path.insert(0, str(API))
     from src.core.database import AsyncSessionLocal, async_engine
     from src.services.privacy_checkpoint_gcs import GCSCheckpointStore
+    from src.services.privacy_checkpoint_head import _reference, append_checkpoint_head
     from src.services.privacy_journal import PrivacyJournal
     from src.services.privacy_journal_gcs import GCSImmutableStore
+    from src.services.privacy_journal_checkpoint import capture_fenced_checkpoint
     from src.services.privacy_journal_mirror import MirroredJournalStore
-    from src.services.privacy_witness_watch import assess_witness
+    from src.services.privacy_witness_watch import assess_witness, observe_and_sign
 
     stores = []
     try:
@@ -82,9 +99,28 @@ async def check(args):
         stores.append(GCSCheckpointStore(args.head_bucket))
         journal = PrivacyJournal(MirroredJournalStore(stores[0], stores[1]), keys[0])
         async with AsyncSessionLocal() as db:
-            return await assess_witness(db, journal, stores[3], stores[2], namespace=reference['namespace'],
+            if args.expected_source_identity:
+                from live_privacy_boundary import source_identity
+                if source_identity(db.get_bind().url) != args.expected_source_identity:
+                    raise ValueError('Witness source identity does not match')
+            if args.capture_head:
+                previous = reference['head']
+                if previous is not None and (not _reference(previous) or previous['sequence'] >= 256):
+                    raise ValueError('Previous witness reference is invalid')
+                generation = 1 if previous is None else previous['sequence'] + 1
+                checkpoint = await capture_fenced_checkpoint(db, journal, stores[2],
+                    namespace=reference['namespace'], generation=generation, key=keys[1],
+                    legacy_source=args.legacy_source, freeze_tables=True)
+                head = append_checkpoint_head(stores[3], namespace=reference['namespace'], key=keys[2],
+                                              checkpoint=checkpoint, previous=previous)
+                return {'version': 1, 'namespace': reference['namespace'], 'head': head}
+            parameters = dict(namespace=reference['namespace'],
                 head_key=keys[2], checkpoint_key=keys[1], trusted_head=reference['head'],
                 now=lambda: int(time.time()), max_age=args.max_age)
+            if signing_key is None:
+                return await assess_witness(db, journal, stores[3], stores[2], **parameters)
+            return await observe_and_sign(db, journal, stores[3], stores[2], signing_key=signing_key,
+                                          legacy_source=args.legacy_source, **parameters)
     finally:
         for store in stores:
             store.close()
@@ -101,6 +137,10 @@ def main(argv=None):
     except Exception:
         result = {'status': 'ALERT', 'restore_authorized': False}
     print(json.dumps(result, sort_keys=True))
+    if args.signing_key_file:
+        return 0 if set(result) == {'payload', 'signature'} else 1
+    if args.capture_head:
+        return 0 if set(result) == {'version', 'namespace', 'head'} else 1
     return 0 if result == {'status': 'SNAPSHOT_MATCHES', 'restore_authorized': False} else 1
 
 

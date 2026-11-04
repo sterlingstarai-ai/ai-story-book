@@ -79,6 +79,20 @@ def test_required_channel_binding_reaches_libpq(backup, values, tmp_path):
         backup.database_environment(values, tmp_path / 'ca.crt')
 
 
+def test_fenced_backup_rejects_db_endpoint_overrides_and_unrelated_fence(backup, values, tmp_path, monkeypatch):
+    ca = tmp_path / 'ca.crt'
+    ca.touch()
+    fence = Mock(environment={'PGHOST': 'other.example'})
+    run_pg = Mock()
+    monkeypatch.setattr(backup, 'run_pg', run_pg)
+    with pytest.raises(backup.BackupError, match='identities differ'):
+        backup.create_backup(values, tmp_path / 'backup', ca, fence=fence)
+    values['DATABASE_URL'] += '?hostaddr=192.0.2.1'
+    with pytest.raises(backup.BackupError, match='connection options'):
+        backup.database_environment(values, ca)
+    run_pg.assert_not_called()
+
+
 @pytest.fixture
 def inert_backup(backup, monkeypatch, values, tmp_path):
     commands = []
@@ -95,16 +109,17 @@ def inert_backup(backup, monkeypatch, values, tmp_path):
             return b'160009\n'
         if 'txid_current_snapshot' in command[-1]:
             return b'100:100:\n'
-        if 'SELECT count' in command[-1]:
-            return b'0\n'
+        if 'SELECT CASE' in command[-1]:
+            return b'idle\n'
         if 'version_num' in command[-1]:
             return b'fixture_revision\n'
         return b''
     monkeypatch.setattr(backup, 'run_pg', run)
     client = Mock()
     client.get_paginator.return_value.paginate.return_value = [{'IsTruncated': False, 'Contents': [
-        {'Key': '../../escape.png', 'ETag': 'etag', 'Size': 5, 'LastModified': 'fixture-time'}]}]
+        {'Key': '../../escape.png', 'ETag': 'etag', 'Size': 5, 'LastModified': '2026-11-03T13:15:06Z'}]}]
     client.get_object.side_effect = lambda **kwargs: {'Body': io.BytesIO(b'image'), 'ContentLength': 5,
+        'ETag': 'etag', 'LastModified': '2026-11-03T13:15:06Z',
         'ContentType': 'image/png', 'Metadata': {'fixture': 'yes'}}
     monkeypatch.setattr(backup, 'storage_client', lambda _: client)
     ca = tmp_path / 'ca.crt'
@@ -132,9 +147,10 @@ def test_complete_set_preserves_media_metadata_and_never_traverses_remote_keys(i
     assert any('--schema=public' in command for command in commands)
     assert any(command[:2] == ['pg_restore', '--list'] for command in commands)
     client.get_object.assert_called_once_with(Bucket='storybook', Key='../../escape.png', IfMatch='etag')
+    client.close.assert_called_once_with()
 
 
-@pytest.mark.parametrize('failure', ['download', 'changed_inventory', 'truncated'])
+@pytest.mark.parametrize('failure', ['download', 'changed_inventory', 'truncated', 'changed_download_identity'])
 def test_failed_backup_removes_partial_set_and_keeps_old_backup(inert_backup, monkeypatch, failure):
     backup, values, destination, ca, client, _ = inert_backup
     destination.mkdir(mode=0o700)
@@ -143,7 +159,11 @@ def test_failed_backup_removes_partial_set_and_keeps_old_backup(inert_backup, mo
     if failure == 'download':
         client.get_object.side_effect = RuntimeError('secret-provider-body')
     elif failure == 'truncated':
-        client.get_object.side_effect = lambda **_: {'Body': io.BytesIO(b'x'), 'ContentLength': 5}
+        client.get_object.side_effect = lambda **_: {'Body': io.BytesIO(b'x'), 'ContentLength': 5,
+                                                     'ETag': 'etag', 'LastModified': '2026-11-03T13:15:06Z'}
+    elif failure == 'changed_download_identity':
+        client.get_object.side_effect = lambda **_: {'Body': io.BytesIO(b'image'), 'ContentLength': 5,
+                                                     'ETag': 'new-etag', 'LastModified': '2026-11-03T13:15:06Z'}
     else:
         original = backup.inventory
         inventories = [original(client, values['S3_BUCKET']), {}]
@@ -158,7 +178,7 @@ def test_active_jobs_block_before_object_reads(inert_backup, monkeypatch):
     backup, values, destination, ca, client, _ = inert_backup
     original = backup.run_pg
     monkeypatch.setattr(backup, 'run_pg', lambda cmd, env, **kwargs:
-                        b'1\n' if 'SELECT count' in cmd[-1] else original(cmd, env, **kwargs))
+                        b'active_jobs\n' if 'SELECT CASE' in cmd[-1] else original(cmd, env, **kwargs))
     with pytest.raises(backup.BackupError, match='generation jobs remain'):
         backup.create_backup(values, destination, ca)
     client.get_paginator.assert_not_called()
@@ -169,7 +189,7 @@ def test_unfinished_deletion_blocks_backup_before_storage_read(inert_backup, mon
     backup, values, destination, ca, client, _ = inert_backup
     original = backup.run_pg
     monkeypatch.setattr(backup, 'run_pg', lambda cmd, env, **kwargs:
-                        b'1\n' if 'public.storage_purge_tasks' in cmd[-1] else original(cmd, env, **kwargs))
+                        b'pending_purges\n' if 'SELECT CASE' in cmd[-1] else original(cmd, env, **kwargs))
     with pytest.raises(backup.BackupError, match='storage deletion tasks'):
         backup.create_backup(values, destination, ca)
     assert not destination.exists()
@@ -180,7 +200,7 @@ def test_unpublished_privacy_event_blocks_before_storage_read(inert_backup, monk
     backup, values, destination, ca, client, _ = inert_backup
     original = backup.run_pg
     monkeypatch.setattr(backup, 'run_pg', lambda cmd, env, **kwargs:
-                        b'1\n' if 'public.privacy_journal_outbox' in cmd[-1] else original(cmd, env, **kwargs))
+                        b'pending_journal\n' if 'SELECT CASE' in cmd[-1] else original(cmd, env, **kwargs))
     with pytest.raises(backup.BackupError, match='Unpublished privacy events'):
         backup.create_backup(values, destination, ca)
     assert not destination.exists()
@@ -197,7 +217,7 @@ def test_deletion_arriving_during_backup_discards_partial_set(inert_backup, monk
         if 'public.storage_purge_tasks' in command[-1]:
             calls += 1
             if calls == 2:
-                return b'1\n'
+                return b'pending_purges\n'
         return original(command, environment, **kwargs)
 
     monkeypatch.setattr(backup, 'run_pg', run)
@@ -216,7 +236,7 @@ def test_job_arriving_during_backup_discards_partial_set(inert_backup, monkeypat
         if 'public.jobs' in command[-1]:
             calls += 1
             if calls == 2:
-                return b'1\n'
+                return b'active_jobs\n'
         return original(command, environment, **kwargs)
 
     monkeypatch.setattr(backup, 'run_pg', run)

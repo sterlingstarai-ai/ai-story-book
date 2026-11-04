@@ -20,6 +20,13 @@ from src.core.database import Base
 from src.core.utils import utcnow
 
 
+class MediaWriteIntent(Base):
+    __tablename__ = "media_write_intents"
+
+    id = Column(String(32), primary_key=True)
+    started_at = Column(DateTime(timezone=True), server_default=text("CURRENT_TIMESTAMP"), nullable=False)
+
+
 class AccountIdentity(Base):
     """Stable legacy ownership with independently revocable, hashed credentials."""
 

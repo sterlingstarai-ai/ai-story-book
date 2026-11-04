@@ -82,7 +82,15 @@ def append_checkpoint_head(store, *, namespace, key, checkpoint, previous=None):
                          sort_keys=True, separators=(',', ':')).encode()
     nonce = secrets.token_bytes(12)
     blob = _MAGIC + nonce + AESGCM(key).encrypt(nonce, payload, name.encode('ascii'))
-    return {'sequence': sequence, 'sha256': _store_checkpoint(store, name, blob)}
+
+    def same_head(stored):
+        if not stored.startswith(_MAGIC):
+            return False
+        start = len(_MAGIC)
+        return hmac.compare_digest(
+            AESGCM(key).decrypt(stored[start:start + 12], stored[start + 12:], name.encode('ascii')), payload)
+
+    return {'sequence': sequence, 'sha256': _store_checkpoint(store, name, blob, equivalent=same_head)}
 
 
 def verify_anchored_checkpoint(head_store, checkpoint_store, scan, *, namespace, head_key, checkpoint_key,

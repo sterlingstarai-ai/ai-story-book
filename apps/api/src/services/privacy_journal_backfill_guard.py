@@ -10,11 +10,11 @@ from src.services.privacy_journal_backfill import backfill_fenced_journal
 from src.services.privacy_restore_source_guard import hold_consistent_source
 
 
-async def backfill_with_source_fence(db, source_journal, witness):
+async def backfill_with_source_fence(db, source_journal, witness, *, legacy_source=False):
     if not isinstance(source_journal, PrivacyJournal) or source_journal._store is witness:
         raise JournalError('Independent source and witness stores are required')
     try:
-        async with hold_consistent_source(db, source_journal) as (checkpoint, _scan):
+        async with hold_consistent_source(db, source_journal, legacy_source=legacy_source) as (checkpoint, _scan):
             task = asyncio.create_task(asyncio.to_thread(backfill_fenced_journal, source_journal._store, witness))
             try:
                 result = await asyncio.shield(task)

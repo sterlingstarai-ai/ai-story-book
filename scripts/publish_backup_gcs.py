@@ -162,7 +162,7 @@ class GCSBackupStore:
         self._check_remote(name, size, actual_hash)
 
 
-def publish_verified_backup(folder, run_id, store, *, journal_checkpoint=None):
+def publish_verified_backup(folder, run_id, store, *, journal_checkpoint=None, verify_before_marker=None):
     """Upload data, verify every remote byte, and publish the marker last."""
     import tempfile
 
@@ -195,6 +195,8 @@ def publish_verified_backup(folder, run_id, store, *, journal_checkpoint=None):
         with tempfile.TemporaryDirectory(prefix='asb-backup-marker-') as tmp:
             marker_path = Path(tmp) / 'verified.json'
             marker_path.write_bytes(marker)
+            if verify_before_marker is not None:
+                verify_before_marker()
             store.put_verified(prefix + 'verified.json', marker_path)
         return {'status': 'REMOTE_CHECKSUMS_VERIFIED_NOT_RESTORED', 'object_count': local['object_count'],
                 'restore_authorized': False}

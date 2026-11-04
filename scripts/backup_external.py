@@ -34,6 +34,10 @@ def database_environment(values, ca_file):
     """Pass libpq secrets through a child-only environment, never a URL on argv."""
     url = urlsplit(values.get('DATABASE_MIGRATION_URL') or values['DATABASE_URL'])
     query = parse_qs(url.query, keep_blank_values=True)
+    if (set(query) - {'sslmode', 'sslrootcert', 'channel_binding', 'connect_timeout'}
+            or any(len(items) != 1 or not items[0] for items in query.values())
+            or not url.hostname or ',' in url.hostname):
+        raise BackupError('Unsupported database connection options')
     binding = query.get('channel_binding')
     if binding is not None and binding != ['require']:
         raise BackupError('Unsupported database channel binding configuration')
@@ -111,6 +115,21 @@ def inventory(client, bucket):
     return objects
 
 
+def _http_last_modified(value):
+    try:
+        stamp = datetime.fromisoformat(str(value))
+        if stamp.tzinfo is None:
+            raise ValueError
+        return stamp.astimezone(timezone.utc).replace(microsecond=0)
+    except ValueError:
+        raise BackupError('Media modification time is invalid') from None
+
+
+def inventory_fingerprint(objects):
+    payload = json.dumps(objects, sort_keys=True, separators=(',', ':')).encode()
+    return hashlib.sha256(payload).hexdigest()
+
+
 def file_hash(path):
     digest = hashlib.sha256()
     with path.open('rb') as source:
@@ -120,15 +139,25 @@ def file_hash(path):
 
 
 def assert_quiescent(environment, query):
-    active = run_pg(query + ["SELECT count(*) FROM public.jobs WHERE status IN ('queued','running')"], environment).strip()
-    if active != b'0':
-        raise BackupError('Pending/running generation jobs remain; finish the quiescence procedure first')
-    purges = run_pg(query + ["SELECT count(*) FROM public.storage_purge_tasks WHERE status NOT IN ('done','cancelled')"], environment).strip()
-    if purges != b'0':
-        raise BackupError('Unfinished or unknown storage deletion tasks remain; resolve before backup')
-    journal = run_pg(query + ["SELECT count(*) FROM public.privacy_journal_outbox WHERE published_at IS NULL"], environment).strip()
-    if journal != b'0':
-        raise BackupError('Unpublished privacy events remain; resolve before backup')
+    # A single statement checks all queues against one snapshot and avoids
+    # opening separate TLS sessions or counting every outstanding row.
+    state = run_pg(query + ["""SELECT CASE
+        WHEN EXISTS (SELECT 1 FROM public.jobs
+                     WHERE status IS NULL OR status NOT IN ('done','failed','cancelled'))
+            THEN 'active_jobs'
+        WHEN EXISTS (SELECT 1 FROM public.storage_purge_tasks
+                     WHERE status IS NULL OR status NOT IN ('done','cancelled'))
+            THEN 'pending_purges'
+        WHEN EXISTS (SELECT 1 FROM public.privacy_journal_outbox WHERE published_at IS NULL)
+            THEN 'pending_journal'
+        ELSE 'idle' END"""], environment).strip()
+    if state != b'idle':
+        reasons = {
+            b'active_jobs': 'Pending or unknown generation jobs remain',
+            b'pending_purges': 'Unfinished or unknown storage deletion tasks remain',
+            b'pending_journal': 'Unpublished privacy events remain',
+        }
+        raise BackupError(reasons.get(state, 'Database quiescence could not be verified'))
 
 
 def transaction_snapshot(environment, query):
@@ -146,6 +175,8 @@ def create_backup(values, destination, ca_file, *, quiescence_check=None, fence=
     if not ca_file.is_file():
         raise BackupError('Provider CA file is not readable on this backup host')
     environment = database_environment(values, ca_file)
+    if fence is not None and fence.environment != environment:
+        raise BackupError('Backup and fence database identities differ')
     query = ['psql', '-X', '--no-password', '--tuples-only', '--no-align', '--set', 'ON_ERROR_STOP=1', '-c']
     version = run_pg(query + ['SHOW server_version_num'], environment).strip()
     if not version.isdigit() or int(version) < 100000:
@@ -170,6 +201,7 @@ def create_backup(values, destination, ca_file, *, quiescence_check=None, fence=
     destination.mkdir(parents=True, exist_ok=True, mode=0o700)
     folder = Path(tempfile.mkdtemp(prefix='.partial-external-', dir=destination))
     final = destination / folder.name.replace('.partial-external-', 'external-', 1)
+    client = None
     try:
         objects_dir = folder / 'objects'
         objects_dir.mkdir(mode=0o700)
@@ -188,21 +220,30 @@ def create_backup(values, destination, ca_file, *, quiescence_check=None, fence=
         run_pg(['pg_restore', '--list', str(dump)], environment)
         media = []
         for key, expected in sorted(before.items()):
+            if not expected['ETag'] or not expected['LastModified'] or not expected['Size'].isdigit():
+                raise BackupError('Media inventory is missing object identity metadata')
+            expected_size = int(expected['Size'])
             filename = hashlib.sha256(key.encode()).hexdigest()
             path = objects_dir / filename  # Never interpret remote object keys as local paths.
             obj = client.get_object(Bucket=bucket, Key=key, IfMatch=expected['ETag'])
             size = 0
             digest = hashlib.sha256()
             try:
+                if (obj.get('ETag') != expected['ETag']
+                        or _http_last_modified(obj.get('LastModified')) != _http_last_modified(expected['LastModified'])
+                        or obj.get('ContentLength') != expected_size):
+                    raise BackupError('Media object identity changed before download')
                 with path.open('xb') as output:
                     os.chmod(path, 0o600)
                     for data in iter(lambda: obj['Body'].read(1024 * 1024), b''):
                         size += len(data)
+                        if size > expected_size:
+                            raise BackupError('Media object exceeded its listed size')
                         digest.update(data)
                         output.write(data)
             finally:
                 obj['Body'].close()
-            if size != int(expected['Size']) or size != obj['ContentLength']:
+            if size != expected_size:
                 raise BackupError('Media changed or was truncated during backup')
             media.append({'key': key, 'file': f'objects/{filename}', 'sha256': digest.hexdigest(),
                           'size': size, 'content_type': obj.get('ContentType', 'application/octet-stream'),
@@ -228,10 +269,14 @@ def create_backup(values, destination, ca_file, *, quiescence_check=None, fence=
         os.chmod(path, 0o600)
         folder.rename(final)
         return {'status': 'BACKUP_CREATED_NOT_RESTORE_VERIFIED', 'object_count': len(media),
-                'backup_set': final.name, 'contains_private_data': True}
+                'backup_set': final.name, 'contains_private_data': True,
+                'media_inventory_sha256': inventory_fingerprint(before)}
     except BaseException:
         shutil.rmtree(folder, ignore_errors=False)
         raise
+    finally:
+        if client is not None:
+            client.close()
 
 
 def main(argv=None):

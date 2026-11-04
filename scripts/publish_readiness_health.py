@@ -1,17 +1,35 @@
-"""Publish a secret-free local readiness signal; never call an AI provider."""
+"""Publish the pilot HTTPS readiness signal; never call an AI provider."""
+import http.client
 import json
+import socket
 import sys
 import urllib.request
 from datetime import datetime, timezone
 
 PROJECT = 'gen-lang-client-0308507618'
 METRIC = 'custom.googleapis.com/ai_story_book/api_readiness'
-READINESS = 'http://127.0.0.1:18081/health/ready'
+READINESS = 'https://35.209.174.246/health/ready'
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
+
+
+class LocalPilotConnection(http.client.HTTPSConnection):
+    def connect(self):
+        # Route to nginx on this VM but validate the public certificate name.
+        raw = socket.create_connection(('127.0.0.1', 443), timeout=self.timeout)
+        try:
+            self.sock = self._context.wrap_socket(raw, server_hostname=self.host)
+        except BaseException:
+            raw.close()
+            raise
+
+
+class LocalPilotHTTPS(urllib.request.HTTPSHandler):
+    def https_open(self, request):
+        return self.do_open(LocalPilotConnection, request)
 
 
 def readiness(opener):
@@ -59,7 +77,8 @@ def send(value, opener):
 def main():
     try:
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
-        value = readiness(opener)
+        probe = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect(), LocalPilotHTTPS())
+        value = readiness(probe)
         if sys.argv[1:] == ['--check']:
             print(json.dumps({'status': 'READY' if value else 'NOT_READY', 'signal_sent': False}))
             return 0 if value else 1

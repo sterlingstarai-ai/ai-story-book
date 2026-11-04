@@ -186,9 +186,9 @@ async def lifespan(app: FastAPI):
 
     # Close database connection pool
     try:
-        from src.core.database import async_engine
+        from src.core.database import dispose_async_engines
 
-        await async_engine.dispose()
+        await dispose_async_engines()
         logger.info("Database connection pool closed")
     except Exception as e:
         logger.warning("Failed to close database pool", error=str(e))

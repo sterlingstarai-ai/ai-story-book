@@ -96,3 +96,20 @@ def test_drain_refuses_busy_worker(module):
         module.NarrationContainerControls(runtime).stop_and_drain(IDS)
     assert runtime.changed == [IDS['old_api']]
     assert runtime.items[IDS['old_worker']]['running']
+
+
+def test_drain_checks_broker_after_api_stops_before_stopping_worker(module):
+    runtime = Runtime()
+    runtime.items[IDS['old_api']].update(name='asb-pilot-api', running=True)
+    runtime.items[IDS['old_worker']].update(name='asb-pilot-worker', running=True)
+
+    def reject_pending_queue(worker_id):
+        assert worker_id == IDS['old_worker']
+        assert not runtime.items[IDS['old_api']]['running']
+        assert runtime.items[worker_id]['running']
+        raise module.ContainerControlError('pending broker work')
+
+    with pytest.raises(module.ContainerControlError, match='pending broker work'):
+        module.NarrationContainerControls(runtime).stop_and_drain(
+            IDS, verify_worker_drain=reject_pending_queue)
+    assert runtime.changed == [IDS['old_api']]

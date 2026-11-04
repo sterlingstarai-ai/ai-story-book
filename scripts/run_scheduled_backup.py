@@ -7,7 +7,9 @@ service-drain/restore controls. A successful upload never authorizes restore.
 
 import argparse
 import asyncio
+from contextlib import closing, contextmanager
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -21,7 +23,8 @@ import uuid
 from dotenv import dotenv_values
 
 from automatic_backup import run_guarded_backup
-from backup_external import assert_quiescent, create_backup, database_environment
+from backup_external import (assert_quiescent, create_backup, database_environment,
+                             inventory, inventory_fingerprint, storage_client)
 from backup_service_guard import BackupServiceGuard, DockerRuntime
 from final_external_preflight import external_infrastructure_errors, present
 from postgres_backup_fence import PostgresBackupFence
@@ -29,6 +32,7 @@ from publish_backup_gcs import GCSBackupStore
 
 ROOT = Path(__file__).resolve().parents[1]
 API = ROOT / 'apps' / 'api'
+BACKUP_API_SOURCES = Path('/opt/ai-story-book/backup-api-sources')
 
 
 class ScheduledBackupError(RuntimeError):
@@ -160,15 +164,71 @@ def assert_runtime_journal_binding(runtime, primary_bucket, witness_bucket, s3_v
             raise ScheduledBackupError('Live service journal settings do not match the backup') from None
 
 
+def assert_runtime_media_binding(runtime, values):
+    """Ensure the backup inventory points to the same media store as both writers."""
+    names = ('S3_ENDPOINT', 'S3_BUCKET', 'S3_REGION', 'S3_ACCESS_KEY', 'S3_SECRET_KEY')
+    expected = {name: values.get(name) for name in names}
+    if any(not present(value) for value in expected.values()):
+        raise ScheduledBackupError('Backup media configuration is incomplete')
+    for container in ('asb-pilot-api', 'asb-pilot-worker'):
+        try:
+            items = json.loads(runtime._run(['inspect', '--format', '{{json .Config.Env}}', container], timeout=15))
+            if not isinstance(items, list):
+                raise ValueError()
+            observed = {}
+            for item in items:
+                key, value = item.split('=', 1)
+                if key in expected:
+                    if key in observed:
+                        raise ValueError()
+                    observed[key] = value
+            if observed != expected:
+                raise ValueError()
+        except Exception:
+            raise ScheduledBackupError('Live service media settings do not match the backup') from None
+
+
+def assert_runtime_database_binding(runtime, values, ca_file):
+    """Verify the DB and transport used by the backup match both live writers."""
+    names = {'DATABASE_URL', 'DATABASE_MIGRATION_URL', 'DATABASE_SSL_MODE'}
+    try:
+        expected = database_environment(values, ca_file)
+        expected_app = database_environment({'DATABASE_URL': values['DATABASE_URL']}, ca_file)
+        for container in ('asb-pilot-api', 'asb-pilot-worker'):
+            items = json.loads(runtime._run(['inspect', '--format', '{{json .Config.Env}}', container], timeout=15))
+            if not isinstance(items, list):
+                raise ValueError()
+            observed = {}
+            for item in items:
+                key, value = item.split('=', 1)
+                if key in names:
+                    if key in observed:
+                        raise ValueError()
+                    observed[key] = value
+            if (observed.get('DATABASE_SSL_MODE') != values.get('DATABASE_SSL_MODE')
+                    or database_environment(observed, ca_file) != expected):
+                raise ValueError()
+            # The running app may use a pooled URL while the backup uses a
+            # direct connection. It must still match the reviewed app DSN.
+            app = {'DATABASE_URL': observed['DATABASE_URL']}
+            if database_environment(app, ca_file) != expected_app:
+                raise ValueError()
+    except Exception:
+        raise ScheduledBackupError('Live service database settings do not match the backup') from None
+
+
 def build_backup_journal(primary_bucket, witness_bucket, s3_values, values, key):
     """Build the same explicitly configured readers used by both writers."""
     from src.services.privacy_journal import PrivacyJournal
     from src.services.privacy_journal_gcs import GCSImmutableStore
-    from src.services.privacy_journal_mirror import MirroredJournalStore
-    from src.services.privacy_journal_runtime import create_s3_witness
 
     store = GCSImmutableStore(primary_bucket)
     try:
+        if not witness_bucket and not any(s3_values.values()):
+            return PrivacyJournal(store, key), store
+        from src.services.privacy_journal_mirror import MirroredJournalStore
+        from src.services.privacy_journal_runtime import create_s3_witness
+
         s3_witness = create_s3_witness(
             endpoint=s3_values['PRIVACY_JOURNAL_WITNESS_S3_ENDPOINT'],
             bucket=s3_values['PRIVACY_JOURNAL_WITNESS_S3_BUCKET'],
@@ -186,6 +246,32 @@ def build_backup_journal(primary_bucket, witness_bucket, s3_values, values, key)
     except Exception:
         store.close()
         raise
+
+
+def backup_api_source(image_id, *, mirrored):
+    """Select the same model/journal implementation as the mirrored writers."""
+    if not mirrored:
+        return API
+    if not re.fullmatch(r'local-image@sha256:[0-9a-f]{64}', image_id):
+        raise ScheduledBackupError('Backup API source requires a pinned image')
+    path = BACKUP_API_SOURCES / image_id.rsplit(':', 1)[1]
+    for directory in (BACKUP_API_SOURCES, path, path / 'src'):
+        info = directory.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o022:
+            raise ScheduledBackupError('Backup API source directory is unsafe')
+    if private_file(path / 'image-id', max_bytes=128) != image_id.encode() + b'\n':
+        raise ScheduledBackupError('Backup API source does not match the running image')
+    files = {}
+    for entry in (path / 'src').rglob('*'):
+        info = entry.lstat()
+        if info.st_uid != os.geteuid() or info.st_mode & 0o022 or entry.is_symlink():
+            raise ScheduledBackupError('Backup API source file is unsafe')
+        if stat.S_ISREG(info.st_mode) and '__pycache__' not in entry.parts and entry.suffix != '.pyc':
+            files[str(entry.relative_to(path))] = hashlib.sha256(entry.read_bytes()).hexdigest()
+    digest = hashlib.sha256(json.dumps(files, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    if not files or private_file(path / 'source-sha256', max_bytes=128) != digest.encode() + b'\n':
+        raise ScheduledBackupError('Backup API source has changed')
+    return path
 
 
 def main(argv=None):
@@ -238,7 +324,6 @@ def main(argv=None):
             'PRIVACY_JOURNAL_WITNESS_S3_ENDPOINT', 'PRIVACY_JOURNAL_WITNESS_S3_BUCKET',
             'PRIVACY_JOURNAL_WITNESS_S3_REGION', 'PRIVACY_JOURNAL_WITNESS_S3_ACCESS_KEY',
             'PRIVACY_JOURNAL_WITNESS_S3_SECRET_KEY')}
-        assert_runtime_journal_binding(runtime, args.journal_bucket, args.journal_witness_bucket, s3_values)
         if external_infrastructure_errors(values) or any(not present(values.get(name)) for name in (
             'S3_ACCESS_KEY', 'S3_SECRET_KEY', 'S3_BUCKET',
         )):
@@ -260,7 +345,8 @@ def main(argv=None):
         os.environ['DATABASE_SSL_MODE'] = values['DATABASE_SSL_MODE']
         os.environ['DATABASE_SSL_ROOT_CERT'] = str(args.ca_file)
         os.environ['TESTING'] = 'false'
-        sys.path.insert(0, str(API))
+        source = backup_api_source(values['API_IMAGE'], mirrored=bool(args.journal_witness_bucket or any(s3_values.values())))
+        sys.path.insert(0, str(source))
         from src.core.database import AsyncSessionLocal, configure_for_worker
         from src.services.privacy_journal_gcs import application_default_token
         from src.services.privacy_journal_verify import verify_current_outbox
@@ -273,6 +359,13 @@ def main(argv=None):
         query = ['psql', '-X', '--no-password', '--tuples-only', '--no-align', '--set', 'ON_ERROR_STOP=1', '-c']
 
         def verify_idle():
+            assert_runtime_journal_binding(runtime, args.journal_bucket, args.journal_witness_bucket, s3_values)
+            assert_runtime_media_binding(runtime, values)
+            assert_runtime_database_binding(runtime, values, args.ca_file)
+            for name, container in (('API_IMAGE', 'asb-pilot-api'), ('WORKER_IMAGE', 'asb-pilot-worker')):
+                image_id = runtime._run(['inspect', '--format', '{{.Image}}', container], timeout=15)
+                if values[name] != 'local-image@' + image_id:
+                    raise ScheduledBackupError('Container image changed during backup preflight')
             assert_quiescent(environment, query)
             assert_idle_worker(runtime)
 
@@ -283,14 +376,26 @@ def main(argv=None):
                     return await verify_current_outbox(session, scan)
             return asyncio.run(check())
 
-        def take_backup():
+        @contextmanager
+        def publication_boundary():
             with PostgresBackupFence(environment) as fence:
-                return create_backup(values, args.output_dir, args.ca_file, fence=fence)
+                def capture():
+                    return create_backup(values, args.output_dir, args.ca_file, fence=fence)
+
+                def verify(result):
+                    fence.verify()
+                    with closing(storage_client(values)) as client:
+                        observed = inventory_fingerprint(inventory(client, values['S3_BUCKET']))
+                    if observed != result.get('media_inventory_sha256'):
+                        raise ScheduledBackupError('Media inventory changed before backup publication')
+                    fence.verify()
+
+                yield capture, verify
 
         try:
             result = run_guarded_backup(guard=guard, verify_idle=verify_idle, preflight_idle=verify_idle,
                 verify_journal=verify_journal,
-                take_backup=take_backup,
+                publication_boundary=publication_boundary,
                 output_dir=args.output_dir, store=backup_store, run_id=uuid.uuid4().hex)
             record_success(args.state_dir)
         finally:

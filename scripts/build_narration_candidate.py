@@ -291,13 +291,12 @@ def build(base, tag, files):
             raise RuntimeError('Local base tag identity changed')
         with tempfile.TemporaryDirectory(prefix='asb-narration-overlay-') as directory:
             stage = Path(directory)
-            lines = ['FROM ' + base_tag, 'USER root']
             for name, content in sorted(files.items()):
-                target = stage / name
+                target = stage / 'overlay' / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(content)
-                lines.append('COPY --chown=appuser:appuser ' + json.dumps([name, '/app/' + name]))
-            lines.append('USER appuser')
+            lines = ['FROM ' + base_tag, 'USER root',
+                     'COPY --chown=appuser:appuser overlay/ /app/', 'USER appuser']
             (stage / 'Dockerfile').write_text('\n'.join(lines) + '\n')
             iid = stage / 'image-id'
             docker('build', '--network=none', '--pull=false', '--platform=linux/amd64',
@@ -305,10 +304,12 @@ def build(base, tag, files):
             image = iid.read_text().strip()
             if not re.fullmatch(r'sha256:[0-9a-f]{64}', image):
                 raise RuntimeError('Invalid resulting image ID')
-            for name, content in files.items():
-                if read_from_image(image, name) != content:
-                    raise RuntimeError('Candidate file differs from frozen source: ' + name)
             before, after = source_hashes(base), source_hashes(image)
+            for name, content in files.items():
+                matches = (after.get(name) == sha(content) if name.startswith(('src/', 'alembic/'))
+                           else read_from_image(image, name) == content)
+                if not matches:
+                    raise RuntimeError('Candidate file differs from frozen source: ' + name)
             changed = {path for path in set(before) | set(after) if before.get(path) != after.get(path)}
             # The source inventory deliberately covers only src/ and alembic/.
             # The separately allowlisted activation script is byte-verified above.

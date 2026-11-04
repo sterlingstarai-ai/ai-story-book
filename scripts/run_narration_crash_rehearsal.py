@@ -1,10 +1,11 @@
 """Disposable Docker SIGKILL rehearsal; no real DB, provider or reboot.
 
-Four random-name local containers and a private temporary marker directory are
-owned by this run. This exercises orchestration and quarantine around fake
+Local containers and a private temporary marker directory are owned by this
+run. This exercises orchestration and quarantine around fake
 backup/migration callbacks; it does not prove systemd boot ordering or a real
 database migration. It refuses non-local Docker contexts and image pulling.
 """
+import argparse
 import json
 import multiprocessing
 import os
@@ -25,11 +26,16 @@ def docker(*args):
 
 
 class SyntheticOperations:
-    def __init__(self, runtime, identities, target, reached):
+    def __init__(self, runtime, identities, target, reached, storage_only, proxy):
         self.runtime = runtime
         self.identities = identities
         self.target = target
         self.reached = reached
+        self.storage_only = storage_only
+        self.proxy = proxy
+
+    def recovery_proxy(self):
+        return self.proxy
 
     def __getattr__(self, name):
         allowed = {'preflight', 'stop_and_drain', 'disable_restart', 'backup_and_restore_verify',
@@ -40,10 +46,15 @@ class SyntheticOperations:
 
         def perform(*_args):
             if name == self.target:
+                if self.storage_only and name == 'publish':
+                    docker('rename', self.identities['old_worker'], safety._RETIRED_NAMES['media']['old_worker'])
+                    docker('rename', self.identities['new_worker'], 'asb-pilot-worker')
                 self.reached.set()
                 while True:
                     time.sleep(1)
             if name == 'stop_and_drain':
+                if self.proxy:
+                    self.runtime.stop(self.proxy['id'])
                 for slot in ('old_api', 'old_worker'):
                     self.runtime.stop(self.identities[slot])
             if name == 'disable_restart':
@@ -56,15 +67,19 @@ class SyntheticOperations:
         return perform
 
 
-def _child(state, identities, target, reached):
+def _child(state, identities, target, reached, storage_only, proxy):
     runtime = safety.DockerRuntime()
     image_ids = {slot: runtime.inspect(identifier)['image_id'] for slot, identifier in identities.items()}
     release.release(state_dir=state, backup_state_dir=state, identities=identities,
                     image_ids=image_ids, runtime=runtime,
-                    operations=SyntheticOperations(runtime, identities, target, reached))
+                    operations=SyntheticOperations(runtime, identities, target, reached, storage_only, proxy))
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--storage-only', action='store_true',
+                        help='Use the real pilot names on an otherwise isolated local Docker daemon')
+    storage_only = parser.parse_args().storage_only
     # Docker CLI's host override can silently target a real remote daemon.
     if os.environ.get('DOCKER_HOST') or os.environ.get('DOCKER_CONTEXT'):
         raise RuntimeError('Explicit Docker host/context is not allowed')
@@ -76,16 +91,29 @@ def main():
     prefix = 'asb-narration-crash-' + uuid.uuid4().hex[:12]
     slots = ['old_api', 'old_worker', 'new_api', 'new_worker']
     identities = {}
+    owned = []
+    proxy = None
     results = []
     child = None
     cleanup_failed = False
     try:
-        names = {slot: prefix + '-' + slot.replace('_', '-') for slot in slots}
-        safety._SLOTS = {slot: {names[slot]} for slot in slots}
-        for slot in slots:
-            identities[slot] = docker('create', '--name', names[slot], '--init', '--network', 'none',
-                                      '--restart=no', '--tmpfs', '/var/lib/postgresql/data:rw,size=16m',
-                                      '--entrypoint', 'sleep', 'postgres:16', '600')
+        def create(name):
+            identifier = docker('create', '--name', name, '--init', '--network', 'none',
+                                '--restart=no', '--tmpfs', '/var/lib/postgresql/data:rw,size=16m',
+                                '--entrypoint', 'sleep', 'postgres:16', '600')
+            owned.append(identifier)
+            return identifier
+
+        if storage_only:
+            names = {'old_api': 'asb-pilot-api', 'old_worker': 'asb-pilot-worker',
+                     'new_api': 'asb-media-rollback-api', 'new_worker': 'asb-media-rollback-worker'}
+            identifier = create('asb-pilot-nginx')
+            proxy = {'id': identifier, 'image_id': safety.DockerRuntime().inspect(identifier)['image_id']}
+        else:
+            names = {slot: prefix + '-' + slot.replace('_', '-') for slot in slots}
+            safety._SLOTS = {slot: {names[slot]} for slot in slots}
+        for slot, name in names.items():
+            identities[slot] = create(name)
         with tempfile.TemporaryDirectory(prefix='asb-narration-crash-') as directory:
             state = Path(directory)
             safety.BACKUP_STATE = state
@@ -94,6 +122,8 @@ def main():
             backup_service_guard.NARRATION_RECOVERY_MARKER = state / 'narration-recovery.json'
             runtime = safety.DockerRuntime()
             for target in ('stop_and_drain', 'backup_and_restore_verify', 'migrate', 'publish'):
+                if proxy:
+                    docker('start', proxy['id'])
                 for slot in ('old_api', 'old_worker'):
                     docker('start', identities[slot])
                     docker('update', '--restart=unless-stopped', identities[slot])
@@ -101,7 +131,7 @@ def main():
                     docker('update', '--restart=no', identities[slot])
                 reached = multiprocessing.get_context('fork').Event()
                 child = multiprocessing.get_context('fork').Process(
-                    target=_child, args=(state, identities, target, reached))
+                    target=_child, args=(state, identities, target, reached, storage_only, proxy))
                 child.start()
                 if not reached.wait(60):
                     child.kill()
@@ -115,7 +145,7 @@ def main():
                 outcome = safety.recover_if_armed(state, runtime)
                 if outcome['status'] != 'QUARANTINED':
                     raise RuntimeError('Quarantine failed')
-                for identifier in identities.values():
+                for identifier in owned:
                     container = json.loads(docker('inspect', identifier))[0]
                     if container['State']['Running'] or container['HostConfig']['RestartPolicy']['Name'] != 'no':
                         raise RuntimeError('Synthetic container was not stopped and disarmed')
@@ -129,7 +159,7 @@ def main():
             child.join(10)
             if child.is_alive():
                 cleanup_failed = True
-        for identifier in identities.values():
+        for identifier in owned:
             try:
                 docker('rm', '-f', identifier)
             except Exception:
@@ -137,7 +167,8 @@ def main():
         if cleanup_failed:
             raise RuntimeError('Owned fixture cleanup failed')
     print(json.dumps({'status': 'SIGKILL_QUARANTINE_PASSED', 'stages': results,
-                      'real_database': False, 'actual_reboot': False, 'restore_authorized': False}))
+                      'storage_only_names': storage_only, 'real_database': False,
+                      'actual_reboot': False, 'restore_authorized': False}))
 
 
 if __name__ == '__main__':

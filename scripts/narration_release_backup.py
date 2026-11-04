@@ -10,7 +10,10 @@ from pathlib import Path
 import re
 import uuid
 
-from backup_external import assert_quiescent, create_backup, database_environment, run_pg
+from backup_external import (
+    assert_quiescent, create_backup, database_environment, inventory,
+    inventory_fingerprint, run_pg, storage_client,
+)
 from postgres_backup_fence import PostgresBackupFence
 from publish_backup_gcs import _valid_checkpoint, publish_verified_backup, verify_remote_backup
 
@@ -22,7 +25,8 @@ class NarrationBackupError(RuntimeError):
     pass
 
 
-def capture_quiesced_backup(*, values, ca_file, output_dir, store, verify_journal, fence=None):
+def capture_quiesced_backup(*, values, ca_file, output_dir, store, verify_journal, fence=None,
+                            verify_empty_media=None):
     """Create and independently recheck remote bytes, retaining the DB fence.
 
     `verify_journal` must independently compare current outbox to the protected
@@ -50,11 +54,32 @@ def capture_quiesced_backup(*, values, ca_file, output_dir, store, verify_journa
         if (not isinstance(name, str) or not re.fullmatch(r'external-[A-Za-z0-9_-]+', name)
                 or result.get('status') != 'BACKUP_CREATED_NOT_RESTORE_VERIFIED'):
             raise NarrationBackupError('Backup creation did not complete')
+        if verify_empty_media is not None and (
+                type(result.get('object_count')) is not int or result['object_count'] != 0
+                or result.get('media_inventory_sha256') != inventory_fingerprint({})):
+            raise NarrationBackupError('Media appeared during the storage detach backup')
         fence.verify()
         if verify_journal() != before:
             raise NarrationBackupError('Privacy journal changed during backup')
+
+        def verify_before_marker():
+            fence.verify()
+            assert_quiescent(environment, QUERY)
+            if verify_journal() != before:
+                raise NarrationBackupError('Privacy journal changed before backup completion')
+            if verify_empty_media is not None:
+                verify_empty_media()
+                return
+            client = storage_client(values)
+            try:
+                current_media = inventory_fingerprint(inventory(client, values['S3_BUCKET']))
+            finally:
+                client.close()
+            if current_media != result.get('media_inventory_sha256'):
+                raise NarrationBackupError('Media inventory changed before backup completion')
+
         published = publish_verified_backup(Path(output_dir) / name, run_id, store,
-                                            journal_checkpoint=before)
+                                            journal_checkpoint=before, verify_before_marker=verify_before_marker)
         if (published.get('status') != 'REMOTE_CHECKSUMS_VERIFIED_NOT_RESTORED'
                 or published.get('restore_authorized') is not False):
             raise NarrationBackupError('Backup publication is unverified')

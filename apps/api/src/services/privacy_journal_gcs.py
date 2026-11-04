@@ -6,7 +6,9 @@ This module does not create buckets, grant access, or contact GCS on import.
 """
 
 import json
+import os
 import re
+import threading
 from urllib.parse import quote
 
 import httpx
@@ -21,6 +23,7 @@ _MAX_LIST_RESPONSE_BYTES = 2 * 1024 * 1024
 _MAX_NAMES = 100000
 _MAX_PAGES = 1024
 _OBJECT_NAME = re.compile(r'^privacy-journal/v1/[0-9a-f]{32}/(?:intent|commit|abort)$')
+_ADC = threading.local()
 
 
 def application_default_token() -> str:
@@ -28,7 +31,11 @@ def application_default_token() -> str:
     try:
         import google.auth
         from google.auth.transport.requests import Request
-        credentials, _ = google.auth.default(scopes=['https://www.googleapis.com/auth/devstorage.read_write'])
+        pid = os.getpid()
+        if getattr(_ADC, 'pid', None) != pid or getattr(_ADC, 'credentials', None) is None:
+            _ADC.credentials, _ = google.auth.default(scopes=['https://www.googleapis.com/auth/devstorage.read_write'])
+            _ADC.pid = pid
+        credentials = _ADC.credentials
         if not credentials.valid:
             credentials.refresh(Request())
         token = credentials.token
@@ -36,6 +43,7 @@ def application_default_token() -> str:
             raise ValueError('missing token')
         return token
     except Exception:
+        _ADC.credentials = None
         raise JournalError('Journal storage credentials are unavailable') from None
 
 

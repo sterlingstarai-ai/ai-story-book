@@ -18,7 +18,7 @@ from backup_external import assert_quiescent, database_environment, run_pg
 from narration_release_backup import QUERY, SOURCE_REVISION
 
 API = Path(__file__).resolve().parents[1] / 'apps' / 'api'
-TARGET_REVISION = 'e7b93d2a601f'
+TARGET_REVISION = 'f32a7b4d190c'
 
 
 class NarrationMigrationError(RuntimeError):

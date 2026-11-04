@@ -54,7 +54,7 @@ class NarrationContainerControls:
                 raise ContainerControlError('Restart disable did not take effect')
         return True
 
-    def stop_and_drain(self, identities):
+    def stop_and_drain(self, identities, *, verify_worker_drain=None):
         """Stop the old API, confirm an idle single worker, then stop it.
 
         This prevents API admission through the recorded container only. It
@@ -70,10 +70,18 @@ class NarrationContainerControls:
         self.runtime.stop(ids['old_api'])
         if self._inspect('old_api', ids['old_api'])['running']:
             raise ContainerControlError('API admission did not stop')
+        verify_drain = verify_worker_drain or self._verify_worker_idle
+        verify_drain(ids['old_worker'])
+        self.runtime.stop(ids['old_worker'])
+        if self._inspect('old_worker', ids['old_worker'])['running']:
+            raise ContainerControlError('Worker did not stop')
+        return True
+
+    def _verify_worker_idle(self, worker_id):
         workers = None
         for kind in ('active', 'reserved', 'scheduled'):
             try:
-                raw = self.runtime._run('exec', ids['old_worker'], 'celery', '-A',
+                raw = self.runtime._run('exec', worker_id, 'celery', '-A',
                                         'src.worker', 'inspect', kind, '--timeout', '10', '--json')
                 value = json.loads(raw)
                 if (not isinstance(value, dict) or len(value) != 1
@@ -85,10 +93,6 @@ class NarrationContainerControls:
                 workers = current
             except Exception:
                 raise ContainerControlError('Worker drain cannot be verified') from None
-        self.runtime.stop(ids['old_worker'])
-        if self._inspect('old_worker', ids['old_worker'])['running']:
-            raise ContainerControlError('Worker did not stop')
-        return True
 
     def enable_new_restart(self, identities):
         ids = safety._validate_ids(identities)

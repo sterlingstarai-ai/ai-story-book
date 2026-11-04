@@ -103,6 +103,49 @@ async def test_voice_change_blocks_entire_replay_before_any_mutation(db_session,
 
 
 @pytest.mark.asyncio
+async def test_voice_change_followed_by_erasure_does_not_require_reconstructing_voice(db_session, modules):
+    journal, replay = modules
+    await seed(db_session)
+    db_session.add(VoiceProfile(id='voice_synthetic', user_key=OWNER, label='Synthetic',
+                                sample_audio_url='', consented=False, active=False))
+    await db_session.commit()
+    events = (
+        journal.JournalEntry('a' * 32, 'voice_changed', OWNER, 1, resource_id='voice_synthetic'),
+        journal.JournalEntry('b' * 32, 'voice_delete', OWNER, 2, resource_id='voice_synthetic'),
+    )
+    scan = journal.JournalScan(events, 0)
+    result = await replay.replay_quarantined(db_session, scan)
+    assert result['applied_count'] == 2 and result['restore_authorized'] is False
+    assert await db_session.get(VoiceProfile, 'voice_synthetic') is None
+    assert (await replay.replay_quarantined(db_session, scan))['applied_count'] == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('action', ['voice_delete', 'account_delete'])
+@pytest.mark.parametrize('same_bucket', [False, True])
+async def test_unknown_voice_media_blocks_replay_before_any_mutation(db_session, modules, action, same_bucket):
+    from src.services.storage import canonical_media_url, voice_sample_prefix
+
+    journal, replay = modules
+    await seed(db_session)
+    url = (canonical_media_url(voice_sample_prefix(OTHER) + 'sample.wav') if same_bucket
+           else 'https://unknown.example/sample.wav')
+    db_session.add(VoiceProfile(id='voice_synthetic', user_key=OWNER, label='Synthetic',
+                                sample_audio_url=url,
+                                consented=True, active=True))
+    await db_session.commit()
+    events = (
+        journal.JournalEntry('a' * 32, 'book_delete', OWNER, 1, resource_id='synthetic-restore-book'),
+        journal.JournalEntry('b' * 32, action, OWNER, 2,
+                             resource_id='voice_synthetic' if action == 'voice_delete' else None),
+    )
+    with pytest.raises(replay.ReplayIncomplete, match='Voice media cannot be located'):
+        await replay.replay_quarantined(db_session, journal.JournalScan(events, 0))
+    assert await db_session.get(Book, 'synthetic-restore-book') is not None
+    assert await db_session.get(VoiceProfile, 'voice_synthetic') is not None
+
+
+@pytest.mark.asyncio
 async def test_book_delete_replay_is_owner_scoped_and_idempotent(db_session, modules, monkeypatch):
     journal, replay = modules
     await seed(db_session)

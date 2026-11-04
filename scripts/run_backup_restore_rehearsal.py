@@ -93,7 +93,7 @@ async def database_snapshot(port):
         await connection.close()
 
 
-async def seed_database(port, media):
+async def seed_database(port, media, *, voice_media_base=None):
     import asyncpg
     connection = await asyncpg.connect(host="127.0.0.1", port=port, user="runtime_test",
         password=CREDENTIAL, database="runtime_test")
@@ -115,7 +115,7 @@ async def seed_database(port, media):
         await connection.execute("""INSERT INTO jobs
             (id,status,progress,current_step,user_key,idempotency_key,image_keys)
             VALUES ('restore-job','done',100,'done',$1,'restore-idempotency',$2)""",
-            owner, json.dumps([key for key in media if not key.startswith('consent-fixture/')]))
+            owner, json.dumps([key for key in media if not key.startswith(('consent-fixture/', 'voice-samples/'))]))
         await connection.execute("""INSERT INTO books
             (id,job_id,title,language,target_age,style,cover_image_url,pdf_url,user_key)
             VALUES ('restore-book','restore-job','복구 시험용 동화','ko','3-5','watercolor',$1,$2,$3)""",
@@ -140,6 +140,11 @@ async def seed_database(port, media):
         await connection.execute("""INSERT INTO child_profiles
             (id,user_key,name,age_band,is_default)
             VALUES ('profile-fixture',$1,'Synthetic','5-7',false)""", other)
+        if voice_media_base is not None:
+            await connection.execute("""INSERT INTO voice_profiles
+                (id,user_key,label,sample_audio_url,consented,active)
+                VALUES ('voice-fixture',$1,'Synthetic',$2,true,true)""", other,
+                f'{voice_media_base}/voice-samples/{other}/sample.wav')
         await connection.execute("""INSERT INTO characters
             (id,name,master_description,appearance,clothing,personality_traits,from_photo,user_key)
             VALUES ('consent-character','Synthetic','Synthetic','{}','{}','[]',true,$1)""", other)

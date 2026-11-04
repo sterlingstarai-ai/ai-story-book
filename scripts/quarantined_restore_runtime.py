@@ -84,6 +84,15 @@ def _wait_minio(process):
     raise RestoreRuntimeError('Isolated storage did not become ready')
 
 
+_MEDIA_HEADERS = (
+    ('content_type', 'ContentType'),
+    ('metadata', 'Metadata'),
+    ('cache_control', 'CacheControl'),
+    ('content_disposition', 'ContentDisposition'),
+    ('content_encoding', 'ContentEncoding'),
+)
+
+
 def _read_media(client, bucket, objects):
     expected = {item['key']: item for item in objects}
     actual = set()
@@ -119,16 +128,14 @@ def _read_media(client, bucket, objects):
                 raise RestoreRuntimeError('Restored media inventory differs')
             actual.add(key)
             result = client.get_object(Bucket=bucket, Key=key)
-            for source, target in (('content_type', 'ContentType'), ('metadata', 'Metadata'),
-                                   ('cache_control', 'CacheControl'), ('content_disposition', 'ContentDisposition'),
-                                   ('content_encoding', 'ContentEncoding')):
-                if expected[key].get(source) is not None and result.get(target) != expected[key][source]:
-                    raise RestoreRuntimeError('Restored media metadata differs')
             body = result['Body']
             digest = hashlib.sha256()
             count = 0
             try:
-                for chunk in iter(lambda: body.read(65536), b''):
+                for source, target in _MEDIA_HEADERS:
+                    if source in expected[key] and result.get(target) != expected[key][source]:
+                        raise RestoreRuntimeError('Restored media metadata differs')
+                for chunk in iter(lambda: body.read(1024 * 1024), b''):
                     count += len(chunk)
                     if count > expected[key]['size']:
                         raise RestoreRuntimeError('Restored media size differs')
@@ -139,6 +146,14 @@ def _read_media(client, bucket, objects):
                 raise RestoreRuntimeError('Restored media checksum differs')
     if not saw_page or expecting_page or actual != set(expected):
         raise RestoreRuntimeError('Restored media inventory differs')
+
+
+def _restore_media(client, bucket, folder, objects):
+    for item in objects:
+        headers = {target: item[source] for source, target in _MEDIA_HEADERS if item.get(source) is not None}
+        with (folder / item['file']).open('rb') as body:
+            client.put_object(Bucket=bucket, Key=item['key'], Body=body, IfNoneMatch='*', **headers)
+    _read_media(client, bucket, objects)
 
 
 def restore(token):
@@ -205,16 +220,7 @@ def restore(token):
                           proxies={}, connect_timeout=3, read_timeout=15, retries={'max_attempts': 1}))
         bucket = 'quarantine-restore'
         client.create_bucket(Bucket=bucket)
-        for item in manifest['objects']:
-            kwargs = {'Bucket': bucket, 'Key': item['key']}
-            for source, target in (('content_type', 'ContentType'), ('metadata', 'Metadata'),
-                                   ('cache_control', 'CacheControl'), ('content_disposition', 'ContentDisposition'),
-                                   ('content_encoding', 'ContentEncoding')):
-                if item.get(source) is not None:
-                    kwargs[target] = item[source]
-            with (folder / item['file']).open('rb') as body:
-                client.put_object(Body=body, **kwargs)
-        _read_media(client, bucket, manifest['objects'])
+        _restore_media(client, bucket, folder, manifest['objects'])
         runtime = data / 'runtime.json'
         fd = os.open(runtime, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, 'O_NOFOLLOW', 0), 0o600)
         with os.fdopen(fd, 'w') as output:

@@ -106,6 +106,15 @@ async def _call_s3(method, *args, **kwargs):
     return result
 
 
+async def _write_s3(method, *args, **kwargs):
+    if settings.testing:
+        return await _call_s3(method, *args, **kwargs)
+    from src.services.storage_write_guard import guarded_media_write
+
+    async with guarded_media_write():
+        return await _call_s3(method, *args, **kwargs)
+
+
 async def ensure_bucket_exists():
     """Ensure the bucket exists, create if not. Thread-safe with asyncio.Lock."""
     global _bucket_verified
@@ -130,7 +139,7 @@ async def ensure_bucket_exists():
                 options = {"Bucket": settings.s3_bucket}
                 if settings.s3_region != "us-east-1":
                     options["CreateBucketConfiguration"] = {"LocationConstraint": settings.s3_region}
-                await _call_s3(client.create_bucket, **options)
+                await _write_s3(client.create_bucket, **options)
                 logger.info("Created bucket", bucket=settings.s3_bucket)
                 logger.warning(
                     "Bucket created without public policy - configure access policy manually"
@@ -289,7 +298,7 @@ async def upload_image_from_url(
 
     try:
         s3_client = get_s3_client()
-        await _call_s3(
+        await _write_s3(
             s3_client.put_object,
             Bucket=settings.s3_bucket,
             Key=s3_key,
@@ -322,7 +331,7 @@ async def upload_file(
 
     try:
         s3_client = get_s3_client()
-        await _call_s3(
+        await _write_s3(
             s3_client.put_object,
             Bucket=settings.s3_bucket,
             Key=s3_key,
@@ -387,7 +396,7 @@ async def _delete_prefix_keys(prefix: str) -> list[str]:
                 raise ValueError("incomplete or repeated listing token")
             if objects:
                 chunk = [obj["Key"] for obj in objects]
-                del_resp = await _call_s3(
+                del_resp = await _write_s3(
                     s3_client.delete_objects,
                     Bucket=settings.s3_bucket,
                     Delete={"Objects": [{"Key": key} for key in chunk]},
@@ -438,7 +447,7 @@ async def copy_object_to_new_key(source_url: str, new_key: str) -> Optional[str]
     await ensure_bucket_exists()
     client = get_s3_client()
     try:
-        await _call_s3(
+        await _write_s3(
             client.copy_object,
             Bucket=settings.s3_bucket,
             CopySource={"Bucket": settings.s3_bucket, "Key": source_key},
@@ -511,7 +520,7 @@ async def delete_keys(keys: list[str]) -> list[str]:
     for i in range(0, len(keys), 1000):
         chunk = keys[i : i + 1000]
         try:
-            del_resp = await _call_s3(
+            del_resp = await _write_s3(
                 s3_client.delete_objects,
                 Bucket=settings.s3_bucket,
                 Delete={"Objects": [{"Key": k} for k in chunk]},
@@ -548,7 +557,7 @@ class StorageService:
 
         try:
             s3_client = get_s3_client(bounded_upload=True) if bounded_upload else get_s3_client()
-            await _call_s3(
+            await _write_s3(
                 s3_client.put_object,
                 Bucket=settings.s3_bucket,
                 Key=key,

@@ -10,6 +10,7 @@ from pathlib import Path
 from urllib.parse import unquote
 
 import httpx
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from run_restore_replay_fixture import require_local_fixture
 
@@ -24,7 +25,8 @@ async def main():
     from src.services.privacy_checkpoint_keys import issue_checkpoint_key, recover_checkpoint_key
     from src.services.privacy_journal import JournalError, JournalScan
     from src.services.privacy_journal_checkpoint import capture_fenced_checkpoint, verify_checkpoint_extension
-    from src.services.privacy_witness_watch import assess_witness
+    from src.services.privacy_witness_receipt import verify_receipt
+    from src.services.privacy_witness_watch import observe_and_sign
 
     endpoint = os.environ.get('ASB_FIXTURE_WITNESS_ENDPOINT')
     if endpoint != 'http://127.0.0.1:19010':
@@ -88,11 +90,16 @@ async def main():
                 if (result['checkpoint_count'] != ref['event_count'] or ref['event_count'] < 1
                         or result['journal_count'] <= ref['event_count']):
                     raise RuntimeError('Synthetic checkpoint extension mismatch')
+                signing_key = Ed25519PrivateKey.generate()
                 async with AsyncSessionLocal() as db:
-                    prior_status = await assess_witness(db, journal, head_store, witness, namespace=namespace,
-                        head_key=head_key, checkpoint_key=key, trusted_head=refs['head'], now=1001, max_age=10)
-                if prior_status != {'status': 'ALERT', 'restore_authorized': False}:
-                    raise RuntimeError('Unanchored source events did not trigger alert')
+                    try:
+                        await observe_and_sign(db, journal, head_store, witness, namespace=namespace,
+                            head_key=head_key, checkpoint_key=key, trusted_head=refs['head'],
+                            now=1001, max_age=10, signing_key=signing_key)
+                    except JournalError:
+                        pass
+                    else:
+                        raise RuntimeError('A stale anchor was signed')
                 async with AsyncSessionLocal() as db:
                     next_checkpoint = await capture_fenced_checkpoint(db, journal, witness, namespace=namespace,
                         generation=2, key=key, now=1001)
@@ -104,10 +111,13 @@ async def main():
                                               **head_args)['restore_authorized'] is not False:
                     raise RuntimeError('Synthetic head improperly authorized restore')
                 async with AsyncSessionLocal() as db:
-                    current_status = await assess_witness(db, journal, head_store, witness, namespace=namespace,
-                        head_key=head_key, checkpoint_key=key, trusted_head=next_head, now=1002, max_age=10)
-                if current_status != {'status': 'SNAPSHOT_MATCHES', 'restore_authorized': False}:
-                    raise RuntimeError('Fenced current witness snapshot failed')
+                    receipt = await observe_and_sign(db, journal, head_store, witness, namespace=namespace,
+                        head_key=head_key, checkpoint_key=key, trusted_head=next_head,
+                        now=1002, max_age=10, signing_key=signing_key)
+                verified = verify_receipt(signing_key.public_key(), receipt, namespace=namespace,
+                                          trusted_head=next_head, now=1003, max_age=10)
+                if verified['status'] != 'SIGNED_OBSERVATION_VALID' or verified['restore_authorized'] is not False:
+                    raise RuntimeError('Fenced witness receipt verification failed')
                 try:
                     verify_anchored_checkpoint(head_store, witness, scan, candidate_head=refs['head'], **head_args)
                 except JournalError:

@@ -1,6 +1,7 @@
 """Verify backup orchestration without connecting to user data or providers."""
 import importlib
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
@@ -34,11 +35,14 @@ def fixture(monkeypatch, tmp_path):
     def make_backup(_values, _out, _ca, *, fence):
         assert isinstance(fence, Fence)
         events.append('backup')
-        return {'status': state['result'], 'backup_set': 'external-example'}
+        return {'status': state['result'], 'backup_set': 'external-example', 'object_count': 0,
+                'media_inventory_sha256': module.inventory_fingerprint({})}
 
-    def publish(_path, _run_id, _store, *, journal_checkpoint):
+    def publish(_path, _run_id, _store, *, journal_checkpoint, verify_before_marker):
         events.append('publish')
         assert journal_checkpoint['journal_sha256'] == 'a' * 64
+        verify_before_marker()
+        events.append('marker')
         return {'status': 'REMOTE_CHECKSUMS_VERIFIED_NOT_RESTORED', 'restore_authorized': False}
 
     def remote(_run_id, _store, *, expected_revision, expected_journal_checkpoint):
@@ -52,15 +56,18 @@ def fixture(monkeypatch, tmp_path):
     monkeypatch.setattr(module, 'run_pg', lambda *_: state['revision'])
     monkeypatch.setattr(module, 'PostgresBackupFence', Fence)
     monkeypatch.setattr(module, 'create_backup', make_backup)
+    monkeypatch.setattr(module, 'storage_client', lambda _: Mock())
+    monkeypatch.setattr(module, 'inventory', lambda *_: {})
     monkeypatch.setattr(module, 'publish_verified_backup', publish)
     monkeypatch.setattr(module, 'verify_remote_backup', remote)
     return module, events, state, checkpoint, tmp_path
 
 
-def run(fixture, *, journal=None):
+def run(fixture, *, journal=None, verify_empty_media=None):
     module, _, _, checkpoint, path = fixture
-    return module.capture_quiesced_backup(values={}, ca_file=path / 'ca', output_dir=path,
-                                           store=object(), verify_journal=journal or checkpoint)
+    return module.capture_quiesced_backup(values={'S3_BUCKET': 'fixture'}, ca_file=path / 'ca', output_dir=path,
+                                           store=object(), verify_journal=journal or checkpoint,
+                                           verify_empty_media=verify_empty_media)
 
 
 def test_fenced_backup_rechecks_remote_without_authorizing_migration(fixture):
@@ -69,7 +76,8 @@ def test_fenced_backup_rechecks_remote_without_authorizing_migration(fixture):
     assert result['migration_authorized'] is False
     assert result['restore_authorized'] is False
     assert fixture[1] == ['idle', 'journal', 'fence_enter', 'fence_verify', 'backup', 'fence_verify', 'journal',
-                          'publish', 'remote_verify', 'fence_verify', 'idle', 'journal', 'fence_exit']
+                          'publish', 'fence_verify', 'idle', 'journal', 'marker', 'remote_verify',
+                          'fence_verify', 'idle', 'journal', 'fence_exit']
 
 
 def test_wrong_revision_never_creates_backup(fixture):
@@ -124,6 +132,7 @@ def test_privacy_change_during_publication_fails(fixture):
 
     with pytest.raises(fixture[0].NarrationBackupError, match='changed'):
         run(fixture, journal=changed)
+    assert 'marker' not in events
     assert events[-1] == 'fence_exit'
 
 
@@ -134,3 +143,24 @@ def test_existing_fence_must_match_the_source_database(fixture):
         module.capture_quiesced_backup(values={}, ca_file=path / 'ca', output_dir=path,
                                         store=object(), verify_journal=checkpoint, fence=fence)
     assert 'backup' not in events
+
+
+def test_external_media_write_before_completion_prevents_marker(fixture, monkeypatch):
+    module, events, *_ = fixture
+    monkeypatch.setattr(module, 'inventory', lambda *_: {'external-write': {'Size': '32'}})
+    with pytest.raises(module.NarrationBackupError, match='Media inventory changed'):
+        run(fixture)
+    assert 'marker' not in events
+
+
+def test_media_detach_rechecks_destination_before_completion_marker(fixture):
+    module, events, *_ = fixture
+
+    def verify_empty_media():
+        assert events[-1] == 'journal'
+        raise module.NarrationBackupError('Destination changed during upload')
+
+    with pytest.raises(module.NarrationBackupError, match='Destination changed'):
+        run(fixture, verify_empty_media=verify_empty_media)
+    assert 'publish' in events
+    assert 'marker' not in events

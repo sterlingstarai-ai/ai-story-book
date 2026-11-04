@@ -12,6 +12,7 @@ import time
 import uuid
 
 from build_narration_candidate import checkout_hashes, docker, ensure_local_daemon
+from postgres_backup_fence import MEDIA_WRITE_LOCK
 
 
 RUNNER = '''import os, pathlib, sys, time
@@ -30,6 +31,18 @@ with n.NarrationTransactionFence(e, allow_local_fixture=True) as fence:
     else:
         raise RuntimeError('Fixture did not verify backup in time')
     fence.migrate(assert_backup_restored=lambda: (root / 'proceed').read_text() == 'verified')
+    if (root / 'disconnect-media-before-commit').exists():
+        pid = fence.connection.connection.driver_connection.info.backend_pid
+        with fence._connect() as observer:
+            stopped = observer.execute('SELECT pg_terminate_backend(%s, 5000)', (pid,)).fetchone()
+        if stopped != (True,):
+            raise RuntimeError('Synthetic migration session termination failed')
+        try:
+            fence.commit()
+        except n.NarrationFenceError:
+            (root / 'commit-rejected').write_text('verified')
+            sys.exit(0)
+        raise RuntimeError('Commit succeeded without media session')
     if (root / 'interrupt-before-commit').exists():
         (root / 'migration-applied').write_text('pending')
         while True:
@@ -65,7 +78,9 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--report', required=True, type=Path)
-    parser.add_argument('--interrupt-before-commit', action='store_true')
+    failure = parser.add_mutually_exclusive_group()
+    failure.add_argument('--interrupt-before-commit', action='store_true')
+    failure.add_argument('--disconnect-media-before-commit', action='store_true')
     parser.add_argument('--current-migration-snapshot', action='store_true',
                         help='test a private snapshot of current migration files instead of those in the image')
     args = parser.parse_args()
@@ -110,7 +125,7 @@ def main():
                  "CREATE TABLE alembic_version(version_num varchar(32) NOT NULL); "
                  "INSERT INTO alembic_version VALUES ('5de7a40b6c12')")
             script_dir = Path(__file__).resolve().parent
-            runner = docker('run', '-d', '--rm', '--name', prefix + '-runner',
+            runner = docker('run', '-d', '--name', prefix + '-runner',
                             '--network=container:' + source, '--read-only', '--tmpfs', '/tmp:rw,size=32m',
                             *migration_mount,
                             '--mount', f'type=bind,src={root},dst=/fixture',
@@ -129,6 +144,9 @@ def main():
             else:
                 raise RuntimeError('Synthetic database fence did not start')
             snapshot = (root / 'snapshot').read_text().strip()
+            attempt_write = f'SELECT pg_try_advisory_xact_lock_shared({MEDIA_WRITE_LOCK})'
+            if psql(source, attempt_write) != 'f':
+                raise RuntimeError('Concurrent synthetic media writer was not fenced')
             blocked = subprocess.run(['docker', 'exec', source, 'psql', '-U', 'fixture', '-d', 'fixture',
                                       '-v', 'ON_ERROR_STOP=1', '-c',
                                       "SET lock_timeout='1s'; INSERT INTO pages VALUES (2)"],
@@ -160,8 +178,12 @@ def main():
                 raise RuntimeError('Restored synthetic data differs')
             if args.interrupt_before_commit:
                 (root / 'interrupt-before-commit').write_text('synthetic')
+            if args.disconnect_media_before_commit:
+                (root / 'disconnect-media-before-commit').write_text('synthetic')
             (root / 'proceed').write_text('verified')
             milestone = 'migration-applied' if args.interrupt_before_commit else 'complete'
+            if args.disconnect_media_before_commit:
+                milestone = 'commit-rejected'
             for _ in range(240):
                 if (root / milestone).is_file():
                     break
@@ -170,6 +192,12 @@ def main():
                 raise RuntimeError('Fenced synthetic migration did not reach its milestone')
             if args.interrupt_before_commit:
                 docker('kill', runner)
+            else:
+                if docker('wait', runner).strip() != b'0':
+                    raise RuntimeError('Synthetic runner did not exit cleanly')
+            if psql(source, attempt_write) != 't':
+                raise RuntimeError('Synthetic media write lock was not released')
+            if args.interrupt_before_commit or args.disconnect_media_before_commit:
                 if psql(source, 'SELECT version_num FROM alembic_version') != '5de7a40b6c12':
                     raise RuntimeError('Interrupted migration did not roll back')
                 if psql(source, "SELECT COALESCE(to_regclass('public.narration_variants')::text,'missing')") != 'missing':
@@ -186,7 +214,7 @@ def main():
                 if psql(source, "SELECT count(*) FROM pg_constraint WHERE conname='ck_privacy_journal_action' "
                                 "AND pg_get_constraintdef(oid) LIKE '%voice_changed%'") != '0':
                     raise RuntimeError('Interrupted migration left a changed voice constraint')
-            elif psql(source, 'SELECT version_num FROM alembic_version') != 'e7b93d2a601f':
+            elif psql(source, 'SELECT version_num FROM alembic_version') != 'f32a7b4d190c':
                 raise RuntimeError('Synthetic target revision differs')
             elif psql(source, "SELECT COALESCE(to_regclass('public.book_deletion_receipts')::text,'missing')") != 'book_deletion_receipts':
                 raise RuntimeError('Synthetic receipt table was not created')
@@ -212,6 +240,8 @@ def main():
         if cleanup_failed:
             raise RuntimeError('Owned synthetic fixture cleanup failed')
     status = 'FENCED_DATABASE_SIGKILL_ROLLBACK_PASSED' if args.interrupt_before_commit else 'FENCED_DATABASE_BACKUP_MIGRATION_PASSED'
+    if args.disconnect_media_before_commit:
+        status = 'FENCED_DATABASE_MEDIA_DISCONNECT_ROLLBACK_PASSED'
     print(json.dumps({'status': status, 'synthetic_data_only': True,
                       'media_verified': False, 'privacy_replay_verified': False,
                       'production_deployment_authorized': False}))

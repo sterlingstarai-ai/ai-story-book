@@ -6,7 +6,7 @@ Before=asb-backup-recover.service asb-privacy-deploy-recover.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/python3 /opt/ai-story-book/current/scripts/narration_deploy_safety.py --recover --state-dir /var/lib/ai-story-book/narration-deploy
+ExecStart=/usr/bin/python3 /opt/ai-story-book/narration-recovery/narration_deploy_safety.py --recover --state-dir /var/lib/ai-story-book/narration-deploy
 TimeoutStartSec=420
 
 [Install]

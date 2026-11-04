@@ -76,25 +76,39 @@ def _encode(namespace, generation, key, checkpoint, scan, issued_at):
     return name, _MAGIC + nonce + AESGCM(key).encrypt(nonce, data, name.encode('ascii'))
 
 
-def _store_checkpoint(witness, name, value):
+def _store_checkpoint(witness, name, value, *, equivalent=None):
     try:
         witness.create(name, value)
     except Exception:
-        # A timeout may mean the immutable create succeeded. Do not overwrite.
-        try:
-            if not hmac.compare_digest(witness.read(name), value):
-                raise ValueError('checkpoint conflict')
-        except Exception:
-            raise JournalError('Witness checkpoint could not be stored') from None
+        # An immutable create may already have succeeded on a prior attempt.
+        pass
     try:
-        if not hmac.compare_digest(witness.read(name), value):
+        stored = witness.read(name)
+        if (not isinstance(stored, bytes) or not 1 <= len(stored) <= _MAX_BYTES
+                or (not hmac.compare_digest(stored, value)
+                    and (equivalent is None or not equivalent(stored)))):
             raise ValueError('checkpoint mismatch')
     except Exception:
         raise JournalError('Witness checkpoint could not be verified') from None
-    return hashlib.sha256(value).hexdigest()
+    return hashlib.sha256(stored).hexdigest()
 
 
-async def capture_fenced_checkpoint(db, journal, witness, *, namespace, generation, key, now=None):
+def _checkpoint_matches_retry(name, key, value, stored):
+    if not stored.startswith(_MAGIC):
+        return False
+    start = len(_MAGIC)
+    cipher = AESGCM(key)
+    expected = json.loads(cipher.decrypt(value[start:start + 12], value[start + 12:], name.encode('ascii')))
+    actual = json.loads(cipher.decrypt(stored[start:start + 12], stored[start + 12:], name.encode('ascii')))
+    issued_at = actual.get('issued_at')
+    if type(issued_at) is not int or not 0 <= issued_at <= expected['issued_at']:
+        return False
+    expected['issued_at'] = issued_at
+    return hmac.compare_digest(json.dumps(actual, sort_keys=True), json.dumps(expected, sort_keys=True))
+
+
+async def capture_fenced_checkpoint(db, journal, witness, *, namespace, generation, key, now=None,
+                                    legacy_source=False, freeze_tables=False):
     """Store a source-verified checkpoint under the cooperating writer fence.
 
     Returns a reference that must be anchored independently. Closing the fence
@@ -104,9 +118,11 @@ async def capture_fenced_checkpoint(db, journal, witness, *, namespace, generati
         raise JournalError('A separate checkpoint witness is required')
     timestamp = int(time.time()) if now is None else now
     try:
-        async with hold_consistent_source(db, journal) as (checkpoint, scan):
+        async with hold_consistent_source(db, journal, legacy_source=legacy_source,
+                                          freeze_tables=freeze_tables) as (checkpoint, scan):
             name, value = _encode(namespace, generation, key, checkpoint, scan, timestamp)
-            task = asyncio.create_task(asyncio.to_thread(_store_checkpoint, witness, name, value))
+            task = asyncio.create_task(asyncio.to_thread(_store_checkpoint, witness, name, value,
+                equivalent=lambda stored: _checkpoint_matches_retry(name, key, value, stored)))
             try:
                 digest = await asyncio.shield(task)
             except asyncio.CancelledError as cancelled:
@@ -144,20 +160,12 @@ def verify_checkpoint_extension(witness, scan, *, namespace, generation, expecte
     return result
 
 
-def _verify_checkpoint_extension(witness, scan, *, namespace, generation, expected_sha256, key, now,
-                                 max_age, historical):
-    """Return authenticated membership only to internal chain verification.
-
-    Historical checkpoints can be older than the latest head's age limit, but
-    must still have a valid non-future issue time. This does not establish that
-    the latest head itself is current or independently administered.
-    """
+def _read_checkpoint(witness, *, namespace, generation, expected_sha256, key, now, max_age, historical):
     name = _name(namespace, generation)
     if (not isinstance(key, bytes) or len(key) != 32 or not isinstance(expected_sha256, str)
             or not _HASH.fullmatch(expected_sha256) or type(now) is not int or now < 0
             or type(max_age) is not int or not 0 <= max_age <= 86400):
         raise JournalError('Trusted checkpoint reference is invalid')
-    ids = _check_scan(scan)
     try:
         blob = witness.read(name)
         if (not isinstance(blob, bytes) or not 36 <= len(blob) <= _MAX_BYTES or not blob.startswith(_MAGIC)
@@ -176,6 +184,18 @@ def _verify_checkpoint_extension(witness, scan, *, namespace, generation, expect
                 or obj['event_ids'] != sorted(set(obj['event_ids']))
                 or not isinstance(obj['journal_sha256'], str) or not _HASH.fullmatch(obj['journal_sha256'])):
             raise ValueError('invalid checkpoint')
+        return obj
+    except Exception:
+        raise JournalError('Witness checkpoint cannot be authenticated') from None
+
+
+def _verify_checkpoint_extension(witness, scan, *, namespace, generation, expected_sha256, key, now,
+                                 max_age, historical):
+    """Verify a retained membership. A historical checkpoint can be older than max_age."""
+    ids = _check_scan(scan)
+    obj = _read_checkpoint(witness, namespace=namespace, generation=generation, expected_sha256=expected_sha256,
+                           key=key, now=now, max_age=max_age, historical=historical)
+    try:
         checkpoint_ids = set(obj['event_ids'])
         if not checkpoint_ids.issubset(ids):
             raise ValueError('checkpoint events missing')

@@ -6,6 +6,7 @@ never opens a restored service or proves journal completeness after a disaster.
 import asyncio
 import base64
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -21,6 +22,7 @@ SCRIPTS = Path('/offline/scripts')
 API = Path('/offline/apps/api')
 PASSWORD = 'disposable-runtime-password'
 BUCKET = 'restore-rehearsal'
+VOICE_SAMPLE_KEY = 'voice-samples/00000000-0000-4000-8000-000000000003/sample.wav'
 
 
 def require_synthetic_sandbox():
@@ -70,6 +72,87 @@ def wait_http(url):
             pass
         time.sleep(0.25)
     raise RuntimeError('Synthetic object store did not become ready')
+
+
+def exercise_quarantined_replay(target_env, endpoint):
+    """Exercise the real isolated replay command with one post-backup erasure."""
+    import boto3
+    from botocore.exceptions import ClientError
+
+    token = uuid.uuid4().hex
+    archive = ROOT / ('ingest-' + token)
+    (archive / 'objects').mkdir(parents=True, mode=0o700)
+    pg = dict(os.environ, PGHOST='127.0.0.1', PGPORT='15433', PGUSER='runtime_test', PGPASSWORD=PASSWORD)
+    subject = '00000000-0000-4000-8000-000000000019'
+    media_key = f'voice-samples/{subject}/quarantine.wav'
+    original_base = f'{endpoint}/{BUCKET}'
+    sample = b'isolated replay synthetic sample'
+    run(['psql', '-X', '-v', 'ON_ERROR_STOP=1', '-d', 'runtime_test', '-c',
+         "INSERT INTO voice_profiles (id,user_key,label,sample_audio_url,consented,active) "
+         f"VALUES ('quarantine-voice','{subject}','Synthetic','{original_base}/{media_key}',true,true)"], env=pg)
+    dump = archive / 'database.dump'
+    with dump.open('wb') as output:
+        run(['pg_dump', '--format=custom', '--schema=public', '--no-owner', '--no-privileges', 'runtime_test'],
+            env=pg, stdout=output)
+    filename = 'objects/' + hashlib.sha256(media_key.encode()).hexdigest()
+    (archive / filename).write_bytes(sample)
+    revision = run(['psql', '-X', '-At', '-d', 'runtime_test', '-c',
+                    'SELECT version_num FROM public.alembic_version'], env=pg).decode().strip()
+    manifest = {'format_version': 1, 'database_scope': 'public', 'alembic_revision': revision,
+                'requires_latest_deletion_and_identity_revocations': True,
+                'database': {'file': 'database.dump', 'size': dump.stat().st_size,
+                             'sha256': hashlib.sha256(dump.read_bytes()).hexdigest()},
+                'objects': [{'key': media_key, 'file': filename, 'size': len(sample),
+                             'sha256': hashlib.sha256(sample).hexdigest(), 'content_type': 'audio/wav'}]}
+    manifest_bytes = json.dumps(manifest).encode()
+    (archive / 'manifest.json').write_bytes(manifest_bytes)
+    program = """
+import json, sys
+sys.path.insert(0, '/offline/scripts')
+from fixture_journal_store import load_fixture_journal
+from replay_privacy_journal import encode_replay_transfer
+from src.services.privacy_journal_verify import fingerprint_entries
+journal = load_fixture_journal()
+backup = journal.scan()
+event = journal.begin('voice_delete', sys.argv[1], revision=1, resource_id='quarantine-voice')
+journal.commit(event)
+scan = journal.scan()
+print(json.dumps({'count': len(backup.committed), 'digest': fingerprint_entries(backup.committed),
+    'transfer': encode_replay_transfer(scan, fingerprint_entries(scan.committed), sys.argv[2]).decode()}))
+"""
+    data = json.loads(run(['/opt/venv/bin/python', '-c', program, subject, original_base], env=target_env))
+    (archive / 'quarantined.json').write_text(json.dumps({
+        'status': 'BACKUP_IMPORTED_QUARANTINED', 'restore_authorized': False}))
+    (archive / 'verified.json').write_text(json.dumps({
+        'version': 1, 'manifest_sha256': hashlib.sha256(manifest_bytes).hexdigest(),
+        'journal_event_count': data['count'], 'journal_sha256': data['digest'], 'restore_authorized': False}))
+    isolated = dict(os.environ, ASB_QUARANTINE_RESTORE='1')
+    restored = json.loads(run(['/opt/venv/bin/python', str(SCRIPTS / 'quarantined_restore_runtime.py'), token], env=isolated))
+    if restored['status'] != 'DATABASE_AND_MEDIA_RESTORED_QUARANTINED':
+        raise RuntimeError('Synthetic operational restore failed')
+    runtime = json.loads((ROOT / ('runtime-' + token) / 'runtime.json').read_bytes())
+    media = boto3.client('s3', endpoint_url=runtime['storage_endpoint'], region_name='us-east-1',
+                         aws_access_key_id=runtime['storage_user'], aws_secret_access_key=runtime['storage_password'])
+    try:
+        with media.get_object(Bucket=runtime['bucket'], Key=media_key)['Body'] as body:
+            if body.read() != sample:
+                raise RuntimeError('Synthetic quarantined sample differs from its backup')
+        with (archive / 'transfer.fixture').open('w+b') as source:
+            source.write(data['transfer'].encode())
+            source.seek(0)
+            result = json.loads(run(['/opt/venv/bin/python', str(SCRIPTS / 'quarantined_replay_preflight.py'),
+                                     '--apply', token], env=isolated, stdin=source))
+        if result != {'status': 'REPLAYED_STILL_QUARANTINED', 'applied_count': 1, 'restore_authorized': False}:
+            raise RuntimeError('Synthetic quarantined replay did not apply exactly one event')
+        try:
+            media.head_object(Bucket=runtime['bucket'], Key=media_key)
+        except ClientError as exc:
+            if exc.response['ResponseMetadata']['HTTPStatusCode'] != 404:
+                raise
+        else:
+            raise RuntimeError('Synthetic quarantined sample remains after erasure')
+    finally:
+        media.close()
 
 
 def main():
@@ -127,10 +210,11 @@ def main():
         media = {'books/cover.png': (pixel, 'image/png'), 'books/page-1.png': (pixel, 'image/png'),
             'books/page-2.png': (pixel, 'image/png'), 'books/book.pdf': (b'%PDF-1.4\n%synthetic\n%%EOF\n', 'application/pdf'),
             'pending-erasure/asset.png': (pixel, 'image/png'), 'consent-fixture/photo.png': (pixel, 'image/png'),
-            'consent-fixture/illustration.png': (pixel, 'image/png')}
+            'consent-fixture/illustration.png': (pixel, 'image/png'),
+            VOICE_SAMPLE_KEY: (b'synthetic voice fixture', 'audio/wav')}
         for key, (data, content_type) in media.items():
             source_s3.put_object(Bucket=BUCKET, Key=key, Body=data, ContentType=content_type, Metadata={'fixture':'synthetic'})
-        asyncio.run(seed_database(15432, media))
+        asyncio.run(seed_database(15432, media, voice_media_base=f'{endpoints[0]}/{BUCKET}'))
         env['ASB_REPLAY_SCENARIO'] = 'failed_enrollment'
         run(['/opt/venv/bin/python', str(SCRIPTS / 'run_source_privacy_fixture.py')], env=env)
         env['ASB_REPLAY_SCENARIO'] = 'historical'
@@ -160,7 +244,8 @@ def main():
         token = uuid.uuid4().hex
         asyncio.run(mark_disposable_restore_target(15433, token, endpoints[1]))
         target_env = dict(env, DATABASE_URL=f'postgresql+asyncpg://runtime_test:{PASSWORD}@127.0.0.1:15433/runtime_test',
-            S3_ENDPOINT=endpoints[1], S3_PUBLIC_URL=f'{endpoints[1]}/{BUCKET}', ASB_DISPOSABLE_REPLAY_TOKEN=token)
+            S3_ENDPOINT=endpoints[1], S3_PUBLIC_URL=f'{endpoints[1]}/{BUCKET}',
+            S3_LEGACY_PUBLIC_URLS=f'{endpoints[0]}/{BUCKET}', ASB_DISPOSABLE_REPLAY_TOKEN=token)
         for index in (1, 2):
             target_env['ASB_REPLAY_RUN'] = str(index)
             run(['/opt/venv/bin/python', str(SCRIPTS / 'run_restore_replay_fixture.py')], env=target_env)
@@ -169,6 +254,10 @@ def main():
         if httpx.get(old_url, timeout=5, trust_env=False).status_code not in (403, 404):
             raise RuntimeError('Synthetic deleted account media remains accessible')
         consent_url = target_s3.generate_presigned_url('get_object', Params={'Bucket': BUCKET, 'Key': 'consent-fixture/photo.png'}, ExpiresIn=60)
+        voice_url = target_s3.generate_presigned_url('get_object', Params={'Bucket': BUCKET, 'Key': VOICE_SAMPLE_KEY}, ExpiresIn=60)
+        if httpx.get(voice_url, timeout=5, trust_env=False).status_code != 200:
+            raise RuntimeError('Synthetic voice media was not restored')
+        env['ASB_FIXTURE_VOICE_ERASURE'] = target_env['ASB_FIXTURE_VOICE_ERASURE'] = '1'
         env['ASB_REPLAY_SCENARIO'] = 'consent'
         run(['/opt/venv/bin/python', str(SCRIPTS / 'run_source_privacy_fixture.py')], env=env)
         env['ASB_FIXTURE_WITNESS_MODE'] = 'verify'
@@ -178,10 +267,14 @@ def main():
             target_env['ASB_REPLAY_RUN'] = str(index)
             run(['/opt/venv/bin/python', str(SCRIPTS / 'run_restore_replay_fixture.py')], env=target_env)
         asyncio.run(verify_synthetic_consent_replayed(15433))
-        if object_inventory(target_s3) or httpx.get(consent_url, timeout=5, trust_env=False).status_code not in (403, 404):
+        if object_inventory(target_s3) or any(httpx.get(url, timeout=5, trust_env=False).status_code not in (403, 404)
+                                              for url in (consent_url, voice_url)):
             raise RuntimeError('Synthetic revoked media remains accessible')
+        exercise_quarantined_replay(target_env, endpoints[1])
         print(json.dumps({'status':'OFFLINE_SYNTHETIC_REPLAY_PASSED','network':'none','tmpfs':True,
             'account_delete':True,'consent_revoke':True,'credential_rotation':True,'old_media_denied':True,
+            'voice_erasure':True,
+            'quarantined_replay_command':True,
             'idempotent':True,'witness_prefix_tested':True,'anchored_head_tested':True,'witness_watch_tested':True,
             'fence_witness_concurrency': boundary,
             'purge_health_tested':True,
