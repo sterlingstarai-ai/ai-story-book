@@ -2,6 +2,7 @@
 
 ## 2026-11-04 후보 재검증
 
+- 최신 모바일 소스(`7a17248`)를 별도 서명한 iPhone 15의 유선 시험에서 실제 12쪽 가상 동화 《하루와 초록 싹》을 생성했다. 기기의 앱 클라이언트가 요청했고 253.94초 만에 완료됐다. iPhone에서 표지와 본문 12장을 모두 내려받아 디코딩했다. 삽화 자동 검수는 13장 모두 지적 사항이 없었다. 그림을 본문과 대조했으며 인물과 성장 단계가 일관됐고 일부 장면의 자세와 구도는 비슷했다. 잠자리 모드에서 1–12쪽을 순서대로 재생해 마지막 쪽 종료를 확인했다. 글·그림·음성은 모두 격리 OpenAI 연결로 검사했다. 기기의 시험 앱과 격리 서비스는 정리했다. [최신 iPhone 실기기 증거](acceptance/2026-11-04-iphone-physical-final-current/physical-evidence.json) · [삽화 모음](acceptance/2026-11-04-iphone-physical-final-current/visual-review.jpg)
 - iPhone 15(iOS 27.2)를 USB로 연결하고 `a8fe338`의 별도 서명 시험 앱에서 3–5세용 가상 동화 《하루의 작은 정원》을 요청했다. 생성에 194.28초가 걸렸으며 기기에서 표지와 본문 삽화 네 장을 열었다. 자동 검사에서 지적된 항목은 없었고, 그림 다섯 장을 본문과 대조했다. 같은 책의 한국어 음성 네 쪽을 순서대로 재생하고 마지막 쪽의 종료를 확인했다. XCTest 1개가 통과했다. 시험은 격리 백엔드와 OpenAI로 진행했다. 운영 `/health/ready`의 HTTP 200과 설정 응답의 Gemini 낭독·음색·스타일 활성화는 별도로 확인했다. [실기기 결과](acceptance/2026-11-04-iphone-physical-fictional-wired/physical-evidence.json) · [그림 모음](acceptance/2026-11-04-iphone-physical-fictional-wired/visual-review.jpg)
 - 갤럭시 SM-F721N을 USB로 연결해 `a8fe338`의 별도 시험 앱에서 《하루와 친구의 작은 정원》을 새로 요청했다. 표지와 본문 삽화 네 장이 자동 검사를 통과했고, 기기에서 모두 열어 본문과 대조했다. 네 쪽 낭독이 차례로 재생되고 마지막 쪽에서 정상 종료됐다. 기기 페이지 크기는 4 KiB였다. 격리 OpenAI 백엔드와 시험 앱은 검증 후 정리했다. [Android 실기기 결과](acceptance/2026-11-04-android-physical-fictional/physical-evidence.json) · [그림 모음](acceptance/2026-11-04-android-physical-fictional/visual-review.jpg)
 - 앱 시작, 홈의 동화 만들기, 생성 진행 화면에 같은 책 일러스트를 적용했다. 생성 화면은 서버의 실제 진행 단계와 비율을 보여 주며, 기존 잡 재조회·실패 안내·자동 이동을 유지한다.
