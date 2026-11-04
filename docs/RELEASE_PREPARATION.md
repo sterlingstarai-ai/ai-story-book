@@ -29,6 +29,7 @@
 - Android도 추적된 최신 소스의 임시 사본에서 별도 `com.storybook.ai_story_book.qa.nov04` APK를 빌드했다. APK v2 서명과 ZIP 16 KiB 정렬을 검사했다. 호환 모드를 끈 16 KiB 임시 가상 기기에 일반 앱과 QA 앱을 함께 설치해 QA 앱 실행 및 제거를 확인했다. 일반 앱의 설치 경로는 그대로였다. [APK 검증](acceptance/2026-11-04-beta-android-isolated/result.json) · [가상 기기 검증](acceptance/2026-11-04-beta-android-isolated/emulator-isolation.json)
 - 기기 재연결 전에 iPhone 개발 서명 ZIP과 Android USB용 APK의 SHA-256을 다시 확인했다. 보관한 재생 시험 서버를 로컬에서 시작해 1–12쪽의 오디오 URL과 MP3 응답을 확인했고, 내려받은 12개 파일이 모두 보관 해시와 일치했다. 시험 서버는 종료했다. 실기기 재생에는 보관 음성을 재사용하고, 기기에서 시작하는 새 동화 생성과 삽화 검증은 별도로 기록한다.
 - 지원·삭제·정책 사이트의 HTTPS 검사를 릴리스 빌드에 연결했다. 앱의 정책 URL과 내장 문서가 승인된 사이트 주소 및 HTML과 일치해야 한다. 이후 다섯 HTML과 CSS, `robots.txt`의 공개 응답을 바이트 단위로 대조한 뒤에만 컴파일한다. 두 플랫폼에서 현재 정책 검토본이 네트워크 연결과 컴파일 전에 차단되는 것을 확인했다. [게시 후 검증 명령](../apps/public-site/README.md#게시-후-검증)
+- 양쪽 실기기 시험 후 제한 운영 주소를 읽기 전용으로 다시 확인했다. TLS 검증과 `/health/live`, `/health/ready`, `/v1/config/capabilities`는 모두 HTTP 200이었다. 기능 응답에서 Gemini 낭독과 음색·스타일 선택은 활성, 신규 구매·가족 음성·실물 주문은 비활성이었다. 이 주소는 제한 운영 경로이며 공개 베타 주소와 초대 계정의 새 동화 전체 여정은 별도로 검증한다. 로컬에는 Android 업로드 서명 설정이 있고, 앱과 일치하는 iOS 배포 프로파일은 확인되지 않았다. [운영 응답](acceptance/2026-11-04-free-beta-readiness/pilot-http.json) · [서명 점검](acceptance/2026-11-04-free-beta-readiness/signing-preflight.json)
 
 새 합성은 현재 3–5세 책만 무료 플랜에서 가능하다. 베타 설명과 시험 계정의 실제 이용 범위를 이에 맞춘다. 출시용 후보에서는 운영 Gemini 음성 선택과 재생, 계정 복구와 삭제, 앱 재실행 후 서재 접근도 확인한다.
 
