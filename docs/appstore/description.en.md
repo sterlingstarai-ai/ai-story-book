@@ -3,9 +3,9 @@
 Create personalized AI storybooks for your child. New story generation in the free beta is available to invited accounts.
 
 ## Key Features
-- Personalized story generation by topic, age, and style
+- Choose a topic and illustration style, and compare sample passages for ages 3–5, 5–7, and 7–9 before creating a story.
 - Read and save stories in your library
-- Korean narration and narration styles for stories in the ages 3–5 category
+- Korean narration for stories in the ages 3–5 category, with storyteller, animated, and bedtime styles.
 - Parent-first safety: parental consent, age gate, screen-time controls
 - Reading activity: reading stats and streak calendar
 
