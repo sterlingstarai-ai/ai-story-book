@@ -57,9 +57,8 @@ class _StubApiClient extends ApiClient {
 }
 
 class _EmptyMediaStore extends BookMediaStore {
-  _EmptyMediaStore(SharedPreferences prefs)
+  _EmptyMediaStore(super.preferences)
     : super(
-        prefs,
         baseDirectory: () async => Directory.systemTemp,
         scopeDigest: 'a' * 64,
       );

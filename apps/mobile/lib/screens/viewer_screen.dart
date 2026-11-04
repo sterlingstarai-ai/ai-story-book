@@ -302,7 +302,6 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   }
 
   Widget _buildViewer(BookResult book) {
-    final l = AppLocalizations.of(context);
     _activeBook = book;
     // H3: 오디오·발음을 책 언어로 요청하도록 최초 1회 책 언어로 초기화한다.
     // (ja/zh/es 책이 한국어 보이스로 오합성된 오디오를 요청하던 문제 제거.)
@@ -369,8 +368,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                 onIllustrationTap: _toggleControls,
                 onNarrate: audioOk && index == _currentPage
                     ? () {
-                        if (!_showControls)
+                        if (!_showControls) {
                           setState(() => _showControls = true);
+                        }
                         unawaited(_toggleAudio(book));
                       }
                     : null,
