@@ -10,13 +10,16 @@ import 'package:ai_story_book/screens/create_screen.dart';
 import 'package:ai_story_book/screens/characters_screen.dart';
 import 'character_avatar_flow_test.dart' show avatarJson;
 import 'package:ai_story_book/services/api_client.dart';
+import 'package:ai_story_book/services/page_audio_playback.dart';
 import 'package:ai_story_book/utils/app_theme.dart';
 import 'package:ai_story_book/widgets/character_source_sheet.dart';
 import 'package:ai_story_book/widgets/common_widgets.dart';
+import 'package:ai_story_book/widgets/narration_style_previews.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'support/design_capture.dart';
 
 class _Api extends ApiClient {
   _Api() : super(baseUrl: 'http://test', userKey: 'test', enableLogging: false);
@@ -55,13 +58,33 @@ const _profile = ActiveChildProfile(
   targetAge: TargetAge.age7to9,
 );
 
+class _PreviewPlayer implements NarrationPreviewPlayer {
+  final assets = <String>[];
+  bool disposed = false;
+
+  @override
+  Future<void> stop() async {}
+
+  @override
+  Future<void> setAsset(String asset) async => assets.add(asset);
+
+  @override
+  Future<void> play() async {}
+
+  @override
+  Future<void> dispose() async => disposed = true;
+}
+
 Future<void> _open(
   WidgetTester tester,
   _Api api, {
   Future<ActiveChildProfile?>? profile,
   bool startPhoto = false,
+  _PreviewPlayer? previewPlayer,
 }) async {
-  SharedPreferences.setMockInitialValues({});
+  SharedPreferences.setMockInitialValues({
+    if (previewPlayer != null) narrationVoicePreferenceKey: 'deep',
+  });
   final prefs = await SharedPreferences.getInstance();
   await tester.pumpWidget(
     ProviderScope(
@@ -70,11 +93,20 @@ Future<void> _open(
         apiClientProvider.overrideWithValue(api),
         activeChildProfileProvider.overrideWith((ref) async => await profile),
         capabilitiesProvider.overrideWith(
-          (ref) async => {'audio_supported': false},
+          (ref) async => {
+            'narration_supported': previewPlayer != null,
+            'narration_style_selection_supported': previewPlayer != null,
+            'narration_preview_provider': 'google_gemini',
+          },
         ),
+        if (previewPlayer != null)
+          narrationPreviewPlayerFactoryProvider.overrideWithValue(
+            () => previewPlayer,
+          ),
         characterPresetsProvider('ko').overrideWith((ref) async => []),
       ],
       child: MaterialApp(
+        builder: (_, child) => designCaptureBoundary(child!),
         theme: buildAppTheme(Brightness.light),
         locale: const Locale('ko'),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -101,6 +133,53 @@ Finder get _name => find.byWidgetPredicate(
 );
 
 void main() {
+  testWidgets('creation previews three styles and stops on dismissal', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 480);
+    tester.view.devicePixelRatio = 1;
+    tester.platformDispatcher.textScaleFactorTestValue = 1.4;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    final api = _Api();
+    final player = _PreviewPlayer();
+    await loadDesignFonts();
+    await _open(tester, api, previewPlayer: player);
+
+    final launch = find.text('세 가지 낭독 미리 듣기');
+    await tester.ensureVisible(launch);
+    await tester.pumpAndSettle();
+    await tester.tap(launch);
+    await tester.pumpAndSettle();
+    await captureDesign(tester, 'create-narration-previews-small');
+
+    for (final style in ['natural', 'animated', 'bedtime']) {
+      final button = find.byKey(ValueKey('narration-preview-$style'));
+      await tester.ensureVisible(button);
+      await tester.pumpAndSettle();
+      expect(tester.getSize(button).height, greaterThanOrEqualTo(64));
+      await tester.tap(button);
+      await tester.pumpAndSettle();
+    }
+    expect(player.assets, [
+      'assets/audio/narration_preview_google_male_natural.mp3',
+      'assets/audio/narration_preview_google_male_animated.mp3',
+      'assets/audio/narration_preview_google_male_bedtime.mp3',
+    ]);
+    final close = find.descendant(
+      of: find.byType(BottomSheet),
+      matching: find.byTooltip('닫기'),
+    );
+    await tester.ensureVisible(close);
+    await tester.pumpAndSettle();
+    await tester.tap(close);
+    await tester.pumpAndSettle();
+    expect(player.disposed, isTrue);
+    expect(find.byType(CreateScreen), findsOneWidget);
+    expect(api.specs, isEmpty);
+  });
+
   testWidgets(
     'adding a hero returns to the same form with its draft and selection',
     (tester) async {

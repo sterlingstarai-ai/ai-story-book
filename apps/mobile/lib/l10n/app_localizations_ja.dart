@@ -241,6 +241,12 @@ class AppLocalizationsJa extends AppLocalizations {
   String get createAgeHelpAdult => '読み応えのある展開と繊細な気持ちの描写';
 
   @override
+  String get createNarrationPreviewTitle => '3つの朗読スタイルを試聴';
+
+  @override
+  String get createNarrationPreviewSampleLanguage => '試聴音声は韓国語です。';
+
+  @override
   String get createAgePreviewTitle => '年齢別の本文を試し読み';
 
   @override

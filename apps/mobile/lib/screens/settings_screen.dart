@@ -2,7 +2,6 @@ import 'account_deletion_screen.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:just_audio/just_audio.dart';
 import 'account_recovery_screen.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -12,34 +11,7 @@ import '../services/page_audio_playback.dart';
 import 'legal_document_screen.dart';
 import '../utils/constants.dart';
 import '../widgets/age_gate_dialog.dart';
-
-/// Injectable boundary for bundled, offline narration previews.
-abstract class NarrationPreviewPlayer {
-  Future<void> stop();
-  Future<void> setAsset(String asset);
-  Future<void> play();
-  Future<void> dispose();
-}
-
-class _JustAudioNarrationPreviewPlayer implements NarrationPreviewPlayer {
-  final AudioPlayer _player = AudioPlayer();
-  @override
-  Future<void> stop() => _player.stop();
-  @override
-  Future<void> setAsset(String asset) async {
-    await _player.setAsset(asset);
-  }
-
-  @override
-  Future<void> play() => _player.play();
-  @override
-  Future<void> dispose() => _player.dispose();
-}
-
-final narrationPreviewPlayerFactoryProvider =
-    Provider<NarrationPreviewPlayer Function()>(
-      (ref) => _JustAudioNarrationPreviewPlayer.new,
-    );
+import '../widgets/narration_style_previews.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -67,72 +39,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   double _sleepModeMinutes = 20;
   String _narrationVoice = 'default';
   String _narrationStyle = 'legacy';
-  NarrationPreviewPlayer? _previewPlayer;
-  int _previewEpoch = 0;
-  Future<void> _previewQueue = Future<void>.value();
   bool _screenTimeEnabled = false;
   double _dailyLimitMinutes = 60;
-
-  @override
-  void dispose() {
-    _previewEpoch++;
-    final player = _previewPlayer;
-    if (player != null) unawaited(_previewQueue.then((_) => player.dispose()));
-    super.dispose();
-  }
-
-  Future<void> _playStylePreview(String style) {
-    final epoch = ++_previewEpoch;
-    // Samples must match the configured provider; old OpenAI previews are
-    // retained for existing deployments while Google uses its own recordings.
-    final isGoogle =
-        ref
-            .read(capabilitiesProvider)
-            .valueOrNull?['narration_preview_provider'] ==
-        'google_gemini';
-    final prefix = isGoogle
-        ? (_narrationVoice == 'deep'
-              ? 'narration_preview_google_male'
-              : 'narration_preview_google')
-        : 'narration_preview';
-    final operation = _previewQueue.then((_) async {
-      if (!mounted || epoch != _previewEpoch) return;
-      try {
-        final player = _previewPlayer ??= ref.read(
-          narrationPreviewPlayerFactoryProvider,
-        )();
-        await player.stop();
-        if (!mounted || epoch != _previewEpoch) return;
-        await player.setAsset('assets/audio/${prefix}_$style.mp3');
-        if (!mounted || epoch != _previewEpoch) return;
-        unawaited(
-          player.play().catchError((Object error) {
-            if (mounted && epoch == _previewEpoch) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    AppLocalizations.of(context).settingsNarrationPreviewError,
-                  ),
-                ),
-              );
-            }
-          }),
-        );
-      } catch (_) {
-        if (mounted && epoch == _previewEpoch) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                AppLocalizations.of(context).settingsNarrationPreviewError,
-              ),
-            ),
-          );
-        }
-      }
-    });
-    _previewQueue = operation;
-    return operation;
-  }
 
   @override
   void initState() {
@@ -873,38 +781,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-                child: Text(
-                  ref
-                              .watch(capabilitiesProvider)
-                              .valueOrNull?['narration_preview_provider'] ==
-                          'google_gemini'
-                      ? l.settingsNarrationPreviewGoogleHelp
-                      : l.settingsNarrationPreviewHelp,
-                ),
+                child: NarrationStylePreviews(voice: _narrationVoice),
               ),
-              for (final entry in [
-                ('natural', l.settingsNarrationStyleNatural),
-                ('animated', l.settingsNarrationStyleAnimated),
-                ('bedtime', l.settingsNarrationStyleBedtime),
-              ])
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.md,
-                  ),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: TextButton.icon(
-                      key: ValueKey('narration-preview-${entry.$1}'),
-                      onPressed: () => unawaited(_playStylePreview(entry.$1)),
-                      icon: const Icon(Icons.play_arrow),
-                      label: Text(l.settingsNarrationPreview(entry.$2)),
-                      style: TextButton.styleFrom(
-                        minimumSize: const Size(64, 64),
-                        alignment: Alignment.centerLeft,
-                      ),
-                    ),
-                  ),
-                ),
             ],
             const Divider(height: 1),
             _SectionHeader(l.settingsSectionScreenTime),

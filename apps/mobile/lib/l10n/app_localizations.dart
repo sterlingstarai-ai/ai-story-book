@@ -544,6 +544,18 @@ abstract class AppLocalizations {
   /// **'More layered storytelling and subtle emotions'**
   String get createAgeHelpAdult;
 
+  /// No description provided for @createNarrationPreviewTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Preview three narration styles'**
+  String get createNarrationPreviewTitle;
+
+  /// No description provided for @createNarrationPreviewSampleLanguage.
+  ///
+  /// In en, this message translates to:
+  /// **'The samples are in Korean.'**
+  String get createNarrationPreviewSampleLanguage;
+
   /// No description provided for @createAgePreviewTitle.
   ///
   /// In en, this message translates to:

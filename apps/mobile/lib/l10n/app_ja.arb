@@ -84,6 +84,8 @@
   "createAgeHelp5to7": "ふだんは3〜4文。行動の理由と短い会話",
   "createAgeHelp7to9": "ふだんは4〜6文。手がかりと選択がつながる物語",
   "createAgeHelpAdult": "読み応えのある展開と繊細な気持ちの描写",
+  "createNarrationPreviewTitle": "3つの朗読スタイルを試聴",
+  "createNarrationPreviewSampleLanguage": "試聴音声は韓国語です。",
   "createAgePreviewTitle": "年齢別の本文を試し読み",
   "createAgePreviewHide": "試し読みを閉じる",
   "createAgePreviewCaption": "同じ場面で比べる、文章の雰囲気と長さの例",

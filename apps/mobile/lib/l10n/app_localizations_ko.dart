@@ -242,6 +242,12 @@ class AppLocalizationsKo extends AppLocalizations {
   String get createAgeHelpAdult => '쪽마다 밀도 있는 서사와 섬세한 감정';
 
   @override
+  String get createNarrationPreviewTitle => '세 가지 낭독 미리 듣기';
+
+  @override
+  String get createNarrationPreviewSampleLanguage => '미리 듣기는 한국어예요.';
+
+  @override
   String get createAgePreviewTitle => '연령별 본문 예시';
 
   @override

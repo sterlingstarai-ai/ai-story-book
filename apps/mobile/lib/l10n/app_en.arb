@@ -118,6 +118,8 @@
   "createAgeHelp5to7": "Usually 3–4 sentences, with reasons and short dialogue",
   "createAgeHelp7to9": "Usually 4–6 sentences, with clues and choices that shape the story",
   "createAgeHelpAdult": "More layered storytelling and subtle emotions",
+  "createNarrationPreviewTitle": "Preview three narration styles",
+  "createNarrationPreviewSampleLanguage": "The samples are in Korean.",
   "createAgePreviewTitle": "Preview by age",
   "createAgePreviewHide": "Hide the preview",
   "createAgePreviewCaption": "The same scene, with a sample of the style and length",

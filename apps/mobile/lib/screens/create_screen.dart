@@ -10,12 +10,14 @@ import '../models/generation_options.dart';
 import '../providers/providers.dart';
 import '../providers/active_child_profile.dart';
 import '../services/analytics.dart';
+import '../services/page_audio_playback.dart';
 import '../utils/constants.dart';
 import '../utils/spec_labels.dart';
 import '../widgets/character_source_sheet.dart';
 import '../widgets/character_avatar_preview.dart';
 import '../widgets/credit_shortage_modal.dart';
 import '../widgets/common_widgets.dart';
+import '../widgets/narration_style_previews.dart';
 
 String createFailureMessage(AppLocalizations l, ApiError? error) {
   switch (error?.code) {
@@ -407,6 +409,62 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
     }
   }
 
+  void _openNarrationPreviews() {
+    final l = AppLocalizations.of(context);
+    final isKorean = Localizations.localeOf(context).languageCode == 'ko';
+    FocusManager.instance.primaryFocus?.unfocus();
+    final prefs = ref.read(sharedPreferencesProvider);
+    final voice = narrationVoiceOrDefault(
+      prefs.getString(narrationVoicePreferenceKey),
+    );
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.lg,
+            0,
+            AppSpacing.lg,
+            AppSpacing.md,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Semantics(
+                      header: true,
+                      child: Text(
+                        l.settingsNarrationStyle,
+                        style: AppTextStyles.heading3,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    style: IconButton.styleFrom(
+                      minimumSize: const Size.square(AppSizing.minTouchTarget),
+                    ),
+                    tooltip: l.createCloseTooltip,
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              if (!isKorean) Text(l.createNarrationPreviewSampleLanguage),
+              NarrationStylePreviews(voice: voice),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   /// 선택된 연령대에 맞는 문체·어휘 안내 문구 (언어 중립적 발달 단계 기준).
   String _ageHelpText(AppLocalizations l) {
     switch (_selectedAge) {
@@ -425,6 +483,13 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
     final charactersAsync = ref.watch(charactersProvider);
+    final showNarrationPreviews = ref.watch(
+      capabilitiesProvider.select((caps) {
+        final capabilities = caps.valueOrNull;
+        return narrationSupported(capabilities) &&
+            capabilities?['narration_style_selection_supported'] == true;
+      }),
+    );
     ref.watch(
       capabilitiesProvider.select(
         (caps) => caps.valueOrNull?['free_first_book_trial'] == true,
@@ -580,6 +645,16 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                       ),
                     ),
                 ],
+
+                if (showNarrationPreviews)
+                  TextButton.icon(
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size(0, AppSizing.minTouchTarget),
+                    ),
+                    onPressed: _openNarrationPreviews,
+                    icon: const Icon(Icons.headphones_outlined),
+                    label: Text(l.createNarrationPreviewTitle),
+                  ),
 
                 const SizedBox(height: AppSpacing.lg),
 

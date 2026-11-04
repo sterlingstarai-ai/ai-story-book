@@ -254,6 +254,13 @@ class AppLocalizationsEn extends AppLocalizations {
       'More layered storytelling and subtle emotions';
 
   @override
+  String get createNarrationPreviewTitle => 'Preview three narration styles';
+
+  @override
+  String get createNarrationPreviewSampleLanguage =>
+      'The samples are in Korean.';
+
+  @override
   String get createAgePreviewTitle => 'Preview by age';
 
   @override
