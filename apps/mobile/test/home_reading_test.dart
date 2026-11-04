@@ -1,7 +1,10 @@
+import 'package:ai_story_book/core/api_error.dart';
 import 'package:ai_story_book/l10n/app_localizations.dart';
 import 'package:ai_story_book/models/models.dart';
 import 'package:ai_story_book/providers/providers.dart';
 import 'package:ai_story_book/screens/home_screen.dart';
+import 'package:ai_story_book/services/api_client.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -18,6 +21,30 @@ class _Library extends LibraryNotifier {
 class _Characters extends CharactersNotifier {
   @override
   Future<List<Character>> build() async => [];
+}
+
+class _TodayFailure extends ApiClient {
+  _TodayFailure(this.status) : super(baseUrl: 'http://test', userKey: 'test');
+
+  final int status;
+
+  @override
+  Future<String> generateTodayStory({
+    required String targetAge,
+    required String style,
+    String? protagonistName,
+    String language = 'ko',
+    String? idempotencyKey,
+  }) async {
+    throw DioException(
+      requestOptions: RequestOptions(path: '/v1/streak/today/generate'),
+      error: ApiError(
+        code: status == 402 ? 'PAYMENT_REQUIRED' : 'SERVICE_UNAVAILABLE',
+        statusCode: status,
+        message: 'synthetic',
+      ),
+    );
+  }
 }
 
 LibraryBook _book(String id, String title) => LibraryBook(
@@ -46,6 +73,7 @@ Future<void> _pump(
   required List<RouteSettings> navigation,
   Map<String, Object> initialPreferences = const {},
   List<Override> overrides = const [],
+  HomeStreakSnapshot streak = _streak,
 }) async {
   SharedPreferences.setMockInitialValues(initialPreferences);
   final prefs = await SharedPreferences.getInstance();
@@ -61,7 +89,7 @@ Future<void> _pump(
         sharedPreferencesProvider.overrideWithValue(prefs),
         libraryProvider.overrideWith(() => _Library(load)),
         charactersProvider.overrideWith(_Characters.new),
-        homeStreakProvider.overrideWith((ref) async => _streak),
+        homeStreakProvider.overrideWith((ref) async => streak),
         growthReportProvider.overrideWith(
           (ref) async => throw StateError('synthetic'),
         ),
@@ -100,6 +128,47 @@ Future<void> _scrollTo(WidgetTester tester, Finder target) async {
 }
 
 void main() {
+  for (final status in [402, 503]) {
+    testWidgets('today story failure routes by API error ($status)', (tester) async {
+      final navigation = <RouteSettings>[];
+      await _pump(
+        tester,
+        load: () async => [],
+        navigation: navigation,
+        streak: const HomeStreakSnapshot(
+          currentStreak: 2,
+          longestStreak: 3,
+          totalDays: 4,
+          readToday: false,
+          todayThemeName: '우정',
+          todayTopic: '숲에서 만난 친구',
+          todayBookId: null,
+          readDates: {},
+        ),
+        overrides: [
+          apiClientProvider.overrideWithValue(_TodayFailure(status)),
+          capabilitiesProvider.overrideWith((ref) async => const {}),
+        ],
+      );
+      final l = await AppLocalizations.delegate.load(const Locale('ko'));
+      final create = find.text(l.homeMakeTodayStory);
+      await _scrollTo(tester, create);
+      await tester.tap(create);
+      await tester.pumpAndSettle();
+      if (status == 402) {
+        expect(find.text(l.creditBetaLimitTitle), findsOneWidget);
+        final close = find.text(l.creditShortageClose);
+        await tester.ensureVisible(close);
+        await tester.tap(close);
+        await tester.pumpAndSettle();
+        expect(navigation, isEmpty);
+      } else {
+        expect(find.text(l.creditBetaLimitTitle), findsNothing);
+        expect(navigation.single.name, '/create');
+      }
+    });
+  }
+
   testWidgets('scoped saved page offers continue reading', (tester) async {
     await _pump(
       tester,

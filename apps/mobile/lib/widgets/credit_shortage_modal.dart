@@ -11,20 +11,30 @@ Future<void> showCreditShortageModal(
   BuildContext context, {
   String? title,
   String? message,
+  bool preferCreditPack = false,
 }) async {
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    builder: (context) => _CreditShortageSheet(title: title, message: message),
+    builder: (context) => _CreditShortageSheet(
+      title: title,
+      message: message,
+      preferCreditPack: preferCreditPack,
+    ),
   );
 }
 
 class _CreditShortageSheet extends ConsumerWidget {
-  const _CreditShortageSheet({this.title, this.message});
+  const _CreditShortageSheet({
+    this.title,
+    this.message,
+    required this.preferCreditPack,
+  });
 
   final String? title;
   final String? message;
+  final bool preferCreditPack;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -49,6 +59,29 @@ class _CreditShortageSheet extends ConsumerWidget {
         : !canPurchase
         ? l10n.creditBetaLimitMessage
         : l10n.creditShortageMessage;
+
+    final subscribe = _ActionCard(
+      icon: Icons.workspace_premium,
+      title: l10n.creditShortageSubscribeTitle,
+      subtitle: l10n.creditShortageSubscribeSubtitle,
+      onTap: () {
+        Navigator.pop(context);
+        Navigator.pushNamed(context, '/credits');
+      },
+    );
+    final buyPack = _ActionCard(
+      icon: Icons.local_offer,
+      title: l10n.creditShortagePurchaseTitle,
+      subtitle: l10n.creditShortagePurchaseSubtitle,
+      onTap: () {
+        Navigator.pop(context);
+        Navigator.pushNamed(
+          context,
+          '/credits',
+          arguments: CreditsFocus.creditPacks,
+        );
+      },
+    );
 
     return Container(
       decoration: BoxDecoration(
@@ -85,28 +118,11 @@ class _CreditShortageSheet extends ConsumerWidget {
               const SizedBox(height: AppSpacing.sm),
               Text(resolvedMessage, style: AppTextStyles.bodySmall),
               const SizedBox(height: AppSpacing.lg),
-              if (canPurchase)
-                _ActionCard(
-                  icon: Icons.workspace_premium,
-                  title: l10n.creditShortageSubscribeTitle,
-                  subtitle: l10n.creditShortageSubscribeSubtitle,
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.pushNamed(context, '/credits');
-                  },
-                ),
-              if (canPurchase) const SizedBox(height: AppSpacing.sm),
-              if (canPurchase)
-                _ActionCard(
-                  icon: Icons.local_offer,
-                  title: l10n.creditShortagePurchaseTitle,
-                  subtitle: l10n.creditShortagePurchaseSubtitle,
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.pushNamed(context, '/credits');
-                  },
-                ),
-              if (!canPurchase) ...[
+              if (canPurchase) ...[
+                preferCreditPack ? buyPack : subscribe,
+                const SizedBox(height: AppSpacing.sm),
+                preferCreditPack ? subscribe : buyPack,
+              ] else ...[
                 _ActionCard(
                   icon: Icons.auto_stories,
                   title: l10n.libraryTitle,

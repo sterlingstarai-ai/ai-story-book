@@ -99,6 +99,9 @@ parental approval, twelve-page book generation and consent-withdrawal erasure.
 PostgreSQL also checks that photo publication and withdrawal serialize for one
 account without blocking another account. Live AI/store acceptance remains separate.
 
+To exercise the limited beta's first-book credit and twelve-page reading flow
+with the same isolated dependencies, use `./scripts/run_runtime_e2e.sh --suite first-book-trial`.
+
 To inspect the current app locally without loading saved provider credentials,
 keep that verified synthetic backend running and build a debug browser preview:
 

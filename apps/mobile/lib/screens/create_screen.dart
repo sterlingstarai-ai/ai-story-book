@@ -237,7 +237,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                 AnalyticsEvents.paywallShown,
                 params: const {'reason': 'no_credits'},
               );
-          await showCreditShortageModal(context);
+          await showCreditShortageModal(context, preferCreditPack: true);
           return;
         }
       } catch (_) {
@@ -312,6 +312,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
             context,
             title: title,
             message: message,
+            preferCreditPack: !apiError.isPlanUpgradeRequired,
           );
           return;
         }

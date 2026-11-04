@@ -100,6 +100,7 @@ def private_media_journey(base, env, report):
     from urllib.parse import urlsplit, urlunsplit
 
     checks = []
+    first_book_trial = env.get("FREE_PLAN_FIRST_BOOK_TRIAL") == "true"
 
     def check(condition, name):
         require(condition, name)
@@ -118,9 +119,19 @@ def private_media_journey(base, env, report):
         consent = client.post("/v1/consent", headers=owner, json={
             "privacy": True, "photos": False, "data_processing": True})
         check(consent.status_code == 200, "Parent consent is persisted")
-        created = client.post("/v1/books", headers=owner, json={
+        if first_book_trial:
+            capabilities = client.get("/v1/config/capabilities").json()
+            check(capabilities.get("free_first_book_trial") is True and capabilities.get("purchases_supported") is False,
+                  "Free beta advertises one trial book and keeps checkout disabled")
+            check(client.get("/v1/credits/balance", headers=owner).json().get("credits") == 1,
+                  "A new account receives exactly one trial credit")
+        page_count = 12 if first_book_trial else 4
+        spec = {
             "topic": "친구와 함께하는 작은 도서관", "language": "ko",
-            "target_age": "3-5", "style": "watercolor", "page_count": 4})
+            "target_age": "3-5", "style": "watercolor", "page_count": page_count,
+        }
+        request_headers = {**owner, "X-Idempotency-Key": str(uuid.uuid4())}
+        created = client.post("/v1/books", headers=request_headers, json=spec)
         check(created.status_code == 200, "HTTP generation request enters Celery")
         job_id = created.json()["job_id"]
         job = {}
@@ -136,6 +147,27 @@ def private_media_journey(base, env, report):
         book_id = job["result"]["book_id"]
         detail = client.get(f"/v1/books/{book_id}/detail", headers=owner)
         check(detail.status_code == 200, "Owner receives book detail")
+        if first_book_trial:
+            pages = detail.json()["pages"]
+            check([page["page_number"] for page in pages] == list(range(1, 13)),
+                  "The trial delivers a full twelve-page book")
+            for page in pages:
+                media = client.get(page["image_url"])
+                check(media.status_code == 200 and bool(media.content), f"Owner can download page {page['page_number']}")
+            repeated = client.post("/v1/books", headers=request_headers, json=spec)
+            check(repeated.status_code == 200 and repeated.json()["job_id"] == job_id,
+                  "A retry reuses the first trial job")
+            check(client.get("/v1/credits/balance", headers=owner).json().get("credits") == 0,
+                  "The completed book consumes the trial credit")
+            next_book = client.post("/v1/books", headers=owner, json=spec)
+            check(next_book.status_code == 402
+                  and next_book.json()["error"]["details"]["reason"] == "insufficient_credits",
+                  "Another book is declined when the account has no credits")
+            today = client.post("/v1/streak/today/generate", headers=owner, json={
+                "target_age": "3-5", "style": "watercolor", "language": "ko",
+            })
+            check(today.status_code == 402 and today.json()["error"]["details"]["reason"] == "insufficient_credits",
+                  "Quick creation enforces the same trial limit")
         check("no-store" in detail.headers.get("cache-control", ""),
               "Private API responses prohibit intermediary caching")
         image_url = detail.json()["cover_image_url"]
@@ -351,8 +383,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--report-dir", type=Path,
                         help="Optional directory for synthetic-only logs/results (default: temporary)")
-    parser.add_argument("--suite", choices=("all", "media"), default="all",
-                        help="all: PG/Celery regressions + HTTP/portrait/media; media: migrations + HTTP/portrait/media only")
+    parser.add_argument("--suite", choices=("all", "media", "first-book-trial"), default="all",
+                        help="Run all regressions, media journeys, or the full first-book trial journey")
     parser.add_argument("--serve", action="store_true",
                         help="After successful checks, keep the synthetic localhost API running until Ctrl-C")
     parser.add_argument("--api-port", type=int, default=0,
@@ -430,6 +462,8 @@ def main():
                 AUDIO_FEATURE_ENABLED="false", POD_ORDERING_ENABLED="false", PURCHASES_ENABLED="false",
                 IAP_VERIFICATION_MODE="strict",
                 RATE_LIMIT_REQUESTS="100000", DAILY_GENERATION_BUDGET="100", OBJC_DISABLE_INITIALIZE_FORK_SAFETY="YES")
+            if args.suite == "first-book-trial":
+                runtime_env["FREE_PLAN_FIRST_BOOK_TRIAL"] = "true"
             runtime_env[MARKER_NAME] = MARKER_VALUE
             if args.serve:
                 runtime_env["CORS_ORIGINS"] = args.web_origin
@@ -486,12 +520,15 @@ def main():
                 raise GateFailure("Disposable API did not start")
             print("Checking signed media, ownership, sharing and real expiry...", flush=True)
             private_media_journey(base, runtime_env, report)
-            print("Checking synthetic portrait preview, approval, twelve-page generation and erasure...", flush=True)
-            photo_avatar_journey(base, runtime_env, report)
-            print("Running the complete HTTP reading journey through Celery...", flush=True)
-            run([sys.executable, "scripts/e2e_journey.py", base], env=runtime_env, cwd=api,
-                timeout=240, log=report_dir / "journey.log")
-            report["http_journey"] = "passed"
+            if args.suite == "first-book-trial":
+                report["first_book_trial_journey"] = "passed"
+            else:
+                print("Checking synthetic portrait preview, approval, twelve-page generation and erasure...", flush=True)
+                photo_avatar_journey(base, runtime_env, report)
+                print("Running the complete HTTP reading journey through Celery...", flush=True)
+                run([sys.executable, "scripts/e2e_journey.py", base], env=runtime_env, cwd=api,
+                    timeout=240, log=report_dir / "journey.log")
+                report["http_journey"] = "passed"
             report["status"] = "passed"
             if args.serve:
                 report.update(preview_api_url=base, preview_origin=args.web_origin,

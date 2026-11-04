@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'core/app_telemetry.dart';
 import 'core/env_config.dart';
+import 'core/purchase_availability.dart';
 import 'l10n/app_localizations.dart';
 import 'providers/providers.dart';
 import 'screens/screens.dart';
@@ -227,7 +228,9 @@ Route<dynamic> buildAppRoute(RouteSettings settings) {
     case '/credits':
       return MaterialPageRoute(
         settings: settings, // route name 전달(age-gate 트리거가 의존)
-        builder: (_) => const CreditsScreen(),
+        builder: (_) => CreditsScreen(
+          prioritizeCreditPacks: settings.arguments == CreditsFocus.creditPacks,
+        ),
       );
 
     case '/settings':

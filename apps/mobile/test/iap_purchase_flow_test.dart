@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:ai_story_book/core/purchase_availability.dart';
 import 'package:ai_story_book/l10n/app_localizations.dart';
 import 'package:ai_story_book/providers/providers.dart';
 import 'package:ai_story_book/screens/credits_screen.dart';
@@ -165,6 +166,7 @@ Widget _harness({
   required ApiClient api,
   Map<String, dynamic> capabilities = const {'purchases_supported': false},
   double textScale = 1,
+  bool prioritizeCreditPacks = false,
 }) {
   return ProviderScope(
     overrides: [
@@ -183,54 +185,73 @@ Widget _harness({
             .copyWith(textScaler: TextScaler.linear(textScale)),
         child: child!,
       ),
-      home: const CreditsScreen(),
+      home: CreditsScreen(prioritizeCreditPacks: prioritizeCreditPacks),
     ),
   );
 }
 
 void main() {
   for (final paid in [false, true]) {
-    testWidgets('credit shortage exposes working actions only (paid=$paid)',
-        (tester) async {
+    testWidgets('credit shortage exposes working actions only (paid=$paid)', (
+      tester,
+    ) async {
       tester.view.physicalSize = const Size(320, 480);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
-      await tester.pumpWidget(ProviderScope(
-        overrides: [
-          capabilitiesProvider.overrideWith((ref) async => {
+      Object? routeArguments;
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            capabilitiesProvider.overrideWith(
+              (ref) async => {
                 'purchases_supported': paid,
                 'apple_purchases_supported': paid,
                 'google_purchases_supported': paid,
-              })
-        ],
-        child: MaterialApp(
-          locale: const Locale('ko'),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          builder: (context, child) => MediaQuery(
-            data: MediaQuery.of(context)
-                .copyWith(textScaler: const TextScaler.linear(1.4)),
-            child: child!,
-          ),
-          home: Scaffold(
+              },
+            ),
+          ],
+          child: MaterialApp(
+            locale: const Locale('ko'),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: const TextScaler.linear(1.4)),
+              child: child!,
+            ),
+            home: Scaffold(
               body: Builder(
-                  builder: (context) => TextButton(
-                        onPressed: () => showCreditShortageModal(context),
-                        child: const Text('open'),
-                      ))),
-          onGenerateRoute: (settings) => MaterialPageRoute<void>(
-              builder: (_) => Scaffold(body: Text('route:${settings.name}'))),
+                builder: (context) => TextButton(
+                  onPressed: () =>
+                      showCreditShortageModal(context, preferCreditPack: true),
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+            onGenerateRoute: (settings) {
+              routeArguments = settings.arguments;
+              return MaterialPageRoute<void>(
+                builder: (_) => Scaffold(body: Text('route:${settings.name}')),
+              );
+            },
+          ),
         ),
-      ));
+      );
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
       final l = await AppLocalizations.delegate.load(const Locale('ko'));
       expect(find.text(l.creditShortageFreeTitle), findsNothing);
       if (paid) {
-        expect(find.text(l.creditShortageSubscribeTitle), findsOneWidget);
-        await tester.ensureVisible(find.text(l.creditShortageClose));
-        await tester.tap(find.text(l.creditShortageClose));
+        final subscribe = find.text(l.creditShortageSubscribeTitle);
+        final pack = find.text(l.creditShortagePurchaseTitle);
+        expect(
+          tester.getTopLeft(pack).dy,
+          lessThan(tester.getTopLeft(subscribe).dy),
+        );
+        await tester.ensureVisible(pack);
+        await tester.tap(pack);
       } else {
         expect(find.text(l.creditShortageSubscribeTitle), findsNothing);
         expect(find.text(l.creditShortagePurchaseTitle), findsNothing);
@@ -239,10 +260,43 @@ void main() {
         await tester.tap(find.text(l.libraryTitle));
       }
       await tester.pumpAndSettle();
-      if (!paid) expect(find.text('route:/library'), findsOneWidget);
+      expect(
+        find.text(paid ? 'route:/credits' : 'route:/library'),
+        findsOneWidget,
+      );
+      expect(routeArguments, paid ? CreditsFocus.creditPacks : isNull);
       expect(tester.takeException(), isNull);
     });
   }
+
+  testWidgets('single purchase route lists credit packs before subscription', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    final iap = _SpyIapService();
+    addTearDown(iap.controller.close);
+    await tester.pumpWidget(
+      _harness(
+        prefs: prefs,
+        iap: iap,
+        api: _FakeApiClient(),
+        capabilities: const {
+          'purchases_supported': true,
+          'google_purchases_supported': true,
+        },
+        prioritizeCreditPacks: true,
+      ),
+    );
+    await tester.pumpAndSettle();
+    final l = await AppLocalizations.delegate.load(const Locale('ko'));
+    final pack = find.text(l.creditsPackTitle);
+    final plans = find.text(l.creditsPlansTitle);
+    expect(tester.getTopLeft(pack).dy, lessThan(tester.getTopLeft(plans).dy));
+    await tester.tap(find.text(l.creditsBuyCredits));
+    await tester.pumpAndSettle();
+    expect(pack.hitTestable(), findsOneWidget);
+  });
 
   testWidgets(
       'free beta hides new purchases and keeps restore and verification',

@@ -59,7 +59,9 @@ List<String> localizedPlanFeatures(
 
 /// 크레딧 및 구독 화면
 class CreditsScreen extends ConsumerStatefulWidget {
-  const CreditsScreen({super.key});
+  const CreditsScreen({super.key, this.prioritizeCreditPacks = false});
+
+  final bool prioritizeCreditPacks;
 
   @override
   ConsumerState<CreditsScreen> createState() => _CreditsScreenState();
@@ -81,6 +83,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
   Map<String, dynamic>? _creditsStatus;
   List<dynamic> _transactions = [];
   final GlobalKey _plansSectionKey = GlobalKey();
+  final GlobalKey _creditPacksSectionKey = GlobalKey();
   StreamSubscription<List<PurchaseDetails>>? _purchaseSubscription;
   final Set<String> _verifyingTransactions = <String>{};
   bool _purchaseInFlight = false;
@@ -273,12 +276,17 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
                       const SizedBox(height: AppSpacing.md),
                     ],
                     _buildSubscriptionCard(purchasesSupported),
-                    if (purchasesSupported) ...[
-                      const SizedBox(height: AppSpacing.lg),
-                      _buildPlansSection(),
-                      const SizedBox(height: AppSpacing.lg),
-                      _buildCreditPackSection(),
-                    ],
+                    if (purchasesSupported)
+                      for (final buildSection
+                          in widget.prioritizeCreditPacks
+                              ? [_buildCreditPackSection, _buildPlansSection]
+                              : [
+                                  _buildPlansSection,
+                                  _buildCreditPackSection,
+                                ]) ...[
+                        const SizedBox(height: AppSpacing.lg),
+                        buildSection(),
+                      ],
                     const SizedBox(height: AppSpacing.lg),
                     _buildTransactionsSection(),
                   ],
@@ -359,7 +367,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
               children: [
                 Expanded(
                   child: OutlinedButton(
-                    onPressed: purchasesSupported ? _scrollToPlans : null,
+                    onPressed: () => _scrollToSection(_creditPacksSectionKey),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Colors.white,
                       side: const BorderSide(color: Colors.white70),
@@ -426,7 +434,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
             if (purchasesSupported)
               PrimaryButton(
                 text: l.creditsStartSubscription,
-                onPressed: () => _scrollToPlans(),
+                onPressed: () => _scrollToSection(_plansSectionKey),
               ),
           ],
         ),
@@ -700,6 +708,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
   Widget _buildCreditPackSection() {
     final l = AppLocalizations.of(context);
     return Column(
+      key: _creditPacksSectionKey,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(l.creditsPackTitle, style: AppTextStyles.heading2),
@@ -829,8 +838,8 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
     );
   }
 
-  void _scrollToPlans() {
-    final context = _plansSectionKey.currentContext;
+  void _scrollToSection(GlobalKey sectionKey) {
+    final context = sectionKey.currentContext;
     if (context == null) {
       return;
     }

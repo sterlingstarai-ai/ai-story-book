@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+enum CreditsFocus { creditPacks }
+
 bool purchasesSupportedForPlatform(
   Map<String, dynamic> capabilities, {
   required TargetPlatform platform,
