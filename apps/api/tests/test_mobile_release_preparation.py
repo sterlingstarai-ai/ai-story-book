@@ -17,8 +17,8 @@ spec.loader.exec_module(release)
 
 def valid():
     return {'PROD_API_URL': 'https://storybook-api.onrender.com',
-            'PRIVACY_POLICY_URL': 'https://storybook-policy.vercel.app/privacy',
-            'TERMS_OF_SERVICE_URL': 'https://storybook-policy.vercel.app/terms'}
+            'PRIVACY_POLICY_URL': 'https://storybook-policy.vercel.app/privacy/',
+            'TERMS_OF_SERVICE_URL': 'https://storybook-policy.vercel.app/terms/'}
 
 
 @pytest.mark.parametrize('name', ['LLM_API_KEY', 'ADMIN_API_KEY', 'DATABASE_URL', 'S3_SECRET_KEY'])
@@ -101,7 +101,8 @@ def test_execute_requires_approved_documents_and_expected_artifact(
         (legal / f'{slug}.ko.json').write_text(json.dumps({
             'publication_status': 'approved', 'effective_date': '2026-11-01',
             'operator': 'Test operator', 'contact_email': 'qa@example.com',
-            'sections': ['Test policy'],
+            'title': 'Test document', 'introduction': 'Synthetic text', 'version_label': 'v1',
+            'sections': [{'heading': 'Heading', 'paragraphs': ['Test policy']}],
         }))
     config = tmp_path / 'public-build.json'
     config.write_text(json.dumps(valid()))
@@ -110,6 +111,17 @@ def test_execute_requires_approved_documents_and_expected_artifact(
         signing.parent.mkdir()
         signing.touch()
     commands = []
+    support = tmp_path / 'support-site.json'
+
+    def verify(config_path, *, bundled_policies):
+        assert not commands and config_path == support
+        assert bundled_policies.keys() == {'privacy', 'terms'}
+        assert bundled_policies['privacy'][0] == valid()['PRIVACY_POLICY_URL']
+        assert bundled_policies['terms'][0] == valid()['TERMS_OF_SERVICE_URL']
+        assert all(b'<p>Test policy</p>' in expected for _, expected in bundled_policies.values())
+        return 7
+
+    monkeypatch.setattr(release, 'verify_published', verify)
 
     def run(command, **kwargs):
         commands.append(command)
@@ -120,13 +132,18 @@ def test_execute_requires_approved_documents_and_expected_artifact(
         return release.subprocess.CompletedProcess(command, 0)
 
     monkeypatch.setattr(release.subprocess, 'run', run)
-    result = release.main(['--config', str(config), '--platform', platform, '--execute'])
+    args = ['--config', str(config), '--platform', platform, '--execute']
+    assert release.main(args) == 1
+    assert '--support-site-config' in json.loads(capsys.readouterr().out)['message']
+    assert not commands
+    result = release.main(args + ['--support-site-config', str(support)])
     assert commands[0][5:] == release.build_command(platform, release.release_configuration(valid()))
     evidence = json.loads(capsys.readouterr().out)
     if has_artifact:
         assert result == 0
         assert evidence['status'] == 'LOCAL_BUILD_NOT_SUBMITTED'
         assert evidence[hash_field] == hashlib.sha256(b'fixture build output').hexdigest()
+        assert evidence['published_support_files_verified'] == 7
     else:
         assert result == 1
         assert evidence['status'] == 'BLOCKED'

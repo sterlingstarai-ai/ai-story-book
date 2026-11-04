@@ -51,3 +51,5 @@ python3 scripts/build_public_support_site.py \
 ```
 
 승인된 입력에서 임시로 다시 생성한 파일을 공개 HTTPS 응답과 바이트 단위로 대조한다. 다섯 페이지와 CSS, `robots.txt`가 리디렉션이나 로그인 없이 HTTP 200으로 응답하고 올바른 콘텐츠 유형을 반환해야 통과한다. 문의 작성 링크, 삭제 요청 접수와 소유 확인은 운영 절차로 별도 검증한다. 모바일에는 `PRIVACY_POLICY_URL`과 `TERMS_OF_SERVICE_URL`을 새 빌드에 명시적으로 전달하고, 스토어에는 지원 URL과 필요한 삭제 리소스 URL을 등록한다.
+
+`scripts/build_mobile_release.py --execute`에는 같은 설정 파일을 `--support-site-config`로 전달한다. 모바일 URL은 사이트의 `/privacy/`와 `/terms/`에 정확히 일치해야 하고, 게시할 정책 HTML은 승인된 앱 내장 원본을 렌더한 결과와 같아야 한다. 릴리스 도구가 이 조건과 공개 응답을 컴파일 전에 확인한다.

@@ -11,6 +11,7 @@ import 'package:ai_story_book/services/api_client.dart';
 import 'package:ai_story_book/services/page_audio_playback.dart';
 import 'package:ai_story_book/services/parental_control_service.dart';
 import 'package:ai_story_book/services/user_service.dart';
+import 'package:ai_story_book/widgets/scoped_book_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -75,7 +76,7 @@ void main() {
   const fixtureJson = String.fromEnvironment('NARRATION_VIEWER_FIXTURE');
   const liveFixturePath = String.fromEnvironment('LIVE_NARRATION_FIXTURE_PATH');
   testWidgets(
-    'real viewer plays each page and stops previous narration',
+    'real viewer renders illustrations or plays the requested narration flow',
     (tester) async {
       final livePlayback = liveFixturePath.isNotEmpty;
       final String fixtureSource;
@@ -108,8 +109,12 @@ void main() {
       final id = fixture['book_id'] as String;
       final book = await api.getBook(id);
       expect(book.pages.length, fixture['page_count'] as int? ?? 4);
+      final imagesOnly = fixture['images_only'] == true;
       final continuousPlayback =
           livePlayback || fixture['continuous_playback'] == true;
+      if (imagesOnly) {
+        expect(continuousPlayback, isFalse);
+      }
       SharedPreferences.setMockInitialValues({
         ParentalControlService.consentGrantedKey: true,
         ParentalControlService.onboardingDoneKey: true,
@@ -154,6 +159,40 @@ void main() {
       }
 
       await until(() => find.byType(PageView).evaluate().isNotEmpty);
+      if (imagesOnly) {
+        final urls = [book.coverImageUrl, ...book.pages.map((p) => p.imageUrl)];
+        expect(urls.toSet(), hasLength(urls.length));
+        final view = find.byType(PageView);
+        for (final (index, url) in urls.indexed) {
+          expect(Uri.parse(url).origin, uri.origin);
+          final illustration = find.byWidgetPredicate(
+            (widget) => widget is ScopedBookImage && widget.imageUrl == url,
+          );
+          final decoded = find.descendant(
+            of: illustration,
+            matching: find.byWidgetPredicate(
+              (widget) =>
+                  widget is RawImage &&
+                  (widget.image?.width ?? 0) > 300 &&
+                  (widget.image?.height ?? 0) > 300,
+            ),
+          );
+          await until(
+            () =>
+                tester.widget<PageView>(view).controller?.page?.round() ==
+                    index &&
+                decoded.evaluate().isNotEmpty,
+            seconds: 45,
+          );
+          if (index < urls.length - 1) {
+            await tester.tap(find.byIcon(Icons.chevron_right));
+            await tester.pump(const Duration(milliseconds: 500));
+          }
+        }
+        await tester.pumpWidget(const SizedBox.shrink());
+        expect(tester.takeException(), isNull);
+        return;
+      }
       if (continuousPlayback) {
         final l = await AppLocalizations.delegate.load(const Locale('ko'));
         await until(

@@ -119,6 +119,18 @@ def test_verify_published_never_contacts_host_for_unapproved_policy(tmp_path, mo
         site.verify_published(config_path)
 
 
+@pytest.mark.parametrize("wrong_url", [True, False])
+def test_mobile_policy_drift_blocks_before_network(tmp_path, monkeypatch, wrong_url):
+    config_path, config, policy = fixture_config(tmp_path)
+    origin = config['site_url']
+    bundled = {"privacy": (origin + ("/privacy" if wrong_url else "/privacy/"),
+                           policy.read_bytes() if wrong_url else b"older approved copy")}
+    monkeypatch.setattr(site, "build_opener", lambda *_: pytest.fail("unexpected network access"))
+    expected = "MOBILE_POLICY_URL_MISMATCH" if wrong_url else "MOBILE_BUNDLED_POLICY_MISMATCH"
+    with pytest.raises(ValueError, match=expected):
+        site.verify_published(config_path, bundled_policies=bundled)
+
+
 def test_policy_change_after_approval_cannot_be_published(tmp_path):
     config_path, _, policy = fixture_config(tmp_path)
     policy.write_text("changed after approval")

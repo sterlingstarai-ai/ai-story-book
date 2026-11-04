@@ -158,12 +158,17 @@ class NoRedirect(HTTPRedirectHandler):
         return None
 
 
-def verify_published(config_path):
+def verify_published(config_path, *, bundled_policies=None):
     # Regenerate from the approved inputs instead of trusting a stored manifest.
     with TemporaryDirectory(prefix="storybook-public-site-") as temporary:
         output_dir = Path(temporary) / "site"
         manifest = build(config_path, output_dir)
         origin = manifest["site_url"].rstrip("/")
+        if bundled_policies is not None:
+            for slug, (url, expected) in bundled_policies.items():
+                require(url == f"{origin}/{slug}/", "MOBILE_POLICY_URL_MISMATCH")
+                require((output_dir / slug / "index.html").read_bytes() == expected,
+                        "MOBILE_BUNDLED_POLICY_MISMATCH")
         opener = build_opener(ProxyHandler({}), NoRedirect())
         for filename in manifest["files"]:
             relative_path = filename.removesuffix("index.html")

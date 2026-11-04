@@ -1,4 +1,4 @@
-"""Validate public-only mobile release configuration; build only with --execute.
+"""Validate mobile release inputs; compile after verifying the public policy site.
 
 Never load backend .env or include server/provider keys. Android builds the signed
 AAB with the existing private upload key; iOS compiles without signing or upload.
@@ -12,7 +12,9 @@ from pathlib import Path
 import shutil
 import subprocess
 
+from build_public_support_site import verify_published
 from final_external_preflight import assess_bundled_policies, mobile_url_error
+from render_legal_documents import render
 
 ROOT = Path(__file__).resolve().parents[1]
 REQUIRED = {'PROD_API_URL', 'PRIVACY_POLICY_URL', 'TERMS_OF_SERVICE_URL'}
@@ -37,17 +39,28 @@ def build_command(platform, values):
     return ['flutter', 'build', *options, *(f'--dart-define={key}={value}' for key, value in values.items())]
 
 
+def bundled_policy_pages(values):
+    pages = {}
+    for slug, field in [('privacy', 'PRIVACY_POLICY_URL'), ('terms', 'TERMS_OF_SERVICE_URL')]:
+        source = ROOT / f'apps/mobile/assets/legal/{slug}.ko.json'
+        pages[slug] = (values[field], (render(json.loads(source.read_text())) + '\n').encode('utf-8'))
+    return pages
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', type=Path, required=True, help='JSON containing public mobile defines only')
     parser.add_argument('--platform', choices=['android', 'ios'], required=True)
-    parser.add_argument('--execute', action='store_true', help='Build locally after configuration validation')
+    parser.add_argument('--support-site-config', type=Path, help='Approved public support site JSON for --execute')
+    parser.add_argument('--execute', action='store_true', help='Verify the published support site and build locally')
     args = parser.parse_args(argv)
     try:
         values = release_configuration(json.loads(args.config.read_text()))
         policies = assess_bundled_policies(ROOT)
         if args.execute and not policies['ready']:
             raise ValueError('Bundled privacy and terms documents require approval and an effective date before building.')
+        if args.execute and args.support_site_config is None:
+            raise ValueError('Pass --support-site-config to verify the published policy site before building.')
         if not shutil.which('flutter'):
             raise ValueError('Flutter is unavailable on PATH.')
         if args.platform == 'android' and not (ROOT / 'apps/mobile/android/key.properties').is_file():
@@ -57,8 +70,9 @@ def main(argv=None):
             print(json.dumps({'status': 'BUILD_CONFIGURED_NOT_EXECUTED', 'platform': args.platform,
                               'public_define_names': sorted(values), 'remote_calls': 0,
                               'bundled_policy_documents': policies,
-                              'requires': ['public document content/ownership verification', 'production E2E', 'store signing/review']}))
+                              'requires': ['published support site and bundled policy match', 'production E2E', 'store signing/review']}))
             return 0
+        verified_files = verify_published(args.support_site_config, bundled_policies=bundled_policy_pages(values))
         wrapper = ['bash', '-c', 'set -euo pipefail; source "$1"; setup_mobile_toolchain; shift; exec "$@"',
                    'storybook-mobile-release', str(ROOT / 'scripts/mobile-toolchain.sh')]
         result = subprocess.run(wrapper + command, cwd=ROOT / 'apps/mobile', check=False)
@@ -77,10 +91,11 @@ def main(argv=None):
             digest = hashlib.file_digest(source, 'sha256').hexdigest()
         evidence = {'status': 'LOCAL_BUILD_NOT_SUBMITTED', 'platform': args.platform,
                     'ios_signing_verified': False, 'store_submission': False, 'production_e2e_verified': False,
+                              'published_support_files_verified': verified_files,
                     hash_field: digest}
         print(json.dumps(evidence))
         return 0
-    except (OSError, ValueError) as error:
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
         # JSON decode errors can echo supplied input; never report those details.
         message = str(error) if isinstance(error, ValueError) and not isinstance(error, json.JSONDecodeError) else 'Public build configuration could not be read.'
         print(json.dumps({'status': 'BLOCKED', 'message': message}))
