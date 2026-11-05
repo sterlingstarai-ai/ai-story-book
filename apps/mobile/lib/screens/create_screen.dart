@@ -100,6 +100,9 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
   }
 
   Future<void> _loadProfileDefaults() async {
+    // Refreshing this shared provider also rebuilds the route behind us.
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
     try {
       final profile = await ref.refresh(activeChildProfileProvider.future);
       if (!mounted || profile == null) return;
@@ -409,7 +412,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
     }
   }
 
-  void _openNarrationPreviews() {
+  Future<void> _openNarrationPreviews() async {
     final l = AppLocalizations.of(context);
     final isKorean = Localizations.localeOf(context).languageCode == 'ko';
     FocusManager.instance.primaryFocus?.unfocus();
@@ -417,7 +420,7 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
     final voice = narrationVoiceOrDefault(
       prefs.getString(narrationVoicePreferenceKey),
     );
-    showModalBottomSheet<void>(
+    final style = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
@@ -458,10 +461,46 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
               const SizedBox(height: AppSpacing.sm),
               if (!isKorean) Text(l.createNarrationPreviewSampleLanguage),
               NarrationStylePreviews(voice: voice),
+              const SizedBox(height: AppSpacing.sm),
+              DropdownButtonFormField<String>(
+                key: const ValueKey('create-default-narration-style'),
+                initialValue: narrationStyleOrDefault(
+                  prefs.getString(narrationStylePreferenceKey),
+                ),
+                isDense: false,
+                isExpanded: true,
+                itemHeight: AppSizing.minTouchTarget,
+                decoration: InputDecoration(
+                  labelText: l.createNarrationDefaultStyle,
+                ),
+                items: [
+                  for (final (value, label) in [
+                    ('legacy', l.settingsNarrationStyleLegacy),
+                    ('natural', l.settingsNarrationStyleNatural),
+                    ('animated', l.settingsNarrationStyleAnimated),
+                    ('bedtime', l.settingsNarrationStyleBedtime),
+                  ])
+                    DropdownMenuItem(value: value, child: Text(label)),
+                ],
+                onChanged: (value) {
+                  if (value != null) Navigator.pop(context, value);
+                },
+              ),
             ],
           ),
         ),
       ),
+    );
+    if (!mounted || style == null) return;
+    bool saved;
+    try {
+      saved = await prefs.setString(narrationStylePreferenceKey, style);
+    } catch (_) {
+      saved = false;
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(saved ? l.settingsSaved : l.settingsSaveError)),
     );
   }
 

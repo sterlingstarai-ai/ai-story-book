@@ -261,6 +261,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'The samples are in Korean.';
 
   @override
+  String get createNarrationDefaultStyle =>
+      'Default narration style on this device';
+
+  @override
   String get createAgePreviewTitle => 'Preview by age';
 
   @override

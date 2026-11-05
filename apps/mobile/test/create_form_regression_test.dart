@@ -80,6 +80,7 @@ Future<void> _open(
   _Api api, {
   Future<ActiveChildProfile?>? profile,
   bool startPhoto = false,
+  bool fromProfileWatcher = false,
   _PreviewPlayer? previewPlayer,
 }) async {
   SharedPreferences.setMockInitialValues({
@@ -112,16 +113,36 @@ Future<void> _open(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         onGenerateInitialRoutes: (_) => [
-          buildAppRoute(
-            RouteSettings(
-              name: '/create',
-              arguments: {'startPhotoCharacter': startPhoto},
+          if (fromProfileWatcher)
+            MaterialPageRoute<void>(
+              builder: (_) => Consumer(
+                builder: (context, ref, _) {
+                  final name = ref
+                      .watch(activeChildProfileProvider)
+                      .valueOrNull
+                      ?.name;
+                  return Scaffold(
+                    body: TextButton(
+                      onPressed: () => Navigator.pushNamed(context, '/create'),
+                      child: Text('Create for ${name ?? "child"}'),
+                    ),
+                  );
+                },
+              ),
+            )
+          else
+            buildAppRoute(
+              RouteSettings(
+                name: '/create',
+                arguments: {'startPhotoCharacter': startPhoto},
+              ),
             ),
-          ),
         ],
-        onGenerateRoute: (_) => MaterialPageRoute<void>(
-          builder: (_) => const Scaffold(body: Text('created')),
-        ),
+        onGenerateRoute: (settings) => settings.name == '/create'
+            ? buildAppRoute(settings)
+            : MaterialPageRoute<void>(
+                builder: (_) => const Scaffold(body: Text('created')),
+              ),
       ),
     ),
   );
@@ -133,9 +154,7 @@ Finder get _name => find.byWidgetPredicate(
 );
 
 void main() {
-  testWidgets('creation previews three styles and stops on dismissal', (
-    tester,
-  ) async {
+  testWidgets('creation previews then saves a selected style', (tester) async {
     tester.view.physicalSize = const Size(320, 480);
     tester.view.devicePixelRatio = 1;
     tester.platformDispatcher.textScaleFactorTestValue = 1.4;
@@ -146,6 +165,7 @@ void main() {
     final player = _PreviewPlayer();
     await loadDesignFonts();
     await _open(tester, api, previewPlayer: player);
+    final prefs = await SharedPreferences.getInstance();
 
     final launch = find.text('세 가지 낭독 미리 듣기');
     await tester.ensureVisible(launch);
@@ -176,7 +196,25 @@ void main() {
     await tester.tap(close);
     await tester.pumpAndSettle();
     expect(player.disposed, isTrue);
+    expect(prefs.getString(narrationStylePreferenceKey), isNull);
     expect(find.byType(CreateScreen), findsOneWidget);
+    expect(api.specs, isEmpty);
+
+    await tester.tap(launch);
+    await tester.pumpAndSettle();
+    final stylePicker = find.byKey(
+      const ValueKey('create-default-narration-style'),
+    );
+    await tester.ensureVisible(stylePicker);
+    await tester.pumpAndSettle();
+    expect(tester.getSize(stylePicker).height, greaterThanOrEqualTo(64));
+    await captureDesign(tester, 'create-narration-default-style-small');
+    await tester.tap(stylePicker);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('구연동화').last);
+    await tester.pumpAndSettle();
+    expect(prefs.getString(narrationStylePreferenceKey), 'animated');
+    expect(find.byType(BottomSheet), findsNothing);
     expect(api.specs, isEmpty);
   });
 
@@ -266,7 +304,15 @@ void main() {
     tester,
   ) async {
     final api = _Api();
-    await _open(tester, api, profile: Future.value(_profile));
+    await _open(
+      tester,
+      api,
+      profile: Future.value(_profile),
+      fromProfileWatcher: true,
+    );
+    await tester.tap(find.text('Create for 토리'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
     expect(tester.widget<TextField>(_name).controller!.text, '토리');
     expect(
       tester

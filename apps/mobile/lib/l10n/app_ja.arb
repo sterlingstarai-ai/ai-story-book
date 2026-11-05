@@ -86,6 +86,7 @@
   "createAgeHelpAdult": "読み応えのある展開と繊細な気持ちの描写",
   "createNarrationPreviewTitle": "3つの朗読スタイルを試聴",
   "createNarrationPreviewSampleLanguage": "試聴音声は韓国語です。",
+  "createNarrationDefaultStyle": "この端末の既定の朗読スタイル",
   "createAgePreviewTitle": "年齢別の本文を試し読み",
   "createAgePreviewHide": "試し読みを閉じる",
   "createAgePreviewCaption": "同じ場面で比べる、文章の雰囲気と長さの例",

@@ -86,6 +86,7 @@
   "createAgeHelpAdult": "쪽마다 밀도 있는 서사와 섬세한 감정",
   "createNarrationPreviewTitle": "세 가지 낭독 미리 듣기",
   "createNarrationPreviewSampleLanguage": "미리 듣기는 한국어예요.",
+  "createNarrationDefaultStyle": "이 기기의 기본 낭독 스타일",
   "createAgePreviewTitle": "연령별 본문 예시",
   "createAgePreviewHide": "본문 예시 접기",
   "createAgePreviewCaption": "같은 장면의 문체와 분량 예시",

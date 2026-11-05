@@ -117,6 +117,9 @@ def test_free_beta_accepts_narration_only_without_stt(gemini_free_beta):
 
 @pytest.mark.parametrize("field,value", [
     ("DAILY_GENERATION_BUDGET", "13"),
+    ("DAILY_JOB_LIMIT_PER_USER", "0"),
+    ("MAX_PENDING_JOBS_PER_USER", "0"),
+    ("MAX_PENDING_JOBS", "0"),
     ("GOOGLE_GEMINI_TTS_DAILY_REQUEST_LIMIT", "11"),
     ("GOOGLE_GEMINI_TTS_MONTHLY_REQUEST_LIMIT", "11"),
     ("GENERATION_ACCESS_MODE", "open"),
@@ -128,6 +131,16 @@ def test_free_beta_requires_complete_book_capacity_and_invited_access(gemini_fre
     result = preflight.assess({**gemini_free_beta, field: value}, free_beta=True)
     assert result["status"] == "BLOCKED"
     assert any(item.startswith(field + " (") for item in result["invalid_configuration"])
+
+
+def test_free_beta_accepts_one_slot_at_each_book_guardrail(gemini_free_beta):
+    result = preflight.assess({
+        **gemini_free_beta,
+        "DAILY_JOB_LIMIT_PER_USER": "1",
+        "MAX_PENDING_JOBS_PER_USER": "1",
+        "MAX_PENDING_JOBS": "1",
+    }, free_beta=True)
+    assert result["status"] == "CONFIGURED_NOT_VERIFIED"
 
 
 @pytest.mark.parametrize("field,value", [

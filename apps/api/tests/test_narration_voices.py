@@ -27,7 +27,10 @@ class _LockRedis:
 
 
 @pytest.mark.asyncio
-async def test_free_trial_narrates_all_pages_of_only_the_trial_book(client, headers, db_session, monkeypatch):
+@pytest.mark.parametrize(("provider", "expected_voice"), [("openai", "onyx"), ("google_gemini", "Puck")])
+async def test_free_trial_narrates_all_pages_of_only_the_trial_book(
+    client, headers, db_session, monkeypatch, provider, expected_voice,
+):
     from src.core.generation_access import generation_identity_hash
     from src.core.rate_limit import rate_limiter
     from src.models.db import CreditTransaction, Page
@@ -41,8 +44,12 @@ async def test_free_trial_narrates_all_pages_of_only_the_trial_book(client, head
         "free_plan_enforce_in_testing": True,
         "generation_access_mode": "invite_only",
         "generation_allowed_user_hashes": generation_identity_hash(owner),
-        "tts_provider": "openai",
+        "tts_provider": provider,
         "openai_tts_api_key": "test-key",
+        "openai_tts_model": "gpt-4o-mini-tts",
+        "google_gemini_tts_project": "storybook-test",
+        "google_gemini_tts_daily_request_limit": 24,
+        "google_gemini_tts_monthly_request_limit": 240,
     }.items():
         monkeypatch.setattr(settings, name, value)
     monkeypatch.setattr(rate_limiter, "get_redis", AsyncMock(return_value=_LockRedis()))
@@ -74,7 +81,7 @@ async def test_free_trial_narrates_all_pages_of_only_the_trial_book(client, head
 
     async def narration(book_id, page):
         return await client.get(f"/v1/books/{book_id}/pages/{page}/audio", headers=headers,
-                                params={"language": "ko", "style": "animated"})
+                                params={"language": "ko", "voice": "deep", "style": "animated"})
 
     assert (await narration(later_id, 1)).status_code == 402
     for page in range(1, 13):
@@ -85,6 +92,8 @@ async def test_free_trial_narrates_all_pages_of_only_the_trial_book(client, head
     await db_session.commit()
     assert (await narration(later_id, 1)).status_code == 402
     assert synth.await_count == 12
+    synth.assert_any_await("12번째 동화 본문", target_age="7-9", language="ko",
+                           voice=expected_voice, style="animated")
 
 
 @pytest.mark.asyncio

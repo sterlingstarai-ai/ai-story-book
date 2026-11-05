@@ -556,6 +556,12 @@ abstract class AppLocalizations {
   /// **'The samples are in Korean.'**
   String get createNarrationPreviewSampleLanguage;
 
+  /// No description provided for @createNarrationDefaultStyle.
+  ///
+  /// In en, this message translates to:
+  /// **'Default narration style on this device'**
+  String get createNarrationDefaultStyle;
+
   /// No description provided for @createAgePreviewTitle.
   ///
   /// In en, this message translates to:

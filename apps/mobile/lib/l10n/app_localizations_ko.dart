@@ -248,6 +248,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get createNarrationPreviewSampleLanguage => '미리 듣기는 한국어예요.';
 
   @override
+  String get createNarrationDefaultStyle => '이 기기의 기본 낭독 스타일';
+
+  @override
   String get createAgePreviewTitle => '연령별 본문 예시';
 
   @override

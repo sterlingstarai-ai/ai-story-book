@@ -195,9 +195,9 @@ def assess(values, *, free_beta=False):
     download = values.get("S3_DOWNLOAD_ENDPOINT") or values.get("S3_ENDPOINT", "")
     if present(download) and not public_https_endpoint(download):
         invalid.append("S3_DOWNLOAD_ENDPOINT (device-reachable HTTPS S3 API endpoint required)")
-    def count_limit(name, minimum, reason=""):
+    def count_limit(name, minimum, reason="", *, default=0):
         try:
-            value = int(values.get(name, "0"))
+            value = int(values.get(name, str(default)))
         except ValueError:
             invalid.append(name)
         else:
@@ -215,6 +215,14 @@ def assess(values, *, free_beta=False):
     count_limit("DAILY_GENERATION_BUDGET", default_story_pages + 2 if free_beta else 1,
                 " (14 required for a character, book and 12 page narrations)" if free_beta else "")
     if free_beta:
+        # These guardrails reject a request when current usage reaches the
+        # limit. At zero even a new account and an empty queue cannot start.
+        for name, default in (
+            ("DAILY_JOB_LIMIT_PER_USER", 20),
+            ("MAX_PENDING_JOBS_PER_USER", 10),
+            ("MAX_PENDING_JOBS", 500),
+        ):
+            count_limit(name, 1, " (at least one slot required for the first book)", default=default)
         if access_mode != "invite_only":
             invalid.append("GENERATION_ACCESS_MODE (invite_only required for free beta)")
         if not enabled("FREE_PLAN_FIRST_BOOK_TRIAL"):

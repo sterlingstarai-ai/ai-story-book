@@ -247,6 +247,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get createNarrationPreviewSampleLanguage => '試聴音声は韓国語です。';
 
   @override
+  String get createNarrationDefaultStyle => 'この端末の既定の朗読スタイル';
+
+  @override
   String get createAgePreviewTitle => '年齢別の本文を試し読み';
 
   @override
