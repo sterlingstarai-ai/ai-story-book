@@ -24,11 +24,23 @@ _SENTENCE_BOUNDARY = re.compile(r'[.!?。！？][”’"」』]?\s+')
 
 DIRECTIONS = {'legacy': 'Use a warm, expressive storytelling voice.', **STYLE_DIRECTIONS}
 KOREAN_PRONUNCIATION = (
-    '표준 한국어 발음으로 자연스럽게 낭독하세요. 받침과 연음, 문장의 억양을 살리고 '
-    '단어 중간에 부자연스러운 강세를 주거나 음절을 끊지 마세요. 대사는 어조와 리듬으로 '
-    '구분하되, 등장인물의 감정을 연기할 때도 같은 한국어 발음을 유지하세요. '
-    '원문에 없는 말은 덧붙이지 마세요.'
+    '한국에서 자란 동화 낭독자처럼 표준 한국어 발음과 자연스러운 말의 흐름으로 읽으세요. '
+    '받침과 연음은 실제 한국어 말소리대로 이어 읽고, 조사와 어미를 앞말과 자연스럽게 붙이세요. '
+    '한 음절씩 힘주지 말고 뜻이 이어지는 어구를 한 호흡으로 읽으세요. '
+    '원문의 말과 순서를 그대로 읽고, 제목이나 안내를 덧붙이지 마세요.'
 )
+KOREAN_DIRECTIONS = {
+    'legacy': '따뜻하게 이야기를 들려주세요.',
+    'natural': '이야기 성우처럼 따뜻하고 또렷하게 읽으세요. 평소 말하는 속도로 장면을 전달하세요.',
+    'animated': (
+        '아이에게 구연동화를 들려주듯 해설과 대사의 억양을 뚜렷이 구분하세요. '
+        '놀람이나 기쁨은 대사에서 생생하게 표현하고, 해설로 돌아올 때는 편안한 어조로 읽으세요.'
+    ),
+    'bedtime': (
+        '잠들기 전 곁에서 읽어주듯 부드럽고 고른 음량으로 읽으세요. '
+        '문장 끝에서 짧게 쉬고, 대사에서도 목소리가 갑자기 커지지 않게 하세요.'
+    ),
+}
 VOICES = {'default': 'coral', 'coral': 'coral', 'cedar': 'cedar'}
 
 
@@ -91,10 +103,11 @@ async def synthesize_realtime(text, voice='default', *, language='ko', style='le
     key = settings.openai_tts_api_key
     if not key:
         raise ValueError('OpenAI TTS key is not configured')
-    instructions = ('Read the supplied text exactly as written. Never add or omit words, '
-                    'introductions or sound effects. ' + DIRECTIONS[style])
     if language == 'ko':
-        instructions += ' ' + KOREAN_PRONUNCIATION
+        instructions = f'{KOREAN_PRONUNCIATION} {KOREAN_DIRECTIONS[style]}'
+    else:
+        instructions = ('Read the supplied text exactly as written. Never add or omit words, '
+                        'introductions or sound effects. ' + DIRECTIONS[style])
     pcm = bytearray()
     transcript = None
     try:

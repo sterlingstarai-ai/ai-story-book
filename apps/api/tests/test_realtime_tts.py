@@ -52,8 +52,8 @@ async def test_realtime_audio_is_wav_and_exact_transcript(monkeypatch):
         assert audio.readframes(2) == b'\0\0\x01\0'
     assert conn.sent[0]['session']['audio']['output']['voice'] == 'cedar'
     assert conn.sent[1]['response']['input'][0]['content'][0]['text'] == '안녕하세요.'
-    assert 'quoted dialogue' in conn.sent[1]['response']['instructions']
-    assert 'Never add or omit words' in conn.sent[1]['response']['instructions']
+    assert '해설과 대사의 억양' in conn.sent[1]['response']['instructions']
+    assert '원문의 말과 순서' in conn.sent[1]['response']['instructions']
     assert '표준 한국어 발음' in conn.sent[1]['response']['instructions']
 
 
