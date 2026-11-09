@@ -1,7 +1,8 @@
 """Read-only audit of explicitly owned pre-ledger IAP SSH operations.
 
-Unknown journal directories, partial records, unavailable GCE operations,
-changed metadata fingerprints, or a remaining owned SSH row all block.
+Partial records, unavailable GCE operations, changed metadata fingerprints,
+or a remaining owned SSH row all block. An additional directory requires
+both operations to be confirmed under the authenticated operator.
 This does not cover future concurrent writers or close any legacy journal.
 """
 from __future__ import annotations
@@ -39,7 +40,7 @@ _RECORD = re.compile(r'([0-9a-f]{32})\.(intent|started|operation)\.json\Z')
 _FINGERPRINT = re.compile(r'[A-Za-z0-9_+/=-]{1,256}\Z')
 
 
-def audit_owned_legacy_journals(*, client, root='/Users/jmac/.codex', _expected=None):
+def audit_owned_legacy_journals(*, client, root='/Users/jmac/.codex', operator=None, _expected=None):
     """Verify exact known journals and fixed GCE operations without changing either.
 
     `_expected` exists solely to exercise isolated fixtures; production callers
@@ -53,7 +54,8 @@ def audit_owned_legacy_journals(*, client, root='/Users/jmac/.codex', _expected=
                 or info.st_uid != os.geteuid() or info.st_mode & 0o022):
             raise ValueError()
         present = {x.name[len(_PREFIX):] for x in path.iterdir() if x.name.startswith(_PREFIX)}
-        if present != expected:
+        additional = present - expected
+        if expected - present or (additional and not operator):
             raise LegacyAuditError('Unknown or missing IAP legacy journal')
         before = client.metadata()
         metadata = before.get('metadata') if isinstance(before, dict) else None
@@ -61,7 +63,9 @@ def audit_owned_legacy_journals(*, client, root='/Users/jmac/.codex', _expected=
         if not isinstance(fingerprint, str) or not _FINGERPRINT.fullmatch(fingerprint):
             raise ValueError()
         operations = 0
-        for suffix in sorted(expected):
+        requests_seen = set()
+        operations_seen = set()
+        for suffix in sorted(present):
             directory = path / (_PREFIX + suffix)
             with RecoveryJournal(str(directory)) as journal:
                 initial = os.fstat(journal._dir)
@@ -70,6 +74,7 @@ def audit_owned_legacy_journals(*, client, root='/Users/jmac/.codex', _expected=
                 if not parsed or any(match is None for match in parsed):
                     raise ValueError()
                 identifiers = {match.group(1) for match in parsed}
+                entries = set()
                 for identifier in identifiers:
                     intent = journal._read(identifier, 'intent')
                     started = journal._read(identifier, 'started')
@@ -88,7 +93,15 @@ def audit_owned_legacy_journals(*, client, root='/Users/jmac/.codex', _expected=
                             or state['status'] != 'DONE' or 'error' in state
                             or _metadata_view(before, intent['owned_entry'], fingerprint)['owned_entry_count'] != 0):
                         raise ValueError()
+                    if (started['request_id'] in requests_seen or operation['operation'] in operations_seen
+                            or (suffix in additional and state.get('user') != operator)):
+                        raise ValueError()
+                    requests_seen.add(started['request_id'])
+                    operations_seen.add(operation['operation'])
+                    entries.add(intent['owned_entry'])
                     operations += 1
+                if suffix in additional and (len(identifiers) != 2 or len(entries) != 1):
+                    raise ValueError()
                 final = os.fstat(journal._dir)
                 if (files != set(os.listdir(journal._dir)) or any(getattr(initial, name) != getattr(final, name)
                         for name in ('st_dev', 'st_ino', 'st_mtime_ns', 'st_ctime_ns'))):
@@ -99,9 +112,9 @@ def audit_owned_legacy_journals(*, client, root='/Users/jmac/.codex', _expected=
                 or after.get('name') != INSTANCE or not isinstance(after_metadata, dict)
                 or after_metadata.get('fingerprint') != fingerprint):
             raise ValueError()
-        if {x.name[len(_PREFIX):] for x in path.iterdir() if x.name.startswith(_PREFIX)} != expected:
+        if {x.name[len(_PREFIX):] for x in path.iterdir() if x.name.startswith(_PREFIX)} != present:
             raise ValueError()
-        return {'sessions_confirmed': len(expected), 'operations_confirmed': operations,
+        return {'sessions_confirmed': len(present), 'operations_confirmed': operations,
                 'submitted_fingerprints_recorded': False}
     except (LegacyAuditError, ReconcileError):
         raise

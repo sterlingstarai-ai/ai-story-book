@@ -361,14 +361,20 @@ def _remove_identity(path, identity):
 
 
 def _audit_legacy_sessions(infrastructure):
-    """Check the fixed inventory against GCE before any new session is opened."""
+    """Check journal ownership against GCE before any new session is opened."""
     try:
         from scripts.provider_iap_legacy_audit import audit_owned_legacy_journals
         from scripts.provider_iap_reconcile import GceReadOnly
     except ModuleNotFoundError:
         from provider_iap_legacy_audit import audit_owned_legacy_journals
         from provider_iap_reconcile import GceReadOnly
-    return audit_owned_legacy_journals(client=GceReadOnly(env=infrastructure.env))
+    identity = subprocess.run(
+        [_GCLOUD, 'auth', 'list', '--filter=status:ACTIVE', '--format=value(account)', '--quiet'],
+        env=infrastructure.env, capture_output=True, text=True, timeout=15, check=True,
+    ).stdout.strip()
+    if not re.fullmatch(r'[^\s@]+@[^\s@]+', identity):
+        raise SessionError('Authenticated Google Cloud operator is unavailable')
+    return audit_owned_legacy_journals(client=GceReadOnly(env=infrastructure.env), operator=identity)
 
 
 def transfer_via_iap(*, transaction_id, receiver_source, receiver_sha256, known_hosts_file,

@@ -64,6 +64,37 @@ class LegacyAuditTest(unittest.TestCase):
             self.audit()
         self.assertEqual(self.client.calls, 0)
 
+    def test_new_journal_requires_two_verified_operations_from_the_operator(self):
+        directory = self.root / 'asb-ssh-recovery-fixture2'
+        directory.mkdir(mode=0o700)
+        operations = {}
+        with RecoveryJournal(str(directory)) as journal:
+            for name in ('operation-2', 'operation-3'):
+                ident = journal.create_intent(project=PROJECT, zone=ZONE, instance=INSTANCE,
+                                               owned_entry=self.entry, clock=lambda: dt.datetime.now(dt.timezone.utc))
+                operations[name] = journal.mark_started(ident)
+                journal.record_operation(ident, name)
+
+        original = self.client.operation
+        operator = 'operator@example.test'
+
+        def operation(name):
+            value = original(name)
+            if name in operations:
+                value.update(clientOperationId=operations[name], user=operator)
+            return value
+
+        self.client.operation = operation
+        def audit(identity):
+            return audit_owned_legacy_journals(client=self.client, root=str(self.root), operator=identity,
+                                               _expected={'fixture1'})
+        with self.assertRaises(LegacyAuditError):
+            audit('different@example.test')
+        self.assertEqual(audit(operator)['operations_confirmed'], 3)
+        next(directory.glob('*.operation.json')).unlink()
+        with self.assertRaises(LegacyAuditError):
+            audit(operator)
+
     def test_pending_operation_or_current_owned_entry_blocks(self):
         self.client.status = 'RUNNING'
         with self.assertRaises(LegacyAuditError):
