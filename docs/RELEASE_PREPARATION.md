@@ -1,5 +1,13 @@
 # 제한 베타 배포 준비
 
+## 2026-11-09 운영 HTTPS 연결
+
+- Google Cloud가 VM 기본 호스트명에 대한 인증서 발급을 거절해 같은 프로젝트의 Cloud Run 관리형 HTTPS 주소를 사용한다. 게이트웨이는 비공개 VPC 경로로 VM의 기존 TLS 인증서를 검증하고 API 요청을 전달한다. VM의 기존 443 방화벽 범위를 유지한다. 게이트웨이의 상세 상태·API 문서 경로는 공개 전달 대상에서 제외했고, Cloud Run 기본 로그 싱크에는 이 서비스의 요청 로그 제외를 등록했다. [게이트웨이 구성](../infra/gcp-pilot/cloud-run-https-edge/Caddyfile)
+- 공개 게이트웨이를 중지할 때는 Cloud Run 서비스 `asb-https-edge`에 `--invoker-iam-check`를 적용한다. 운영 컨테이너 교체는 기존 VM의 백업 공유 잠금과 부팅 복구 표식을 사용한다. 공개 전에는 후보 이미지, 워커 응답, 백업 원본 고정과 공급자 상태 확인 설정을 대조한다.
+- 운영 API·워커에 `dccfe34`를 배포했다. 새 워커의 Celery 응답을 확인했고, 현재 API 이미지의 백업 소스를 등록하고 공급자 관측 갱신 타이머의 이미지 지정값을 갱신했다. [공개 API 준비 상태](https://asb-https-edge-abvj5xczqa-uc.a.run.app/health/ready)
+- 공개 HTTPS에서 《하루와 모모의 반반 책 시간》 12쪽의 낭독과 캐시 요청은 200, 다른 계정의 접근은 403을 반환했다. 서명 WAV의 부분 요청은 206이었고 전체 파일은 기존과 같은 SHA-256의 25.15초 음원으로 디코딩됐다. 새 책 생성과 음성 합성 요청은 각각 0건이다. [공개 주소에서 확인한 12쪽](acceptance/2026-11-09-public-api-narration/public-verification.json)
+- 같은 공개 API와 정책 주소로 Android 릴리스 번들과 iOS 무서명 릴리스 빌드를 생성했다. 스토어 제출 전 최신 기기 빌드에서 운영 주소로 최종 공동 확인한다. [모바일 빌드 설정](acceptance/2026-11-09-public-api-narration/mobile-release.json)
+
 ## 2026-11-09 공개 정책과 고객지원
 
 - 운영자가 개인정보처리방침·이용약관과 검토본의 지원 이메일 사용을 승인했다. 한국 시간 실제 공개일인 2026-11-09를 두 정책의 시행일로 반영하고, 앱 내 JSON과 웹 HTML을 같은 원본에서 생성했다.
