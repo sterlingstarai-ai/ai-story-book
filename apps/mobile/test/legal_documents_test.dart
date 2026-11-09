@@ -42,7 +42,7 @@ void main() {
   });
   for (final document in LegalDocument.values) {
     testWidgets(
-      'bundled ${document.name} full text opens offline and scrolls at 2.35x',
+      'approved ${document.name} opens offline and scrolls at 2.35x',
       (tester) async {
         tester.view.physicalSize = const Size(390, 844);
         tester.view.devicePixelRatio = 1;
@@ -53,7 +53,11 @@ void main() {
         );
         await settleDocument(tester, document);
         expect(find.textContaining('support@aistorybook.com'), findsNothing);
-        expect(find.textContaining('출시 전 검토본입니다.'), findsOneWidget);
+        expect(find.textContaining('출시 전 검토본입니다.'), findsNothing);
+        expect(
+          find.textContaining(RegExp(r'^시행일 \d{4}-\d{2}-\d{2}$')),
+          findsOneWidget,
+        );
         final lastHeading = find.text(
           document == LegalDocument.privacy ? '6. 보호 조치와 변경' : '6. 변경과 문의',
         );
