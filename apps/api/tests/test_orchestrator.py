@@ -344,15 +344,17 @@ class TestModerateOutput:
         self, lang_code, monkeypatch
     ):
         """ja/zh/es는 키워드망 밖 → LLM 폴백이 unsafe면 차단(fail-open 금지)."""
-        from src.services import llm as llm_module
+        from src.services import llm as llm_module, orchestrator
         from src.services.orchestrator import moderate_output
         from src.models.dto import Language, ModerationResult
 
         called = {}
+        warnings = []
+        monkeypatch.setattr(orchestrator.logger, "warning", lambda *a, **fields: warnings.append(fields))
 
         async def fake_output_mod(text, language):
             called["language"] = language
-            return ModerationResult(is_safe=False, reasons=["violence"], suggestions=[])
+            return ModerationResult(is_safe=False, reasons=["private-child-text"], suggestions=[])
 
         monkeypatch.setattr(
             llm_module, "call_output_moderation", fake_output_mod, raising=False
@@ -360,13 +362,14 @@ class TestModerateOutput:
 
         # 키워드망(ko/en)에 안 걸리는 텍스트지만 LLM은 unsafe로 판정.
         story = self._make_story(
-            title="物語",
+            title="Private Child Story",
             page_texts=["殺す", "銃"],
             language=Language(lang_code),
         )
         result = await moderate_output(story, {})
         assert result is False
         assert called["language"] == Language(lang_code)
+        assert warnings == [{"language": lang_code}]
 
     @pytest.mark.asyncio
     async def test_uncovered_language_safe_passes_via_mock_default(self):
@@ -532,7 +535,7 @@ class TestGenerateAllImages:
         prompts = self._make_image_prompts(4)
         call_count = 0
 
-        async def partial_failure(prompt, job_id, page, reference_image_url=None):
+        async def partial_failure(prompt, job_id, page, reference_image_url=None, **_):
             nonlocal call_count
             call_count += 1
             if page == 2:  # 1개만 실패 (4개 중)
@@ -560,7 +563,7 @@ class TestGenerateAllImages:
 
         prompts = self._make_image_prompts(4)
 
-        async def mostly_fail(prompt, job_id, page, reference_image_url=None):
+        async def mostly_fail(prompt, job_id, page, reference_image_url=None, **_):
             if page == 0:  # cover만 성공
                 return "https://example.com/cover.png"
             raise RuntimeError("Image gen failed")

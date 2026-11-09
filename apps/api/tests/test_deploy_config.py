@@ -78,6 +78,18 @@ def test_infra_env_example_declares_iap_readiness_vars():
         assert var in text, f"infra/.env.example에 {var} 선언 누락"
 
 
+@pytest.mark.parametrize('name', ['.env.example', '.env.external.example'])
+def test_free_beta_examples_match_the_openai_candidate(name):
+    from dotenv import dotenv_values
+
+    values = dotenv_values(REPO_ROOT / 'infra' / name, interpolate=False)
+    assert values['IMAGE_PROVIDER'] == 'openai' and values['IMAGE_MODEL'] == 'gpt-image-2'
+    assert values['TTS_PROVIDER'] == 'openai_realtime'
+    assert values['AUDIO_FEATURE_ENABLED'] == values['AUDIO_NARRATION_ONLY_ENABLED'] == 'true'
+    assert values['OPENAI_TTS_API_KEY'] == values['OPENAI_TTS_API_KEY_FILE'] == ''
+    assert values['PROD_API_URL'] == values['PRIVACY_POLICY_URL'] == values['TERMS_OF_SERVICE_URL'] == ''
+
+
 def test_infra_env_example_has_no_dead_vars():
     text = INFRA_ENV_EXAMPLE.read_text()
     assert not re.search(r"^SECRET_KEY=", text, re.MULTILINE), "config에 없는 죽은 SECRET_KEY"

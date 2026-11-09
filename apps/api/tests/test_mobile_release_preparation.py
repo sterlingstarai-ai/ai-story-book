@@ -69,17 +69,30 @@ def test_release_commands_keep_no_coded_api_credentials_and_no_publication():
 
 
 @pytest.mark.parametrize('platform', ['ios', 'android'])
-def test_execute_blocks_unapproved_bundled_documents(tmp_path, monkeypatch, capsys, platform):
+@pytest.mark.parametrize('document_status', ['draft', 'approved_future', 'approved_with_draft_label'])
+def test_execute_blocks_unready_bundled_documents(tmp_path, monkeypatch, capsys, platform, document_status):
     monkeypatch.setattr(release, 'ROOT', tmp_path)
     legal = tmp_path / 'apps/mobile/assets/legal'
     legal.mkdir(parents=True)
     for slug in ('privacy', 'terms'):
-        (legal / f'{slug}.ko.json').write_text(json.dumps({'publication_status': 'draft'}))
+        effective_date = '2999-01-01' if document_status == 'approved_future' else '2000-01-01'
+        version_label = f'시행일 {effective_date}'
+        if document_status == 'approved_with_draft_label':
+            version_label += ' 검토본'
+        (legal / f'{slug}.ko.json').write_text(json.dumps({
+            'publication_status': 'draft' if document_status == 'draft' else 'approved',
+            'effective_date': effective_date,
+            'operator': 'Test operator', 'contact_email': 'qa@example.com',
+            'title': 'Test document', 'introduction': 'Synthetic text', 'version_label': version_label,
+            'sections': [{'heading': 'Heading', 'paragraphs': ['Test policy']}],
+        }))
     config = tmp_path / 'public-build.json'
     config.write_text(json.dumps(valid()))
     monkeypatch.setattr(release.subprocess, 'run', lambda *args, **kwargs: pytest.fail('Compiler invoked'))
+    monkeypatch.setattr(release, 'verify_published', lambda *args, **kwargs: pytest.fail('Public site contacted'))
 
-    assert release.main(['--config', str(config), '--platform', platform, '--execute']) == 1
+    assert release.main(['--config', str(config), '--platform', platform, '--execute',
+                         '--support-site-config', str(tmp_path / 'site.json')]) == 1
     result = json.loads(capsys.readouterr().out)
     assert result['status'] == 'BLOCKED'
     assert 'Bundled privacy and terms' in result['message']
@@ -99,9 +112,9 @@ def test_execute_requires_approved_documents_and_expected_artifact(
     legal.mkdir(parents=True)
     for slug in ('privacy', 'terms'):
         (legal / f'{slug}.ko.json').write_text(json.dumps({
-            'publication_status': 'approved', 'effective_date': '2026-11-01',
+            'publication_status': 'approved', 'effective_date': '2000-01-01',
             'operator': 'Test operator', 'contact_email': 'qa@example.com',
-            'title': 'Test document', 'introduction': 'Synthetic text', 'version_label': 'v1',
+            'title': 'Test document', 'introduction': 'Synthetic text', 'version_label': '시행일 2000-01-01',
             'sections': [{'heading': 'Heading', 'paragraphs': ['Test policy']}],
         }))
     config = tmp_path / 'public-build.json'

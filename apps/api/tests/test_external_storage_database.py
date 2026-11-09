@@ -1,8 +1,9 @@
 """No-network checks of external PostgreSQL TLS and private S3 configuration."""
 
 import asyncio
+from contextlib import asynccontextmanager
 import ssl
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 from urllib.parse import parse_qs, urlsplit
 
 from botocore.exceptions import ClientError
@@ -13,6 +14,117 @@ from src.core.database_options import database_options
 from src.services import storage
 
 REAL_GET_S3_CLIENT = storage.get_s3_client
+
+
+@pytest.mark.asyncio
+async def test_concurrent_readiness_requests_share_one_read_only_probe(monkeypatch):
+    started = asyncio.Event()
+    finish = asyncio.Event()
+
+    async def head(**kwargs):
+        started.set()
+        await finish.wait()
+
+    client = Mock(head_bucket=AsyncMock(side_effect=head), close=AsyncMock())
+    factory = Mock(return_value=client)
+    monkeypatch.setattr(storage, "get_s3_client", factory)
+    monkeypatch.setattr(storage, "_readiness_lock", asyncio.Lock())
+    tasks = asyncio.gather(*(storage.storage_is_ready() for _ in range(12)))
+    try:
+        await asyncio.wait_for(started.wait(), timeout=2)
+        assert client.head_bucket.await_count == 1
+    finally:
+        finish.set()
+        assert await asyncio.wait_for(tasks, timeout=2) == [True] * 12
+    factory.assert_called_once_with(readiness_probe=True)
+    client.head_bucket.assert_awaited_once_with(Bucket=storage.settings.s3_bucket)
+    client.close.assert_awaited_once()
+    client.create_bucket.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_book_uploads_share_one_client_and_keep_each_write_guard(monkeypatch):
+    from src.services import storage_write_guard
+
+    clients = []
+    guards = []
+
+    @asynccontextmanager
+    async def guard():
+        guards.append(asyncio.current_task())
+        yield
+
+    def make_client(*, bounded_upload=False):
+        client = Mock()
+        clients.append((client, bounded_upload))
+        return client
+
+    monkeypatch.setattr(storage.settings, "testing", False)
+    monkeypatch.setattr(storage, "_bucket_verified", True)
+    monkeypatch.setattr(storage, "get_s3_client", make_client)
+    monkeypatch.setattr(storage_write_guard, "guarded_media_write", guard)
+    async with storage.object_upload_connection_scope():
+        await asyncio.gather(*(
+            storage.storage_service.upload_bytes(b"png", f"jobs/inert/{index}.png") for index in range(12)
+        ))
+        await storage.storage_service.upload_bytes(b"audio", "audio/inert.mp3", bounded_upload=True)
+        assert len(clients) == 2
+        clients[0][0].close.assert_not_called()
+    await storage.storage_service.upload_bytes(b"png", "jobs/other/page.png")
+
+    assert [bounded for _, bounded in clients] == [False, True, False]
+    assert [client.put_object.call_count for client, _ in clients] == [12, 1, 1]
+    assert {call.kwargs["Key"] for call in clients[0][0].put_object.call_args_list} == {
+        f"jobs/inert/{index}.png" for index in range(12)
+    }
+    clients[0][0].close.assert_called_once()
+    assert len(guards) == 14
+
+
+@pytest.mark.asyncio
+async def test_cancelled_book_upload_waits_for_write_before_guard_and_client_close(monkeypatch):
+    from src.services import storage_write_guard
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+    events = []
+    client = Mock()
+
+    @asynccontextmanager
+    async def guard():
+        events.append("guard_open")
+        try:
+            yield
+        finally:
+            events.append("guard_closed")
+
+    async def put(**kwargs):
+        started.set()
+        await release.wait()
+        events.append("uploaded")
+
+    async def generate():
+        async with storage.object_upload_connection_scope():
+            await storage.storage_service.upload_bytes(b"png", "jobs/inert/page.png")
+
+    client.put_object = put
+    client.close.side_effect = lambda: events.append("client_closed")
+    monkeypatch.setattr(storage.settings, "testing", False)
+    monkeypatch.setattr(storage, "_bucket_verified", True)
+    monkeypatch.setattr(storage, "get_s3_client", lambda: client)
+    monkeypatch.setattr(storage_write_guard, "guarded_media_write", guard)
+    task = asyncio.create_task(generate())
+    try:
+        await asyncio.wait_for(started.wait(), timeout=2)
+        for _ in range(2):
+            task.cancel()
+            await asyncio.sleep(0)
+        assert events == ["guard_open"]
+    finally:
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=2)
+    assert events == ["guard_open", "uploaded", "guard_closed", "client_closed"]
 
 
 @pytest.mark.parametrize('asynchronous', [False, True])

@@ -11,6 +11,43 @@ import 'package:ai_story_book/services/api_client.dart';
 
 void main() {
   group('ApiClient', () {
+    test('active generation discovery sends a scoped read and parses job summaries', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      final received = Completer<List<String?>>();
+      server.listen((request) async {
+        received.complete([
+          request.method,
+          request.uri.path,
+          request.headers.value('x-user-key'),
+          request.headers.value('x-profile-id'),
+        ]);
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode([
+          {'job_id': 'job-running', 'status': 'running', 'progress': 72},
+          {'job_id': 'series-waiting', 'status': 'queued', 'progress': 0},
+        ]));
+        await request.response.close();
+      });
+      final client = ApiClient(
+        baseUrl: 'http://${server.address.host}:${server.port}',
+        userKey: 'test-user',
+        profileId: 'profile-a',
+        enableLogging: false,
+      );
+      addTearDown(client.close);
+
+      final jobs = await client.getActiveBookGenerations();
+
+      expect(await received.future, [
+        'GET', '/v1/books/active-generations', 'test-user', 'profile-a',
+      ]);
+      expect(jobs.map((job) => (job.jobId, job.status, job.progress)), [
+        ('job-running', JobState.running, 72),
+        ('series-waiting', JobState.queued, 0),
+      ]);
+    });
+
     test('audio request sends the selected narrator only when non-default', () async {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       addTearDown(() => server.close(force: true));

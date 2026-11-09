@@ -20,7 +20,9 @@ import time
 import urllib.request
 
 import boto3
+from botocore import UNSIGNED
 from botocore.config import Config
+from botocore.exceptions import ClientError
 
 from verify_backup_set import verify
 from quarantined_db_fingerprint import fingerprint
@@ -28,6 +30,7 @@ from quarantined_db_fingerprint import fingerprint
 ROOT = Path('/var/lib/asb-restore')
 PG_BIN = Path('/usr/lib/postgresql/16/bin')
 MINIO = '/usr/local/bin/minio'
+_MAX_MEDIA_LIST_PAGES = 10000
 
 
 class RestoreRuntimeError(RuntimeError):
@@ -105,8 +108,10 @@ def _read_media(client, bucket, objects):
     saw_page = False
     expecting_page = False
     seen_tokens = set()
-    for page in client.get_paginator('list_objects_v2').paginate(Bucket=bucket):
-        if (not isinstance(page, dict) or type(page.get('IsTruncated')) is not bool
+    pages = client.get_paginator('list_objects_v2').paginate(Bucket=bucket)
+    for number, page in enumerate(pages, start=1):
+        if (number > _MAX_MEDIA_LIST_PAGES or not isinstance(page, dict)
+                or type(page.get('IsTruncated')) is not bool
                 or (saw_page and not expecting_page)):
             raise RestoreRuntimeError('Restored media listing is incomplete')
         saw_page = True
@@ -117,14 +122,20 @@ def _read_media(client, bucket, objects):
                     or continuation in seen_tokens):
                 raise RestoreRuntimeError('Restored media listing is incomplete')
             seen_tokens.add(continuation)
+        elif 'NextContinuationToken' in page:
+            raise RestoreRuntimeError('Restored media listing is incomplete')
         entries = page.get('Contents', [])
-        if not isinstance(entries, list):
+        if (not isinstance(entries, list) or page.get('CommonPrefixes', []) != []
+                or page.get('Name', bucket) != bucket or page.get('Prefix', '') != ''
+                or page.get('Delimiter', '') != ''
+                or ('KeyCount' in page and (type(page['KeyCount']) is not int
+                                            or page['KeyCount'] != len(entries)))):
             raise RestoreRuntimeError('Restored media listing is incomplete')
         for item in entries:
             if not isinstance(item, dict):
                 raise RestoreRuntimeError('Restored media listing is incomplete')
             key = item.get('Key')
-            if key not in expected or key in actual:
+            if not isinstance(key, str) or key not in expected or key in actual:
                 raise RestoreRuntimeError('Restored media inventory differs')
             actual.add(key)
             result = client.get_object(Bucket=bucket, Key=key)
@@ -154,6 +165,19 @@ def _restore_media(client, bucket, folder, objects):
         with (folder / item['file']).open('rb') as body:
             client.put_object(Bucket=bucket, Key=item['key'], Body=body, IfNoneMatch='*', **headers)
     _read_media(client, bucket, objects)
+
+
+def _require_private_media(anonymous, bucket, objects):
+    for item in objects:
+        try:
+            response = anonymous.get_object(Bucket=bucket, Key=item['key'])
+        except ClientError as exc:
+            if (exc.response.get('ResponseMetadata', {}).get('HTTPStatusCode') == 403
+                    and exc.response.get('Error', {}).get('Code') == 'AccessDenied'):
+                continue
+            raise RestoreRuntimeError('Anonymous media access could not be verified') from None
+        response['Body'].close()
+        raise RestoreRuntimeError('Restored media is accessible without authentication')
 
 
 def restore(token):
@@ -199,7 +223,7 @@ def restore(token):
         _run([str(PG_BIN / 'createdb'), 'restored'], env=env)
         _run([str(PG_BIN / 'psql'), '-X', '-v', 'ON_ERROR_STOP=1', '-d', 'restored',
               '-c', 'DROP SCHEMA public CASCADE'], env=env)
-        _run([str(PG_BIN / 'pg_restore'), '--exit-on-error', '--no-owner', '--no-privileges',
+        _run([str(PG_BIN / 'pg_restore'), '--exit-on-error', '--single-transaction', '--no-owner', '--no-privileges',
               '-d', 'restored', str(folder / 'database.dump')], env=env, timeout=180)
         current = _run([str(PG_BIN / 'psql'), '-X', '-At', '-d', 'restored', '-c',
                         'SELECT version_num FROM public.alembic_version ORDER BY version_num'], env=env).decode().strip()
@@ -214,18 +238,27 @@ def restore(token):
                                  env=minio_env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                  start_new_session=True)
         _wait_minio(minio)
-        client = boto3.client('s3', endpoint_url='http://127.0.0.1:59000',
+        endpoint = 'http://127.0.0.1:59000'
+        client = boto3.client('s3', endpoint_url=endpoint,
             aws_access_key_id=user, aws_secret_access_key=password, region_name='us-east-1',
             config=Config(signature_version='s3v4', s3={'addressing_style': 'path'},
                           proxies={}, connect_timeout=3, read_timeout=15, retries={'max_attempts': 1}))
         bucket = 'quarantine-restore'
-        client.create_bucket(Bucket=bucket)
-        _restore_media(client, bucket, folder, manifest['objects'])
+        anonymous = boto3.client('s3', endpoint_url=endpoint, region_name='us-east-1',
+            config=Config(signature_version=UNSIGNED, s3={'addressing_style': 'path'},
+                          proxies={}, connect_timeout=3, read_timeout=15, retries={'max_attempts': 1}))
+        try:
+            client.create_bucket(Bucket=bucket)
+            _restore_media(client, bucket, folder, manifest['objects'])
+            _require_private_media(anonymous, bucket, manifest['objects'])
+        finally:
+            anonymous.close()
+            client.close()
         runtime = data / 'runtime.json'
         fd = os.open(runtime, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, 'O_NOFOLLOW', 0), 0o600)
         with os.fdopen(fd, 'w') as output:
             json.dump({'version': 1, 'database': 'restored', 'db_port': 54321,
-                       'storage_endpoint': 'http://127.0.0.1:59000', 'bucket': bucket,
+                       'storage_endpoint': endpoint, 'bucket': bucket,
                        'storage_user': user, 'storage_password': password, 'minio_pid': minio.pid,
                        'database_fingerprint': database_fingerprint,
                        'restore_authorized': False}, output)

@@ -90,9 +90,12 @@ For an isolated integration rehearsal, use the disposable runtime gate:
 ```
 
 Use `./scripts/run_runtime_e2e.sh --suite first-book-trial` to verify the single
-signup credit, twelve signed page images, idempotent retry, and exhausted
+signup credit, twelve signed page images for a book for ages 7–9, idempotent retry, and exhausted
 credit handling with checkout disabled. An invited synthetic account generates
 the book. Another synthetic account keeps its credit when generation is denied.
+The runtime check delays the worker until a fresh HTTP client rediscovers the
+queued job. It checks that another profile and account cannot list the job, then
+verifies that the same job completes and the book appears in the library.
 AI providers remain deterministic mocks.
 
 For a localhost-only interactive review after those checks, add
@@ -105,6 +108,75 @@ browser storage. Its no-store responses and build-specific JS URLs prevent an
 older cached application bundle from invalidating the review. This mode uses synthetic mocks, keeps public
 readiness blocked, never loads saved provider credentials, and cleans up only its
 own resources on shutdown; it is not a hosting deployment.
+
+For the current Android joint-review APK, use port 18080 for the local
+first-book preview and a fresh report directory:
+
+```bash
+asb_review_dir=$(mktemp -d)
+./scripts/run_runtime_e2e.sh --suite first-book-trial --serve \
+  --api-port 18080 --report-dir "$asb_review_dir"
+```
+
+After `Synthetic preview API ready` appears, reverse port 18080 and the media
+port from `preview_media_url` in the report through the Android test device.
+Use `adb -s <test-device> reverse tcp:<port> tcp:<port>` once for each port.
+Both ports remain bound to the Mac's loopback interface. The iOS QA package
+uses the Mac's local-network address. For that build, use a separate first-book
+preview run with the Mac interface and iPhone address on the same private network:
+
+```bash
+./scripts/run_runtime_e2e.sh --suite first-book-trial --serve --api-port 57332 \
+  --report-dir "$asb_review_dir" \
+  --iphone-bind-ip "$asb_mac_ipv4" --iphone-peer-ip "$asb_iphone_ipv4"
+```
+
+Use a fresh report directory and substitute the actual private IPv4 addresses.
+The Mac and the selected iPhone are the only allowed clients on the two
+review listeners. The report's `preview_iphone_api_url` must match the Mac
+hostname used by the QA build. `preview_media_url` uses the same `.local`
+hostname with the storage port, so MinIO can verify the original signed `Host`.
+The listeners close when the preview stops. For a Mac-only check, specify the
+same Mac address for both options.
+
+In the QA app, complete consent and copy **베타 참여 ID** in Settings. On the
+Mac, add that ID as a single line to the private `review-invitations.txt` in the
+same report directory. On macOS and Linux the running preview reads that file
+on the next admission check and preserves consent and books already recorded.
+Return to the app's creation screen or reopen the app to refresh availability.
+The file accepts only lowercase, 64-character invitation IDs. If an ID is
+already available at startup, repeat `--invite-id` for each account instead.
+The preview uses mock AI, and stopping it removes the disposable account data
+and the invitation file.
+
+For a whole-book playback review, append the following option to either device
+preview command. This uses the locally stored fictional acceptance archive:
+
+```bash
+--review-archive docs/acceptance/2026-11-07-live-length-fixed-first-book
+```
+
+In the app, create a Korean 7–9 book with 12 pages, watercolor, no added
+character, and the exact topic **하루와 세 알의 기다림**. This request replays
+the archived text and illustrations. Select **기본 목소리** and **구연동화**
+in the reader to play the previously recorded Kore audio. The preview verifies
+the text and audio hashes before replay. Other voices and styles have no
+recordings in this archive. The preview makes no new synthesis request.
+
+For the OpenAI Realtime QA packages, append these options instead:
+
+```bash
+--review-archive docs/acceptance/2026-11-08-auto-action-focus-live \
+--review-realtime-audio docs/acceptance/2026-11-08-realtime-live-full-book
+```
+
+Use the same book settings with the exact topic **하루와 반짝이는 작은 숲**.
+Select **기본 목소리** and **구연동화** for the twelve archived Coral recordings.
+The runner checks the archived title, each narration input and WAV hash, and
+the WAV format before starting. The app's Settings can also play all six
+bundled OpenAI samples. These samples do not add recordings for the other
+styles or voices to the archived book. The provider adapter reads from the
+staged archive and requires a fixture-only credential.
 
 It requires Docker Compose, the API Python dependencies, and locally available
 `postgres:15-alpine`, `redis:7-alpine`, and `storybook-minio-test:2025-09-07`.
@@ -197,10 +269,12 @@ For an independent PostgreSQL/private-media backup and restore rehearsal:
 ./scripts/run_backup_restore_rehearsal.sh --report-dir /tmp/storybook-restore-report
 ```
 
-It migrates the current schema, restores synthetic data into a second empty stack,
-compares every table and media checksum, and verifies restored constraints and private
-access. Both temporary stacks and all dump/media files are removed. The result is a
-small-fixture recovery check, not production RTO/RPO evidence. See
+It migrates the current schema, publishes the synthetic dump and media through a GCS
+stand-in, and restores the quarantined import into a second empty stack. It rejects
+missing or replaced completion markers and corrupted payloads, compares table and media
+checksums, and verifies restored constraints and private access. Both temporary stacks
+and all dump/media files are removed. The result measures recovery of the small fixture.
+Production RTO and RPO require a separate measurement. See
 [BACKUP_RESTORE.md](BACKUP_RESTORE.md) for production ordering and deletion replay.
 
 The optional `PRIVACY_JOURNAL_WITNESS_BUCKET` requires a distinct private GCS
@@ -252,6 +326,11 @@ For low-risk local validation, use mock providers where available.
 Set `PROD_API_URL=https://<real-api-host>` in `infra/.env`. Deployment health and smoke
 use this HTTPS origin with certificate validation; a redirect is not a pass.
 
+When the free first book is enabled, `deploy` and `start` also run the free beta
+preflight before any image pulls, migrations, or service changes. Resolve its
+configuration and bundled policy findings before retrying. The published pages,
+provider data controls, and device verification still require their own evidence.
+
 Minimum acceptance after deploy:
 - `docker compose ps` healthy
 - `/health/live` returns `200`
@@ -275,7 +354,7 @@ optional Kakao do not require their keys.
 ./scripts/final-external-preflight.sh --env-file infra/.env --json
 ```
 
-무료 제한 베타 후보에는 `--free-beta`를 추가한다. 초대 전용 생성, 신규 구매 비활성화, Gemini 낭독 설정과 모바일 빌더와 동일한 공개 HTTPS 주소 형식을 확인한다. 계정별 일일 책 생성 한도와 계정별·전역 대기열 한도는 각각 최소 1이어야 한다. 새 캐릭터와 기본 12쪽 동화 및 12쪽의 새 낭독을 하루에 시험하려면 공유 생성 한도가 최소 14회이며 Gemini 일일·월간 한도는 각각 최소 12회다. 이 수치는 한 권을 검증하기 위한 요청 수다. 운영 한도 변경은 별도 절차를 따른다.
+무료 제한 베타 후보에는 `--free-beta`를 추가한다. 초대 전용 생성, 신규 구매 비활성화, OpenAI Realtime 낭독 설정과 모바일 빌더와 동일한 공개 HTTPS 주소 형식을 확인한다. 계정별 일일 책 생성 한도와 계정별·전역 대기열 한도는 각각 최소 1이어야 한다. 새 캐릭터와 기본 12쪽 동화 및 12쪽의 새 낭독을 하루에 시험하려면 공유 생성 한도가 최소 14회여야 한다. 운영 한도 변경은 별도 절차를 따른다. 출시 전에 해당 OpenAI 프로젝트의 ZDR 적용 범위, 가상 동화의 실제 한국어 합성과 실기기 전권 재생을 확인한다. [OpenAI 데이터 제어](https://developers.openai.com/api/docs/guides/your-data)
 
 The external preflight loads only explicitly selected dotenv files without executing
 shell content; mobile values such as `PROD_API_URL` can be exported or provided with
@@ -285,7 +364,8 @@ checks cannot prove live AI, legal approval, actual purchases or production oper
 No secret values are included in text or JSON output.
 
 The preflight also checks both `apps/mobile/assets/legal/*.ko.json` sources for
-approved status and a valid effective date. Run `python3 scripts/render_legal_documents.py`
+complete text, approved status and an effective date that has arrived in Korea.
+Run `python3 scripts/render_legal_documents.py`
 after an approved source revision, then refresh the private publication hashes.
 The public builder rejects a document still marked `review`, even with an approval
 flag. Mobile release compilation rejects absent public policy URL defines; native

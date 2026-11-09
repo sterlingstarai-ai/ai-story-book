@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:ai_story_book/core/api_error.dart';
 import 'package:ai_story_book/l10n/app_localizations.dart';
 import 'package:ai_story_book/main.dart' show buildAppRoute;
 import 'package:ai_story_book/models/models.dart';
@@ -24,7 +25,10 @@ import 'support/design_capture.dart';
 class _Api extends ApiClient {
   _Api() : super(baseUrl: 'http://test', userKey: 'test', enableLogging: false);
   int creditReads = 0;
+  int balance = 3;
+  bool loseFirstResponse = false;
   final specs = <BookSpec>[];
+  final attemptKeys = <String?>[];
   List<Character> characters = [];
   Future<Map<String, dynamic>>? profiles;
 
@@ -39,7 +43,7 @@ class _Api extends ApiClient {
   @override
   Future<int> getCreditsBalance() async {
     creditReads++;
-    return 3;
+    return balance;
   }
 
   @override
@@ -48,6 +52,15 @@ class _Api extends ApiClient {
     String? idempotencyKey,
   }) async {
     specs.add(spec);
+    attemptKeys.add(idempotencyKey);
+    if (loseFirstResponse && specs.length == 1) {
+      balance--;
+      throw ApiError(code: 'TIMEOUT', message: '', statusCode: 0);
+    }
+    if (balance == 0 &&
+        !(loseFirstResponse && idempotencyKey == attemptKeys.first)) {
+      throw ApiError(code: 'PAYMENT_REQUIRED', message: '', statusCode: 402);
+    }
     return CreateBookResponse(jobId: 'created', status: 'queued');
   }
 }
@@ -330,8 +343,62 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.specs.single.protagonistName, '별이');
     expect(api.specs.single.targetAge, '7-9');
-    expect(api.creditReads, 1);
+    expect(api.creditReads, 0);
   });
+
+  testWidgets(
+    'retry reopens the accepted first book after the response is lost',
+    (tester) async {
+      final api = _Api()
+        ..balance = 1
+        ..loseFirstResponse = true;
+      addTearDown(api.close);
+      await _open(tester, api);
+      await tester.enterText(find.byType(TextFormField), '숲에서 친구를 만나는 이야기');
+      FocusManager.instance.primaryFocus?.unfocus();
+      final submit = find.byType(PrimaryButton);
+      await tester.ensureVisible(submit);
+      await tester.pumpAndSettle();
+
+      await tester.tap(submit);
+      await tester.pumpAndSettle();
+      expect(api.balance, 0);
+      expect(api.attemptKeys.single, isNotNull);
+      expect(find.byType(CreateScreen), findsOneWidget);
+
+      await tester.tap(submit);
+      await tester.pumpAndSettle();
+      expect(api.attemptKeys, [api.attemptKeys.first, api.attemptKeys.first]);
+      expect(api.creditReads, 0);
+      expect(api.balance, 0);
+      expect(find.text('created'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'a genuine server credit rejection still shows the credit dialog',
+    (tester) async {
+      final api = _Api()..balance = 0;
+      addTearDown(api.close);
+      await _open(tester, api);
+      await tester.enterText(find.byType(TextFormField), '숲에서 친구를 만나는 이야기');
+      FocusManager.instance.primaryFocus?.unfocus();
+      final submit = find.byType(PrimaryButton);
+      await tester.ensureVisible(submit);
+      await tester.pumpAndSettle();
+      await tester.tap(submit);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(api.specs, hasLength(1));
+      expect(api.creditReads, 0);
+      expect(find.text('이용 가능한 기능과 잔액을 확인해요'), findsOneWidget);
+      expect(find.text('created'), findsNothing);
+      Navigator.of(tester.element(find.byType(BottomSheet))).pop();
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('late defaults never overwrite cleared name or selected age', (
     tester,

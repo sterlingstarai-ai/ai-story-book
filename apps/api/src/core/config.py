@@ -73,7 +73,11 @@ class Settings(BaseSettings):
 
     def __init__(self, **values):
         super().__init__(**values)
-        pairs = (("llm_api_key", "llm_api_key_file"), ("image_api_key", "image_api_key_file"))
+        pairs = (
+            ("llm_api_key", "llm_api_key_file"),
+            ("image_api_key", "image_api_key_file"),
+            ("openai_tts_api_key", "openai_tts_api_key_file"),
+        )
         for key_name, file_name in pairs:
             path = getattr(self, file_name)
             if path and getattr(self, key_name):
@@ -179,7 +183,7 @@ class Settings(BaseSettings):
     # GPT Image generations and reference edits; other providers keep their own options.
     openai_image_quality: Literal["low", "medium", "high", "auto"] = "medium"
     image_timeout: int = 90
-    image_max_concurrent: int = 3
+    image_max_concurrent: int = Field(default=3, ge=1)
     image_max_retries: int = 3  # Maximum retries for image generation
     # Completed generated illustrations only; verified OpenAI vision model required.
     # Mock/local development may disable it. Production readiness requires it.
@@ -197,7 +201,8 @@ class Settings(BaseSettings):
 
     # TTS (Text-to-Speech)
     tts_provider: str = "mock"  # mock, openai, google, elevenlabs, openai_realtime (experimental)
-    openai_tts_api_key: Optional[str] = None
+    openai_tts_api_key: Optional[str] = Field(default=None, exclude=True, repr=False)
+    openai_tts_api_key_file: str = ""
     openai_tts_model: str = "gpt-4o-mini-tts"
     openai_tts_voice: str = "coral"
     google_tts_api_key: Optional[str] = None

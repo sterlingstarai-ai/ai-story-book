@@ -6,44 +6,76 @@ service-drain/restore controls. A successful upload never authorizes restore.
 """
 
 import argparse
+import ast
 import asyncio
-from contextlib import closing, contextmanager
+from contextlib import closing, contextmanager, redirect_stdout
 from datetime import datetime, timezone
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import stat
+import subprocess
 import sys
 import tempfile
+import time
 import uuid
 
 from dotenv import dotenv_values
 
 from automatic_backup import run_guarded_backup
 from backup_external import (assert_quiescent, create_backup, database_environment,
-                             inventory, inventory_fingerprint, storage_client)
-from backup_service_guard import BackupServiceGuard, DockerRuntime
+                             inventory, inventory_fingerprint, storage_client, verify_database_backup_tools)
+from backup_service_guard import BackupServiceGuard, DockerRuntime, recover_services
 from final_external_preflight import external_infrastructure_errors, present
 from postgres_backup_fence import PostgresBackupFence
 from publish_backup_gcs import GCSBackupStore
 
 ROOT = Path(__file__).resolve().parents[1]
 API = ROOT / 'apps' / 'api'
-BACKUP_API_SOURCES = Path('/opt/ai-story-book/backup-api-sources')
+PILOT_ROOT = Path('/opt/ai-story-book')
+BACKUP_API_SOURCES = PILOT_ROOT / 'backup-api-sources'
+SCHEDULER_ENV = Path('/etc/ai-story-book/pilot/private/backup-config.env')
+_BUCKET_OPTIONS = {
+    '--journal-bucket': 'ASB_JOURNAL_BUCKET',
+    '--backup-bucket': 'ASB_BACKUP_BUCKET',
+    '--journal-witness-bucket': 'ASB_JOURNAL_WITNESS_BUCKET',
+}
+_PRIVATE_OPTIONS = {'--env-file', '--ca-file', '--journal-key-file'}
+_DATA_OPTIONS = {'--state-dir', '--output-dir'}
+BACKUP_DISK_RESERVE_BYTES = 1024 * 1024 * 1024
 
 
 class ScheduledBackupError(RuntimeError):
     pass
 
 
-def require_backup_disk_headroom(output_dir, *, minimum_bytes=1024 * 1024 * 1024):
+def verify_backup_sources(values, environment, query):
+    """Check source access and measure the media that must fit on disk."""
+    verify_database_backup_tools(environment, query)
+    try:
+        with closing(storage_client(values)) as client:
+            objects = inventory(client, values['S3_BUCKET'])
+        size = 0
+        for metadata in objects.values():
+            value = metadata['Size']
+            if not re.fullmatch(r'[0-9]{1,20}', value):
+                raise ValueError('Media size is invalid')
+            size += int(value)
+        return size
+    except Exception:
+        raise ScheduledBackupError('Source media inventory could not be verified') from None
+
+
+def require_backup_disk_headroom(output_dir, *, minimum_bytes=BACKUP_DISK_RESERVE_BYTES):
     """Check the destination filesystem before stopping live services.
 
-    This is a fixed emergency reserve, not an estimate of backup size and not
-    a guarantee against concurrent writers or an unexpectedly large backup.
+    The caller can include known media bytes above the reserve. This does not
+    bound dump size or guarantee space against concurrent changes.
     """
     if not isinstance(output_dir, Path) or not output_dir.is_absolute():
         raise ScheduledBackupError('An absolute backup destination is required')
@@ -62,15 +94,13 @@ def require_backup_disk_headroom(output_dir, *, minimum_bytes=1024 * 1024 * 1024
         raise ScheduledBackupError('Insufficient backup disk headroom')
 
 
-def record_success(state_dir):
-    """Persist the time of a remotely verified cycle after service recovery."""
-    target = state_dir / 'last-verified-backup.json'
-    fd, temp_name = tempfile.mkstemp(prefix='.last-verified-', dir=state_dir)
+def _write_backup_record(state_dir, filename, record):
+    target = state_dir / filename
+    fd, temp_name = tempfile.mkstemp(prefix=f'.{filename}-', dir=state_dir)
     try:
         with os.fdopen(fd, 'w') as output:
             os.fchmod(output.fileno(), 0o600)
-            json.dump({'version': 1, 'verified_at': datetime.now(timezone.utc).isoformat(),
-                       'restore_authorized': False}, output, sort_keys=True)
+            json.dump(record, output, sort_keys=True)
             output.write('\n')
             output.flush()
             os.fsync(output.fileno())
@@ -83,6 +113,21 @@ def record_success(state_dir):
     finally:
         if os.path.exists(temp_name):
             os.unlink(temp_name)
+
+
+def record_success(state_dir):
+    """Persist the time of a remotely verified cycle after service recovery."""
+    _write_backup_record(state_dir, 'last-verified-backup.json', {
+        'version': 1, 'verified_at': datetime.now(timezone.utc).isoformat(), 'restore_authorized': False,
+    })
+
+
+def record_failure(state_dir, stage):
+    """Persist only the stage and time so a reboot cannot erase the diagnosis."""
+    _write_backup_record(state_dir, 'last-scheduled-failure.json', {
+        'version': 1, 'failed_at': datetime.now(timezone.utc).isoformat(), 'stage': stage,
+        'restore_authorized': False,
+    })
 
 
 def private_file(path, *, max_bytes):
@@ -102,21 +147,35 @@ def private_file(path, *, max_bytes):
 
 def assert_idle_worker(runtime):
     """Reject unresponsive, multiple, active, reserved or ETA worker tasks."""
-    workers = None
-    for kind in ('active', 'reserved', 'scheduled'):
-        raw = runtime._run(['exec', 'asb-pilot-worker', 'celery', '-A', 'src.worker', 'inspect',
-                            kind, '--timeout', '10', '--json'], timeout=30)
-        try:
-            value = json.loads(raw)
-        except ValueError:
-            raise ScheduledBackupError('Worker state could not be verified') from None
-        if (not isinstance(value, dict) or len(value) != 1
-                or any(not isinstance(tasks, list) or tasks for tasks in value.values())):
-            raise ScheduledBackupError('Worker is busy or did not respond')
-        current = frozenset(value)
-        if workers is not None and current != workers:
-            raise ScheduledBackupError('Worker identity changed during drain')
-        workers = current
+    # Separate control mailboxes and broker connections preserve the full
+    # broadcast window without starting three Python processes on the pilot VM.
+    probe = '''
+from concurrent.futures import ThreadPoolExecutor
+import json
+from socket import gethostname
+from celery.app.control import Control
+from src.worker import celery_app
+
+kinds = ('active', 'reserved', 'scheduled')
+expected = [{f'celery@{gethostname()}': []}]
+controls = {kind: Control(app=celery_app) for kind in kinds}
+
+def idle(kind):
+    with celery_app.connection_for_read() as connection:
+        replies = controls[kind].broadcast(kind, connection=connection, reply=True, timeout=10)
+    return replies == expected
+
+with ThreadPoolExecutor(max_workers=len(kinds)) as pool:
+    print(json.dumps(dict(zip(kinds, pool.map(idle, kinds), strict=True))))
+'''
+    raw = runtime._run(['exec', 'asb-pilot-worker', 'python', '-c', probe], timeout=30)
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        raise ScheduledBackupError('Worker state could not be verified') from None
+    if (not isinstance(value, dict) or set(value) != {'active', 'reserved', 'scheduled'}
+            or any(idle is not True for idle in value.values())):
+        raise ScheduledBackupError('Worker is busy or did not respond')
 
 
 def assert_runtime_journal_binding(runtime, primary_bucket, witness_bucket, s3_values=None):
@@ -274,36 +333,222 @@ def backup_api_source(image_id, *, mirrored):
     return path
 
 
+def _scheduler_path(value, parent):
+    path = Path(value)
+    return (re.fullmatch(r'/[A-Za-z0-9_./-]+', value)
+            and str(path) == value and '..' not in path.parts and parent in path.parents)
+
+
+def _scheduler_plan(raw, config):
+    """Allow only the known scheduler command shape and literal environment file."""
+    lines = raw.splitlines()
+    props = dict(line.split('=', 1) for line in lines if '=' in line)
+    if (len(lines) != 3 or set(props) != {'ExecStartEx', 'NeedDaemonReload', 'EnvironmentFiles'}
+            or props['NeedDaemonReload'] != 'no'
+            or props['EnvironmentFiles'] != f'{SCHEDULER_ENV} (ignore_errors=no)'):
+        raise ScheduledBackupError('Loaded scheduler unit or environment is unexpected')
+    command = re.fullmatch(r'\{ path=([^ ;]+) ; argv\[\]=([^;]+) ; flags= ; [^{}]+\}',
+                           props['ExecStartEx'].strip())
+    if command is None:
+        raise ScheduledBackupError('Exactly one unmodified scheduler command is required')
+    executable, command_line = command.groups()
+    argv = shlex.split(command_line)
+    if (len(argv) < 3 or argv[0] != executable or argv[2] != '--execute'
+            or not (_scheduler_path(argv[0], PILOT_ROOT) or argv[0] == '/usr/bin/python3')
+            or not re.fullmatch(r'python(?:3(?:\.\d+)?)?', Path(argv[0]).name)
+            or not _scheduler_path(argv[1], PILOT_ROOT)
+            or Path(argv[1]).name != 'run_scheduled_backup.py'):
+        raise ScheduledBackupError('Loaded scheduler executable is unexpected')
+    fields = argv[3:]
+    options = fields[::2]
+    witness_option = '--journal-witness-bucket'
+    required = _PRIVATE_OPTIONS | _DATA_OPTIONS | (_BUCKET_OPTIONS.keys() - {witness_option})
+    if (len(fields) != 2 * len(options) or len(options) != len(set(options))
+            or set(options) not in (required, required | {witness_option})):
+        raise ScheduledBackupError('Loaded scheduler arguments are unexpected')
+    original = ' '.join(argv)
+    environment = {}
+    allowed_variables = _BUCKET_OPTIONS.values()
+    for line in config.splitlines():
+        if not line.strip() or line.lstrip().startswith(('#', ';')):
+            continue
+        assignment = re.fullmatch(r'([A-Za-z_][A-Za-z0-9_]*)=([A-Za-z0-9_./:@+\-]*)', line)
+        if assignment is None or assignment[1] in environment:
+            raise ScheduledBackupError('Scheduler environment assignments must be unique and literal')
+        if assignment[1] not in allowed_variables:
+            raise ScheduledBackupError('Scheduler environment contains an unreviewed variable')
+        environment[assignment[1]] = assignment[2]
+    if witness_option not in options:
+        fields.extend((witness_option, '${ASB_JOURNAL_WITNESS_BUCKET}'))
+    dry_args = ['--check-bindings']
+    for option, value in zip(fields[::2], fields[1::2], strict=True):
+        if option in _BUCKET_OPTIONS:
+            name = _BUCKET_OPTIONS[option]
+            if value != '${' + name + '}':
+                raise ScheduledBackupError('Scheduler bucket argument is not bound to its environment')
+            value = environment.get(name, '')
+            if not re.fullmatch(r'[a-z0-9][a-z0-9-]{1,61}[a-z0-9]', value):
+                raise ScheduledBackupError('Scheduler bucket configuration is absent or ambiguous')
+        elif not _scheduler_path(value, SCHEDULER_ENV.parent if option in _PRIVATE_OPTIONS
+                                 else Path('/var/lib/ai-story-book')):
+            raise ScheduledBackupError('Loaded scheduler data path is unexpected')
+        dry_args.extend((option, value))
+    command = ' '.join(argv[:3] + fields)
+    return {
+        'status': 'SCHEDULER_WITNESS_PLAN_CHECKED',
+        'loaded_exec_start_sha256': hashlib.sha256(original.encode()).hexdigest(),
+        'proposed_exec_start_sha256': hashlib.sha256(command.encode()).hexdigest(),
+        'scheduler_bindings_sha256': hashlib.sha256(
+            json.dumps(dry_args[1:], separators=(',', ':')).encode()).hexdigest(),
+        'already_bound': witness_option in options,
+        'drop_in': None if witness_option in options else f'[Service]\nExecStart=\nExecStart={command}\n',
+        'installed': False, 'backup_created': False, 'restore_authorized': False,
+    }, dry_args, Path(argv[1])
+
+
+def _verify_pinned_scheduler(path):
+    path = path.resolve(strict=True)
+    if PILOT_ROOT not in path.parents:
+        raise ScheduledBackupError('Pinned scheduler is outside the pilot tree')
+    with os.fdopen(os.open(path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0)), 'rb') as source:
+        mode = os.fstat(source.fileno())
+        if not stat.S_ISREG(mode.st_mode) or mode.st_uid != os.geteuid() or mode.st_mode & 0o022:
+            raise ScheduledBackupError('Pinned scheduler is not trusted')
+        data = source.read(1024 * 1024 + 1)
+    if len(data) > 1024 * 1024 or not any(
+        isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        and node.func.attr == 'add_argument' and node.args and isinstance(node.args[0], ast.Constant)
+        and node.args[0].value == '--journal-witness-bucket'
+        for node in ast.walk(ast.parse(data))
+    ):
+        raise ScheduledBackupError('Pinned scheduler does not accept the witness option')
+    return hashlib.sha256(data).hexdigest()
+
+
+def _read_scheduler_plan():
+    raw = subprocess.run(
+        ['/usr/bin/systemctl', 'show', 'asb-backup.service',
+         '--property=ExecStartEx,NeedDaemonReload,EnvironmentFiles'],
+        capture_output=True, text=True, timeout=15, check=True,
+    ).stdout
+    config = private_file(SCHEDULER_ENV, max_bytes=1024 * 1024).decode('utf-8')
+    return _scheduler_plan(raw, config)
+
+
+def _plan_systemd_witness(expected_fingerprints=None, *, expected_bindings=None):
+    stage = 'loaded_scheduler'
+    try:
+        report, dry_args, pinned = _read_scheduler_plan()
+        stage = 'pinned_runner'
+        report['pinned_runner_sha256'] = _verify_pinned_scheduler(pinned)
+        stage = 'reviewed_fingerprints'
+        if expected_fingerprints is not None and expected_fingerprints != (
+                report['loaded_exec_start_sha256'], report['pinned_runner_sha256']):
+            raise ScheduledBackupError('Loaded scheduler differs from the reviewed plan')
+        if expected_bindings is not None and expected_bindings != report['scheduler_bindings_sha256']:
+            raise ScheduledBackupError('Scheduler bindings differ from the reviewed plan')
+        verify_prerequisites = expected_bindings is not None
+        stage = 'writer_bindings'
+        check_args = ['--check-prerequisites', *dry_args[1:]] if verify_prerequisites else dry_args
+        with redirect_stdout(io.StringIO()) as output:
+            status = main(check_args)
+        observed = json.loads(output.getvalue())
+        if status != 0 and verify_prerequisites and isinstance(observed, dict):
+            failed_stage = observed.get('stage')
+            if failed_stage in ('backup_source', 'configuration', 'initialization',
+                                'writer_bindings', 'source_preflight', 'destination_preflight', 'journal_preflight'):
+                stage = failed_stage
+        if status != 0 or observed != {
+            'status': 'PREREQUISITES_CHECKED' if verify_prerequisites else 'BINDINGS_CHECKED',
+            'services_stopped': False,
+            'backup_created': False, 'restore_authorized': False,
+        }:
+            raise ScheduledBackupError('Proposed backup checks failed')
+        if verify_prerequisites:
+            stage = 'scheduler_changed'
+            fresh, fresh_args, fresh_pinned = _read_scheduler_plan()
+            if (fresh['loaded_exec_start_sha256'] != report['loaded_exec_start_sha256']
+                    or fresh_args != dry_args or fresh_pinned != pinned
+                    or _verify_pinned_scheduler(fresh_pinned) != report['pinned_runner_sha256']):
+                raise ScheduledBackupError('Scheduler changed during verification')
+            report['prerequisites_checked'] = True
+        print(json.dumps(report))
+        return 0
+    except (OSError, SyntaxError, ValueError, subprocess.SubprocessError, ScheduledBackupError):
+        print(json.dumps({'status': 'SCHEDULER_WITNESS_PLAN_FAILED', 'failure_stage': stage, 'installed': False,
+                          'backup_created': False, 'restore_authorized': False}))
+        return 1
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--execute', action='store_true')
-    parser.add_argument('--recover', action='store_true')
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--execute', action='store_true')
+    mode.add_argument('--recover', action='store_true')
+    mode.add_argument('--check-bindings', action='store_true',
+                      help='Check the scheduled backup inputs and live container bindings without stopping services')
+    mode.add_argument('--check-prerequisites', action='store_true',
+                      help='Read backup sources and reconcile the privacy journal without stopping services')
+    mode.add_argument('--plan-systemd-witness', action='store_true',
+                      help='Print a binding-checked witness drop-in for the loaded scheduler without installing it')
+    parser.add_argument('--verify-prerequisites', action='store_true',
+                        help='Check the reviewed witness plan against the source data and journal')
+    parser.add_argument('--expected-loaded-exec-start-sha256',
+                        help='Reviewed scheduler command fingerprint for a witness plan recheck')
+    parser.add_argument('--expected-pinned-runner-sha256',
+                        help='Reviewed scheduler runner fingerprint for a witness plan recheck')
+    parser.add_argument('--expected-scheduler-bindings-sha256',
+                        help='Reviewed resolved scheduler argument fingerprint for prerequisite verification')
     parser.add_argument('--env-file', type=Path)
     parser.add_argument('--ca-file', type=Path)
     parser.add_argument('--journal-key-file', type=Path)
     parser.add_argument('--journal-bucket')
     parser.add_argument('--journal-witness-bucket', default='')
     parser.add_argument('--backup-bucket')
-    parser.add_argument('--state-dir', type=Path, required=True)
+    parser.add_argument('--state-dir', type=Path)
     parser.add_argument('--output-dir', type=Path)
     args = parser.parse_args(argv)
-    if args.execute and args.recover:
-        parser.error('Choose execution or recovery')
-    if not args.execute and not args.recover:
+    fingerprints = (args.expected_loaded_exec_start_sha256, args.expected_pinned_runner_sha256)
+    if any(value is not None for value in fingerprints):
+        if not args.plan_systemd_witness or not all(
+                value and re.fullmatch(r'[0-9a-f]{64}', value) for value in fingerprints):
+            parser.error('Both lowercase SHA-256 fingerprints require --plan-systemd-witness')
+    else:
+        fingerprints = None
+    expected_bindings = args.expected_scheduler_bindings_sha256
+    if args.verify_prerequisites:
+        if fingerprints is None or not re.fullmatch(r'[0-9a-f]{64}', expected_bindings or ''):
+            parser.error('--verify-prerequisites requires --plan-systemd-witness and all three reviewed SHA-256 fingerprints')
+    elif expected_bindings is not None:
+        parser.error('--expected-scheduler-bindings-sha256 requires --verify-prerequisites')
+    if args.plan_systemd_witness:
+        if any((args.state_dir, args.env_file, args.ca_file, args.journal_key_file,
+                args.journal_bucket, args.journal_witness_bucket, args.backup_bucket, args.output_dir)):
+            parser.error('--plan-systemd-witness reads arguments from the loaded scheduler')
+        return _plan_systemd_witness(fingerprints, expected_bindings=expected_bindings)
+    if args.state_dir is None:
+        parser.error('--state-dir is required')
+    if not (args.execute or args.recover or args.check_bindings or args.check_prerequisites):
         print(json.dumps({'status': 'DRY_RUN', 'services_stopped': False, 'restore_authorized': False}))
         return 0
+    stage = 'configuration'
+    invalid_fields = []
+    timings_ms = {}
     try:
-        runtime = DockerRuntime()
-        guard = BackupServiceGuard(args.state_dir, runtime)
         if args.recover:
-            print(json.dumps({'status': 'RECOVERED' if guard.recover() else 'NO_RECOVERY_NEEDED'}))
+            stage = 'recovery'
+            recovered = recover_services(args.state_dir)
+            print(json.dumps({'status': 'RECOVERED' if recovered else 'NO_RECOVERY_NEEDED'}))
             return 0
+        runtime = DockerRuntime()
         if not all((args.env_file, args.ca_file, args.journal_key_file, args.journal_bucket,
                     args.backup_bucket, args.output_dir)) or args.journal_bucket == args.backup_bucket:
             raise ScheduledBackupError('Distinct journal and backup buckets and private inputs are required')
         if args.journal_witness_bucket and args.journal_witness_bucket in (args.journal_bucket, args.backup_bucket):
             raise ScheduledBackupError('Witness must use a distinct bucket')
+        stage = 'local_destination_preflight'
         require_backup_disk_headroom(args.output_dir)
+        stage = 'configuration'
         # SQLAlchemy async needs this optional dependency; fail before stopping
         # either service if the backup host environment is incomplete.
         import greenlet  # noqa: F401
@@ -312,7 +557,6 @@ def main(argv=None):
         if len(key) != 32:
             raise ScheduledBackupError('Journal key must be exactly 32 bytes')
         # dotenv_values accepts a stream so checked file bytes are parsed only once.
-        import io
         values = {k: v or '' for k, v in dotenv_values(stream=io.StringIO(env_bytes.decode('utf-8')),
                                                        interpolate=False).items()}
         for name, container in (('API_IMAGE', 'asb-pilot-api'), ('WORKER_IMAGE', 'asb-pilot-worker')):
@@ -324,14 +568,37 @@ def main(argv=None):
             'PRIVACY_JOURNAL_WITNESS_S3_ENDPOINT', 'PRIVACY_JOURNAL_WITNESS_S3_BUCKET',
             'PRIVACY_JOURNAL_WITNESS_S3_REGION', 'PRIVACY_JOURNAL_WITNESS_S3_ACCESS_KEY',
             'PRIVACY_JOURNAL_WITNESS_S3_SECRET_KEY')}
-        if external_infrastructure_errors(values) or any(not present(values.get(name)) for name in (
-            'S3_ACCESS_KEY', 'S3_SECRET_KEY', 'S3_BUCKET',
-        )):
+        errors = external_infrastructure_errors(values)
+        errors.extend(name for name in ('S3_ACCESS_KEY', 'S3_SECRET_KEY', 'S3_BUCKET')
+                      if not present(values.get(name)))
+        if errors:
+            invalid_fields = sorted({error.split(' ', 1)[0] for error in errors
+                                     if re.fullmatch(r'[A-Z][A-Z0-9_]*', error.split(' ', 1)[0])})
             raise ScheduledBackupError('External backup configuration is invalid')
         ca_stat = args.ca_file.lstat()
         if (not stat.S_ISREG(ca_stat.st_mode) or stat.S_ISLNK(ca_stat.st_mode)
                 or ca_stat.st_uid != os.geteuid() or ca_stat.st_mode & 0o022):
             raise ScheduledBackupError('A valid provider CA is required')
+
+        def verify_bindings():
+            assert_runtime_journal_binding(runtime, args.journal_bucket, args.journal_witness_bucket, s3_values)
+            assert_runtime_media_binding(runtime, values)
+            assert_runtime_database_binding(runtime, values, args.ca_file)
+            for name, container in (('API_IMAGE', 'asb-pilot-api'), ('WORKER_IMAGE', 'asb-pilot-worker')):
+                image_id = runtime._run(['inspect', '--format', '{{.Image}}', container], timeout=15)
+                if values[name] != 'local-image@' + image_id:
+                    raise ScheduledBackupError('Container image changed during backup preflight')
+
+        stage = 'backup_source'
+        source = backup_api_source(values['API_IMAGE'], mirrored=bool(args.journal_witness_bucket or any(s3_values.values())))
+        stage = 'writer_bindings'
+        verify_bindings()
+        if args.check_bindings:
+            print(json.dumps({'status': 'BINDINGS_CHECKED', 'services_stopped': False,
+                              'backup_created': False, 'restore_authorized': False}))
+            return 0
+
+        stage = 'initialization'
         # Async ORM reads the same source DB using the host's explicit CA.
         from sqlalchemy.engine import make_url
         # The container CA path may also be present in the DSN; the scheduler
@@ -345,27 +612,20 @@ def main(argv=None):
         os.environ['DATABASE_SSL_MODE'] = values['DATABASE_SSL_MODE']
         os.environ['DATABASE_SSL_ROOT_CERT'] = str(args.ca_file)
         os.environ['TESTING'] = 'false'
-        source = backup_api_source(values['API_IMAGE'], mirrored=bool(args.journal_witness_bucket or any(s3_values.values())))
         sys.path.insert(0, str(source))
         from src.core.database import AsyncSessionLocal, configure_for_worker
+        from src.services.privacy_journal import JournalError
         from src.services.privacy_journal_gcs import application_default_token
-        from src.services.privacy_journal_verify import verify_current_outbox
+        from src.services.privacy_journal_verify import JournalVerificationError, verify_current_outbox
 
         configure_for_worker()  # Separate asyncio.run calls must not reuse an event loop's pool.
+        environment = database_environment(values, args.ca_file)
         journal, journal_store = build_backup_journal(args.journal_bucket, args.journal_witness_bucket,
                                                        s3_values, values, key)
-        backup_store = GCSBackupStore(args.backup_bucket, application_default_token)
-        environment = database_environment(values, args.ca_file)
         query = ['psql', '-X', '--no-password', '--tuples-only', '--no-align', '--set', 'ON_ERROR_STOP=1', '-c']
 
         def verify_idle():
-            assert_runtime_journal_binding(runtime, args.journal_bucket, args.journal_witness_bucket, s3_values)
-            assert_runtime_media_binding(runtime, values)
-            assert_runtime_database_binding(runtime, values, args.ca_file)
-            for name, container in (('API_IMAGE', 'asb-pilot-api'), ('WORKER_IMAGE', 'asb-pilot-worker')):
-                image_id = runtime._run(['inspect', '--format', '{{.Image}}', container], timeout=15)
-                if values[name] != 'local-image@' + image_id:
-                    raise ScheduledBackupError('Container image changed during backup preflight')
+            verify_bindings()
             assert_quiescent(environment, query)
             assert_idle_worker(runtime)
 
@@ -380,7 +640,7 @@ def main(argv=None):
         def publication_boundary():
             with PostgresBackupFence(environment) as fence:
                 def capture():
-                    return create_backup(values, args.output_dir, args.ca_file, fence=fence)
+                    return create_backup(values, args.output_dir, args.ca_file, fence=fence, media_download_workers=2)
 
                 def verify(result):
                     fence.verify()
@@ -393,21 +653,58 @@ def main(argv=None):
                 yield capture, verify
 
         try:
-            result = run_guarded_backup(guard=guard, verify_idle=verify_idle, preflight_idle=verify_idle,
-                verify_journal=verify_journal,
-                publication_boundary=publication_boundary,
-                output_dir=args.output_dir, store=backup_store, run_id=uuid.uuid4().hex)
+            stage = 'source_preflight'
+            media_bytes = verify_backup_sources(values, environment, query)
+            stage = 'destination_preflight'
+            with closing(GCSBackupStore(args.backup_bucket, application_default_token)) as backup_store:
+                backup_store.verify_publish_access()
+                # Live privacy writes can span the store listings and DB read.
+                # Retry the comparison here. The fenced checks remain single-attempt.
+                stage = 'journal_preflight'
+                for attempt in range(1, 4):
+                    try:
+                        verify_journal()
+                        break
+                    except (JournalError, JournalVerificationError):
+                        if attempt == 3:
+                            raise
+                        time.sleep(attempt)
+                stage = 'local_destination_preflight'
+                require_backup_disk_headroom(
+                    args.output_dir, minimum_bytes=BACKUP_DISK_RESERVE_BYTES + media_bytes,
+                )
+                if args.check_prerequisites:
+                    print(json.dumps({'status': 'PREREQUISITES_CHECKED', 'services_stopped': False,
+                                      'backup_created': False, 'restore_authorized': False}))
+                    return 0
+                stage = 'guarded_backup'
+                guard = BackupServiceGuard(args.state_dir, runtime)
+                result = run_guarded_backup(guard=guard, verify_idle=verify_idle, preflight_idle=verify_idle,
+                    verify_journal=verify_journal,
+                    publication_boundary=publication_boundary,
+                    output_dir=args.output_dir, store=backup_store, run_id=uuid.uuid4().hex,
+                    media_upload_workers=2, timings_ms=timings_ms)
             record_success(args.state_dir)
         finally:
             journal_store.close()
-            backup_store.close()
-        print(json.dumps(result, sort_keys=True))
+        print(json.dumps({**result, 'timings_ms': timings_ms}, sort_keys=True))
         return 0
     except Exception as exc:
         # Commands/provider responses can contain credentials and child data.
         import traceback
         frame = traceback.extract_tb(exc.__traceback__)[-1]
+        failure_recorded = False
+        if args.execute:
+            try:
+                record_failure(args.state_dir, stage)
+                failure_recorded = True
+            except OSError:
+                pass
         print(json.dumps({'status': 'FAILED', 'restore_authorized': False,
+                          'stage': stage,
+                          **({'timings_ms': timings_ms} if timings_ms else {}),
+                          **({'failure_recorded': failure_recorded} if args.execute else {}),
+                          **({'invalid_fields': invalid_fields} if invalid_fields else {}),
                           'error_type': type(exc).__name__, 'error_location': f'{Path(frame.filename).name}:{frame.lineno}',
                           'message': 'Backup did not complete; check restricted operator logs and recovery marker.'}))
         return 1

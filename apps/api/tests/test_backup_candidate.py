@@ -13,7 +13,6 @@ def candidate(monkeypatch, tmp_path):
     source = tmp_path / 'source'
     for name in (*[f'scripts/{name}' for name in module.SCRIPT_NAMES],
                  *[f'infra/gcp-pilot/{name}' for name in module.UNIT_NAMES],
-                 'infra/gcp-pilot/asb-backup-recover.service.d/narration-guard.conf',
                  'apps/api/requirements.txt', 'apps/api/scripts/activate_generation_budget.py',
                  'apps/api/src/core/config.py',
                  'apps/api/alembic/versions/example.py'):
@@ -30,9 +29,13 @@ def test_candidate_requires_pin_and_preserves_source_data(candidate):
     assert module.verify(output, pin) > 10
     assert not (output / 'apps/api/.env').exists()
     for name in ('narration_marker_exec_condition.py', 'narration_deploy_safety.py',
-                 'provider_rotation_quarantine.py'):
+                 'provider_rotation_quarantine.py', 'check_backup_status.py', 'publish_backup_health.py'):
         assert (output / 'scripts' / name).is_file()
-    assert (output / 'infra/gcp-pilot/asb-provider-rotation-quarantine.service').is_file()
+    for name in ('asb-provider-rotation-quarantine.service',
+                 'asb-backup-recover.service.d/provider-order.conf',
+                 'asb-backup-watch.service', 'asb-backup-watch.timer',
+                 'asb-backup-signal.service', 'asb-backup-signal.timer'):
+        assert (output / 'infra/gcp-pilot' / name).is_file()
     assert (output / 'apps/api/scripts/activate_generation_budget.py').is_file()
     assert module.compare_source(source, output, pin) > 10
     (source / 'scripts/automatic_backup.py').write_text('source changed')

@@ -58,11 +58,21 @@ void main() {
       try {
         final session = await AudioSession.instance;
         await session.configure(const AudioSessionConfiguration.speech());
-        await playback.play(
+        final offset = Completer<Duration>();
+        final requested = Completer<void>();
+        final starting = playback.play(
           'first',
-          () async => file.path,
-          initialPosition: const Duration(seconds: 1),
+          () async {
+            requested.complete();
+            return file.path;
+          },
+          initialPosition: offset.future,
         );
+        await requested.future.timeout(const Duration(seconds: 5));
+        expect(playback.loading, true);
+        expect(native.playing, false);
+        offset.complete(const Duration(seconds: 1));
+        await starting;
         await Future<void>.delayed(const Duration(milliseconds: 700));
         expect(playback.loading, false);
         expect(native.playing, true);

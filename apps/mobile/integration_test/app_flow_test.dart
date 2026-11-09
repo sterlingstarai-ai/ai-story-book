@@ -5,6 +5,7 @@
 //   - CI/로컬(에뮬레이터 불필요):  flutter test integration_test/
 //   - 실기기/시뮬레이터(flutter_driver): flutter drive \
 //       --driver=test_driver/integration_test.dart --target=integration_test/app_flow_test.dart
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -17,6 +18,7 @@ import 'package:ai_story_book/models/models.dart';
 import 'package:ai_story_book/providers/providers.dart';
 import 'package:ai_story_book/screens/consent_screen.dart';
 import 'package:ai_story_book/screens/home_screen.dart';
+import 'package:ai_story_book/screens/loading_screen.dart';
 import 'package:ai_story_book/screens/onboarding_screen.dart';
 import 'package:ai_story_book/screens/reading_growth_screen.dart';
 import 'package:ai_story_book/services/api_client.dart';
@@ -35,6 +37,22 @@ class _MockApi extends ApiClient {
   }
 
   bool consentGranted = false;
+  JobStatus? activeJob;
+  final statusReads = <String>[];
+
+  @override
+  Future<List<JobStatus>> getActiveBookGenerations() async => [
+    if (activeJob != null) activeJob!,
+  ];
+
+  @override
+  Future<JobStatus> getBookStatus(
+    String jobId, {
+    CancelToken? cancelToken,
+  }) async {
+    statusReads.add(jobId);
+    return activeJob!;
+  }
 
   @override
   Future<Map<String, dynamic>> getConsent() async => {
@@ -55,6 +73,7 @@ class _MockApi extends ApiClient {
       'photos': photos,
       'privacy': privacy,
       'data_processing': dataProcessing,
+      'purge_incomplete': false,
     };
   }
 }
@@ -222,5 +241,32 @@ void main() {
     // 성장 리포트 화면 도달(부모 게이트는 prefs 세션으로 통과)
     expect(find.byType(ReadingGrowthScreen), findsOneWidget);
     expect(hero, findsOneWidget);
+  });
+
+  testWidgets('재방문 시 홈에서 서버에 남은 동화 작업으로 복귀한다', (tester) async {
+    final api = _MockApi()
+      ..activeJob = JobStatus(
+        jobId: 'restored-story',
+        status: JobState.queued,
+        progress: 0,
+      );
+    await tester.pumpWidget(
+      _app(await _prefs(consent: true, onboarding: true), api),
+    );
+    await tester.pumpAndSettle();
+
+    final resume = find.byKey(const Key('home_resume_generation'));
+    expect(resume, findsOneWidget);
+    await tester.tap(resume);
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<LoadingScreen>(find.byType(LoadingScreen)).jobId,
+      'restored-story',
+    );
+    expect(api.statusReads, isNotEmpty);
+    expect(api.statusReads, everyElement('restored-story'));
+    expect(find.text('만들기 시작을 기다리고 있어요'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
   });
 }

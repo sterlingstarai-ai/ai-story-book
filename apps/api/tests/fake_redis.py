@@ -43,7 +43,7 @@ class FakeRedis:
         self.ttls[key] = ttl
         return True
 
-    def pipeline(self):
+    def pipeline(self, *, transaction=True):
         return FakePipeline(self)
 
 
@@ -51,6 +51,10 @@ class FakePipeline:
     def __init__(self, redis):
         self.redis = redis
         self.commands = []
+
+    def get(self, key):
+        self.commands.append(('get', key))
+        return self
 
     def zremrangebyscore(self, key, lower, upper):
         self.commands.append(("remove", key, lower, upper))
@@ -68,9 +72,12 @@ class FakePipeline:
         self.commands.append(("expire", key, ttl))
         return self
 
-    async def execute(self):
+    async def execute(self, *, raise_on_error=True):
         results = []
         for command, key, *args in self.commands:
+            if command == 'get':
+                results.append(await self.redis.get(key))
+                continue
             members = self.redis.sorted_sets.setdefault(key, {})
             if command == "remove":
                 removed = [

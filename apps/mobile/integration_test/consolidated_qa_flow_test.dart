@@ -222,22 +222,10 @@ void main() {
         () => find.byType(ViewerScreen).evaluate().isNotEmpty,
         budget: const Duration(minutes: 10),
       );
-      await until(
-        () => container
-            .read(
-              bookDetailProvider(
-                container
-                    .read(jobPollingProvider(_job))
-                    .valueOrNull!
-                    .result!
-                    .bookId,
-              ),
-            )
-            .hasValue,
-      );
       final status = await api.getBookStatus(_job);
       expect(status.status, JobState.done);
       final book = status.result!;
+      await until(() => container.read(bookDetailProvider(book.bookId)).hasValue);
       expect(book.pages.length, 12);
       Future<void> illustrationReady() async {
         await until(

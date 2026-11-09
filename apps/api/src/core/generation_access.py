@@ -23,14 +23,18 @@ def _invited_hashes(configured: str) -> frozenset[str]:
     return hashes if all(re.fullmatch(r"[a-f0-9]{64}", item) for item in hashes) else frozenset()
 
 
-def require_generation_access(user_key: str | None) -> None:
+def generation_access_allowed(user_key: str | None) -> bool:
     mode = settings.generation_access_mode
     if mode == "open":
-        return
+        return True
     if mode == "invite_only" and user_key:
-        hashes = _invited_hashes(settings.generation_allowed_user_hashes)
-        if hashes and generation_identity_hash(user_key) in hashes:
-            return
+        return generation_identity_hash(user_key) in _invited_hashes(settings.generation_allowed_user_hashes)
+    return False
+
+
+def require_generation_access(user_key: str | None) -> None:
+    if generation_access_allowed(user_key):
+        return
     raise APIError(
         status_code=503,
         error_code="SERVICE_UNAVAILABLE",

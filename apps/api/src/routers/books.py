@@ -12,7 +12,9 @@ from fastapi import (
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import select, func, and_, or_, update
+from sqlalchemy import select, func, and_, or_, update, case
+from sqlalchemy.orm import defer
+from sqlalchemy.sql.elements import ColumnElement
 from typing import Optional
 import asyncio
 import math
@@ -26,8 +28,9 @@ from src.core.database import get_db
 from src.core.book_assets import build_generation_warnings, build_page_asset_status
 from src.core.config import settings
 from src.core.consent import require_consent_for_characters, require_photo_consent, require_parental_consent
-from src.core.dependencies import get_profile_id, get_user_key
+from src.core.dependencies import get_profile_id, get_user_key, validate_profile_ownership
 from src.models.dto import (
+    ActiveBookGeneration,
     BookSpec,
     CreateBookResponse,
     JobStatus,
@@ -123,8 +126,46 @@ async def get_generation_options(
     user_key: str = Depends(get_user_key),
 ):
     """Account-specific choices using the same policy enforced on creation."""
+    from src.core.generation_access import generation_access_allowed
+
     effective_plan = await _resolve_effective_plan(db, user_key)
-    return GenerationOptionsResponse(allowed_styles=_allowed_styles_for_plan(effective_plan))
+    access_allowed = generation_access_allowed(user_key)
+    trial_available = (
+        settings.free_plan_first_book_trial and effective_plan == "free"
+        and access_allowed
+        and await credits_service.first_book_trial_available(db, user_key)
+    )
+    return GenerationOptionsResponse(
+        allowed_styles=_allowed_styles_for_plan(effective_plan),
+        first_book_trial_available=trial_available,
+        generation_access_allowed=access_allowed,
+    )
+
+
+def _is_book_generation_id(column):
+    return or_(column.startswith("job_", autoescape=True), column.startswith("series_", autoescape=True))
+
+
+@router.get("/active-generations", response_model=list[ActiveBookGeneration])
+async def get_active_book_generations(
+    db: AsyncSession = Depends(get_db),
+    user_key: str = Depends(get_user_key),
+    profile_id: Optional[str] = Depends(get_profile_id),
+):
+    """Find unfinished books for the authenticated library scope after reopening the app."""
+    profile_id = await validate_profile_ownership(db, user_key, profile_id)
+    query = select(Job.id, Job.status, Job.progress).where(
+        Job.user_key == user_key,
+        Job.status.in_(["queued", "running"]),
+        _is_book_generation_id(Job.id),
+    )
+    if profile_id is not None:
+        query = query.where(or_(Job.profile_id == profile_id, Job.profile_id.is_(None)))
+    rows = (await db.execute(query.order_by(Job.created_at.desc(), Job.id.desc()).limit(20))).all()
+    return [
+        ActiveBookGeneration(job_id=job_id, status=status, progress=progress or 0)
+        for job_id, status, progress in rows
+    ]
 
 
 def _book_creation_quota_filter():
@@ -134,7 +175,7 @@ def _book_creation_quota_filter():
     # separate service-wide cost budget before provider work starts.
     return and_(
         Job.status.in_(["queued", "running", "done"]),
-        or_(Job.id.startswith("job_"), Job.id.startswith("series_")),
+        _is_book_generation_id(Job.id),
     )
 
 
@@ -153,8 +194,7 @@ def _creation_ids_in_period(user_key: str, start, end):
         CreditTransaction.user_key == user_key,
         CreditTransaction.transaction_type == "usage",
         CreditTransaction.created_at >= start, CreditTransaction.created_at < end,
-        or_(CreditTransaction.reference_id.startswith("job_"),
-            CreditTransaction.reference_id.startswith("series_")),
+        _is_book_generation_id(CreditTransaction.reference_id),
         CreditTransaction.reference_id.not_in(refunded),
     )
     return live_jobs.union(charged).subquery()
@@ -237,24 +277,23 @@ async def _enforce_free_plan_feature_access(
 
 def _build_page_dict(p) -> dict:
     """Build standardized page response dict from a Page model."""
+    image_url = media_url(p.image_url)
+    audio_url = media_url(p.audio_url)
+    audio_url_ko = media_url(p.audio_url_ko)
+    audio_url_en = media_url(p.audio_url_en)
     asset_status = build_page_asset_status(
-        media_url(p.image_url),
-        audio_urls=[
-            media_url(getattr(p, "audio_url", None)),
-            media_url(getattr(p, "audio_url_ko", None)),
-            media_url(getattr(p, "audio_url_en", None)),
-        ],
+        image_url, audio_urls=(audio_url, audio_url_ko, audio_url_en),
     )
     return {
         "page_number": p.page_number,
         "text": p.text,
-        "image_url": media_url(p.image_url) or "",
+        "image_url": image_url or "",
         "image_prompt": p.image_prompt,
-        "audio_url": media_url(p.audio_url),
+        "audio_url": audio_url,
         "text_ko": p.text_ko,
         "text_en": p.text_en,
-        "audio_url_ko": media_url(p.audio_url_ko),
-        "audio_url_en": media_url(p.audio_url_en),
+        "audio_url_ko": audio_url_ko,
+        "audio_url_en": audio_url_en,
         "vocab": p.vocab,
         "comprehension_questions": p.comprehension,
         "quiz": p.quiz,
@@ -262,7 +301,7 @@ def _build_page_dict(p) -> dict:
     }
 
 
-def _build_book_dict(book, pages, include_job_id: bool = False) -> dict:
+def _build_book_dict(book, pages, *, learning_assets: dict | None, include_job_id: bool = False) -> dict:
     """Build standardized book response dict from Book + Pages models."""
     generation_warnings = build_generation_warnings(
         cover_image_url=book.cover_image_url,
@@ -280,7 +319,7 @@ def _build_book_dict(book, pages, include_job_id: bool = False) -> dict:
         "title_ko": book.title_ko,
         "title_en": book.title_en,
         "pages": [_build_page_dict(p) for p in pages],
-        "learning_assets": book.learning_assets,
+        "learning_assets": learning_assets,
         "generation_warnings": generation_warnings,
         "created_at": book.created_at.isoformat(),
     }
@@ -296,7 +335,9 @@ def _build_book_dict(book, pages, include_job_id: bool = False) -> dict:
 def _build_book_result(book, pages, include_job_id: bool = False) -> BookResult:
     """Build a strongly typed BookResult to keep response serialization aligned."""
     return BookResult.model_validate(
-        _build_book_dict(book, pages, include_job_id=include_job_id)
+        _build_book_dict(
+            book, pages, learning_assets=book.learning_assets, include_job_id=include_job_id
+        )
     )
 
 
@@ -552,6 +593,39 @@ def _assert_book_profile_scope(
     # 배정되지 않은(프로필 도입 전에 만든) 책은 계정 공용 — 목록 필터와 같은 규칙.
     if scope is not None and scope != normalized:
         raise AuthorizationError("선택한 프로필의 책이 아닙니다.")
+
+
+def _owned_book_pages(user_key: str, profile_id: Optional[str]):
+    """Join page content only for the permitted book owner and profile."""
+    conditions = [Page.book_id == Book.id, Book.user_key == user_key]
+    if isinstance(profile_id, str) and (scope := profile_id.strip()):
+        conditions.append(or_(Book.profile_id.is_(None), Book.profile_id == scope))
+    return and_(*conditions)
+
+
+async def _load_book_with_pages(
+    db: AsyncSession, selector: ColumnElement[bool], user_key: str, profile_id: Optional[str],
+) -> tuple[Book, list[Page], dict | None] | None:
+    # Keep the book and its pages in one snapshot, with learning assets on one row.
+    learning_assets = case(
+        (func.row_number().over(order_by=Page.page_number) == 1, Book.learning_assets)
+    )
+    result = await db.execute(
+        select(Book, Page, learning_assets)
+        .options(defer(Book.learning_assets))
+        .outerjoin(Page, _owned_book_pages(user_key, profile_id))
+        .where(selector)
+        .order_by(Page.page_number)
+    )
+    rows = result.all()
+    if not rows:
+        return None
+
+    book, _, assets = rows[0]
+    if book.user_key != user_key:
+        raise AuthorizationError()
+    _assert_book_profile_scope(book, profile_id)
+    return book, [page for _, page, _ in rows if page is not None], assets
 
 
 def _assert_job_profile_scope(
@@ -913,16 +987,14 @@ async def get_book_status(
 
     # Add result if done
     if job.status == "done":
-        # Fetch book with pages
-        book_result = await db.execute(select(Book).where(Book.job_id == job_id))
-        book = book_result.scalar_one_or_none()
-
-        if book:
-            pages_result = await db.execute(
-                select(Page).where(Page.book_id == book.id).order_by(Page.page_number)
+        completed = await _load_book_with_pages(
+            db, Book.job_id == job_id, user_key, job.profile_id or profile_id,
+        )
+        if completed is not None:
+            book, pages, assets = completed
+            response.result = BookResult.model_validate(
+                _build_book_dict(book, pages, learning_assets=assets)
             )
-            pages = pages_result.scalars().all()
-            response.result = _build_book_result(book, pages)
 
     return response
 
@@ -940,24 +1012,12 @@ async def get_book_detail(
     - 서재에서 책 상세 조회 시 사용
     - book_id 기반으로 조회
     """
-    # Fetch book
-    result = await db.execute(select(Book).where(Book.id == book_id))
-    book = result.scalar_one_or_none()
-
-    if not book:
+    completed = await _load_book_with_pages(db, Book.id == book_id, user_key, profile_id)
+    if completed is None:
         raise NotFoundError("Book", book_id)
 
-    if book.user_key != user_key:
-        raise AuthorizationError()
-    _assert_book_profile_scope(book, profile_id)
-
-    # Fetch pages
-    pages_result = await db.execute(
-        select(Page).where(Page.book_id == book.id).order_by(Page.page_number)
-    )
-    pages = pages_result.scalars().all()
-
-    return _build_book_dict(book, pages, include_job_id=True)
+    book, pages, assets = completed
+    return _build_book_dict(book, pages, learning_assets=assets, include_job_id=True)
 
 
 @router.post(
@@ -1861,27 +1921,46 @@ async def get_page_audio(
     - 이미 생성된 오디오 URL 반환
     - 없으면 즉시 생성 후 반환
     """
+    return await _resolve_page_audio(book_id, page_number, language, voice, style, db, user_key, profile_id)
+
+
+@router.get('/{book_id}/pages/{page_number}/audio/cached')
+async def get_cached_page_audio(
+    book_id: str,
+    page_number: int,
+    language: str = Query(default='ko', pattern='^(ko|en|ja|zh|es)$'),
+    voice: str = Query(default='default', pattern='^(default|warm|deep)$'),
+    style: str = Query(default='legacy', pattern='^(legacy|natural|animated|bedtime)$'),
+    db: AsyncSession = Depends(get_db),
+    user_key: str = Depends(get_user_key),
+    profile_id: Optional[str] = Depends(get_profile_id),
+) -> dict[str, str | None]:
+    """Look up existing narration without starting synthesis or spending credits."""
+    return await _resolve_page_audio(book_id, page_number, language, voice, style, db, user_key, profile_id,
+                                     cached_only=True)
+
+
+async def _resolve_page_audio(book_id, page_number, language, voice, style, db, user_key, profile_id,
+                              *, cached_only=False):
     # H1/G9: 오디오 비활성 배포에서는 provider 해석 실패 500 대신 명시적 미지원으로 차단.
     (require_narration_supported if settings.audio_narration_only_enabled else require_audio_supported)()
 
-    # Fetch book
-    book_result = await db.execute(select(Book).where(Book.id == book_id))
-    book = book_result.scalar_one_or_none()
-
-    if not book:
+    # Keep the book row for existing 404/403 behavior without fetching a
+    # different account or profile's page text into the request.
+    result = await db.execute(
+        select(Book, Page)
+        .outerjoin(Page, and_(_owned_book_pages(user_key, profile_id), Page.page_number == page_number))
+        .where(Book.id == book_id)
+    )
+    row = result.one_or_none()
+    if row is None:
         raise NotFoundError("Book", book_id)
 
+    book, page = row
     if book.user_key != user_key:
         raise AuthorizationError()
     _assert_book_profile_scope(book, profile_id)
-
-    # Fetch page
-    page_result = await db.execute(
-        select(Page).where(Page.book_id == book.id, Page.page_number == page_number)
-    )
-    page = page_result.scalar_one_or_none()
-
-    if not page:
+    if page is None:
         raise NotFoundError("Page", str(page_number))
 
     from src.services.tts import SUPPORTED_AUDIO_LANGUAGES
@@ -1933,6 +2012,8 @@ async def get_page_audio(
         audio_url = audio_url or getattr(page, "audio_url", None)
     if audio_url:
         return {"audio_url": media_url(audio_url)}
+    if cached_only:
+        return {"audio_url": None}
 
     # Keep the existing 3–5 exception and include narration in the trial book.
     target_age = str(getattr(book, "target_age", "") or "").strip()

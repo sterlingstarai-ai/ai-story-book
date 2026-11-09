@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:ai_story_book/core/api_error.dart';
 import 'package:ai_story_book/l10n/app_localizations.dart';
+import 'package:ai_story_book/main.dart' show buildAppRoute;
 import 'package:ai_story_book/models/models.dart';
 import 'package:ai_story_book/models/generation_options.dart';
 import 'package:ai_story_book/providers/providers.dart';
@@ -30,6 +31,7 @@ late SharedPreferences _preferences;
 Widget buildTestableWidget(
   Widget child, {
   List<Override> overrides = const [],
+  RouteFactory? onGenerateRoute,
 }) {
   return ProviderScope(
     overrides: [
@@ -44,12 +46,14 @@ Widget buildTestableWidget(
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       home: child,
-      onGenerateRoute: (settings) {
-        // Catch-all route handler to prevent navigation errors in tests
-        return MaterialPageRoute(
-          builder: (_) => Scaffold(body: Text('Route: ${settings.name}')),
-        );
-      },
+      onGenerateRoute:
+          onGenerateRoute ??
+          (settings) {
+            // Catch-all route handler to prevent navigation errors in tests
+            return MaterialPageRoute(
+              builder: (_) => Scaffold(body: Text('Route: ${settings.name}')),
+            );
+          },
     ),
   );
 }
@@ -186,6 +190,31 @@ void main() {
 
       expect(find.text('어떤 이야기를 만들까요?'), findsOneWidget);
       expect(find.byType(TextFormField), findsOneWidget);
+    });
+
+    testWidgets('today topic is prefilled on the normal creation route', (
+      tester,
+    ) async {
+      const topic = '숲에서 만난 친구';
+      await tester.pumpWidget(
+        buildTestableWidget(
+          Builder(
+            builder: (context) => TextButton(
+              onPressed: () => Navigator.pushNamed(
+                context,
+                '/create',
+                arguments: {'topic': topic},
+              ),
+              child: const Text('Open create'),
+            ),
+          ),
+          onGenerateRoute: buildAppRoute,
+          overrides: createOverrides(),
+        ),
+      );
+      await tester.tap(find.text('Open create'));
+      await tester.pumpAndSettle();
+      expect(find.text(topic), findsOneWidget);
     });
 
     testWidgets('renders age selection chips', (tester) async {
@@ -486,6 +515,9 @@ void main() {
       List<LibraryBook>? books,
       List<Character>? characters,
     }) => [
+      capabilitiesProvider.overrideWith(
+        (ref) async => {'free_first_book_trial': false},
+      ),
       libraryProvider.overrideWith(
         () => _MockLibraryNotifier(books ?? _sampleBooks),
       ),
@@ -819,28 +851,300 @@ void main() {
   // ==================== LoadingScreen Tests ====================
 
   group('LoadingScreen', () {
-    testWidgets('shows progress content with queued status', (tester) async {
+    testWidgets('library links back to a failed generation and its refund', (
+      tester,
+    ) async {
+      const id = 'failed-browsed-job';
+      final failure = Completer<JobStatus>();
+      final api = _GenerationLibraryApi(() => []);
+      addTearDown(api.close);
       await tester.pumpWidget(
         buildTestableWidget(
-          const LoadingScreen(jobId: 'test-job-1'),
+          Builder(
+            builder: (context) => TextButton(
+              onPressed: () =>
+                  Navigator.pushNamed(context, '/loading', arguments: id),
+              child: const Text('Open progress'),
+            ),
+          ),
+          onGenerateRoute: buildAppRoute,
           overrides: [
-            jobPollingProvider('test-job-1').overrideWith(
+            apiClientProvider.overrideWithValue(api),
+            jobPollingProvider(id).overrideWith((ref) async* {
+              yield JobStatus(jobId: id, status: JobState.queued, progress: 0);
+              yield await failure.future;
+            }),
+          ],
+        ),
+      );
+      await tester.tap(find.text('Open progress'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('서재를 둘러보며 기다리기'));
+      await tester.pumpAndSettle();
+      final review = find.text('동화를 만들지 못했어요. 상태 확인');
+      expect(review, findsNothing);
+      failure.complete(
+        JobStatus(
+          jobId: id,
+          status: JobState.failed,
+          progress: 60,
+          creditRefundStatus: 'refunded',
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(review, findsOneWidget);
+      await tester.tap(review);
+      await tester.pumpAndSettle();
+      final l = await AppLocalizations.delegate.load(const Locale('ko'));
+      expect(
+        tester.widget<LoadingScreen>(find.byType(LoadingScreen)).jobId,
+        id,
+      );
+      expect(find.text(l.loadingCreditRefunded), findsOneWidget);
+    });
+
+    testWidgets('home discovers completion while the reader stays on home', (
+      tester,
+    ) async {
+      const id = 'job-home-resume';
+      final book = _sampleBooks.first;
+      var finished = false;
+      var failNextCheck = false;
+      var activeReads = 0;
+      final api = _GenerationLibraryApi(
+        () => finished ? [book] : [],
+        jobs: () {
+          activeReads++;
+          if (failNextCheck) {
+            failNextCheck = false;
+            throw ApiError(
+              code: 'CONNECTION_ERROR',
+              message: 'temporary connection failure',
+              statusCode: 0,
+            );
+          }
+          return [
+            if (!finished)
+              JobStatus(jobId: id, status: JobState.queued, progress: 0),
+          ];
+        },
+      );
+      addTearDown(api.close);
+      await tester.pumpWidget(
+        buildTestableWidget(
+          Builder(
+            builder: (context) {
+              if (ModalRoute.of(context)?.isFirst == false) {
+                return const HomeScreen();
+              }
+              return TextButton(
+                onPressed: () =>
+                    Navigator.pushNamed(context, '/loading', arguments: id),
+                child: const Text('Open progress'),
+              );
+            },
+          ),
+          onGenerateRoute: buildAppRoute,
+          overrides: [
+            apiClientProvider.overrideWithValue(api),
+            jobPollingProvider(id).overrideWith(
               (ref) => Stream.value(
-                JobStatus(
-                  jobId: 'test-job-1',
-                  status: JobState.queued,
-                  progress: 0,
-                  currentStep: '대기 중...',
-                ),
+                JobStatus(jobId: id, status: JobState.queued, progress: 0),
               ),
             ),
           ],
         ),
       );
+      await tester.tap(find.text('Open progress'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('서재를 둘러보며 기다리기'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('홈'));
+      await tester.pumpAndSettle();
+      expect(find.byType(HomeScreen), findsOneWidget);
+      final resume = find.byKey(const Key('home_resume_generation'));
+      expect(resume, findsOneWidget);
+      expect(find.text(book.title), findsNothing);
+      finished = true;
+      failNextCheck = true;
+      final readsBeforeCompletion = activeReads;
+      await tester.pump(const Duration(seconds: 15));
+      await tester.pumpAndSettle();
+      expect(activeReads, readsBeforeCompletion + 1);
+      expect(find.text(book.title), findsNothing);
+      await tester.pump(const Duration(seconds: 30));
+      await tester.pumpAndSettle();
+      expect(activeReads, readsBeforeCompletion + 2);
+      expect(resume, findsNothing);
+      expect(find.text(book.title), findsOneWidget);
+      await tester.pump(const Duration(seconds: 30));
+      expect(activeReads, readsBeforeCompletion + 2);
+    });
+
+    testWidgets(
+      'home finds a book that finished during the first status outage',
+      (tester) async {
+        final book = _sampleBooks.first;
+        var finished = false;
+        var reads = 0;
+        final api = _GenerationLibraryApi(
+          () => finished ? [book] : [],
+          jobs: () {
+            if (reads++ == 0) {
+              throw ApiError(
+                code: 'SERVICE_UNAVAILABLE',
+                message: '',
+                statusCode: 503,
+              );
+            }
+            return [];
+          },
+        );
+        addTearDown(api.close);
+        await tester.pumpWidget(
+          buildTestableWidget(
+            const HomeScreen(),
+            overrides: [apiClientProvider.overrideWithValue(api)],
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(reads, 1);
+        expect(find.text(book.title), findsNothing);
+
+        finished = true;
+        await tester.pump(const Duration(seconds: 30));
+        await tester.pumpAndSettle();
+        expect(reads, 2);
+        expect(find.text(book.title), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'opens a finished book without resetting the library age filter',
+      (tester) async {
+        const id = 'browsed-job';
+        final completion = Completer<JobStatus>();
+        final running = JobStatus(
+          jobId: id,
+          status: JobState.running,
+          progress: 50,
+        );
+        final book = _sampleBooks.first;
+        final api = _GenerationLibraryApi(
+          () => completion.isCompleted ? [book] : [],
+        );
+        final account = StateProvider<ApiClient>((ref) => api);
+        await tester.pumpWidget(
+          buildTestableWidget(
+            Builder(
+              builder: (context) => TextButton(
+                onPressed: () =>
+                    Navigator.pushNamed(context, '/loading', arguments: id),
+                child: const Text('Open progress'),
+              ),
+            ),
+            onGenerateRoute: (settings) => settings.name == '/viewer'
+                ? MaterialPageRoute(
+                    builder: (_) =>
+                        Scaffold(body: Text('Opened ${settings.arguments}')),
+                  )
+                : buildAppRoute(settings),
+            overrides: [
+              apiClientProvider.overrideWith((ref) => ref.watch(account)),
+              activeBookGenerationsProvider.overrideWith(
+                (ref) async => completion.isCompleted ? [] : [running],
+              ),
+              jobPollingProvider(id).overrideWith((ref) async* {
+                yield running;
+                yield await completion.future;
+              }),
+            ],
+          ),
+        );
+        await tester.tap(find.text('Open progress'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        await tester.tap(find.text('서재를 둘러보며 기다리기'));
+        await tester.pumpAndSettle();
+        expect(find.byType(LoadingScreen, skipOffstage: false), findsNothing);
+        expect(find.text('생성 중인 동화 1권 확인'), findsOneWidget);
+        expect(find.text(book.title), findsNothing);
+        final openBook = find.text('완성된 동화 열기');
+        expect(openBook, findsNothing);
+        final library = tester.element(find.byType(LibraryScreen));
+        final container = ProviderScope.containerOf(library, listen: false);
+        await container
+            .read(libraryBrowseProvider.notifier)
+            .setTargetAgeFilter('3-5');
+        await tester.pumpAndSettle();
+
+        completion.complete(
+          JobStatus(
+            jobId: id,
+            status: JobState.done,
+            progress: 100,
+            result: BookResult(
+              bookId: book.id,
+              title: book.title,
+              coverImageUrl: '',
+              pages: [],
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        expect(find.byType(LibraryScreen), findsOneWidget);
+        expect(
+          container.read(libraryBrowseProvider).valueOrNull?.targetAge,
+          '3-5',
+        );
+        expect(find.text(book.title), findsNothing);
+        expect(find.text('생성 중인 동화 1권 확인'), findsNothing);
+        await tester.tap(openBook);
+        await tester.pumpAndSettle();
+        expect(find.text('Opened ${book.id}'), findsOneWidget);
+
+        Navigator.of(library).pop();
+        await tester.pumpAndSettle();
+        expect(openBook, findsOneWidget);
+
+        final anotherAccount = _GenerationLibraryApi(() => []);
+        addTearDown(anotherAccount.close);
+        container.read(account.notifier).state = anotherAccount;
+        await tester.pumpAndSettle();
+        expect(openBook, findsNothing);
+      },
+    );
+
+    testWidgets('distinguishes the first status check from the queue', (
+      tester,
+    ) async {
+      final status = Completer<JobStatus>();
+      await tester.pumpWidget(
+        buildTestableWidget(
+          const LoadingScreen(jobId: 'test-job-1'),
+          overrides: [
+            jobPollingProvider(
+              'test-job-1',
+            ).overrideWith((ref) => Stream.fromFuture(status.future)),
+          ],
+        ),
+      );
+      expect(find.text('만들기 상태를 확인하고 있어요'), findsOneWidget);
+      expect(find.text('0%'), findsNothing);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+      status.complete(
+        JobStatus(jobId: 'test-job-1', status: JobState.queued, progress: 0),
+      );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
-      expect(find.text('동화책을 만들고 있어요'), findsOneWidget);
+      expect(find.text('동화책을 만들 준비 중이에요'), findsOneWidget);
+      expect(find.text('만들기 시작을 기다리고 있어요'), findsOneWidget);
+      expect(find.text('0%'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
     });
 
     testWidgets('shows progress indicator during generation', (tester) async {
@@ -914,6 +1218,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
 
       expect(find.text('문제가 발생했어요'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
       // 비-안전 실패는 서버 원문 대신 로컬라이즈된 문구를 보여 준다.
       expect(find.text('LLM 타임아웃'), findsNothing);
       expect(find.text('요청을 처리하지 못했어요. 잠시 후 다시 시도해 주세요.'), findsOneWidget);
@@ -1636,6 +1941,7 @@ class _MockErrorLibraryBrowseNotifier extends LibraryBrowseNotifier {
 class _MockApiClient extends ApiClient {
   @override
   Future<Map<String, dynamic>> getCapabilities() async => {
+    'free_first_book_trial': false,
     'purchases_supported': true,
     'apple_purchases_supported': true,
     'google_purchases_supported': true,
@@ -1676,6 +1982,37 @@ class _MockApiClient extends ApiClient {
   @override
   Future<int> getCreditsBalance() async {
     return creditsBalance;
+  }
+}
+
+class _GenerationLibraryApi extends _MockApiClient {
+  _GenerationLibraryApi(this.books, {this.jobs});
+
+  final List<LibraryBook> Function() books;
+  final List<JobStatus> Function()? jobs;
+
+  @override
+  Future<List<JobStatus>> getActiveBookGenerations() async =>
+      jobs?.call() ?? [];
+
+  @override
+  Future<LibraryResponse> getLibrary({
+    int limit = 20,
+    int offset = 0,
+    String? cursor,
+    String? style,
+    String? targetAge,
+    String sort = 'newest',
+  }) async {
+    final current = books()
+        .where((book) => targetAge == null || book.targetAge == targetAge)
+        .toList();
+    return LibraryResponse(
+      books: current,
+      total: current.length,
+      nextCursor: null,
+      hasMore: false,
+    );
   }
 }
 

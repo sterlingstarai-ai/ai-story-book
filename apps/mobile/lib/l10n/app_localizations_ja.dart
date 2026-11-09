@@ -66,13 +66,16 @@ class AppLocalizationsJa extends AppLocalizations {
   String get onboardingSlide3Subtitle => 'ストリークで毎日の読書習慣を育てます。';
 
   @override
-  String get onboardingSlide4Title => '無料ではじめる';
+  String get onboardingSlide4Title => '最初の絵本を作る';
 
   @override
   String get onboardingSlide4Subtitle => 'テーマを選んで、最初の絵本を作りましょう。';
 
   @override
-  String get onboardingFirstBookTrialSubtitle => '新規アカウントでは最初の絵本1冊を無料で作れます。';
+  String get firstBookTrialOffer => '体験対象の新規アカウントでは、イラストと朗読付きの最初の絵本を1冊無料で作れます。';
+
+  @override
+  String get firstBookTrialIllustratedOffer => 'イラスト付きの最初の絵本を1冊無料で作れます。';
 
   @override
   String get creditsFirstBookTrial => '新規アカウントは最初の絵本1冊が無料';
@@ -159,6 +162,9 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get homeMakeTodayStory => '今日の絵本を作る';
+
+  @override
+  String get homeReviewTodayStory => '今日のお題で絵本を作る';
 
   @override
   String get homeStreakLoading => 'ストリーク情報を読み込み中...';
@@ -250,7 +256,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get createNarrationDefaultStyle => 'この端末の既定の朗読スタイル';
 
   @override
-  String get createAgePreviewTitle => '年齢別の本文を試し読み';
+  String get createAgePreviewTitle => '年齢別の絵本を試し読み';
 
   @override
   String get createAgePreviewHide => '試し読みを閉じる';
@@ -259,16 +265,20 @@ class AppLocalizationsJa extends AppLocalizations {
   String get createAgePreviewCaption => '同じ場面で比べる、文章の雰囲気と長さの例';
 
   @override
+  String get createAgePreviewIllustration =>
+      'ハルとボリが先生と一緒に、しげみに引っかかったたこの青いしっぽを見つける絵';
+
+  @override
   String get createAgePreview3to5 =>
-      'ひらひら、しげみのうしろで青いリボンがゆれました。ハルが指さすと、ボリも目を丸くしました。「ぼくたちのたこだ！ 先生を呼ぼう！」';
+      'ひらひら、しげみのうしろで青いリボンがゆれました。ハルが指さすと、ボリも目を丸くしました。「先生、ぼくたちのたこが見えるよ！」';
 
   @override
   String get createAgePreview5to7 =>
-      '風がふくと、しげみの間から青いリボンが顔を出しました。ハルは朝、たこに結んだリボンだと気づきました。ボリは一歩近づきましたが、とげを見て立ち止まりました。「ここからたこを見ながら、先生を呼ぼう。」';
+      '風がふくと、しげみの間から青いリボンが顔を出しました。ハルは朝、たこに結んだリボンだと気づきました。ボリはとげを見つけて一歩下がりました。ハルはそばにいる先生にしげみを指さしました。「あそこにぼくたちのたこが引っかかっています。」';
 
   @override
   String get createAgePreview7to9 =>
-      '風がふくたびに、枝のすき間から同じ青いリボンがのぞくことにハルは気づきました。ボリはだれかが落としたひもだと思いましたが、ハルは先にある二つの結び目を見つけました。朝、たこのしっぽがほどけて、二人で結び直したときの目印でした。ボリはとげのある枝の前で足を止めました。「リボンを見ていて。先生を呼んでくるよ。」';
+      '風がふくたびに、枝のすき間から同じ青いリボンがのぞくことにハルは気づきました。ボリはだれかが落としたひもだと思いましたが、ハルは先にある二つの結び目を見つけました。朝、たこのしっぽがほどけて、二人で結び直したときの目印でした。ボリがとげのある枝の前で足を止めると、ハルはそばにいた先生にリボンを指さしました。「結び目が二つあります。朝に結んだ、ぼくたちのたこです。」';
 
   @override
   String get createLanguageLabel => '物語の言語';
@@ -387,6 +397,12 @@ class AppLocalizationsJa extends AppLocalizations {
   String get createMakeButton => '絵本を作る';
 
   @override
+  String get createFreeFirstBookButton => '最初の絵本を無料で作る';
+
+  @override
+  String get createFirstBookDuration => '完成まで数分かかることがあります。';
+
+  @override
   String get createPlanUpgradeTitle => 'プランのアップグレードが必要です';
 
   @override
@@ -397,6 +413,22 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get libraryTitle => 'マイライブラリ';
+
+  @override
+  String get libraryOpenCompletedStory => '完成した絵本を読む';
+
+  @override
+  String get libraryReviewFailedGeneration => '絵本を作れませんでした。状態を確認する';
+
+  @override
+  String libraryActiveGenerations(int count) {
+    return '作成中の絵本 $count冊を確認';
+  }
+
+  @override
+  String libraryActiveGenerationItem(int number) {
+    return '絵本 $number';
+  }
 
   @override
   String get librarySeriesBadge => 'シリーズ';
@@ -586,6 +618,15 @@ class AppLocalizationsJa extends AppLocalizations {
   String get loadingTitle => '絵本を作っています';
 
   @override
+  String get loadingQueuedTitle => '絵本作りの準備をしています';
+
+  @override
+  String get loadingInProgressHint => '進捗の数字が変わらない間も、絵本作りは続いています。';
+
+  @override
+  String get loadingBrowseLibrary => '本棚を見ながら待つ';
+
+  @override
   String get loadingIllustrationExample => '挿絵の見本';
 
   @override
@@ -646,7 +687,16 @@ class AppLocalizationsJa extends AppLocalizations {
   String get loadingBackToHomeButton => 'ホームに戻る';
 
   @override
-  String get loadingStepWaiting => '待機中...';
+  String get loadingStepCheckingStatus => '絵本作りの状況を確認しています';
+
+  @override
+  String get loadingStepRecheckingStatus => '最後に確認できた進捗を表示しています。';
+
+  @override
+  String get loadingStepWaitingForStatusRetry => 'まもなく同じ絵本の進み具合をもう一度確認します。';
+
+  @override
+  String get loadingStepWaiting => '絵本作りが始まるのを待っています';
 
   @override
   String get loadingStepPreparing => '準備中...';
@@ -790,7 +840,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get loadingTip2 => 'キャラクターが一貫して描かれるようAIが配慮しています';
 
   @override
-  String get loadingTip3 => '完成した絵本はライブラリでいつでも見返せます';
+  String get loadingTip3 => '本棚を見ている間も絵本作りは続きます。完成した絵本は本棚から開けます。';
 
   @override
   String get loadingTip4 => '気に入らないページは後で作り直せます';
@@ -2373,15 +2423,41 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
+  String get viewerRetryIllustration => '絵を再読み込み';
+
+  @override
   String viewerPageImageSemantics(Object page) {
     return '$pageページの挿絵';
   }
+
+  @override
+  String get viewerShowReadingControls => '読書ボタンを表示';
+
+  @override
+  String get viewerHideReadingControls => '読書ボタンを隠す';
 
   @override
   String get viewerLearn => '学習する';
 
   @override
   String get viewerPlayAudioTooltip => '音声を再生';
+
+  @override
+  String get viewerListenFromStart => '最初から聞く';
+
+  @override
+  String get viewerListenFromHere => 'このページから最後まで聞く';
+
+  @override
+  String get viewerNarrationPreparing => '読み上げを準備しています';
+
+  @override
+  String get viewerNarrationSpeed => '読み上げ速度';
+
+  @override
+  String viewerNarrationSpeedValue(String speed) {
+    return '$speed倍';
+  }
 
   @override
   String get viewerPauseAudioTooltip => '音声を一時停止';
@@ -3185,6 +3261,15 @@ class AppLocalizationsJa extends AppLocalizations {
   String get createOptionsFailed => 'スタイルを確認できませんでした。接続を確認して、もう一度お試しください。';
 
   @override
+  String get createGenerationInviteRequired => '新しい物語を作るにはベータ版への招待が必要です。';
+
+  @override
+  String get createGenerationPaused => '現在、新しい物語は作成できません。保存した本は引き続き読めます。';
+
+  @override
+  String get createOpenBetaInvitation => 'ベータ参加IDを確認';
+
+  @override
   String get createSafetyInputHint => '子どもに適したテーマに変更して、もう一度作成してください。';
 
   @override
@@ -3463,6 +3548,10 @@ class AppLocalizationsJa extends AppLocalizations {
   @override
   String get settingsNarrationPreviewGoogleHelp =>
       '選んだAI音声で同じ韓国語の文を3つのスタイルで聴き比べましょう。表情豊かな読み聞かせでは、台詞ごとに抑揚が変わります。';
+
+  @override
+  String get settingsNarrationPreviewPending =>
+      'このAI音声の試聴は準備中です。読み聞かせのスタイルは選べます。';
 
   @override
   String settingsNarrationPreview(String style) {

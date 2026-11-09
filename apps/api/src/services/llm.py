@@ -3,9 +3,12 @@ LLM Service: 텍스트 생성 (스토리, 캐릭터 시트, 이미지 프롬프�
 """
 
 import json
+import re
+import unicodedata
 import httpx
 from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
+from pydantic import BaseModel, ConfigDict, Field
 import structlog
 
 from src.core.config import settings
@@ -16,6 +19,10 @@ from src.services.anthropic_contract import (
     anthropic_response_text,
 )
 from src.services.story_integrity import (
+    MIN_LONG_STORY_PAGES,
+    MIN_LONG_STORY_PAGE_WORDS,
+    count_story_words,
+    requires_long_korean_story,
     validate_generated_text_unicode,
     validate_story_integrity,
 )
@@ -23,7 +30,7 @@ from src.services.structured_output import (
     ANTHROPIC_SCHEMA_MODELS,
     provider_output_schema,
 )
-from src.services.openai_contract import request_openai_json
+from src.services.openai_contract import RESPONSES_MODELS, request_openai_json
 from src.services.provider_runtime import (
     begin_provider_request, observe_invalid_provider_response, observe_json_output, observe_provider_response,
 )
@@ -133,10 +140,11 @@ async def _call_mock(
     # Order matters: more specific checks first
     if '"title_translation"' in system_prompt and '"translated_text"' in system_prompt:
         # Learning assets generation
+        language_codes = dict(re.findall(r'"(source_language|target_language)": "([a-z]{2})"', system_prompt))
         return json.dumps(
             {
-                "source_language": "ko",
-                "target_language": "en",
+                "source_language": language_codes.get("source_language", "ko"),
+                "target_language": language_codes.get("target_language", "en"),
                 "title_translation": "The Brave Rabbit's Forest Adventure",
                 "pages": [
                     {
@@ -200,15 +208,13 @@ async def _call_mock(
         return json.dumps({"is_safe": True, "reasons": [], "suggestions": []})
     elif "positive_prompt" in system_prompt or "이미지 생성 AI" in system_prompt:
         # Image prompts generation
-        # 텍스트 금지 정책: 모든 negative_prompt에 텍스트 관련 토큰 필수 포함
-        text_prohibition = "text, letters, words, writing, caption, subtitle, title, watermark, logo, signature, label, number, alphabet, korean text, english text, any text"
         return json.dumps(
             {
                 "style": "watercolor",
                 "cover": {
                     "page": 0,
                     "positive_prompt": "A cute white rabbit wearing a blue vest, standing at the entrance of a magical forest, watercolor children book illustration style, soft pastel colors, warm sunlight filtering through trees, whimsical fairy tale atmosphere, no text, textless",
-                    "negative_prompt": f"{text_prohibition}, realistic, photograph, dark, scary, violence, blurry, deformed",
+                    "negative_prompt": "unrelated forest animals",
                     "seed": random.randint(1, 2147483647),
                     "aspect_ratio": "3:4",
                 },
@@ -216,7 +222,7 @@ async def _call_mock(
                     {
                         "page": i,
                         "positive_prompt": f"Scene {i}: A cute white rabbit in a blue vest exploring magical forest, watercolor children book illustration, soft pastel colors, warm lighting, whimsical storybook style, no text, textless",
-                        "negative_prompt": f"{text_prohibition}, realistic, photograph, dark, scary, violence, blurry, deformed",
+                        "negative_prompt": "unrelated forest animals",
                         "seed": random.randint(1, 2147483647),
                         "aspect_ratio": "3:4",
                     }
@@ -367,6 +373,14 @@ async def _call_mock(
                             "두근두근 설레는 마음이에요."
                             if i == 1
                             else "나무 사이로 따뜻한 햇살이 반짝였어요."
+                        )
+                        + (
+                            " 토끼는 발밑의 젖은 잎을 보고 어젯밤 내린 비를 떠올렸어요. "
+                            "왼쪽 길의 작은 발자국은 나무 그늘까지 이어져 있었어요. "
+                            "토끼는 저쪽에 먼저 간 친구가 있을지도 모르겠다고 생각했어요. "
+                            "낯선 길이라 조금 떨렸지만, 발자국을 따라 한 걸음씩 조심스럽게 걸었어요."
+                            if (_mock_language, _mock_target_age, mock_page_count) == ("ko", "7-9", 12)
+                            else ""
                         ),
                         "scene": f"숲속 장면 {i}: 토끼가 나무들 사이를 걸어가고 있습니다.",
                         "mood": "평화로운",
@@ -826,10 +840,63 @@ async def call_story_generation(spec: BookSpec) -> StoryDraft:
     story = parse_json_response(response, StoryDraft)
     if [page.page for page in story.pages] != list(range(1, spec.page_count + 1)):
         raise LLMError(ErrorCode.LLM_JSON_INVALID, "요청한 분량의 이야기를 완성하지 못했습니다.")
-    validate_story_integrity(
-        story, spec, supplied_character_names=[character["name"] for character in loaded_characters]
-    )
+    names = [character["name"] for character in loaded_characters]
+    validate_story_integrity(story, spec, supplied_character_names=names)
+    if requires_long_korean_story(spec):
+        expanded = await _expand_short_story_pages(story, spec)
+        if expanded is not story:
+            validate_story_integrity(expanded, spec, supplied_character_names=names)
+        story = expanded
     return story
+
+
+class _StoryLengthRepair(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    pages: list[RewriteResult] = Field(min_length=1, max_length=9)
+
+
+async def _expand_short_story_pages(story: StoryDraft, spec: BookSpec) -> StoryDraft:
+    short_pages = [
+        page for page in story.pages if count_story_words(page.text) < MIN_LONG_STORY_PAGE_WORDS
+    ]
+    deficit = MIN_LONG_STORY_PAGES - (len(story.pages) - len(short_pages))
+    if deficit <= 0:
+        return story
+    near_target_words = MIN_LONG_STORY_PAGE_WORDS - 2
+    if deficit == 1 and any(count_story_words(page.text) >= near_target_words for page in short_pages):
+        return story
+
+    targets = sorted(short_pages, key=lambda page: count_story_words(page.text))[:deficit]
+    target_ids = {page.page for page in targets}
+    context = {
+        "title": story.title,
+        "forbidden_elements": spec.forbidden_elements or [],
+        "target_pages": [page.page for page in targets],
+        "pages": [{"page": page.page, "text": page.text, "scene": page.scene} for page in story.pages],
+    }
+    response = await call_llm(
+        "한국어 7–9세 그림책의 분량 편집자다. target_pages에 지정된 쪽만 revised_text로 다시 쓴다. "
+        "각 쪽 본문을 띄어쓰기 기준 50~60어절, 최대 600자로 확장한다. "
+        "이미 정해진 인물, 사건, 장면, 순서와 금지 요소를 지키고 새로운 사건이나 인물을 넣지 않는다. "
+        "관찰이나 선택의 이유를 구체화하고 반복, 쪽 번호 안내, 장면 요약을 피한다. JSON만 반환한다.",
+        json.dumps(context, ensure_ascii=False),
+        max_tokens=max(1800, 450 * deficit), temperature=0.4,
+        response_schema=_StoryLengthRepair.model_json_schema(),
+    )
+    repair = parse_json_response(response, _StoryLengthRepair)
+    replacements = {page.page: page.revised_text for page in repair.pages}
+    repair_word_counts = [count_story_words(text) for text in replacements.values()]
+    if (
+        len(repair.pages) != len(target_ids) or replacements.keys() != target_ids
+        or any(count < near_target_words for count in repair_word_counts)
+        or sum(count < MIN_LONG_STORY_PAGE_WORDS for count in repair_word_counts) > 1
+    ):
+        raise LLMError(ErrorCode.LLM_JSON_INVALID, "7–9세 이야기의 최소 본문 분량을 충족하지 못했습니다.")
+
+    return story.model_copy(update={"pages": [
+        page.model_copy(update={"text": replacements[page.page]}) if page.page in replacements else page
+        for page in story.pages
+    ]})
 
 
 async def call_character_sheet_generation(
@@ -946,6 +1013,33 @@ async def call_story_retext(
     return result
 
 
+def _fill_source_vocab_examples(story: StoryDraft, assets: LearningAssets) -> None:
+    """Use the word in its original story context when the provider omits an example."""
+    sentences_by_page = {
+        page.page: re.findall(r'.+?(?:[.!?]+["”’»]*(?=\s|$)|[。！？]+[」』”]*|$)', page.text)
+        for page in story.pages
+    }
+    for page in assets.pages:
+        sentences = [sentence.strip() for sentence in sentences_by_page.get(page.page, [])]
+        examples = [
+            (unicodedata.normalize("NFC", sentence).casefold(), sentence)
+            for sentence in sentences if 0 < len(sentence) <= 300
+        ]
+        for item in page.vocab:
+            if item.example:
+                continue
+            word = unicodedata.normalize("NFC", item.word.strip()).casefold()
+            if not word:
+                continue
+            literal = re.escape(word)
+            if assets.source_language in (Language.en, Language.es):
+                literal = rf"(?<!\w){literal}(?!\w)"
+            elif assets.source_language == Language.ko:
+                literal = rf"(?<!\w){literal}"
+            match = re.compile(literal).search
+            item.example = next((sentence for normalized, sentence in examples if match(normalized)), None)
+
+
 async def call_learning_assets(
     story: StoryDraft,
     source_language: Language,
@@ -985,9 +1079,13 @@ async def call_learning_assets(
         pages=[{"page": p.page, "text": p.text} for p in story.pages],
     )
 
-    response = await call_llm(
-        system_prompt, user_prompt, max_tokens=max(6000, len(story.pages) * 750), temperature=0.7
-    )
+    max_tokens = max(6000, len(story.pages) * 750)
+    if settings.llm_provider == "openai" and settings.llm_model in RESPONSES_MODELS:
+        # The Responses adapter adds reasoning headroom. Keep the combined
+        # ceiling at 16,000 for optional learning material on a 12-page book.
+        max_tokens = min(max_tokens, 8000)
+    response = await call_llm(system_prompt, user_prompt, max_tokens=max_tokens, temperature=0.7)
     result = parse_json_response(response, LearningAssets)
+    _fill_source_vocab_examples(story, result)
     validate_generated_text_unicode(result)
     return result

@@ -74,5 +74,5 @@ def test_health_check_waits_for_service_to_listen():
     assert m, "health_check 함수를 찾을 수 없음"
     assert "wait_for_liveness" in m.group(1), "health_check가 대기 루프를 호출해야 함"
     # 롤백 경로도 같은 health_check를 재사용하므로 대기가 함께 적용된다.
-    rb = re.search(r"\nrollback\(\) \{\n(.*?)\n\}", text, re.DOTALL)
+    rb = re.search(r"\nrestore_previous_images\(\) \{\n(.*?)\n\}", text, re.DOTALL)
     assert rb and "health_check" in rb.group(1)

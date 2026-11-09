@@ -35,8 +35,8 @@ from live_acceptance_guard import (
     request_limits,
 )
 from run_runtime_e2e import (
-    ROOT, IMAGES, GateFailure, clean_environment, free_port, port_for, require,
-    run, stop_process_group,
+    ROOT, IMAGES, GateFailure, clean_environment, first_book_trial_environment,
+    free_port, port_for, require, run, stop_process_group,
 )
 
 # Stable public JobStatus.error.code values only. Never copy an error message or
@@ -209,9 +209,9 @@ def unverified_candidate_readiness(http_status, payload):
 
 
 
-def journey(base, directory, age, report, case=1, page_count=8, reader_profile=None):
+def journey(base, directory, age, report, case=1, page_count=8, reader_profile=None, *, trial_owner=None):
     name = "하루" if reader_profile is None else reader_profile["protagonist_name"]
-    owner = {"X-User-Key": str(uuid.uuid4())}
+    owner = {"X-User-Key": trial_owner or str(uuid.uuid4())}
     with httpx.Client(base_url=base, timeout=90, trust_env=False) as client:
         def call(method, path, **kwargs):
             response = client.request(method, path, headers=owner, **kwargs)
@@ -225,6 +225,14 @@ def journey(base, directory, age, report, case=1, page_count=8, reader_profile=N
         require(readiness.status_code == 200 or unverified_candidate_readiness(readiness.status_code, ready),
                 "Disposable candidate dependencies are not ready")
         call("POST", "/v1/consent", json={"privacy": True, "photos": False, "data_processing": True})
+        if trial_owner is not None:
+            capabilities = call("GET", "/v1/config/capabilities").json()
+            require(capabilities.get("free_first_book_trial") is True
+                    and capabilities.get("generation_invitation_supported") is True
+                    and capabilities.get("purchases_supported") is False, "TRIAL_CAPABILITIES_MISMATCH")
+            require(call("GET", "/v1/credits/balance").json().get("credits") == 1,
+                    "TRIAL_INITIAL_CREDIT_MISMATCH")
+            report["trial_initial_credit"] = 1
         print("Creating character through the live adapter..." if reader_profile is not None else
               "Creating fictional character through the live adapter...", flush=True)
         traits = {
@@ -265,6 +273,12 @@ def journey(base, directory, age, report, case=1, page_count=8, reader_profile=N
                 "page_count": page_count, "character_id": character["character_id"], "protagonist_name": name}
         started = time.monotonic()
         job_id = call("POST", "/v1/books", json=spec).json()["job_id"]
+        if trial_owner is not None:
+            with httpx.Client(base_url=base, timeout=15, trust_env=False) as reopened:
+                active = reopened.get("/v1/books/active-generations", headers=owner)
+                require(active.status_code == 200
+                        and any(row["job_id"] == job_id for row in active.json()), "TRIAL_ACTIVE_JOB_NOT_FOUND")
+            report["trial_reopened_job"] = "passed"
         stages = []
         while time.monotonic() - started < 660:
             job = call("GET", f"/v1/books/{job_id}").json()
@@ -284,7 +298,29 @@ def journey(base, directory, age, report, case=1, page_count=8, reader_profile=N
         detail = call("GET", f"/v1/books/{book_id}/detail").json()
         report["book_id"] = book_id
         report["page_count"] = len(detail["pages"])
+        report["learning_assets_available"] = detail.get("learning_assets") is not None
         require(report["page_count"] == page_count, "Unexpected page count")
+        if age == "7-9" and page_count == 12:
+            counts = [
+                sum(any(character.isalnum() for character in word) for word in page["text"].split())
+                for page in detail["pages"]
+            ]
+            report["korean_word_counts"] = counts
+            long_pages = sum(count >= 40 for count in counts)
+            report["korean_story_length"] = "target_met"
+            if long_pages < 9:
+                require(long_pages == 8 and any(38 <= count < 40 for count in counts),
+                        "KOREAN_STORY_LENGTH_BELOW_MINIMUM")
+                report["korean_story_length"] = "near_target"
+        if trial_owner is not None:
+            require(call("GET", "/v1/credits/balance").json().get("credits") == 0,
+                    "TRIAL_FINAL_CREDIT_MISMATCH")
+            require(any(row["book_id"] == book_id for row in call("GET", "/v1/library").json()["books"]),
+                    "TRIAL_BOOK_NOT_IN_LIBRARY")
+            final_ready = call("GET", "/health/ready").json()["services"]
+            require(final_ready.get("provider_runtime") == "healthy", "TRIAL_PROVIDER_READINESS_UNVERIFIED")
+            report.update(trial_final_credit=0, trial_book_in_library="passed")
+            report["trial_provider_readiness"] = "healthy"
         report["generation_warnings"] = detail.get("generation_warnings", [])
         report["images"] = []
         for index, entry in enumerate([{"image_url": detail["cover_image_url"]}] + detail["pages"]):
@@ -338,6 +374,10 @@ def main():
     parser.add_argument("--page-count", type=int, choices=ACCEPTANCE_PAGE_COUNTS, default=8)
     parser.add_argument("--image-model", choices=sorted(IMAGE_MODELS),
                         help="Explicit same-provider model comparison; never changes the env file")
+    parser.add_argument("--image-concurrency", type=int, choices=(3, 4), default=3,
+                        help="Compare parallel image requests in the disposable stack")
+    parser.add_argument("--first-book-trial", action="store_true",
+                        help="Use the invite-only free first-book policy for a fictional 12-page run")
     parser.add_argument("--hold-seconds", type=int, default=0, choices=range(0, 14401), metavar="0..14400")
     args = parser.parse_args()
     # Also covers child-process logs and dependency logs from the shared runner.
@@ -353,6 +393,12 @@ def main():
 
 def run_acceptance(args, *, profile=None):
     """Run the owned disposable stack; optional photo profile supplies its guarded journey."""
+    image_concurrency = getattr(args, "image_concurrency", 3)
+    require(type(image_concurrency) is int and image_concurrency in (3, 4)
+            and (profile is None or image_concurrency == 3), "INVALID_IMAGE_CONCURRENCY")
+    first_book_trial = getattr(args, "first_book_trial", False)
+    require(not first_book_trial or (profile is None and args.reader_profile_file is None and args.page_count == 12),
+            "TRIAL_REQUIRES_FICTIONAL_TWELVE_PAGE_RUN")
     require(profile is not None or args.page_count != 12 or args.reader_profile_file is None,
             "TWELVE_PAGE_RUN_REQUIRES_FICTIONAL_INPUT")
     directory = args.output_dir.resolve()
@@ -392,6 +438,7 @@ def run_acceptance(args, *, profile=None):
               "real_ai": True, **data_scope(reader_profile),
               "request_limits": profile.request_limits if profile is not None else request_limits(args.page_count, True),
               "illustration_quality_enabled": True, "quality_review_max_calls": 4,
+              "image_max_concurrent": image_concurrency,
               "rate_limit_config": {"mutations": 10, "reads": 120, "window_seconds": 60},
               "provider_journal_version": JOURNAL_VERSION,
               "llm_output_token_limit": LLM_TOKEN_LIMITS[config.llm_provider],
@@ -399,6 +446,10 @@ def run_acceptance(args, *, profile=None):
               "models": {"llm": config.llm_model, "image": config.image_model}}
     if profile is not None:
         report.update(profile.report_fields)
+    trial_environment = first_book_trial_environment() if first_book_trial else {}
+    trial_owner = trial_environment.pop("RUNTIME_TRIAL_OWNER", None)
+    if first_book_trial:
+        report["first_book_trial"] = True
     project = "storybook-live-" + uuid.uuid4().hex[:12]
     compose = ["docker", "compose", "--project-name", project, "--env-file", os.devnull,
                "-f", str(ROOT / "infra/docker-compose.e2e.yml")]
@@ -448,9 +499,11 @@ def run_acceptance(args, *, profile=None):
                 POD_ORDERING_ENABLED="false", PURCHASES_ENABLED="false", IAP_VERIFICATION_MODE="strict",
                 RATE_LIMIT_REQUESTS="10", RATE_LIMIT_READ_REQUESTS="120", RATE_LIMIT_WINDOW="60",
                 DAILY_GENERATION_BUDGET="2", LLM_TIMEOUT="90",
-                IMAGE_MAX_RETRIES="1", LIVE_ACCEPTANCE_JOURNAL=str(journal),
+                IMAGE_MAX_RETRIES="1", IMAGE_MAX_CONCURRENT=str(image_concurrency),
+                LIVE_ACCEPTANCE_JOURNAL=str(journal),
                 OBJC_DISABLE_INITIALIZE_FORK_SAFETY="YES")
             runtime.update(quality_environment)
+            runtime.update(trial_environment)
             runtime.update({key.upper(): str(value) for key, value in vars(config).items()
                             if key not in {"llm_timeout", "image_timeout"}})
             run([sys.executable, str(entry), "alembic", "upgrade", "head"], env=runtime,
@@ -475,7 +528,8 @@ def run_acceptance(args, *, profile=None):
                     pass
                 time.sleep(1)
             if profile is None:
-                journey(base, directory, args.age, report, args.case, args.page_count, reader_profile)
+                journey(base, directory, args.age, report, args.case, args.page_count, reader_profile,
+                        trial_owner=trial_owner)
             else:
                 profile.journey(base, directory, report, runtime)
             report["status"] = "passed"

@@ -5,7 +5,9 @@ import 'package:ai_story_book/models/models.dart';
 import 'package:ai_story_book/providers/providers.dart';
 import 'package:ai_story_book/screens/viewer_screen.dart';
 import 'package:ai_story_book/services/api_client.dart';
+import 'package:ai_story_book/services/book_media_store.dart';
 import 'package:ai_story_book/services/review_service.dart';
+import 'package:ai_story_book/services/scoped_reading_progress.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -57,6 +59,17 @@ class _NoReview extends ReviewService {
   Future<void> requestReviewIfEligible(SharedPreferences prefs) async {}
 }
 
+class _ProgressStore extends BookMediaStore {
+  _ProgressStore(super.preferences)
+    : super(
+        baseDirectory: () => throw StateError('Widget test uses no files'),
+        scopeDigest: 'a' * 64,
+      );
+
+  @override
+  Future<void> initialize() async {}
+}
+
 final _sessionApiProvider =
     StateProvider<ApiClient>((ref) => throw UnimplementedError());
 
@@ -71,28 +84,47 @@ BookResult _book() => BookResult(
     );
 
 Future<ProviderContainer> _pumpViewer(
-    WidgetTester tester, _ReadingApi api) async {
+  WidgetTester tester,
+  _ReadingApi api, {
+  bool withBackStack = false,
+}) async {
   SharedPreferences.setMockInitialValues({});
   final prefs = await SharedPreferences.getInstance();
+  const bookId = 'read-session-book';
+  final store = _ProgressStore(prefs);
   final container = ProviderContainer(overrides: [
     sharedPreferencesProvider.overrideWithValue(prefs),
     _sessionApiProvider.overrideWith((ref) => api),
     apiClientProvider.overrideWith((ref) => ref.watch(_sessionApiProvider)),
     reviewServiceProvider.overrideWithValue(_NoReview()),
-    bookDetailProvider('read-session-book')
-        .overrideWith((ref) async => _book()),
+    bookDetailProvider(bookId).overrideWith((ref) async => _book()),
+    readingProgressProvider(bookId).overrideWith(
+      (ref) async => ScopedReadingProgress(prefs, store, bookId, () => true),
+    ),
     capabilitiesProvider
         .overrideWith((ref) async => {'audio_supported': false}),
   ]);
   addTearDown(container.dispose);
+  const viewer = ViewerScreen(bookId: bookId);
   await tester.pumpWidget(
     UncontrolledProviderScope(
       container: container,
-      child: const MaterialApp(
-        locale: Locale('ko'),
+      child: MaterialApp(
+        locale: const Locale('ko'),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        home: ViewerScreen(bookId: 'read-session-book'),
+        home: withBackStack
+            ? Scaffold(
+                body: Builder(
+                  builder: (context) => TextButton(
+                    onPressed: () => Navigator.of(context).pushNamed('/viewer'),
+                    child: const Text('도서관'),
+                  ),
+                ),
+              )
+            : viewer,
+        initialRoute: withBackStack ? '/viewer' : null,
+        routes: withBackStack ? {'/viewer': (_) => viewer} : const {},
       ),
     ),
   );
@@ -137,6 +169,28 @@ void main() {
     await _pumpViewer(tester, api);
     await _closeViewer(tester);
     expect(api.records, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('system back records an abandoned read and returns to the library',
+      (tester) async {
+    final api = _ReadingApi();
+    await _pumpViewer(tester, api, withBackStack: true);
+    await _nextPage(tester);
+    expect(find.text('1 번째 이야기'), findsOneWidget);
+    expect(api.records, isEmpty);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle(
+      const Duration(milliseconds: 50),
+      EnginePhase.sendSemanticsUpdate,
+      const Duration(seconds: 2),
+    );
+    expect(find.byType(ViewerScreen), findsNothing);
+    expect(find.text('도서관'), findsOneWidget);
+    expect(api.records, hasLength(1));
+    expect(api.records.single.bookId, 'read-session-book');
+    expect(api.records.single.completed, isFalse);
     expect(tester.takeException(), isNull);
   });
 
@@ -201,18 +255,37 @@ void main() {
     },
   );
 
-  testWidgets('reaching the last page without finishing is still abandoned', (
+  testWidgets('an unfinished last page reopens there and clears on completion', (
     tester,
   ) async {
     final api = _ReadingApi();
-    await _pumpViewer(tester, api);
+    final container = await _pumpViewer(tester, api, withBackStack: true);
+    final prefs = container.read(sharedPreferencesProvider);
+    final pageKey = scopedReadingProgressKey(
+      'a' * 64,
+      'read-session-book',
+      'page',
+    );
     await _nextPage(tester);
     await _nextPage(tester);
     await _nextPage(tester);
     expect(api.records, isEmpty);
-    await _closeViewer(tester);
-    expect(api.records, hasLength(1));
+    expect(prefs.getInt(pageKey), 3);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
     expect(api.records.single.completed, isFalse);
+    await tester.tap(find.text('도서관'));
+    await tester.pumpAndSettle();
+    expect(find.text('3 번째 이야기'), findsOneWidget);
+
+    final finish = find.byKey(const Key('viewer-finish-reading'));
+    await tester.ensureVisible(finish);
+    await tester.tap(finish);
+    await tester.pump();
+    expect(prefs.getInt(pageKey), isNull);
+    await _closeViewer(tester);
+    expect(api.records.map((record) => record.completed), [false, true]);
     expect(tester.takeException(), isNull);
   });
 

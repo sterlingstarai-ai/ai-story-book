@@ -25,6 +25,13 @@ The optional `phase-gate.sh --with-ios-build` and acceptance bundle now compile 
 
 Production is deployed from version-tagged container images.
 
+With `FREE_PLAN_FIRST_BOOK_TRIAL` enabled, `deploy.sh deploy` and `deploy.sh start`
+run the free beta preflight against the loaded Compose environment. Missing
+configuration or bundled policies awaiting approval block the command before
+image pulls, database migrations, or service changes. This check needs Python
+3.11 or newer. Verify the published policy pages, effective provider data
+controls, and physical devices as separate release steps.
+
 Canonical path:
 1. GitHub Actions builds `ghcr.io/<repo>/api:<sha>` and `ghcr.io/<repo>/worker:<sha>`
 2. Production server pulls those images
@@ -150,19 +157,22 @@ Redis holds both generation counters and Celery messages. Production uses
 `maxmemory-policy noeviction` so memory pressure cannot silently delete either; rejected
 writes must be treated as unavailable capacity rather than permission to generate.
 
-LLM and image providers may optionally read keys from `LLM_API_KEY_FILE` and
-`IMAGE_API_KEY_FILE` inside the container instead of `LLM_API_KEY` and
-`IMAGE_API_KEY`. A pair cannot be set simultaneously. The configured path must
+LLM, image and OpenAI narration providers may read keys from `LLM_API_KEY_FILE`,
+`IMAGE_API_KEY_FILE` and `OPENAI_TTS_API_KEY_FILE` inside the container instead
+of their corresponding environment values. A pair cannot be set simultaneously. The configured path must
 be absolute and have no symlink in any component; the file must be regular,
 owned by the process's effective numeric UID and inaccessible to group/others.
-The same private file can be used for both providers. An absent, unreadable or
-unsafe configured file blocks startup. Settings serialization excludes both key
-values. Startup checks do not prove that the provider has accepted the key.
+The same private file can supply multiple adapters if the key has the approved
+project scope for each one. An absent, unreadable or unsafe configured file
+blocks startup. Settings serialization excludes the key values. Provider
+acceptance requires a separate live check.
 
 The optional `infra/docker-compose.provider-key-files.yml` override mounts an
 existing directory from `PROVIDER_KEY_HOST_DIR` read-only into both API and
 worker at `/run/asb-provider-keys`. Set each `*_API_KEY_FILE` to an absolute
 path under that mount and leave each corresponding raw environment key empty.
+With `deploy.sh`, pass the base file first and repeat `--compose-file` for the
+key mount override. Rollback uses the same file order with the previous env.
 The host file's numeric UID must match the actual effective UID of **both**
 container processes (check the pinned images and runtime user namespaces), and
 its mode must be 0400 or 0600. Limit access to the host directory and transfer
@@ -235,13 +245,32 @@ Common commands:
 `deploy` performs (M26 order — **migrate before up**):
 1. load the explicitly selected env file and detect Compose (run the validation commands above separately)
 2. image selection from the provided tag; `--image-tag` overrides stale API/worker image variables
-3. capture currently-running image tags (rollback target)
+3. capture the running API and worker image IDs for rollback
 4. `docker compose pull`
 5. Alembic migration — applied while the **old** stack is still serving, so the new
    schema is in place before new code runs (no compose-down, no full downtime)
 6. rolling `docker compose up -d` (only changed containers recreate)
-7. liveness/readiness checks; **on failure, auto-rollback** to the captured previous
-   images and re-check. The deploy still exits non-zero (CI red) so the failure is visible.
+7. check HTTPS liveness and readiness, then require each Celery worker to answer
+   a targeted ping through the broker. On failure, restore the captured API and
+   worker images by local ID and repeat the checks. The deploy exits non-zero
+   even when rollback restores service.
+
+When the release changes API or worker settings, keep a private copy of the
+currently running Compose environment and pass it as `--rollback-env-file PATH`.
+If the release adds or removes a Compose override, repeat
+`--rollback-compose-file PATH` for the previous base file and every previous
+override in their original order. Otherwise the previous environment uses
+the same Compose files as the release. Both configurations must refer to
+the same running Compose project.
+Compose must report the same configuration hashes and image IDs as the running
+API and worker before the deploy can proceed. This mode starts only those two
+services. On failure it revalidates the previous environment and restores the
+captured local image IDs without pulling. It verifies the image and configuration
+hash of every restored replica before checking API and worker health, then exits
+non-zero. Keep the captured images available locally. Before a retry, prepare
+the rollback env to match the running stack's current image references, including
+any IDs pinned by the last rollback. Use the pilot's pinned operation and
+restore procedures for deployments outside this Compose workflow.
 
 **Migration discipline (required by the migrate-before-up order): expand-then-contract.**
 Because old code briefly runs against the new schema, every Alembic revision MUST be
@@ -308,7 +337,11 @@ readiness. The `smoke` command uses the same origin and creates synthetic test s
 Health semantics:
 - `/health/live`: process alive
 - `/health/ready`: infrastructure/configuration and recent provider-response readiness;
-  returns `503` when degraded, unavailable, or provider access is unverified
+  returns `503` when degraded, unavailable, or provider access is unverified.
+  Each API process shares a read-only S3 bucket check for up to 15 seconds;
+  startup or upload checks cannot replace it. Readiness never creates a bucket.
+  Self-managed deployments with `S3_AUTO_CREATE_BUCKET=true` initialize the
+  bucket at startup. External deployments use an existing private bucket.
 - `/health`: compatibility endpoint for simple monitoring
 
 ## Rollback

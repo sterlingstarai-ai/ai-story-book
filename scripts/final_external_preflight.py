@@ -1,7 +1,7 @@
 """Configuration-only launch gate with secret-free, machine-readable results."""
 
 import argparse
-from datetime import date
+from datetime import date, datetime
 import ipaddress
 import json
 import os
@@ -9,6 +9,15 @@ from pathlib import Path
 import re
 from urllib.parse import urlsplit
 from urllib.parse import parse_qs
+from zoneinfo import ZoneInfo
+
+
+# Image models documented as ZDR-compatible by OpenAI's data controls guide.
+OPENAI_ZDR_IMAGE_MODELS = frozenset({
+    "gpt-image-2.5-sunburst", "gpt-image-2.5-sunburst-2026-09-08",
+    "gpt-image-2.5-flare", "gpt-image-2.5-flare-2026-09-08",
+    "gpt-image-2", "gpt-image-1.5", "gpt-image-1-mini",
+})
 
 
 def present(value):
@@ -134,6 +143,18 @@ def assess(values, *, free_beta=False):
         if not present(values.get(name)):
             missing.append(name)
 
+    def need_provider_key(name, *, required=True):
+        file_name = name + "_FILE"
+        path = values.get(file_name, "")
+        if path and values.get(name):
+            invalid.append(name + " (key and file are mutually exclusive)")
+        elif path:
+            if (not path.startswith("/") or path.startswith("//")
+                    or os.path.normpath(path) != path or path == "/"):
+                invalid.append(file_name + " (absolute normalized container path required)")
+        elif required:
+            need(name)
+
     def choice(name, accepted):
         need(name)
         if present(values.get(name)) and values[name].strip().lower() not in accepted:
@@ -160,26 +181,15 @@ def assess(values, *, free_beta=False):
                  "PRIVACY_POLICY_URL", "TERMS_OF_SERVICE_URL"):
         need(name)
     for name in ("LLM_API_KEY", "IMAGE_API_KEY"):
-        file_name = name + "_FILE"
-        path = values.get(file_name, "")
-        raw = values.get(name, "")
-        if raw and path:
-            invalid.append(name + " (key and file are mutually exclusive)")
-        elif path:
-            if (not path.startswith("/") or path.startswith("//")
-                    or os.path.normpath(path) != path or path == "/"):
-                invalid.append(file_name + " (absolute normalized container path required)")
-        else:
-            need(name)
-    choice("LLM_PROVIDER", {"openai", "anthropic", "gemini"})
-    choice("IMAGE_PROVIDER", {"openai", "gemini", "replicate", "fal"})
+        need_provider_key(name)
+    choice("LLM_PROVIDER", {"openai", "anthropic"})
+    choice("IMAGE_PROVIDER", {"openai", "replicate", "fal"})
     choice("IAP_VERIFICATION_MODE", {"strict"})
     if values.get("OPENAI_IMAGE_QUALITY", "medium") not in {"low", "medium", "high", "auto"}:
         invalid.append("OPENAI_IMAGE_QUALITY")
-    for provider, model in (("LLM_PROVIDER", "LLM_MODEL"), ("IMAGE_PROVIDER", "IMAGE_MODEL")):
-        prefix = {"anthropic": "claude-", "gemini": "gemini-"}.get(values.get(provider))
-        if prefix and present(values.get(model)) and not values[model].startswith(prefix):
-            invalid.append(model)
+    if (values.get("LLM_PROVIDER") == "anthropic" and present(values.get("LLM_MODEL"))
+            and not values["LLM_MODEL"].startswith("claude-")):
+        invalid.append("LLM_MODEL")
     for name in ("IAP_WEBHOOK_SECRET", "ADMIN_API_KEY"):
         if present(values.get(name)) and len(values[name]) < 32:
             invalid.append(name)
@@ -204,9 +214,11 @@ def assess(values, *, free_beta=False):
             if value < minimum:
                 invalid.append(name + reason)
 
+    count_limit("IMAGE_MAX_CONCURRENT", 1, " (at least one image slot required)", default=3)
     audio = enabled("AUDIO_FEATURE_ENABLED")
     narration_only = enabled("AUDIO_NARRATION_ONLY_ENABLED")
     tts_provider = values.get("TTS_PROVIDER", "").strip().lower()
+    need_provider_key("OPENAI_TTS_API_KEY", required=audio and tts_provider in {"openai", "openai_realtime"})
     pod = enabled("POD_ORDERING_ENABLED")
     purchases = enabled("PURCHASES_ENABLED")
     # The Create screen offers 8 and 12 story pages, with 12 selected by
@@ -229,16 +241,19 @@ def assess(values, *, free_beta=False):
             invalid.append("FREE_PLAN_FIRST_BOOK_TRIAL (one signup book required for free beta)")
         if purchases:
             invalid.append("PURCHASES_ENABLED (new purchases must be disabled for free beta)")
-        if not audio or tts_provider != "google_gemini":
-            invalid.append("TTS_PROVIDER (enabled Gemini narration required for free beta)")
+        if not audio or tts_provider != "openai_realtime":
+            invalid.append("TTS_PROVIDER (enabled OpenAI Realtime narration required for free beta)")
     illustration_quality = enabled("ILLUSTRATION_QUALITY_ENABLED")
     photo_processing = enabled("PHOTO_PROCESSING_ENABLED")
+    openai_images = values.get("IMAGE_PROVIDER") == "openai"
+    if ((free_beta or photo_processing) and openai_images
+            and present(values.get("IMAGE_MODEL")) and values["IMAGE_MODEL"] not in OPENAI_ZDR_IMAGE_MODELS):
+        invalid.append("IMAGE_MODEL (OpenAI image model documented as ZDR-compatible required)")
     if photo_processing:
         need("PHOTO_ANALYSIS_API_KEY")
         need("PHOTO_ANALYSIS_MODEL")
         if (values.get("PHOTO_ANALYSIS_PROVIDER", "openai") != "openai"
-                or values.get("IMAGE_PROVIDER") != "openai"
-                or not values.get("IMAGE_MODEL", "").startswith("gpt-image-")):
+                or not openai_images):
             invalid.append("PHOTO_PROCESSING_PROVIDER")
     if not illustration_quality:
         invalid.append("ILLUSTRATION_QUALITY_ENABLED (required for release)")
@@ -267,8 +282,8 @@ def assess(values, *, free_beta=False):
                 or (google_file and Path(google_file).is_file())):
             missing.append("GOOGLE_PLAY_AUTH")
     if audio:
-        choice("TTS_PROVIDER", {"openai", "google", "google_gemini", "elevenlabs"})
-        tts_key = {"openai": "OPENAI_TTS_API_KEY", "google": "GOOGLE_TTS_API_KEY", "elevenlabs": "ELEVENLABS_API_KEY"}.get(tts_provider)
+        choice("TTS_PROVIDER", {"openai", "openai_realtime", "google", "elevenlabs"})
+        tts_key = {"google": "GOOGLE_TTS_API_KEY", "elevenlabs": "ELEVENLABS_API_KEY"}.get(tts_provider)
         stt_key = None
         if not narration_only:
             choice("STT_PROVIDER", {"google", "openai"})
@@ -277,12 +292,6 @@ def assess(values, *, free_beta=False):
         for name in (tts_key, stt_key):
             if name:
                 need(name)
-        if tts_provider == "google_gemini":
-            if not re.fullmatch(r"[a-z][a-z0-9-]{4,28}[a-z0-9]", values.get("GOOGLE_GEMINI_TTS_PROJECT", "")):
-                invalid.append("GOOGLE_GEMINI_TTS_PROJECT")
-            for name in ("GOOGLE_GEMINI_TTS_DAILY_REQUEST_LIMIT", "GOOGLE_GEMINI_TTS_MONTHLY_REQUEST_LIMIT"):
-                count_limit(name, default_story_pages if free_beta else 1,
-                            " (12 required for one complete book)" if free_beta else "")
     if pod:
         invalid.append("POD_ORDERING_ENABLED (physical fulfillment is outside this release)")
     return {
@@ -298,6 +307,11 @@ def assess(values, *, free_beta=False):
                      "kakao_native_share": present(values.get("KAKAO_NATIVE_APP_KEY"))},
         "required_external_evidence": [
             "Live AI authentication, model access and Korean content quality",
+            *(["Effective project-level ZDR for every OpenAI key and endpoint processing covered child data, including story, illustrations, review and narration"]
+              if values.get("LLM_PROVIDER") == "openai" or openai_images
+              or (audio and tts_provider in {"openai", "openai_realtime"}) or photo_processing else []),
+            *(["Realtime narration with live Korean synthesis and device playback"]
+              if audio and tts_provider == "openai_realtime" else []),
             "Photo product: approved child-data processing/retention settings across analysis, image generation and QA; real-photo likeness and fixed-character reuse verification",
             "Existing private media: signed download succeeds, anonymous access denied",
             *(["Device StoreKit/Play purchase, restore and server notification verification"] if purchases else []),
@@ -308,24 +322,40 @@ def assess(values, *, free_beta=False):
     }
 
 
-def assess_bundled_policies(root=None):
+def _nonblank_policy_text(value):
+    return isinstance(value, str) and bool(value.strip())
+
+
+def assess_bundled_policies(root=None, *, today=None):
     """A URL define must not let an unfinished bundled policy ship silently."""
     root = Path(root) if root is not None else Path(__file__).resolve().parents[1]
+    today = today if today is not None else datetime.now(ZoneInfo("Asia/Seoul")).date()
     documents = {}
     for slug in ("privacy", "terms"):
         try:
             source = root / f"apps/mobile/assets/legal/{slug}.ko.json"
-            document = json.loads(source.read_text())
+            document = json.loads(source.read_text(encoding="utf-8"))
             effective_date = document.get("effective_date") or ""
-            valid_effective_date = bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", effective_date))
-            if valid_effective_date:
-                date.fromisoformat(effective_date)
-            approved = (document.get("publication_status") == "approved"
-                        and valid_effective_date
-                        and bool(document.get("operator"))
-                        and bool(document.get("contact_email"))
-                        and bool(document.get("sections")))
-            documents[slug] = "approved" if approved else "review_required"
+            effective = (date.fromisoformat(effective_date)
+                         if re.fullmatch(r"\d{4}-\d{2}-\d{2}", effective_date) else None)
+            sections = document.get("sections")
+            label = document.get("version_label")
+            introduction = document.get("introduction")
+            complete = (all(_nonblank_policy_text(document.get(field)) for field in (
+                            "title", "version_label", "introduction", "operator", "contact_email"))
+                        and isinstance(sections, list) and bool(sections)
+                        and all(isinstance(section, dict)
+                                and _nonblank_policy_text(section.get("heading"))
+                                and isinstance(section.get("paragraphs"), list)
+                                and bool(section["paragraphs"])
+                                and all(_nonblank_policy_text(p) for p in section["paragraphs"])
+                                for section in sections))
+            if (document.get("publication_status") != "approved" or effective is None or not complete
+                    or not re.search(rf"시행일\s+{effective_date}\b", label)
+                    or "검토본" in label or "검토본" in introduction):
+                documents[slug] = "review_required"
+            else:
+                documents[slug] = "approved" if effective <= today else "not_effective"
         except (OSError, ValueError, TypeError, AttributeError):
             documents[slug] = "missing_or_invalid"
     return {"ready": all(value == "approved" for value in documents.values()),
@@ -340,7 +370,7 @@ def main():
     parser.add_argument("--check-planned-features", action="store_true",
                         help="Check digital purchase/audio prerequisites without enabling or deploying them")
     parser.add_argument("--free-beta", action="store_true",
-                        help="Check invite-only Gemini narration and capacity for one default-length book")
+                        help="Check invite-only Realtime narration and capacity for one default-length book")
     args = parser.parse_args()
     if args.free_beta and args.check_planned_features:
         parser.error("--free-beta and --check-planned-features are separate release modes")
@@ -360,7 +390,7 @@ def main():
     result["bundled_policy_documents"] = assess_bundled_policies()
     if not result["bundled_policy_documents"]["ready"]:
         result["status"] = "BLOCKED"
-        result["invalid_configuration"].append("BUNDLED_POLICY_DOCUMENTS (review and effective date required)")
+        result["invalid_configuration"].append("BUNDLED_POLICY_DOCUMENTS (complete, approved and effective documents required)")
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))
     else:

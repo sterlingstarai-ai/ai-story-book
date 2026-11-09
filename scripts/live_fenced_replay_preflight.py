@@ -13,7 +13,7 @@ import signal
 import time
 
 from live_privacy_boundary import hold_live_privacy_boundary
-from quarantined_backup_ingest import _dispose_owned
+from quarantined_backup_ingest import _dispose_owned, _receive_worker_reply
 from quarantined_replay_adapter import prepare_isolated_replay_direct
 
 
@@ -50,7 +50,10 @@ def _child(pipe, witness_factory, arguments):
 async def _wait_message(pipe, process, deadline):
     while time.monotonic() < deadline:
         if pipe.poll():
-            return pipe.recv()
+            reply = _receive_worker_reply(pipe)
+            if reply is None:
+                raise LiveFencedReplayError('Isolated preflight process exited')
+            return reply
         if not process.is_alive():
             raise LiveFencedReplayError('Isolated preflight process exited')
         await asyncio.sleep(.1)

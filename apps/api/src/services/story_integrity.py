@@ -14,7 +14,7 @@ import structlog
 
 from src.core.errors import ErrorCode, LLMError
 from src.models import dto
-from src.models.dto import BookSpec, Language, StoryDraft
+from src.models.dto import BookSpec, Language, StoryDraft, TargetAge
 
 logger = structlog.get_logger()
 
@@ -23,6 +23,18 @@ _ALLOWED_CONTROLS = frozenset("\n\r\t\u200c\u200d")
 _QUOTED_PHRASES = re.compile(r'"([^"\n]+)"|“([^”\n]+)”|‘([^’\n]+)’|\'([^\'\n]+)\'|「([^」\n]+)」')
 _ENGLISH_SUBJECT = re.compile(r"영어|영단어|알파벳|\benglish\b", re.IGNORECASE)
 _LEARNING_INTENT = re.compile(r"배우|배움|학습|공부|연습|단어|인사|노래|놀이|가르|읽기|\blearn(?:ing)?\b|\blesson\b", re.IGNORECASE)
+
+MIN_LONG_STORY_PAGE_WORDS = 40
+MIN_LONG_STORY_PAGES = 9
+
+
+def requires_long_korean_story(spec: BookSpec) -> bool:
+    return spec.language == Language.ko and spec.target_age == TargetAge.a7_9 and spec.page_count == 12
+
+
+def count_story_words(text: str) -> int:
+    """Count whitespace-delimited eojeol and ignore standalone punctuation."""
+    return sum(any(character.isalnum() for character in word) for word in text.split())
 
 
 def _is_latin_letter(character: str) -> bool:

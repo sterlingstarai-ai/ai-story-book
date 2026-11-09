@@ -1,18 +1,89 @@
 import json
 from unittest.mock import AsyncMock
+import uuid
 
 import httpx
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select
 
 from src.core.config import settings
 from src.core.rate_limit import rate_limiter
-from src.models.db import NarrationVariant
+from src.models.db import ChildProfile, NarrationVariant
 from src.routers.books import get_page_audio
 from src.services.storage import storage_service
 from src.services.tts import OpenAITTSProvider, tts_service
 from tests.test_audio_completion import _narration_book
 from tests.test_narration_voices import _LockRedis
+
+
+@pytest.mark.asyncio
+async def test_cached_narration_never_synthesizes_or_bypasses_consent(client, db_session, monkeypatch, user_key):
+    book, page, consent = await _narration_book(db_session, user_key=user_key)
+    monkeypatch.setattr(settings, 'tts_provider', 'openai')
+    monkeypatch.setattr(settings, 'openai_tts_api_key', 'test')
+    monkeypatch.setattr(settings, 'openai_tts_model', 'gpt-4o-mini-tts')
+    monkeypatch.setattr(settings, 'require_parental_consent_in_testing', True)
+    synth = AsyncMock(side_effect=AssertionError('Cached narration must never synthesize'))
+    monkeypatch.setattr(tts_service, 'synthesize_page', synth)
+    url = f'/v1/books/{book.id}/pages/1/audio/cached'
+    headers = {'X-User-Key': book.user_key}
+    params = {'language': 'en', 'voice': 'deep', 'style': 'animated'}
+
+    missing = await client.get(url, params=params, headers=headers)
+    assert missing.status_code == 200 and missing.json() == {'audio_url': None}
+    db_session.add(NarrationVariant(id='cached-only', page_id=page.id, language='en', voice='deep',
+                                   style='animated', provider='openai', audio_url='https://cdn.example.com/cached.mp3'))
+    await db_session.commit()
+    saved = await client.get(url, params=params, headers=headers)
+    assert saved.status_code == 200 and saved.json()['audio_url'].endswith('/cached.mp3')
+    foreign = {'X-User-Key': str(uuid.uuid4())}
+    assert (await client.get(url, params=params, headers=foreign)).status_code == 403
+
+    consent.granted = False
+    await db_session.commit()
+    assert (await client.get(url, params=params, headers=headers)).status_code == 403
+    synth.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_cached_narration_reads_book_and_page_together_with_profile_scope(client, db_session, user_key):
+    book, page, _ = await _narration_book(db_session, user_key=user_key)
+    db_session.add_all([
+        ChildProfile(id='audio-owner', user_key=user_key, name='Owner'),
+        ChildProfile(id='audio-sibling', user_key=user_key, name='Sibling'),
+    ])
+    await db_session.flush()
+    book.profile_id = 'audio-owner'
+    page.audio_url_en = 'https://cdn.example.com/cached.mp3'
+    await db_session.commit()
+    params = {'language': 'en'}
+    owner = {'X-User-Key': user_key, 'X-Profile-Id': 'audio-owner'}
+    sibling = {**owner, 'X-Profile-Id': 'audio-sibling'}
+    url = f'/v1/books/{book.id}/pages'
+    reads = []
+
+    def observe(_conn, _cursor, statement, _params, _context, _executemany):
+        sql = ' '.join(statement.lower().split())
+        if ' from books ' in sql or ' from pages ' in sql:
+            reads.append(sql)
+
+    engine = db_session.bind.sync_engine
+    event.listen(engine, 'before_cursor_execute', observe)
+    try:
+        saved = await client.get(f'{url}/1/audio/cached', params=params, headers=owner)
+    finally:
+        event.remove(engine, 'before_cursor_execute', observe)
+    assert saved.status_code == 200 and saved.json()['audio_url'].endswith('/cached.mp3')
+    assert len(reads) == 1 and 'left outer join pages' in reads[0]
+    assert (await client.get(f'{url}/2/audio/cached', params=params, headers=owner)).status_code == 404
+    for page_number in (1, 2):
+        assert (await client.get(
+            f'{url}/{page_number}/audio/cached', params=params, headers=sibling,
+        )).status_code == 403
+
+    book.profile_id = None
+    await db_session.commit()
+    assert (await client.get(f'{url}/1/audio/cached', params=params, headers=sibling)).status_code == 200
 
 
 @pytest.mark.asyncio

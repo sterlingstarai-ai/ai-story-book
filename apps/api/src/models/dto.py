@@ -374,6 +374,14 @@ class CreateBookResponse(BaseModel):
     estimated_time_seconds: Optional[int] = Field(default=None, ge=1, le=3600)
 
 
+class ActiveBookGeneration(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    job_id: str = Field(min_length=1, max_length=60)
+    status: Literal["queued", "running"]
+    progress: int = Field(ge=0, le=100)
+
+
 class RegeneratePageRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 

@@ -74,8 +74,7 @@ async def record_answer(
     """학습 퀴즈/어휘 응답 기록 — 성장 측정의 근거 데이터."""
     # L12: dangling profile_id로 저장 차단(삭제/타인 프로필 → 422).
     profile_id = await validate_profile_ownership(db, user_key, profile_id)
-    # 남의 책으로 내 성장 지표를 부풀리는 조작 차단(IDOR).
-    await growth_service.assert_book_not_foreign(db, payload.book_id, user_key)
+    await growth_service.assert_book_not_foreign(db, payload.book_id, user_key, profile_id=profile_id)
     answer = await growth_service.record_answer(
         db,
         user_key,

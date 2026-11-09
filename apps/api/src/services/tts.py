@@ -3,20 +3,27 @@ TTS (Text-to-Speech) Service
 책 페이지를 오디오로 변환
 """
 
-import httpx
+import asyncio
+import os
 import re
+from threading import Lock
+from time import monotonic
+
+import httpx
 import structlog
 from typing import Optional
 from abc import ABC, abstractmethod
+from functools import partial
 
 from ..core.config import settings
 from src.core.cost_budget import require_daily_generation_budget
 from src.core.gemini_tts_budget import require_gemini_tts_request_budget
 from src.services.provider_runtime import (
     begin_provider_request, observe_invalid_provider_response,
-    observe_provider_response, observe_validated_provider_success,
+    observe_provider_credentials_unavailable, observe_provider_response, observe_validated_provider_success,
 )
 from src.services.narration_style import STYLE_DIRECTIONS
+from src.services.realtime_tts import RealtimeTranscriptMismatch, join_realtime_wav, split_realtime_script
 
 logger = structlog.get_logger()
 
@@ -30,6 +37,10 @@ GEMINI_STYLE_DIRECTIONS = {
                  "Read exactly the supplied text."),
     "bedtime": "Read the story exactly, in a gentle calm soothing bedtime voice, soft energy and relaxed natural rhythm. No added words or sound effects.",
 }
+_GEMINI_ADC_TIMEOUT = 20
+# The initial Realtime call can take 60 seconds. Leave headroom within
+# the 120-second API proxy timeout for saving and returning the audio.
+_REALTIME_RECOVERY_TIMEOUT = 45
 
 # H3: 스토리 5개 언어(ko/en/ja/zh/es) → TTS 언어코드·기본 보이스.
 # 이전에는 ko/en만 매핑돼 ja/zh/es 책이 한국어(ko-KR) 보이스로 오합성된 오디오를
@@ -182,9 +193,16 @@ class RealtimeTTSProvider(BaseTTSProvider):
         resolve_tts_language(language)
         if speaking_rate != 1.0:
             raise ValueError("Realtime provider supports natural speed only")
-        from src.services.realtime_tts import MODEL, synthesize_realtime
+        from src.services.realtime_tts import MODEL, RealtimeSynthesisError, synthesize_realtime
         observation = begin_provider_request('openai_realtime', MODEL, 'tts', settings.openai_tts_api_key)
-        audio = await synthesize_realtime(text, voice, style=style)
+        try:
+            audio = await synthesize_realtime(text, voice, language=language, style=style)
+        except RealtimeSynthesisError as error:
+            if error.status_code in {401, 403}:
+                await observe_provider_response(observation, httpx.Response(error.status_code))
+            else:
+                await observe_invalid_provider_response(observation)
+            raise
         await observe_validated_provider_success(observation)
         return audio
 
@@ -233,14 +251,60 @@ def _validate_gemini_mp3(audio: bytes, text: str) -> None:
 class GeminiCloudTTSProvider(BaseTTSProvider):
     """Opt-in Gemini TTS via workload ADC; never uses long-lived API keys."""
 
+    def __init__(self):
+        self._adc_lock = Lock()
+        self._cached_adc = None
+
+    def _access_token(self, project):
+        import google.auth
+        from google.auth.credentials import TokenState
+        from google.auth.transport.requests import Request
+
+        deadline = monotonic() + _GEMINI_ADC_TIMEOUT
+        source = (os.getpid(), project, os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"),
+                  os.environ.get("CLOUDSDK_CONFIG"))
+        # A provider instance can serve concurrent pages or successive Celery
+        # event loops. Only one thread may discover/refresh its credential.
+        if not self._adc_lock.acquire(timeout=_GEMINI_ADC_TIMEOUT):
+            raise TimeoutError("Gemini TTS credential refresh timed out")
+        try:
+            if self._cached_adc is not None:
+                cached_source, credentials = self._cached_adc
+                if cached_source == source and credentials.token_state is TokenState.FRESH:
+                    return credentials.token
+            self._cached_adc = None
+            request = Request()
+
+            def bounded_request(*args, timeout=None, **kwargs):
+                remaining = deadline - monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("Gemini TTS credential refresh timed out")
+                return request(*args, timeout=min(timeout or remaining, remaining), **kwargs)
+
+            credentials, _ = google.auth.default(
+                scopes=["https://www.googleapis.com/auth/cloud-platform"], request=bounded_request,
+            )
+            credentials.refresh(bounded_request)
+            if not credentials.token:
+                raise ValueError("Gemini TTS credentials unavailable")
+            if getattr(credentials, "expiry", None) is not None and credentials.token_state is TokenState.FRESH:
+                self._cached_adc = (source, credentials)
+            return credentials.token
+        finally:
+            self._adc_lock.release()
+
+    def _discard_rejected_token(self, project, token):
+        with self._adc_lock:
+            if self._cached_adc is not None:
+                source, credentials = self._cached_adc
+                # A late rejection for an older token cannot evict its successor.
+                if source[:2] == (os.getpid(), project) and credentials.token == token:
+                    self._cached_adc = None
+
     async def synthesize(self, text, voice="default", *, language="ko", speaking_rate=1.0, style="legacy"):
-        import asyncio
         import base64
         import binascii
         import re
-
-        import google.auth
-        from google.auth.transport.requests import Request
 
         language_code, _ = resolve_tts_language(language)
         if not isinstance(text, str) or not text.strip() or len(text.encode("utf-8")) > 4000:
@@ -256,16 +320,12 @@ class GeminiCloudTTSProvider(BaseTTSProvider):
         if not re.fullmatch(r"[a-z][a-z0-9-]{4,28}[a-z0-9]", project):
             raise ValueError("Gemini TTS billing project is invalid")
 
-        def access_token():
-            credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
-            credentials.refresh(Request())
-            if not credentials.token:
-                raise ValueError("Gemini TTS credentials unavailable")
-            return credentials.token
-
         try:
-            token = await asyncio.wait_for(asyncio.to_thread(access_token), timeout=20)
+            token = await asyncio.wait_for(
+                asyncio.to_thread(self._access_token, project), timeout=_GEMINI_ADC_TIMEOUT,
+            )
         except Exception:
+            await observe_provider_credentials_unavailable("google_gemini", "gemini-2.5-flash-tts", "tts", project)
             raise ValueError("Gemini TTS credentials unavailable") from None
         prompt = GEMINI_STYLE_DIRECTIONS["natural" if style == "legacy" else style]
         if language == "ko":
@@ -288,6 +348,8 @@ class GeminiCloudTTSProvider(BaseTTSProvider):
                     json=payload, headers={"Authorization": f"Bearer {token}", "x-goog-user-project": project})
         except httpx.HTTPError:
             raise ValueError("Gemini TTS request failed") from None
+        if response.status_code in {401, 403}:
+            await asyncio.to_thread(self._discard_rejected_token, project, token)
         await observe_provider_response(observation, response, defer_success=True)
         if not response.is_success:
             raise ValueError(f"Gemini TTS request failed: HTTP {response.status_code}")
@@ -538,13 +600,19 @@ class TTSService:
         style_args = {} if style == "legacy" else {"style": style}
         if style != "legacy" and not isinstance(provider, (OpenAITTSProvider, RealtimeTTSProvider, GeminiCloudTTSProvider)):
             raise ValueError("Narration style unsupported by provider")
-        return await provider.synthesize(
-            text,
-            voice,
-            language=language,
-            speaking_rate=self._resolve_speed(target_age),
-            **style_args,
+        synthesize = partial(
+            provider.synthesize, language=language,
+            speaking_rate=self._resolve_speed(target_age), **style_args,
         )
+        try:
+            return await synthesize(text, voice)
+        except RealtimeTranscriptMismatch:
+            parts = []
+            async with asyncio.timeout(_REALTIME_RECOVERY_TIMEOUT):
+                for part in split_realtime_script(text):
+                    await require_daily_generation_budget("audio.tts")
+                    parts.append(await synthesize(part, voice))
+            return parts[0] if len(parts) == 1 else join_realtime_wav(*parts)
 
     async def synthesize_book(
         self,

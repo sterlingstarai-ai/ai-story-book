@@ -6,7 +6,6 @@ JSON response is not a pass unless every requested page is explicitly reviewed.
 """
 
 import asyncio
-import base64
 from enum import Enum
 from io import BytesIO
 import json
@@ -117,9 +116,11 @@ Check these narrow, concrete defects; use only the corresponding issue codes:
   or distinctive physical feature against the visual brief or the character established on other pages.
   Judge the recognizable character and core outfit. Small trim, folds, check spacing, and minor
   accessory details alone are not identity swaps; plainly replacing a defining garment still is.
+  An additional garment that leaves the defining features and core outfit visible is acceptable
+  unless it conflicts with the plot or is mistaken for another character's signature garment.
   Do not reject normal pose, angle, lighting, expression, stylization, or tiny artistic variation.
 - action_mismatch: a clear contradiction of the page's central action or stated current time/state:
-  who holds/touches what, a completed action when the text explicitly places the current moment
+  who performs a plot-critical action, a completed action when the text explicitly places the current moment
   BEFORE required permission/safety checking, or an object
   still visibly full when the page explicitly says it is empty. A page can illustrate one legitimate
   moment of a multi-action paragraph; do not demand every sentence simultaneously. The cover is an
@@ -127,6 +128,16 @@ Check these narrow, concrete defects; use only the corresponding issue codes:
   Do not reject an otherwise matching central action just because exact spatial coverage, a subtle
   hand pose, or every minor qualifier cannot be verified from one still image. Missing incidental
   details and plausible artistic simplification are not a clear contradiction.
+  Distinguish nearby phases of gradual change from a different story milestone. Slightly parted
+  young leaves can show early unfolding; a mature plant contradicts a newly emerging shoot.
+  If the scene is about observing without interfering, a nearby or pointing hand alone does not
+  show intervention. Flag visible touching, pulling, or forcing only when it contradicts the text,
+  or a visibly different stage that materially changes the story event.
+  When the scene is about characters working together, a different division of incidental chores is
+  acceptable if the picture still communicates the same event and outcome. Do flag a changed actor
+  when their identity determines the cause, lesson, safety or meaning of the scene.
+  An approximate comparison of small objects is acceptable unless the relative size changes the
+  event, the result of a measurement central to the story, or the function of a recurring object.
   When a central action requires a visible open or closed state, compare the actual object being
   handled with that state. For example, if the shown action is drying the book that the text says
   is open, but that book is clearly closed, report action_mismatch. Do not flag incidental closed
@@ -236,17 +247,13 @@ async def review_book_illustrations(
             "visual_brief": image_prompts[number],
         } for number in numbers],
     }
-    image_urls = [
-        f"data:{images[number][1]};base64," + base64.b64encode(images[number][0]).decode("ascii")
-        for number in numbers
-    ]
     try:
         # httpx's individual timeout is not a total wall-clock deadline.
         raw = await asyncio.wait_for(request_openai_json(
             model=settings.llm_model, api_key=settings.llm_api_key,
             timeout=timeout, system_prompt=_SYSTEM_PROMPT,
             user_prompt=json.dumps(context, ensure_ascii=False, separators=(",", ":")),
-            max_tokens=REVIEW_VISIBLE_TOKEN_BUDGET, image_urls=image_urls,
+            max_tokens=REVIEW_VISIBLE_TOKEN_BUDGET, review_images=[images[number] for number in numbers],
             response_schema=BookIllustrationReview.model_json_schema(),
         ), timeout=timeout)
     except TimeoutError:

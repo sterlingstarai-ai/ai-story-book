@@ -51,6 +51,16 @@ async def test_image_prompt_request_includes_roster_matching_each_pages_present_
     assert "characters_present를 정확히 해석" in system
     assert "주인공이 없는 장면에는 마스터 묘사를 넣어 주인공을 추가하지 않는다" in system
     assert "Visible cast: N distinct characters, one of each." in system
+    assert "본문의 핵심 행동, 그 행동을 하는 인물의 이름과 구별되는 외형" in system
+    assert "잡은 손이 어느 인물의 몸에 이어지는지" in system
+    assert "인물의 이름 바로 옆에 종이나 대표 옷" in system
+    assert "손끝 너비의 얕은 자국" in system
+    assert "현재 상태와 인물의 반응을 같은 시점" in system
+    assert "무릎 높이처럼 비교 기준" in system
+    assert "화분 옆 조약돌은 화분 바깥 바닥에" in system
+    assert "CAST LOOKS: " in system
+    assert "동작, 소품의 위치, 자세, 카메라, 시점, 장면 서술은 이 필드에 넣지 않는다" in system
+    assert "무엇이 창 안과 밖에 있는지 각각 명시" in system
     assert "이름을 주어로 연결" in system
     assert "상의와 멜빵·바지의 색을 서로 바꾸지 않는다" in system
     assert "명단에 없는 인물은 제외" in system
@@ -73,9 +83,10 @@ async def test_gemini_http_keeps_cast_and_identity_rules_with_or_without_referen
     prompt = ImagePrompt(page=2, positive_prompt=positive, negative_prompt="text, logos, duplicate characters", seed=10)
     before = prompt.model_dump()
     reference = "https://private.example.invalid/owned-reference.png"
-    encoded_reference = base64.b64encode(b"fictional-reference-bytes").decode()
-    fetched = AsyncMock(return_value=(encoded_reference, "image/png") if reference_state == "available" else None)
-    monkeypatch.setattr(image, "_fetch_image_as_base64", fetched)
+    reference_bytes = b"fictional-reference-bytes"
+    encoded_reference = base64.b64encode(reference_bytes).decode()
+    fetched = AsyncMock(return_value=(reference_bytes, "image/png") if reference_state == "available" else None)
+    monkeypatch.setattr(image, "_fetch_image_bytes", fetched)
     logger = Mock()
     monkeypatch.setattr(image, "logger", logger)
     requests = []
@@ -110,6 +121,8 @@ async def test_gemini_http_keeps_cast_and_identity_rules_with_or_without_referen
     assert "exactly one instance of each" in scene
     assert "not additional people" in scene
     assert "Bind each action to its named character" in scene
+    assert "connect it visibly to the named actor's hand" in scene
+    assert "Keep the scale of small actions and traces as specified" in scene
     assert "hair length, parting and hairstyle unchanged" in scene
     assert "never transfer a companion's features to the protagonist" in scene
     assert "Preserve the exact garment-to-color assignment" in scene

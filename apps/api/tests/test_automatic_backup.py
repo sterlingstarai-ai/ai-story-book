@@ -32,6 +32,9 @@ class Runtime:
     def reload_proxy(self):
         pass
 
+    def verify_recovery(self):
+        assert all(self.states.values())
+
 
 class Store:
     def __init__(self):
@@ -49,7 +52,7 @@ def checkpoint(value='a'):
             'journal_sha256': value * 64, 'restore_authorized': False}
 
 
-def test_guarded_cycle_restarts_services_and_leaves_restore_quarantined(modules, tmp_path):
+def test_guarded_cycle_restarts_services_and_leaves_restore_quarantined(modules, tmp_path, monkeypatch):
     automatic, guard_module = modules
     runtime = Runtime()
     guard = guard_module.BackupServiceGuard(tmp_path / 'state', runtime)
@@ -61,11 +64,16 @@ def test_guarded_cycle_restarts_services_and_leaves_restore_quarantined(modules,
     def take():
         assert not any(runtime.states.values())
         return {'status': 'BACKUP_CREATED_NOT_RESTORE_VERIFIED', 'backup_set': folder.name}
+    ticks = iter(range(0, 100_000_000, 1_000_000))
+    monkeypatch.setattr(automatic, 'monotonic_ns', lambda: next(ticks))
+    timings = {}
     result = automatic.run_guarded_backup(guard=guard, verify_idle=idle, verify_journal=checkpoint,
-        take_backup=take, output_dir=tmp_path, store=store, run_id='a' * 32)
+        take_backup=take, output_dir=tmp_path, store=store, run_id='a' * 32, timings_ms=timings)
     assert all(runtime.states.values()) and result['restore_authorized'] is False
     assert store.writes[-1].endswith('/verified.json')
     assert store.marker['journal_sha256'] == 'a' * 64 and store.marker['journal_event_count'] == 1
+    assert timings == {'guarded_idle': 1, 'privacy_checkpoint': 3, 'capture': 1,
+                       'publication': 3, 'guarded_cycle': 13}
 
 
 def test_changed_journal_prevents_publication_and_restarts_services(modules, tmp_path):
@@ -83,12 +91,33 @@ def test_changed_journal_prevents_publication_and_restarts_services(modules, tmp
     assert all(runtime.states.values()) and store.writes == []
 
 
-def test_lost_fence_during_upload_prevents_verified_marker(modules, tmp_path):
+def test_journal_change_during_upload_blocks_unfenced_backup_marker(modules, tmp_path):
     automatic, guard_module = modules
     runtime = Runtime()
     guard = guard_module.BackupServiceGuard(tmp_path / 'state', runtime)
     folder = tmp_path / 'external-fixture'
     backup(folder)
+    store = Store()
+
+    def verify():
+        assert not any(runtime.states.values())
+        return checkpoint('b' if store.writes else 'a')
+
+    publisher = importlib.import_module('publish_backup_gcs')
+    with pytest.raises(publisher.BackupPublishError, match='publication failed'):
+        automatic.run_guarded_backup(guard=guard, verify_idle=lambda: None, verify_journal=verify,
+            take_backup=lambda: {'status': 'BACKUP_CREATED_NOT_RESTORE_VERIFIED', 'backup_set': folder.name},
+            output_dir=tmp_path, store=store, run_id='a' * 32)
+    assert store.writes[-1].endswith('/manifest.json')
+    assert store.marker is None and all(runtime.states.values())
+
+
+def test_lost_fence_during_upload_prevents_verified_marker(modules, tmp_path):
+    automatic, guard_module = modules
+    runtime = Runtime()
+    guard = guard_module.BackupServiceGuard(tmp_path / 'state', runtime)
+    folder = tmp_path / 'external-fixture'
+    backup(folder, extra_objects=2)
     store = Store()
     closed = []
 
@@ -112,7 +141,8 @@ def test_lost_fence_during_upload_prevents_verified_marker(modules, tmp_path):
     publisher = importlib.import_module('publish_backup_gcs')
     with pytest.raises(publisher.BackupPublishError, match='publication failed'):
         automatic.run_guarded_backup(guard=guard, verify_idle=lambda: None, verify_journal=checkpoint,
-            publication_boundary=boundary, output_dir=tmp_path, store=store, run_id='a' * 32)
+            publication_boundary=boundary, output_dir=tmp_path, store=store, run_id='a' * 32,
+            media_upload_workers=2)
     assert closed and all(runtime.states.values())
     assert store.marker is None
 

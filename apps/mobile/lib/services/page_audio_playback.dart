@@ -11,7 +11,7 @@ import 'package:just_audio/just_audio.dart';
 /// just_audio completes it when playback finishes or pauses, not when it starts.
 abstract class PageAudioPlayer {
   bool get completed;
-  Future<void> loadFile(String path);
+  Future<void> loadFile(String path, {required Duration initialPosition});
   Future<void> seek(Duration position);
   Future<void> play();
   Future<void> pause();
@@ -24,8 +24,11 @@ class JustAudioPagePlayer implements PageAudioPlayer {
   @override
   bool get completed => player.processingState == ProcessingState.completed;
   @override
-  Future<void> loadFile(String path) async {
-    await player.setFilePath(path);
+  Future<void> loadFile(
+    String path, {
+    required Duration initialPosition,
+  }) async {
+    await player.setFilePath(path, initialPosition: initialPosition);
   }
 
   @override
@@ -123,7 +126,7 @@ Future<String> cachedPageAudio(
   BaseCacheManager? cache,
   bool Function()? isCurrent,
   bool Function()? shouldRemoveLateFile,
-  Future<String?> Function()? refreshRejectedUrl,
+  Future<String?> Function(String rejectedUrl)? refreshRejectedUrl,
 }) async {
   final manager = cache ?? DefaultCacheManager();
   void requireCurrent() {
@@ -147,14 +150,14 @@ Future<String> cachedPageAudio(
     file = await manager.getSingleFile(url, key: key);
   } on HttpExceptionWithStatus catch (error) {
     // A previously issued signed URL may be rejected before its advertised
-    // expiry (for example after credential rotation). Refresh only once and
-    // only when the caller knows the rejected URL came from a cached book.
+    // expiry (for example after credential rotation). Give the caller one
+    // chance to obtain a new URL for the same authorized recording.
     if (refreshRejectedUrl == null ||
         !const {401, 403, 404}.contains(error.statusCode)) {
       rethrow;
     }
     requireCurrent();
-    final freshUrl = await refreshRejectedUrl();
+    final freshUrl = await refreshRejectedUrl(url);
     requireCurrent();
     if (freshUrl == null || freshUrl.isEmpty || freshUrl == url) rethrow;
     file = await manager.getSingleFile(freshUrl, key: key);
@@ -222,36 +225,43 @@ class PageAudioPlayback extends ChangeNotifier {
     String key,
     Future<String> Function() resolveFile, {
     bool restart = false,
-    Duration initialPosition = Duration.zero,
+    FutureOr<Duration> initialPosition = Duration.zero,
+    bool Function()? isCurrent,
   }) async {
     if (_disposed || _loading) return;
     final epoch = ++_epoch;
+    bool current() =>
+        !_disposed && epoch == _epoch && (isCurrent?.call() ?? true);
     _setLoading(true);
     try {
+      final resume = Future<Duration>.value(
+        initialPosition,
+      ).catchError((Object _) => Duration.zero);
       final file = _loadedKey == key ? null : await resolveFile();
-      if (_disposed || epoch != _epoch) return;
+      if (!current()) return;
+      final position = file == null ? Duration.zero : await resume;
+      if (!current()) return;
       await _serialized(() async {
-        if (_disposed || epoch != _epoch) return;
+        if (!current()) return;
         if (file != null) {
           await player.stop();
-          if (_disposed || epoch != _epoch) return;
-          await player.loadFile(file);
-          if (_disposed || epoch != _epoch) return;
+          if (!current()) return;
+          await player.loadFile(file, initialPosition: position);
+          if (!current()) return;
           _loadedKey = key;
-          await player.seek(initialPosition);
         } else if (restart || player.completed) {
           await player.seek(Duration.zero);
         }
-        if (_disposed || epoch != _epoch) return;
+        if (!current()) return;
         // A playback error may arrive after this command has returned.
         unawaited(
           player.play().catchError((Object error) {
-            if (!_disposed && epoch == _epoch) onError(error);
+            if (current()) onError(error);
           }),
         );
       });
     } catch (error) {
-      if (!_disposed && epoch == _epoch) onError(error);
+      if (current()) onError(error);
     } finally {
       if (epoch == _epoch) _setLoading(false);
     }

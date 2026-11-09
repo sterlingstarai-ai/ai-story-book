@@ -4,6 +4,7 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+from threading import Barrier
 from unittest.mock import Mock
 
 import pytest
@@ -148,6 +149,58 @@ def test_complete_set_preserves_media_metadata_and_never_traverses_remote_keys(i
     assert any(command[:2] == ['pg_restore', '--list'] for command in commands)
     client.get_object.assert_called_once_with(Bucket='storybook', Key='../../escape.png', IfMatch='etag')
     client.close.assert_called_once_with()
+
+
+@pytest.mark.parametrize('truncated', [False, True])
+def test_parallel_downloads_preserve_order_and_finish_before_cleanup(inert_backup, truncated):
+    backup, values, destination, ca, client, _ = inert_backup
+    stamp = '2026-11-03T13:15:06Z'
+    client.get_paginator.return_value.paginate.return_value = [{'IsTruncated': False, 'Contents': [
+        {'Key': key, 'ETag': key + '-etag', 'Size': 5, 'LastModified': stamp}
+        for key in ('c', 'b', 'a')]}]
+    first_pair = Barrier(2, timeout=5)
+    closed = []
+
+    class Body(io.BytesIO):
+        def __init__(self, key):
+            self.key = key
+            super().__init__(b'i' if truncated and key == 'a' else b'image')
+
+        def close(self):
+            if not self.closed:
+                closed.append(self.key)
+            super().close()
+
+    def get_object(*, Bucket, Key, IfMatch):
+        assert Bucket == 'storybook' and IfMatch == Key + '-etag'
+        if Key in ('a', 'b'):
+            first_pair.wait()
+        return {'Body': Body(Key), 'ContentLength': 5, 'ETag': IfMatch, 'LastModified': stamp}
+
+    client.get_object.side_effect = get_object
+    expected_keys = ['a', 'b'] if truncated else ['a', 'b', 'c']
+
+    def close_client():
+        assert sorted(closed) == expected_keys
+
+    client.close.side_effect = close_client
+    if truncated:
+        with pytest.raises(backup.BackupError, match='truncated'):
+            backup.create_backup(values, destination, ca, media_download_workers=2)
+        assert not list(destination.iterdir())
+    else:
+        result = backup.create_backup(values, destination, ca, media_download_workers=2)
+        manifest = json.loads((destination / result['backup_set'] / 'manifest.json').read_text())
+        assert [entry['key'] for entry in manifest['objects']] == expected_keys
+    client.close.assert_called_once_with()
+
+
+@pytest.mark.parametrize('workers', [0, 3, True])
+def test_invalid_worker_count_fails_before_source_reads(inert_backup, workers):
+    backup, values, destination, ca, client, commands = inert_backup
+    with pytest.raises(backup.BackupError, match='worker count'):
+        backup.create_backup(values, destination, ca, media_download_workers=workers)
+    assert not commands and not client.method_calls and not destination.exists()
 
 
 @pytest.mark.parametrize('failure', ['download', 'changed_inventory', 'truncated', 'changed_download_identity'])

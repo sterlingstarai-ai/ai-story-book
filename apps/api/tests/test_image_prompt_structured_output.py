@@ -234,6 +234,12 @@ async def test_recurring_prop_design_reaches_one_request_with_complete_book_cont
     assert "그 장면에서 실제 사용하는 수량과 위치" in wire
     assert "그 한 쌍을 바닥에도 동시에 두지 않는다" in wire
     assert "별도 소품 목록은 출력하지 않는다" in wire
+    assert "책 전체의 구도 변화" in wire
+    assert "이웃한 두 쪽에 같은 인물 크기·위치와 정면 구도를 반복하지 않는다" in wire
+    assert "등장인물 수 뒤, 외모 설명 전에" in wire
+    assert "ACTION FOCUS: " in wire and "접두어 뒤 180자 이내" in wire
+    assert "작은 금을 크게 벌리거나" in wire
+    assert "과거 모습은 종이 안의 평면 그림으로만" in wire
     assert all(f"Recurring garden device, scene {page:02d}." in wire for page in range(1, 13))
     assert "positive_prompt: 10~1200자" in wire
     assert result.model_dump() == response

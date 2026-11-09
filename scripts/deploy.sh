@@ -7,12 +7,29 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-COMPOSE_FILE="infra/docker-compose.prod.yml"
+COMPOSE_FILES=("infra/docker-compose.prod.yml")
+ROLLBACK_COMPOSE_FILES=()
+CUSTOM_COMPOSE_FILES=false
 ENV_FILE=""
+ROLLBACK_ENV_FILE=""
+ROLLBACK_ENV_SHA=""
 IMAGE_TAG_OVERRIDE=""
 COMPOSE_CMD=()
-PREV_API_IMAGE=""
-PREV_WORKER_IMAGE=""
+PREV_API_CONTAINER=""
+PREV_WORKER_CONTAINER=""
+PREV_API_ID=""
+PREV_WORKER_ID=""
+PREV_API_HASH=""
+PREV_WORKER_HASH=""
+# Keep the caller's Docker and TLS settings, without passing the new release's
+# exported application variables into the previous environment.
+ROLLBACK_HOST_ENV=()
+for name in PATH HOME DOCKER_HOST DOCKER_CONTEXT DOCKER_CONFIG DOCKER_TLS_VERIFY DOCKER_CERT_PATH \
+    COMPOSE_PROJECT_NAME SSL_CERT_FILE SSL_CERT_DIR CURL_CA_BUNDLE HEALTH_WAIT_RETRIES HEALTH_WAIT_INTERVAL; do
+  if [ "${!name+x}" = x ]; then
+    ROLLBACK_HOST_ENV+=("$name=${!name}")
+  fi
+done
 
 log_info() {
   echo -e "${GREEN}[INFO]${NC} $1"
@@ -28,7 +45,12 @@ log_error() {
 
 print_help() {
   cat <<EOF
-Usage: ./scripts/deploy.sh [--env-file PATH] [--compose-file PATH] [--image-tag TAG] <command>
+Usage: ./scripts/deploy.sh [--env-file PATH] [--rollback-env-file PATH] [--compose-file PATH] [--rollback-compose-file PATH] [--image-tag TAG] <command>
+
+Use --rollback-env-file with deploy when the release changes runtime settings.
+The previous private env file must match the running API and worker.
+Repeat --compose-file to layer overrides after the base file.
+Repeat --rollback-compose-file for the previous base and overrides when the Compose files change.
 
 Commands:
   deploy   Pull images, migrate (before up), roll services, health-check (auto-rollback on failure)
@@ -90,7 +112,9 @@ load_env_file() {
 compose() {
   (
     cd "$ROOT_DIR"
-    "${COMPOSE_CMD[@]}" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+    local file flags=()
+    for file in "${COMPOSE_FILES[@]}"; do flags+=(-f "$file"); done
+    "${COMPOSE_CMD[@]}" --env-file "$ENV_FILE" "${flags[@]}" "$@"
   )
 }
 
@@ -137,24 +161,47 @@ check_requirements() {
   load_env_file
   configure_images
   log_info "Using env file: $ENV_FILE"
-  log_info "Using compose file: $COMPOSE_FILE"
+  log_info "Using compose files: ${COMPOSE_FILES[*]}"
+}
+
+check_free_beta_release() {
+  local trial
+  trial="$(printf '%s' "${FREE_PLAN_FIRST_BOOK_TRIAL:-false}" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  case "$trial" in
+    true|1|yes|on|t|y)
+      log_info "Checking free beta release configuration..."
+      "$ROOT_DIR/scripts/final-external-preflight.sh" --free-beta
+      ;;
+  esac
 }
 
 pull_images() {
   log_info "Pulling configured images..."
-  compose pull
+  if [ -n "$ROLLBACK_ENV_FILE" ]; then
+    compose pull api worker
+  else
+    compose pull
+  fi
   log_info "Images pulled successfully"
 }
 
 run_migrations() {
   log_info "Running database migrations..."
-  compose run --rm api alembic upgrade head
+  if [ -n "$ROLLBACK_ENV_FILE" ]; then
+    compose run --rm --no-deps api alembic upgrade head
+  else
+    compose run --rm api alembic upgrade head
+  fi
   log_info "Migrations completed"
 }
 
 start_services() {
   log_info "Starting services..."
-  compose up -d
+  if [ -n "$ROLLBACK_ENV_FILE" ]; then
+    compose up -d --no-deps --pull never api worker || return $?
+  else
+    compose up -d || return $?
+  fi
   log_info "Services started"
 }
 
@@ -277,6 +324,29 @@ wait_for_readiness() {
   return 1
 }
 
+workers_respond() {
+  local containers container
+  containers="$(compose ps --all --quiet worker)" || return 1
+  [ -n "$containers" ] || return 1
+  while IFS= read -r container; do
+    docker exec "$container" sh -c +      'exec timeout --kill-after=2s 12s celery -A src.worker inspect --timeout=4 --destination="celery@$(hostname)" ping' +      >/dev/null 2>&1 || return 1
+  done <<< "$containers"
+}
+
+wait_for_workers() {
+  local attempt=1
+  while [ "$attempt" -le "$HEALTH_WAIT_RETRIES" ]; do
+    if workers_respond; then
+      log_info "Celery workers responded (attempt $attempt)"
+      return 0
+    fi
+    sleep "$HEALTH_WAIT_INTERVAL"
+    attempt=$((attempt + 1))
+  done
+  log_error "Celery workers did not respond through the broker"
+  return 1
+}
+
 health_check() {
   log_info "Running health checks..."
   require_production_url || return 1
@@ -291,38 +361,151 @@ health_check() {
   fi
 
   wait_for_readiness || return 1
+  wait_for_workers || return 1
 
   compose ps --format "table {{.Name}}\t{{.Status}}"
 }
 
 capture_running_images() {
-  # M26: 새 이미지를 올리기 전 현재 실행 중인 컨테이너의 이미지 태그를 저장(롤백 대상).
-  local api_cid worker_cid
-  api_cid="$(compose ps -q api 2>/dev/null | head -1 || true)"
-  worker_cid="$(compose ps -q worker 2>/dev/null | head -1 || true)"
-  if [ -n "$api_cid" ]; then
-    PREV_API_IMAGE="$(docker inspect --format '{{.Config.Image}}' "$api_cid" 2>/dev/null || true)"
-  fi
-  if [ -n "$worker_cid" ]; then
-    PREV_WORKER_IMAGE="$(docker inspect --format '{{.Config.Image}}' "$worker_cid" 2>/dev/null || true)"
-  fi
-  if [ -n "$PREV_API_IMAGE" ]; then
-    log_info "Captured current images for rollback: api=$PREV_API_IMAGE"
+  PREV_API_CONTAINER="$(compose ps -q api 2>/dev/null | head -1 || true)"
+  PREV_WORKER_CONTAINER="$(compose ps -q worker 2>/dev/null | head -1 || true)"
+  PREV_API_ID="$(running_image_id "$PREV_API_CONTAINER" || true)"
+  PREV_WORKER_ID="$(running_image_id "$PREV_WORKER_CONTAINER" || true)"
+  if [ -n "$PREV_API_ID" ] && [ -n "$PREV_WORKER_ID" ]; then
+    log_info "Captured running API and worker image IDs for rollback"
   else
-    log_warn "No running api container found — rollback unavailable (fresh deploy)"
+    log_warn "Could not capture both running image IDs — image rollback unavailable"
+  fi
+}
+
+running_image_id() {
+  local container="$1" binding
+  [ -n "$container" ] || return 1
+  binding="$(docker inspect --format '{{.State.Running}} {{.Image}}' "$container" 2>/dev/null)" || return 1
+  [[ "$binding" =~ ^true\ sha256:[0-9a-f]{64}$ ]] || return 1
+  printf '%s\n' "${binding#true }"
+}
+
+restore_previous_images() {
+  # Compose can use cached image IDs directly. Pulling the former tags could
+  # fetch the same broken release again if those tags moved during deployment.
+  export API_IMAGE="$PREV_API_ID" WORKER_IMAGE="$PREV_WORKER_ID"
+  local api_hash worker_hash
+  api_hash="$(compose config --hash api)" || return 1
+  worker_hash="$(compose config --hash worker)" || return 1
+  compose up -d --no-deps --pull never api worker || return 1
+  service_containers_match api "$PREV_API_ID" "${api_hash#api }" &&
+    service_containers_match worker "$PREV_WORKER_ID" "${worker_hash#worker }" || return 1
+  health_check
+}
+
+service_containers_match() {
+  local role="$1" expected_id="$2" expected_hash="$3" containers container running
+  [[ "$expected_id" =~ ^sha256:[0-9a-f]{64}$ && "$expected_hash" =~ ^[a-f0-9]{64}$ ]] || return 1
+  containers="$(compose ps --all --quiet "$role")" || return 1
+  [ -n "$containers" ] || return 1
+  while IFS= read -r container; do
+    running="$(docker inspect --format '{{.State.Running}} {{.Image}} {{index .Config.Labels "com.docker.compose.config-hash"}}' \
+      "$container" 2>/dev/null)" || return 1
+    [ "$running" = "true $expected_id $expected_hash" ] || return 1
+  done <<< "$containers"
+}
+
+rollback_env_sha() {
+  python3 -c 'import hashlib, pathlib, sys; print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())' "$1"
+}
+
+run_previous_environment() {
+  local file flags=()
+  if [ -n "${ROLLBACK_COMPOSE_FILES[0]:-}" ]; then
+    for file in "${ROLLBACK_COMPOSE_FILES[@]}"; do flags+=(--compose-file "$file"); done
+  else
+    for file in "${COMPOSE_FILES[@]}"; do flags+=(--compose-file "$file"); done
+  fi
+  env -i "${ROLLBACK_HOST_ENV[@]}" \
+    ASB_ROLLBACK_ENV_SHA="$ROLLBACK_ENV_SHA" \
+    ASB_ROLLBACK_PROD_API_URL="$PROD_API_URL" \
+    ASB_ROLLBACK_API_CONTAINER="$PREV_API_CONTAINER" ASB_ROLLBACK_WORKER_CONTAINER="$PREV_WORKER_CONTAINER" \
+    ASB_ROLLBACK_API_ID="$PREV_API_ID" ASB_ROLLBACK_WORKER_ID="$PREV_WORKER_ID" \
+    ASB_ROLLBACK_API_HASH="$PREV_API_HASH" ASB_ROLLBACK_WORKER_HASH="$PREV_WORKER_HASH" \
+    bash "$ROOT_DIR/scripts/deploy.sh" --env-file "$ROLLBACK_ENV_FILE" "${flags[@]}" "$1"
+}
+
+check_previous_environment() {
+  local binding format='{{.Image}} {{index .Config.Labels "com.docker.compose.config-hash"}}'
+  if [[ "$ROLLBACK_ENV_FILE" != /* ]]; then
+    ROLLBACK_ENV_FILE="$ROOT_DIR/$ROLLBACK_ENV_FILE"
+  fi
+  if [ ! -f "$ROLLBACK_ENV_FILE" ] || [ "$ENV_FILE" -ef "$ROLLBACK_ENV_FILE" ] ||
+    [ -z "$PREV_API_CONTAINER" ] || [ -z "$PREV_WORKER_CONTAINER" ]; then
+    log_error "Rollback requires a separate previous env file and a running API and worker"
+    return 1
+  fi
+  binding="$(docker inspect --format "$format" "$PREV_API_CONTAINER")" || return 1
+  read -r PREV_API_ID PREV_API_HASH <<< "$binding"
+  binding="$(docker inspect --format "$format" "$PREV_WORKER_CONTAINER")" || return 1
+  read -r PREV_WORKER_ID PREV_WORKER_HASH <<< "$binding"
+  ROLLBACK_ENV_SHA="$(rollback_env_sha "$ROLLBACK_ENV_FILE")" || return 1
+  run_previous_environment _verify_previous_environment
+}
+
+verify_previous_service() {
+  local mode="$1" role="$2" expected_id="$3" expected_container="$4"
+  local expected_hash="$5"
+  local image image_id config_hash
+  [[ "$expected_id" =~ ^sha256:[0-9a-f]{64}$ ]] || return 1
+  config_hash="$(compose config --hash "$role" 2>/dev/null)" || return 1
+  [[ "$expected_hash" =~ ^[a-f0-9]{64}$ ]] && [ "$config_hash" = "$role $expected_hash" ] || return 1
+  if [ "$mode" = _verify_previous_environment ]; then
+    image="$(compose config --images "$role" 2>/dev/null)" || return 1
+    [[ -n "$image" && "$image" != *$'\n'* ]] || return 1
+    image_id="$(docker image inspect --format '{{.Id}}' "$image" 2>/dev/null)" || return 1
+    [ "$image_id" = "$expected_id" ] || return 1
+    [ "$(compose ps -q "$role" 2>/dev/null | head -1)" = "$expected_container" ] || return 1
+    service_containers_match "$role" "$expected_id" "$expected_hash" || return 1
+  fi
+}
+
+verify_previous_environment() {
+  local mode="$1" actual_sha
+  actual_sha="$(rollback_env_sha "$ENV_FILE")" || return 1
+  if [ -z "${ASB_ROLLBACK_ENV_SHA:-}" ] || [ "$actual_sha" != "$ASB_ROLLBACK_ENV_SHA" ]; then
+    log_error "Previous environment file changed or its verification is unavailable"
+    return 1
+  fi
+  check_requirements
+  require_production_url || return 1
+  if [ "$PROD_API_URL" != "${ASB_ROLLBACK_PROD_API_URL:-}" ]; then
+    log_error "Previous environment does not use the deployment HTTPS origin"
+    return 1
+  fi
+  if ! verify_previous_service "$mode" api "${ASB_ROLLBACK_API_ID:-}" \
+      "${ASB_ROLLBACK_API_CONTAINER:-}" "${ASB_ROLLBACK_API_HASH:-}" ||
+    ! verify_previous_service "$mode" worker "${ASB_ROLLBACK_WORKER_ID:-}" \
+      "${ASB_ROLLBACK_WORKER_CONTAINER:-}" "${ASB_ROLLBACK_WORKER_HASH:-}"; then
+    log_error "Previous Compose configuration does not match the expected API and worker"
+    return 1
+  fi
+  if [ "$mode" = _restore_previous_environment ]; then
+    PREV_API_ID="$ASB_ROLLBACK_API_ID" PREV_WORKER_ID="$ASB_ROLLBACK_WORKER_ID" restore_previous_images
   fi
 }
 
 rollback() {
-  log_error "Deployment health check failed — attempting rollback"
-  if [ -n "$PREV_API_IMAGE" ] && [ -n "$PREV_WORKER_IMAGE" ]; then
-    log_warn "Rolling back to api=$PREV_API_IMAGE worker=$PREV_WORKER_IMAGE"
-    API_IMAGE="$PREV_API_IMAGE" WORKER_IMAGE="$PREV_WORKER_IMAGE" compose up -d
-    if health_check; then
+  log_error "Deployment start or health check failed — attempting rollback"
+  if [ -n "$ROLLBACK_ENV_FILE" ]; then
+    if run_previous_environment _restore_previous_environment; then
+      log_warn "Rollback restored the previous runtime settings and health"
+      return 0
+    fi
+    log_error "Rollback with the previous runtime settings failed — manual intervention required"
+  elif [ -n "$PREV_API_ID" ] && [ -n "$PREV_WORKER_ID" ]; then
+    log_warn "Rolling back to the captured API and worker image IDs"
+    if (restore_previous_images); then
       log_warn "Rollback restored health — investigate the failed release before retrying"
       return 0
     fi
-    log_error "Rollback health check also failed — manual intervention required"
+    log_error "Rollback could not restore the expected images and health — manual intervention required"
   else
     log_error "No previous images captured — manual rollback required (check 'compose ps')"
   fi
@@ -336,7 +519,24 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --compose-file)
-      COMPOSE_FILE="$2"
+      if [ "$CUSTOM_COMPOSE_FILES" = true ]; then
+        COMPOSE_FILES+=("$2")
+      else
+        COMPOSE_FILES=("$2")
+        CUSTOM_COMPOSE_FILES=true
+      fi
+      shift 2
+      ;;
+    --rollback-env-file)
+      ROLLBACK_ENV_FILE="$2"
+      shift 2
+      ;;
+    --rollback-compose-file)
+      if [ -z "${2:-}" ]; then
+        log_error "--rollback-compose-file requires a path"
+        exit 1
+      fi
+      ROLLBACK_COMPOSE_FILES+=("$2")
       shift 2
       ;;
     --image-tag)
@@ -358,6 +558,14 @@ if [ -z "$COMMAND" ]; then
   print_help
   exit 1
 fi
+if [ -n "$ROLLBACK_ENV_FILE" ] && [ "$COMMAND" != deploy ]; then
+  log_error "--rollback-env-file is only supported by deploy"
+  exit 1
+fi
+if [ -n "${ROLLBACK_COMPOSE_FILES[0]:-}" ] && [ -z "$ROLLBACK_ENV_FILE" ]; then
+  log_error "--rollback-compose-file requires --rollback-env-file"
+  exit 1
+fi
 
 case "$COMMAND" in
   deploy)
@@ -366,21 +574,28 @@ case "$COMMAND" in
     # 그다음 서비스를 롤링 재기동. health 실패 시 이전 이미지로 자동 롤백.
     check_requirements
     require_production_url
+    check_free_beta_release
     capture_running_images
+    if [ -n "$ROLLBACK_ENV_FILE" ]; then
+      check_previous_environment
+    fi
     pull_images
     run_migrations
-    start_services
-    if health_check; then
+    if start_services && health_check; then
       log_info "Deployment completed successfully!"
     else
       if rollback; then
-        log_error "Release rolled back to previous images. Deployment marked failed."
+        log_error "Release rolled back. Deployment marked failed."
       fi
       exit 1
     fi
     ;;
+  _verify_previous_environment|_restore_previous_environment)
+    verify_previous_environment "$COMMAND"
+    ;;
   start)
     check_requirements
+    check_free_beta_release
     start_services
     ;;
   stop)

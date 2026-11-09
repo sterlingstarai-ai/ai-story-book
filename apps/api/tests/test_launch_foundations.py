@@ -114,15 +114,15 @@ async def test_legacy_voice_signed_url_can_be_deleted_as_canonical_key(
 async def test_private_reference_and_pdf_read_s3_without_public_http(
     monkeypatch, private_storage, _block_real_s3,
 ):
-    from src.services.image import _fetch_image_as_base64
+    from src.services.image import _fetch_image_bytes
     from src.services.pdf import pdf_service
     key = "characters/one/photo.png"
     _block_real_s3.objects[key] = b"image-data"
     url = storage.canonical_media_url(key)
     fetch = AsyncMock(side_effect=AssertionError("No anonymous HTTP for private assets"))
     monkeypatch.setattr("httpx.AsyncClient.get", fetch)
-    data, _ = await _fetch_image_as_base64(url)
-    assert base64.b64decode(data) == b"image-data"
+    data, _ = await _fetch_image_bytes(url)
+    assert data == b"image-data"
     assert await pdf_service._fetch_image(url) == b"image-data"
     fetch.assert_not_called()
 

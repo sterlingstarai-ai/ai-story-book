@@ -9,7 +9,7 @@ import pytest
 
 from src.core.config import settings
 from src.core.errors import ErrorCode, LLMError
-from src.models.dto import BookSpec, StoryDraft
+from src.models.dto import BookSpec, Language, StoryDraft
 from src.services import llm, openai_contract, story_integrity
 from src.services.structured_output import provider_output_schema
 from tests.test_llm_schema_diagnostics import valid_story
@@ -24,6 +24,64 @@ SUPPORTED = [
 def _spec():
     return BookSpec(topic="함께 책 읽기 " + PRIVATE, protagonist_name=PRIVATE,
                     target_age="7-9", style="watercolor", page_count=4)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("repair_words", [37, 39, 40])
+async def test_korean_twelve_page_story_repairs_only_the_length_deficit(monkeypatch, repair_words):
+    payload = valid_story()
+    original_page = payload["pages"][0]
+    long_text = " ".join(["이야기"] * 40)
+    short_text = " ".join(["이야기"] * 37) + " !"
+    payload.update(language="ko", target_age="7-9", pages=[
+        {**original_page, "page": number, "text": long_text if number <= 8 else short_text}
+        for number in range(1, 13)
+    ])
+    call = AsyncMock(side_effect=[
+        json.dumps(payload, ensure_ascii=False),
+        json.dumps({"pages": [{"page": 9, "revised_text": " ".join(["관찰"] * repair_words)}]}, ensure_ascii=False),
+    ])
+    monkeypatch.setattr(llm, "call_llm", call)
+    spec = _spec().model_copy(update={"page_count": 12})
+    if repair_words == 37:
+        with pytest.raises(LLMError) as error:
+            await llm.call_story_generation(spec)
+        assert error.value.code == ErrorCode.LLM_JSON_INVALID
+    else:
+        result = await llm.call_story_generation(spec)
+        assert story_integrity.count_story_words(result.pages[8].text) == repair_words
+        assert [page.scene for page in result.pages] == [page["scene"] for page in payload["pages"]]
+        assert [page.text for page in result.pages if page.page != 9] == [
+            page["text"] for page in payload["pages"] if page["page"] != 9
+        ]
+    assert call.await_count == 2
+    system = call.await_args_list[0].args[0]
+    assert "누가 드는지 명시" in system
+    assert "시작 또는 결과 중 한 순간만" in system
+    assert json.loads(call.await_args.args[1])["target_pages"] == [9]
+    options = openai_contract.openai_generation_options(
+        "gpt-5.6-sol", max_tokens=1800, response_schema=call.await_args.kwargs["response_schema"],
+    )
+    assert options["text"]["format"]["name"] == "story_length_repair"
+    assert options["text"]["format"]["strict"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("near_miss_words", [38, 39])
+async def test_korean_twelve_page_story_accepts_one_close_page_without_extra_call(monkeypatch, near_miss_words):
+    payload = valid_story()
+    original_page = payload["pages"][0]
+    payload.update(language="ko", target_age="7-9", pages=[
+        {**original_page, "page": number, "text": " ".join(["이야기"] * word_count)}
+        for number, word_count in enumerate([40] * 8 + [near_miss_words, 32, 32, 32], start=1)
+    ])
+    call = AsyncMock(return_value=json.dumps(payload, ensure_ascii=False))
+    monkeypatch.setattr(llm, "call_llm", call)
+
+    result = await llm.call_story_generation(_spec().model_copy(update={"page_count": 12}))
+
+    assert [page.text for page in result.pages] == [page["text"] for page in payload["pages"]]
+    call.assert_awaited_once()
 
 
 def _schema_nodes(schema):
@@ -62,6 +120,26 @@ def _mock_provider(monkeypatch, provider, model, draft, *, status=200):
 
     monkeypatch.setattr(httpx.AsyncClient, "post", post)
     return requests
+
+
+@pytest.mark.asyncio
+async def test_twelve_page_learning_assets_fit_openai_acceptance_request_budget(monkeypatch):
+    payload = valid_story()
+    payload["pages"] = [{**payload["pages"][0], "page": n} for n in range(1, 13)]
+    story = StoryDraft.model_validate(payload)
+    requests = _mock_provider(monkeypatch, "openai", "gpt-5.6-sol", {
+        "source_language": "ko",
+        "target_language": "en",
+        "title_translation": "A new story",
+        "pages": [{"page": n, "translated_text": "A friend came to the garden."} for n in range(1, 13)],
+        "parent_guide": {"summary": "A day in the garden.", "discussion_prompts": [], "activities": []},
+    })
+
+    assets = await llm.call_learning_assets(story, Language.ko, Language.en)
+
+    assert [page.page for page in assets.pages] == list(range(1, 13))
+    assert len(requests) == 1
+    assert requests[0][1]["max_output_tokens"] == 16_000
 
 
 def test_wire_schemas_preserve_canonical_constraints_and_owned_field_names():

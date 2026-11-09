@@ -1,8 +1,10 @@
 """Legacy unassigned books remain usable without exposing another child's books."""
 
+from datetime import datetime
 from unittest.mock import AsyncMock
 
 import pytest
+from sqlalchemy import update
 
 from src.models.db import Book, ChildProfile, Job, Page
 from src.routers import books
@@ -33,6 +35,49 @@ async def _seed(db, owner):
             image_url=f"https://img/{name}/page.png",
         ))
     await db.commit()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("sort", "expected"),
+    [
+        ("newest", ["book-shared", "book-a"]),
+        ("oldest", ["book-a", "book-shared"]),
+        ("title", ["book-a", "book-shared"]),
+    ],
+)
+async def test_library_total_survives_end_of_scoped_page(
+    client, db_session, headers, sort, expected,
+):
+    await _seed(db_session, headers["X-User-Key"])
+    await db_session.execute(
+        update(Book).values(title="Same title", created_at=datetime(2026, 1, 1))
+    )
+    await db_session.commit()
+    selected = {**headers, "X-Profile-Id": "child-a"}
+    query = {"sort": sort, "style": "watercolor", "target_age": "5-7", "limit": 1}
+
+    async def listing(**page):
+        result = await client.get("/v1/library", headers=selected, params={**query, **page})
+        assert result.status_code == 200, result.text
+        return result.json()
+
+    for cursor in ("book-other", "book-b", "missing-book"):
+        fallback = await listing(cursor=cursor, offset=1)
+        assert [book["book_id"] for book in fallback["books"]] == expected[:1]
+
+    first = await listing()
+    assert first["total"] == 2
+    assert first["has_more"] and first["next_cursor"] == expected[0]
+    second = await listing(cursor=first["next_cursor"])
+    assert [book["book_id"] for book in first["books"] + second["books"]] == expected
+    assert second["total"] == 2
+    assert not second["has_more"] and second["next_cursor"] is None
+
+    empty = {"books": [], "total": 2, "has_more": False, "next_cursor": None}
+    assert await listing(offset=2) == empty
+    assert await listing(cursor=expected[-1]) == empty
+    assert await listing(target_age="7-9") == {**empty, "total": 0}
 
 
 @pytest.mark.asyncio

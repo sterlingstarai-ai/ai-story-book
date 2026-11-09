@@ -88,8 +88,11 @@ class LLMError(StoryBookError):
 class ImageError(StoryBookError):
     """이미지 생성 에러"""
 
-    def __init__(self, code: ErrorCode, message: str, page: int = None):
-        super().__init__(code=code, message=message, details={"page": page})
+    def __init__(self, code: ErrorCode, message: str, page: int = None, *, retry_after: float | None = None):
+        details = {"page": page}
+        if retry_after is not None:
+            details["retry_after"] = retry_after
+        super().__init__(code=code, message=message, details=details)
 
 
 class StorageError(StoryBookError):

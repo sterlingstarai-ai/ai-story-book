@@ -322,3 +322,101 @@ def test_target_writer_checks_and_cleans_canary_with_one_read(context, monkeypat
     assert target.get_object.call_count == 1
     target.delete_object.assert_called_once_with(**target.get_object.call_args.kwargs)
     target.close.assert_called_once_with()
+
+
+@pytest.mark.parametrize('fault', [None, 'overwrite_allowed', 'delete_allowed', 'stale_generation',
+                                   'missing_generation', 'changed_generation', 'create_allowed', 'key_collision'])
+def test_gcs_freeze_checks_generation_bound_mutations_on_signed_wire(context, monkeypatch, fault):
+    from io import BytesIO
+    from urllib.parse import urlsplit
+
+    from botocore.awsrequest import AWSResponse
+    from botocore.config import Config
+    from urllib3.response import HTTPResponse
+    import boto3
+
+    media = importlib.import_module('media_cutover_preflight')
+    bucket = 'asb-media-fixture'
+    canary = 'asb-narration-freeze-canary-' + 'a' * 32
+    payload = media.gcs_freeze_canary_payload(canary)
+    calls = []
+    reads = 0
+    client = boto3.client('s3', endpoint_url='https://storage.googleapis.com', region_name='us-east-1',
+                          aws_access_key_id='fixture', aws_secret_access_key='fixture',
+                          config=Config(signature_version='s3v4', s3={'addressing_style': 'path'},
+                                        retries={'total_max_attempts': 1}))
+
+    def respond(request, **_):
+        nonlocal reads
+        uri = urlsplit(request.url)
+        operation = request.method
+        key = uri.path.rsplit('/', 1)[-1]
+        condition = request.headers.get('x-goog-if-generation-match')
+        if condition is not None:
+            assert b'x-goog-if-generation-match' in request.headers['Authorization']
+        calls.append((operation, key, condition))
+        status, body, headers = 200, b'', {}
+        if key in (bucket, '') and 'list-type=2' in uri.query:
+            body = f'<ListBucketResult><Name>{bucket}</Name><IsTruncated>false</IsTruncated></ListBucketResult>'.encode()
+        elif key in (bucket, '') and 'uploads' in uri.query:
+            body = b'<ListMultipartUploadsResult><IsTruncated>false</IsTruncated></ListMultipartUploadsResult>'
+        elif key == canary and operation == 'GET':
+            reads += 1
+            body = payload
+            if fault != 'missing_generation':
+                headers['x-goog-generation'] = '1235' if fault == 'changed_generation' and reads > 1 else '1234'
+        elif key == canary:
+            assert condition == b'1234'
+            assert operation in ('PUT', 'DELETE')
+            if operation == 'PUT':
+                sent = request.body if isinstance(request.body, bytes) else request.body.read()
+                if request.headers.get('Content-Encoding') == b'aws-chunked':
+                    assert sent.startswith(f'{len(payload):x}\r\n'.encode() + payload + b'\r\n')
+                else:
+                    assert sent == payload
+                status = 200 if fault == 'overwrite_allowed' else 412 if fault == 'stale_generation' else 403
+            else:
+                status = 204 if fault == 'delete_allowed' else 403
+        else:
+            assert key.startswith('asb-frozen-writer-probe-')
+            if operation == 'PUT':
+                assert condition == b'0'
+                status = 200 if fault == 'create_allowed' else 412 if fault == 'key_collision' else 403
+            elif operation == 'GET' and fault in ('create_allowed', 'key_collision'):
+                assert condition is None
+                body = (('AI Story Book frozen writer verification: ' + key).encode('ascii')
+                        if fault == 'create_allowed' else b'unrelated fixture')
+                headers['x-goog-generation'] = '5678'
+            elif operation == 'DELETE':
+                assert condition == b'5678' and fault == 'create_allowed'
+                status = 204
+            else:
+                assert condition is None
+                status = 403 if operation == 'POST' else 404
+        if status >= 400:
+            body = b'<Error><Code>AccessDenied</Code></Error>'
+        headers['Content-Length'] = str(len(body))
+        return AWSResponse(request.url, status, headers, HTTPResponse(body=BytesIO(body), preload_content=False))
+
+    client.meta.events.register('before-send.s3', respond)
+    monkeypatch.setattr(media, 'storage_client', lambda _: client)
+    values = {'S3_BUCKET': bucket, 'S3_ENDPOINT': 'https://storage.googleapis.com'}
+    if fault is None:
+        media.verify_frozen_gcs_writer(values, canary)
+    else:
+        with pytest.raises(media.MediaCutoverError):
+            media.verify_frozen_gcs_writer(values, canary)
+    canary_calls = [(method, header) for method, key, header in calls if key == canary]
+    if fault in ('create_allowed', 'key_collision'):
+        assert not canary_calls
+        probe_calls = [(method, header) for method, key, header in calls if key.startswith('asb-frozen-writer-probe-')]
+        assert probe_calls == [('HEAD', None), ('PUT', b'0'), ('GET', None),
+                               *([('DELETE', b'5678')] if fault == 'create_allowed' else [])]
+        return
+    assert canary_calls[0] == ('GET', None)
+    if fault is None or fault == 'changed_generation':
+        assert canary_calls == [('GET', None), ('PUT', b'1234'), ('DELETE', b'1234'), ('GET', None)]
+    elif fault == 'missing_generation':
+        assert canary_calls == [('GET', None)]
+    else:
+        assert canary_calls[1] == ('PUT', b'1234')

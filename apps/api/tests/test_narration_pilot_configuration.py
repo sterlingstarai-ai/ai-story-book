@@ -35,6 +35,39 @@ def test_legacy_mode_accepts_absent_flag(sample):
     adapter._verify_configurations()
 
 
+@pytest.mark.parametrize(('arguments', 'reload', 'passes'), [
+    ('--journal-witness-bucket ${ASB_JOURNAL_WITNESS_BUCKET}', 'no', True),
+    ('', 'no', False),
+    ('--journal-witness-bucket hard-coded-bucket', 'no', False),
+    ('--journal-witness-bucket ${ASB_JOURNAL_WITNESS_BUCKET} --journal-witness-bucket other', 'no', False),
+    ('--journal-witness-bucket ${ASB_JOURNAL_WITNESS_BUCKET}', 'yes', False),
+])
+def test_pilot_preflight_checks_loaded_backup_witness_argument(sample, monkeypatch, arguments, reload, passes):
+    module, _, _ = sample
+    unit = f'ExecStart={{ argv[]=/opt/pilot/bin/python /opt/pilot/run_scheduled_backup.py --execute {arguments} ; }}'
+    monkeypatch.setattr(module.subprocess, 'run', lambda *_args, **_kwargs:
+                        SimpleNamespace(stdout=f'{unit}\nNeedDaemonReload={reload}\n'))
+    if passes:
+        module._verify_backup_witness_argument()
+    else:
+        with pytest.raises(module.PilotAdapterError, match='staged journal witness'):
+            module._verify_backup_witness_argument()
+
+
+def test_staged_witness_rejects_a_legacy_scheduler_before_reading_staged_files(sample, monkeypatch):
+    module, adapter, items = sample
+    adapter.service_config_generation = 'fixture'
+    for name in ('new_api', 'new_worker'):
+        items[name]['Config']['Env'].append('PRIVACY_JOURNAL_WITNESS_BUCKET=fixture-witness')
+    monkeypatch.setattr(module.subprocess, 'run', lambda *_args, **_kwargs: SimpleNamespace(
+        stdout='ExecStart={ argv[]=/opt/pilot/bin/python /opt/pilot/run_scheduled_backup.py --execute ; }\n'
+               'NeedDaemonReload=no\n',
+    ))
+    monkeypatch.setattr(module, 'private_file', lambda *_args, **_kwargs: pytest.fail('read staged files'))
+    with pytest.raises(module.PilotAdapterError, match='staged journal witness'):
+        adapter._verified_service_configs()
+
+
 @pytest.mark.parametrize('value', ['true', 1, None])
 def test_constructor_requires_boolean_mode(sample, monkeypatch, value):
     module, _, _ = sample

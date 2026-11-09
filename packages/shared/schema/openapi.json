@@ -35,6 +35,38 @@
         "title": "AccountSessionResponse",
         "type": "object"
       },
+      "ActiveBookGeneration": {
+        "additionalProperties": false,
+        "properties": {
+          "job_id": {
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Job Id",
+            "type": "string"
+          },
+          "progress": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Progress",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "progress"
+        ],
+        "title": "ActiveBookGeneration",
+        "type": "object"
+      },
       "AddCreditsRequest": {
         "properties": {
           "amount": {
@@ -1699,6 +1731,16 @@
             "minItems": 1,
             "title": "Allowed Styles",
             "type": "array"
+          },
+          "first_book_trial_available": {
+            "default": false,
+            "title": "First Book Trial Available",
+            "type": "boolean"
+          },
+          "generation_access_allowed": {
+            "default": true,
+            "title": "Generation Access Allowed",
+            "type": "boolean"
           }
         },
         "required": [
@@ -4508,6 +4550,73 @@
         ]
       }
     },
+    "/v1/books/active-generations": {
+      "get": {
+        "description": "Find unfinished books for the authenticated library scope after reopening the app.",
+        "operationId": "get_active_book_generations_v1_books_active_generations_get",
+        "parameters": [
+          {
+            "description": "Device credential; legacy UUID or recovered device key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "Device credential; legacy UUID or recovered device key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional active child profile id",
+            "in": "header",
+            "name": "x-profile-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional active child profile id",
+              "title": "X-Profile-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ActiveBookGeneration"
+                  },
+                  "title": "Response Get Active Book Generations V1 Books Active Generations Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Active Book Generations",
+        "tags": [
+          "Books"
+        ]
+      }
+    },
     "/v1/books/generation-options": {
       "get": {
         "description": "Account-specific choices using the same policy enforced on creation.",
@@ -4915,6 +5024,131 @@
           }
         },
         "summary": "Get Page Audio",
+        "tags": [
+          "Books"
+        ]
+      }
+    },
+    "/v1/books/{book_id}/pages/{page_number}/audio/cached": {
+      "get": {
+        "description": "Look up existing narration without starting synthesis or spending credits.",
+        "operationId": "get_cached_page_audio_v1_books__book_id__pages__page_number__audio_cached_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "page_number",
+            "required": true,
+            "schema": {
+              "title": "Page Number",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "language",
+            "required": false,
+            "schema": {
+              "default": "ko",
+              "pattern": "^(ko|en|ja|zh|es)$",
+              "title": "Language",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "voice",
+            "required": false,
+            "schema": {
+              "default": "default",
+              "pattern": "^(default|warm|deep)$",
+              "title": "Voice",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "style",
+            "required": false,
+            "schema": {
+              "default": "legacy",
+              "pattern": "^(legacy|natural|animated|bedtime)$",
+              "title": "Style",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Device credential; legacy UUID or recovered device key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "Device credential; legacy UUID or recovered device key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional active child profile id",
+            "in": "header",
+            "name": "x-profile-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional active child profile id",
+              "title": "X-Profile-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "title": "Response Get Cached Page Audio V1 Books  Book Id  Pages  Page Number  Audio Cached Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Cached Page Audio",
         "tags": [
           "Books"
         ]
@@ -8372,6 +8606,24 @@
               "title": "X-User-Key",
               "type": "string"
             }
+          },
+          {
+            "description": "Optional active child profile id",
+            "in": "header",
+            "name": "x-profile-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional active child profile id",
+              "title": "X-Profile-Id"
+            }
           }
         ],
         "requestBody": {
@@ -8423,6 +8675,24 @@
               "description": "Device credential; legacy UUID or recovered device key",
               "title": "X-User-Key",
               "type": "string"
+            }
+          },
+          {
+            "description": "Optional active child profile id",
+            "in": "header",
+            "name": "x-profile-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional active child profile id",
+              "title": "X-Profile-Id"
             }
           }
         ],

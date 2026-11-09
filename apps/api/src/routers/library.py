@@ -4,8 +4,7 @@ from fastapi import APIRouter, Depends, Header, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import load_only
-from sqlalchemy import select, func, and_, or_
+from sqlalchemy import asc, desc, select, func, and_, or_, true
 from typing import Literal, Optional
 
 from src.core.database import get_db
@@ -130,17 +129,12 @@ async def get_library(
     if target_age:
         filters.append(Book.target_age == target_age)
 
-    # Get total count efficiently using COUNT
-    count_query = select(func.count()).select_from(Book).where(*filters)
-    count_result = await db.execute(count_query)
-    total = count_result.scalar() or 0
-
-    # Build query with sort
-    query = select(Book).options(load_only(
+    # Count the filtered library before applying the page boundary.
+    count = select(func.count().label("total")).select_from(Book).where(*filters).subquery()
+    query = select(
         Book.id, Book.title, Book.cover_image_url, Book.target_age, Book.style,
         Book.created_at, Book.series_id, Book.series_index, Book.character_id,
-        raiseload=True,
-    )).where(*filters)
+    ).where(*filters)
 
     cursor_book = None
     if cursor:
@@ -151,37 +145,28 @@ async def get_library(
         )
         cursor_book = cursor_result.one_or_none()
 
-    if sort == "oldest":
-        if cursor_book:
-            query = query.where(
-                or_(
-                    Book.created_at > cursor_book.created_at,
-                    and_(Book.created_at == cursor_book.created_at, Book.id > cursor_book.id),
-                )
-            )
-        query = query.order_by(Book.created_at.asc(), Book.id.asc())
-    elif sort == "title":
-        if cursor_book:
-            query = query.where(or_(
-                Book.title > cursor_book.title,
-                and_(Book.title == cursor_book.title, Book.id > cursor_book.id),
-            ))
-        query = query.order_by(Book.title.asc(), Book.id.asc())
-    else:  # newest (default)
-        if cursor_book:
-            query = query.where(
-                or_(
-                    Book.created_at < cursor_book.created_at,
-                    and_(Book.created_at == cursor_book.created_at, Book.id < cursor_book.id),
-                )
-            )
-        query = query.order_by(Book.created_at.desc(), Book.id.desc())
+    sort_column = Book.title if sort == "title" else Book.created_at
+    newest_first = sort not in ("title", "oldest")
+    direction = desc if newest_first else asc
+    if cursor_book:
+        anchor = getattr(cursor_book, sort_column.key)
+        after_sort = sort_column < anchor if newest_first else sort_column > anchor
+        after_id = Book.id < cursor_book.id if newest_first else Book.id > cursor_book.id
+        query = query.where(or_(after_sort, and_(sort_column == anchor, after_id)))
 
     if not cursor:
         query = query.offset(offset)
-    query = query.limit(limit + 1)
-    result = await db.execute(query)
-    books = result.scalars().all()
+    page = query.order_by(direction(sort_column), direction(Book.id)).limit(limit + 1).subquery()
+    # The count row survives an empty page, including an offset past the end.
+    # Reapply the order outside the join, where the response rows are returned.
+    result = await db.execute(
+        select(count.c.total, *page.c)
+        .select_from(count.outerjoin(page, true()))
+        .order_by(direction(page.c[sort_column.key]), direction(page.c.id))
+    )
+    rows = result.all()
+    total = rows[0].total
+    books = [row for row in rows if row.id is not None]
     has_more = len(books) > limit
     books = books[:limit]
     next_cursor = books[-1].id if has_more and books else None

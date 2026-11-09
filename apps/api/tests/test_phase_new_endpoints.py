@@ -10,6 +10,7 @@ Phase expansion endpoint tests.
 
 import pytest
 from datetime import timedelta
+from unittest.mock import AsyncMock
 
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -24,6 +25,8 @@ from src.models.db import (
     Job,
     Page,
     PodOrder,
+    PronunciationLog,
+    QuizAnswer,
     Series,
     Subscription,
 )
@@ -2001,6 +2004,7 @@ async def test_profile_scoped_library_and_streak(
     client: AsyncClient,
     headers: dict,
     db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
 ):
     user_key = headers["X-User-Key"]
     profile_a = ChildProfile(
@@ -2065,6 +2069,39 @@ async def test_profile_scoped_library_and_streak(
     assert len(books_b) == 1
     assert books_b[0]["book_id"] == "book-profile-b"
 
+    from src.routers.pronunciation import stt_service
+
+    transcribe = AsyncMock(return_value="숲 속으로 걸었어요")
+    monkeypatch.setattr(stt_service, "transcribe_audio", transcribe)
+    reading = {"book_id": book_a.id, "reading_time": 300, "completed": True}
+    quiz = {"book_id": book_a.id, "quiz_type": "quiz", "correct": True}
+    pronunciation = {
+        "book_id": book_a.id,
+        "page_number": 1,
+        "expected_text": "숲 속으로 걸었어요",
+    }
+
+    for path, payload in (
+        ("/v1/streak/read", reading),
+        ("/v1/growth/answers", quiz),
+        ("/v1/pronunciation/evaluate", {**pronunciation, "transcript": "숲 속으로 걸었어요"}),
+    ):
+        denied = await client.post(path, json=payload, headers=headers_b)
+        assert denied.status_code == 403, path
+
+    denied_audio = await client.post(
+        "/v1/pronunciation/evaluate-audio",
+        files={"audio_file": ("sample.m4a", b"audio-bytes", "audio/mp4")},
+        data=pronunciation,
+        headers=headers_b,
+    )
+    assert denied_audio.status_code == 403
+    transcribe.assert_not_awaited()
+    assert (await db_session.scalars(select(QuizAnswer))).first() is None
+    assert (await db_session.scalars(select(PronunciationLog))).first() is None
+    allowed_quiz = await client.post("/v1/growth/answers", json=quiz, headers=headers_a)
+    assert allowed_quiz.status_code == 200
+
     read_a = await client.post(
         "/v1/streak/read",
         json={"book_id": "book-profile-a", "reading_time": 300, "completed": True},
@@ -2088,3 +2125,12 @@ async def test_profile_scoped_library_and_streak(
     assert history_b.status_code == 200
     assert len(history_b.json()["history"]) == 1
     assert history_b.json()["history"][0]["completed_count"] == 0
+
+    db_session.add_all(make_book_rows([("book-shared-legacy", user_key)]))
+    await db_session.commit()
+    shared = await client.post(
+        "/v1/streak/read",
+        json={**reading, "book_id": "book-shared-legacy"},
+        headers=headers_b,
+    )
+    assert shared.status_code == 200

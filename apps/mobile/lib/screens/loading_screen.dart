@@ -67,6 +67,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
     final jobStatusAsync = ref.watch(jobPollingProvider(widget.jobId));
+    final isCurrentRoute = ModalRoute.isCurrentOf(context) ?? true;
 
     return Scaffold(
       backgroundColor: AppPalette.of(context).background,
@@ -87,21 +88,26 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
                   child: jobStatusAsync.when(
                     data: (status) {
                       // 완료 시 뷰어로 이동 (guard against double navigation)
-                      if (status.isComplete &&
-                          status.result != null &&
-                          !_hasNavigated) {
-                        _hasNavigated = true;
-                        WidgetsBinding.instance.addPostFrameCallback((_) {
-                          if (mounted) {
+                      final result = status.result;
+                      if (status.isComplete && result != null) {
+                        if (!_hasNavigated && isCurrentRoute) {
+                          _hasNavigated = true;
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            if (!mounted) return;
+                            if (ModalRoute.of(context)?.isCurrent == false) {
+                              _hasNavigated = false;
+                              return;
+                            }
                             ref.invalidate(libraryProvider);
                             ref.invalidate(libraryBrowseProvider);
+                            ref.invalidate(activeBookGenerationsProvider);
                             Navigator.pushReplacementNamed(
                               context,
                               '/viewer',
-                              arguments: status.result!.bookId,
+                              arguments: result.bookId,
                             );
-                          }
-                        });
+                          });
+                        }
                         return _buildCompletedContent(l);
                       }
 
@@ -125,15 +131,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
                       // 진행 중
                       return _buildProgressContent(l, status);
                     },
-                    loading: () => _buildProgressContent(
-                      l,
-                      JobStatus(
-                        jobId: widget.jobId,
-                        status: JobState.queued,
-                        progress: 0,
-                        currentStep: l.loadingStepWaiting,
-                      ),
-                    ),
+                    loading: () => _buildProgressContent(l),
                     error: (error, _) {
                       // H17: 폴링 타임아웃은 서버 실패와 구분한다. 원문(TimeoutException…
                       // 한국어) 노출 대신 로컬라이즈 문구로, 주 액션은 신규 생성이 아니라
@@ -161,21 +159,38 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
     );
   }
 
-  Widget _buildProgressContent(AppLocalizations l, JobStatus status) {
+  Widget _buildProgressContent(AppLocalizations l, [JobStatus? status]) {
     final palette = AppPalette.of(context);
+    final running = status?.status == JobState.running;
+    final rechecking = status?.isRechecking == true;
+    final title = rechecking
+        ? l.loadingStatusUnavailableTitle
+        : running
+        ? l.loadingTitle
+        : l.loadingQueuedTitle;
+    final animateActivity =
+        (status == null || running || rechecking) &&
+        !MediaQuery.disableAnimationsOf(context);
+    final step = rechecking
+        ? status!.hasConfirmedProgress
+              ? l.loadingStepRecheckingStatus
+              : l.loadingStepWaitingForStatusRetry
+        : switch (status?.status) {
+            null => l.loadingStepCheckingStatus,
+            JobState.queued => l.loadingStepWaiting,
+            _ => _getStepDescription(l, status!.currentStep, status.progress),
+          };
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          l.loadingTitle,
+          title,
           style: AppTextStyles.heading1.copyWith(
             color: palette.textPrimary,
             height: 1.25,
           ),
         ),
-        const SizedBox(height: AppSpacing.md),
-        _buildCreationArtwork(l, palette),
         const SizedBox(height: AppSpacing.md),
         DecoratedBox(
           decoration: BoxDecoration(
@@ -188,24 +203,60 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Semantics(
-                  liveRegion: true,
-                  child: Text(
-                    _getStepDescription(l, status.currentStep, status.progress),
-                    style: AppTextStyles.heading3.copyWith(
-                      color: palette.textPrimary,
+                Row(
+                  children: [
+                    if (animateActivity) ...[
+                      ExcludeSemantics(
+                        child: SizedBox.square(
+                          dimension: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.5,
+                            color: palette.primary,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                    ],
+                    Expanded(
+                      child: Semantics(
+                        liveRegion: true,
+                        child: Text(
+                          step,
+                          style: AppTextStyles.heading3.copyWith(
+                            color: palette.textPrimary,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                if (status != null && status.hasConfirmedProgress) ...[
+                  const SizedBox(height: AppSpacing.md),
+                  ProgressIndicatorBar(
+                    progress: status.progress.clamp(0, 100).toInt(),
+                  ),
+                ],
+                if (running && !rechecking) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    l.loadingInProgressHint,
+                    style: AppTextStyles.bodySmall.copyWith(
+                      color: palette.textSecondary,
                     ),
                   ),
-                ),
-                const SizedBox(height: AppSpacing.md),
-                ProgressIndicatorBar(
-                  progress: status.progress.clamp(0, 100).toInt(),
-                ),
+                ],
               ],
             ),
           ),
         ),
-        const SizedBox(height: AppSpacing.lg),
+        const SizedBox(height: AppSpacing.sm),
+        TextButton(
+          style: TextButton.styleFrom(minimumSize: const Size(64, 64)),
+          onPressed: () =>
+              Navigator.pushNamed(context, '/library', arguments: widget.jobId),
+          child: Text(l.loadingBrowseLibrary),
+        ),
+        const SizedBox(height: AppSpacing.sm),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
           child: Row(
@@ -225,6 +276,8 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
             ],
           ),
         ),
+        const SizedBox(height: AppSpacing.lg),
+        _buildCreationArtwork(l, palette),
       ],
     );
   }

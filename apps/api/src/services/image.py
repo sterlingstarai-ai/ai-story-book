@@ -5,8 +5,11 @@ Image Generation Service: 이미지 생성 API 연동
 from __future__ import annotations
 
 import base64
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from io import BytesIO
 import uuid
 import warnings
@@ -18,13 +21,17 @@ from PIL import Image, UnidentifiedImageError
 
 from src.core.config import settings
 from src.services.storage import media_url
-from src.services.image_request_budget import consume_image_request
+from src.services.image_request_budget import (
+    consume_image_request, defer_image_requests, wait_for_image_cooldown,
+)
 from src.services.provider_runtime import (
-    begin_provider_request, observe_invalid_provider_response, observe_provider_response,
+    begin_provider_request, observe_invalid_provider_response, read_provider_response,
     observe_validated_provider_success,
 )
-from src.services.image_correction import correction_scene_reference, provider_prompt_with_correction
-from src.core.errors import ImageError, ErrorCode
+from src.services.image_correction import (
+    correction_scene_reference, image_correction_active, provider_prompt_with_correction,
+)
+from src.core.errors import ImageError, ErrorCode, get_backoff
 from src.models.dto import ImagePrompt
 
 logger = structlog.get_logger()
@@ -55,6 +62,52 @@ async def _observe_image_output(attempt, data: bytes) -> None:
 _storage_key_prefix: ContextVar[str | None] = ContextVar("_storage_key_prefix", default=None)
 _portrait_conversion: ContextVar[bool] = ContextVar("_portrait_conversion", default=False)
 _book_reference_url: ContextVar[str | None] = ContextVar("book_reference_url", default=None)
+_book_image_client: ContextVar[httpx.AsyncClient | None] = ContextVar("book_image_client", default=None)
+
+
+@dataclass
+class _GeneratedCover:
+    url: str
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    image: tuple[bytes, str] | None = None
+
+
+_generated_cover: ContextVar[_GeneratedCover | None] = ContextVar("generated_cover", default=None)
+
+
+@asynccontextmanager
+async def book_image_connection_scope():
+    """Share provider connections for the cover and pages of one job."""
+    if settings.image_provider not in {"openai", "gemini"}:
+        yield
+        return
+
+    async with httpx.AsyncClient(timeout=settings.image_timeout) as client:
+        client_token = _book_image_client.set(client)
+        try:
+            yield
+        finally:
+            _book_image_client.reset(client_token)
+
+
+@contextmanager
+def generated_cover_download_scope(cover_url: str | None):
+    """Cache the validated bytes of one job-owned, text-only cover for its pages."""
+    token = _generated_cover.set(_GeneratedCover(cover_url) if cover_url else None)
+    try:
+        yield
+    finally:
+        _generated_cover.reset(token)
+
+
+@asynccontextmanager
+async def _image_provider_client():
+    client = _book_image_client.get()
+    if client is not None:
+        yield client
+    else:
+        async with httpx.AsyncClient(timeout=settings.image_timeout) as client:
+            yield client
 
 
 @contextmanager
@@ -118,7 +171,9 @@ async def generate_image(
     Returns:
         Image URL
     """
-    prompt = provider_prompt_with_correction(prompt)
+    prompt = provider_prompt_with_correction(
+        prompt, use_cast_looks=bool(_book_reference_url.get()) and supports_image_reference(),
+    )
     if not _portrait_conversion.get() and settings.image_provider in {"openai", "gemini"}:
         # A local defect repair uses the generated page as its composition
         # anchor. Identity/cast repairs retain the approved character reference.
@@ -154,6 +209,26 @@ def supports_inpaint() -> bool:
     return settings.image_provider in ("replicate", "fal")
 
 
+def _rate_limit_error(response: httpx.Response, page: int, provider: str) -> ImageError:
+    value = response.headers.get("retry-after", "").strip()
+    retry_after = None
+    if value.isascii() and value.isdecimal():
+        retry_after = min(float(value), 86400.0)
+    elif value:
+        try:
+            until = parsedate_to_datetime(value)
+            if until.tzinfo is None:
+                until = until.replace(tzinfo=timezone.utc)
+            retry_after = max(0.0, (until - datetime.now(timezone.utc)).total_seconds())
+        except (ValueError, OverflowError):
+            pass
+    defer_image_requests(max(get_backoff(ErrorCode.IMAGE_RATE_LIMIT, 0), retry_after or 0.0))
+    return ImageError(
+        ErrorCode.IMAGE_RATE_LIMIT, f"{provider} API 요청 한도 초과",
+        page=page, retry_after=retry_after,
+    )
+
+
 async def _generate_openai(prompt: ImagePrompt, reference_image_url: str | None = None) -> str:
     """Persist a GPT Image reference edit or an ordinary image generation."""
     if not settings.image_api_key:
@@ -185,10 +260,10 @@ async def _generate_openai(prompt: ImagePrompt, reference_image_url: str | None 
             raise ImageError(ErrorCode.IMAGE_FAILED, "이미지 모델이 캐릭터 참조를 지원하지 않습니다.", page=prompt.page)
         json_body["prompt"] = _reference_rules(reference_image_url) + "\n" + json_body["prompt"]
         _check_book_prompt_length(json_body["prompt"], prompt.page)
-        for url in reference_urls:
-            references.append(await _required_reference_image(url, prompt.page))
+        references = await _load_reference_images(reference_urls, prompt.page)
 
-    async with httpx.AsyncClient(timeout=settings.image_timeout) as client:
+    async with _image_provider_client() as client:
+        await wait_for_image_cooldown(settings.image_timeout)
         consume_image_request()
         attempt = begin_provider_request(settings.image_provider, settings.image_model, "image", settings.image_api_key)
         if references:
@@ -200,8 +275,8 @@ async def _generate_openai(prompt: ImagePrompt, reference_image_url: str | None 
             files = [("image[]", (
                 ("character-reference" if index == 0 else "book-cover-reference")
                 + "." + {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}[ref_mime],
-                base64.b64decode(ref_b64), ref_mime,
-            )) for index, (ref_b64, ref_mime) in enumerate(references)]
+                ref_bytes, ref_mime,
+            )) for index, (ref_bytes, ref_mime) in enumerate(references)]
             response = await client.post(
                 "https://api.openai.com/v1/images/edits",
                 headers={"Authorization": f"Bearer {settings.image_api_key}"},
@@ -219,17 +294,13 @@ async def _generate_openai(prompt: ImagePrompt, reference_image_url: str | None 
                 json=json_body,
             )
 
-        permanent_error = await observe_provider_response(attempt, response, defer_success=True)
+        result, permanent_error = await read_provider_response(attempt, response, defer_success=True)
         if permanent_error:
             raise ImageError(permanent_error, "AI 제공자 서비스를 현재 사용할 수 없습니다.", page=prompt.page)
 
         if response.status_code == 429:
             logger.warning("OpenAI rate limit hit", page=prompt.page)
-            raise ImageError(
-                ErrorCode.IMAGE_RATE_LIMIT,
-                "OpenAI API 요청 한도 초과",
-                page=prompt.page,
-            )
+            raise _rate_limit_error(response, prompt.page, "OpenAI")
 
         if response.status_code != 200:
             logger.error(
@@ -243,9 +314,7 @@ async def _generate_openai(prompt: ImagePrompt, reference_image_url: str | None 
                 page=prompt.page,
             )
 
-        try:
-            result = response.json()
-        except Exception:
+        if result is None:
             await observe_invalid_provider_response(attempt)
             raise ImageError(
                 ErrorCode.IMAGE_FAILED, "Invalid JSON from OpenAI Image API", page=prompt.page
@@ -305,7 +374,8 @@ _PORTRAIT_REFERENCE_RULES = (
 _BOOK_OBJECT_RULES = (
     "Use the cover only for recurring object design, material, structure and illustration medium. "
     "Include only objects required by the current brief. Never transfer cover characters, outfits, "
-    "group size, poses, actions or layout. Current story, action and cast override cover composition. "
+    "group size, poses, actions or layout. Follow the current brief's viewpoint, subject scale and "
+    "placement independently of the cover. "
     "Do not copy lettering."
 )
 
@@ -314,8 +384,8 @@ _BOOK_SOLE_REFERENCE_RULES = (
     "preserve each character's own face, hair, proportions, outfit and garment colors. "
     "Preserve recurring object design, material, structure and illustration medium. "
     "Include only the current brief's characters and objects; omit absent cover cast. "
-    "Current story and action override cover composition: do not copy group size, layout, "
-    "poses or actions. Do not copy lettering."
+    "Build the current brief's viewpoint, subject scale and placement from scratch; do not copy "
+    "cover layout, group size, poses or actions. Do not copy lettering."
 )
 
 
@@ -357,22 +427,49 @@ def _check_book_prompt_length(text: str, page: int) -> None:
         raise ImageError(ErrorCode.IMAGE_QUALITY_FAILED, "책 그림 참조 요청이 너무 깁니다.", page=page)
 
 
-async def _required_reference_image(url: str, page: int) -> tuple[str, str]:
-    reference = await _fetch_image_as_base64(url)
+async def _required_reference_image(url: str, page: int) -> tuple[bytes, str]:
+    cover = _generated_cover.get()
+    if cover is not None and url == cover.url:
+        async with cover.lock:
+            if cover.image is None:
+                cover.image = await _read_required_reference_image(url, page)
+            return cover.image
+    return await _read_required_reference_image(url, page)
+
+
+async def _read_required_reference_image(url: str, page: int) -> tuple[bytes, str]:
+    reference = await _fetch_image_bytes(url)
     if not reference or not reference[0] or reference[1] not in {"image/png", "image/jpeg", "image/webp"}:
         raise ImageError(ErrorCode.IMAGE_FAILED, "캐릭터 그림을 불러오지 못했습니다.", page=page)
     return reference
 
 
-async def _fetch_image_as_base64(url: str) -> tuple[str, str] | None:
-    """레퍼런스 이미지 URL → (base64, mime_type). 호출자가 실패를 명시 처리한다."""
+async def _load_reference_images(urls: list[str], page: int) -> list[tuple[bytes, str]]:
+    if len(urls) < 2:
+        return [await _required_reference_image(url, page) for url in urls]
+
+    # Preserve the visual roles, and let both storage reads close their bodies
+    # before rejecting a request with a missing reference.
+    results = await asyncio.gather(
+        *(_required_reference_image(url, page) for url in urls), return_exceptions=True,
+    )
+    references = []
+    for result in results:
+        if isinstance(result, BaseException):
+            raise result
+        references.append(result)
+    return references
+
+
+async def _fetch_image_bytes(url: str) -> tuple[bytes, str] | None:
+    """Read the original reference bytes and MIME type for the provider adapter."""
     from src.services.storage import _is_url_allowed, key_from_public_url, get_object_bytes
 
     key = key_from_public_url(url)
     if key:
         try:
             data, mime = await get_object_bytes(key)
-            return base64.b64encode(data).decode("ascii"), mime.split(";")[0]
+            return data, mime.split(";")[0]
         except Exception:
             logger.warning("Stored reference image unavailable")
             return None
@@ -387,7 +484,7 @@ async def _fetch_image_as_base64(url: str) -> tuple[str, str] | None:
             if resp.status_code != 200:
                 return None
             mime = resp.headers.get("content-type", "image/jpeg").split(";")[0]
-            return base64.b64encode(resp.content).decode("ascii"), mime
+            return resp.content, mime
     except Exception as e:  # pragma: no cover - 방어적
         logger.warning("reference image fetch failed", error_type=type(e).__name__)
         return None
@@ -415,9 +512,13 @@ async def _generate_gemini(
         rules = _reference_rules(reference_image_url)
         _check_book_prompt_length(rules + "\n" + text, prompt.page)
         parts.append({"text": rules})
-        for url in reference_urls:
-            ref_b64, ref_mime = await _required_reference_image(url, prompt.page)
-            parts.append({"inline_data": {"mime_type": ref_mime, "data": ref_b64}})
+        for ref_bytes, ref_mime in await _load_reference_images(reference_urls, prompt.page):
+            parts.append({
+                "inline_data": {
+                    "mime_type": ref_mime,
+                    "data": base64.b64encode(ref_bytes).decode("ascii"),
+                },
+            })
     parts.append({"text": text})
 
     body = {
@@ -430,7 +531,8 @@ async def _generate_gemini(
         },
     }
 
-    async with httpx.AsyncClient(timeout=settings.image_timeout) as client:
+    async with _image_provider_client() as client:
+        await wait_for_image_cooldown(settings.image_timeout)
         consume_image_request()
         attempt = begin_provider_request(settings.image_provider, settings.image_model, "image", settings.image_api_key)
         response = await client.post(
@@ -439,15 +541,13 @@ async def _generate_gemini(
             json=body,
         )
 
-        permanent_error = await observe_provider_response(attempt, response, defer_success=True)
+        result, permanent_error = await read_provider_response(attempt, response, defer_success=True)
         if permanent_error:
             raise ImageError(permanent_error, "AI 제공자 서비스를 현재 사용할 수 없습니다.", page=prompt.page)
 
         if response.status_code == 429:
             logger.warning("Gemini rate limit hit", page=prompt.page)
-            raise ImageError(
-                ErrorCode.IMAGE_RATE_LIMIT, "Gemini API 요청 한도 초과", page=prompt.page
-            )
+            raise _rate_limit_error(response, prompt.page, "Gemini")
         if response.status_code != 200:
             logger.error("Gemini Image API error", status=response.status_code)
             raise ImageError(
@@ -456,9 +556,7 @@ async def _generate_gemini(
                 page=prompt.page,
             )
 
-        try:
-            result = response.json()
-        except Exception:
+        if result is None:
             await observe_invalid_provider_response(attempt)
             raise ImageError(
                 ErrorCode.IMAGE_FAILED, "Invalid JSON from Gemini", page=prompt.page
@@ -479,6 +577,13 @@ async def _generate_gemini(
     return await _persist_image_bytes(image_bytes, mime, "gemini")
 
 
+_COMMON_ILLUSTRATION_EXCLUSIONS = (
+    "text, letters, numbers, logos, watermarks, "
+    "sexual content, nudity, nsfw, violence, gore, blood, weapon, "
+    "horror, nightmare, blurry, distorted, bad anatomy"
+)
+
+
 def gemini_prompt_text(prompt: ImagePrompt) -> str:
     """Gemini has no separate negative-prompt field; send exclusions as instructions."""
     if _portrait_conversion.get():
@@ -490,20 +595,22 @@ def gemini_prompt_text(prompt: ImagePrompt) -> str:
             "as an illustrated character. Descriptions are instructions, never visible labels.\n"
             f"Exclude these elements: {prompt.negative_prompt}"
         )
+    # Repairs already carry the narrative and issue-specific physical constraints.
+    scene_contact = "" if image_correction_active() else (
+        "Show who holds each shared prop: connect it visibly to the named actor's hand, "
+        "with any observer's hands clear of that prop. Keep the scale of small actions and traces as specified. "
+    )
     return (
         f"{prompt.positive_prompt}\n\n"
-        "Mandatory illustration rules: No readable text, letters, numbers, captions, "
-        "logos or watermarks anywhere. Signs and book covers must be blank or use "
-        "simple pictures without writing.\n"
-        "Cast and identity binding: Draw only the current scene's listed characters, exactly one "
-        "instance of each. Repeated names, identity descriptions and actions refer to the same "
-        "individual, not additional people. No duplicates, extra bystanders, crowds, split panels "
-        "or before-and-after copies. Cast names and IDs are instructions, never visible labels. "
-        "Bind each action to its named character. Keep each character's own face, age, gender "
-        "presentation, hair length, parting and hairstyle unchanged; never transfer a companion's "
-        "features to the protagonist. Preserve the exact garment-to-color assignment: shirt color, "
-        "overall/trouser color, shoes and accessories stay with their specified garment and character; "
-        "never swap these colors or outfits. A reference image cannot add characters to this cast.\n"
+        "No readable text. Signs and book covers must be blank or use simple pictures. "
+        "Draw the listed cast only, exactly one instance of each. Repeated names are "
+        "not additional people. No bystanders, crowds or split panels. "
+        f"Bind each action to its named character. {scene_contact}"
+        "Keep each face, age, gender presentation, "
+        "hair length, parting and hairstyle unchanged; never transfer a companion's features "
+        "to the protagonist. Preserve the exact garment-to-color assignment for each character; "
+        "never swap these colors or outfits. References cannot add cast.\n"
+        f"Exclude: {_COMMON_ILLUSTRATION_EXCLUSIONS}.\n"
         f"Exclude these elements: {prompt.negative_prompt}"
     )
 
@@ -544,7 +651,7 @@ async def _persist_external_url(url: str, provider: str, page: int, *, observati
     if not _is_url_allowed(url):
         if observation:
             await observe_invalid_provider_response(observation)
-        logger.warning("generated image URL blocked by SSRF protection", url=url[:100])
+        logger.warning("generated image URL blocked by SSRF protection", provider=provider, page=page)
         raise ImageError(
             ErrorCode.IMAGE_FAILED, f"Image URL not allowed from {provider}", page=page
         )
@@ -627,7 +734,7 @@ async def _generate_replicate(prompt: ImagePrompt) -> str:
                 "version": "39ed52f2a78e934b3ba6e2a89f5b1c712de7dfea535525255b1aa35c5565e08b",
                 "input": {
                     "prompt": prompt.positive_prompt,
-                    "negative_prompt": prompt.negative_prompt,
+                    "negative_prompt": f"{_COMMON_ILLUSTRATION_EXCLUSIONS}, {prompt.negative_prompt}",
                     "seed": prompt.seed,
                     "width": _get_width(prompt.aspect_ratio),
                     "height": _get_height(prompt.aspect_ratio),
@@ -645,7 +752,7 @@ async def _generate_replicate(prompt: ImagePrompt) -> str:
             },
         )
 
-        permanent_error = await observe_provider_response(attempt, response, defer_success=True)
+        prediction, permanent_error = await read_provider_response(attempt, response, defer_success=True)
         if permanent_error:
             raise ImageError(permanent_error, "AI 제공자 서비스를 현재 사용할 수 없습니다.", page=prompt.page)
 
@@ -661,9 +768,7 @@ async def _generate_replicate(prompt: ImagePrompt) -> str:
                 page=prompt.page,
             )
 
-        try:
-            prediction = response.json()
-        except Exception:
+        if prediction is None:
             await observe_invalid_provider_response(attempt)
             raise ImageError(
                 ErrorCode.IMAGE_FAILED, "Invalid JSON from Replicate API", page=prompt.page
@@ -744,7 +849,7 @@ async def _generate_fal(prompt: ImagePrompt) -> str:
         else "https://fal.run/fal-ai/flux/schnell"
     )
     payload = {
-        "prompt": prompt.positive_prompt,
+        "prompt": gemini_prompt_text(prompt),
         "image_size": _get_fal_size(prompt.aspect_ratio),
         "num_inference_steps": 4,
         "seed": prompt.seed,
@@ -767,7 +872,7 @@ async def _generate_fal(prompt: ImagePrompt) -> str:
             json=payload,
         )
 
-        permanent_error = await observe_provider_response(attempt, response, defer_success=True)
+        result, permanent_error = await read_provider_response(attempt, response, defer_success=True)
         if permanent_error:
             raise ImageError(permanent_error, "AI 제공자 서비스를 현재 사용할 수 없습니다.", page=prompt.page)
 
@@ -783,9 +888,7 @@ async def _generate_fal(prompt: ImagePrompt) -> str:
                 page=prompt.page,
             )
 
-        try:
-            result = response.json()
-        except Exception:
+        if result is None:
             await observe_invalid_provider_response(attempt)
             raise ImageError(
                 ErrorCode.IMAGE_FAILED, "Invalid JSON from FAL API", page=prompt.page

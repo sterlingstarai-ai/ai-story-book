@@ -6,7 +6,7 @@ Credits Service
 from datetime import timedelta
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, case, func
+from sqlalchemy import select, update, and_, case, func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased
 
@@ -15,6 +15,30 @@ from ..core.config import settings
 from ..core.utils import utcnow, local_month_bounds_utc
 
 _FIRST_BOOK_TRIAL_REFERENCE = "first_book_trial:v1"
+
+
+def _first_book_trial_grant_id(user_key: str):
+    return select(func.min(CreditTransaction.id)).where(
+        CreditTransaction.user_key == user_key,
+        CreditTransaction.transaction_type == "bonus",
+        CreditTransaction.reference_id == _FIRST_BOOK_TRIAL_REFERENCE,
+        CreditTransaction.amount == 1,
+    ).scalar_subquery()
+
+
+def _first_book_trial_spends(user_key: str, grant_id):
+    refund = aliased(CreditTransaction)
+    was_refunded = select(refund.id).where(
+        refund.user_key == user_key,
+        refund.transaction_type == "refund",
+        refund.reference_id == CreditTransaction.reference_id,
+    ).exists()
+    return select(CreditTransaction.reference_id).where(
+        CreditTransaction.user_key == user_key,
+        CreditTransaction.id > grant_id,
+        CreditTransaction.transaction_type == "usage",
+        ~was_refunded,
+    )
 
 
 # 구독 플랜 정의
@@ -104,25 +128,20 @@ class CreditsService:
 
     async def first_book_trial_job(self, db: AsyncSession, user_key: str) -> str | None:
         """Identify the first non-refunded spend after the one-time trial grant."""
-        grant_id = select(func.min(CreditTransaction.id)).where(
-            CreditTransaction.user_key == user_key,
-            CreditTransaction.transaction_type == "bonus",
-            CreditTransaction.reference_id == _FIRST_BOOK_TRIAL_REFERENCE,
-            CreditTransaction.amount == 1,
-        ).scalar_subquery()
-        refund = aliased(CreditTransaction)
-        was_refunded = select(refund.id).where(
-            refund.user_key == user_key,
-            refund.transaction_type == "refund",
-            refund.reference_id == CreditTransaction.reference_id,
-        ).exists()
         # Keep the original spend even when its book has since been deleted.
-        return await db.scalar(select(CreditTransaction.reference_id).where(
-            CreditTransaction.user_key == user_key,
-            CreditTransaction.id > grant_id,
-            CreditTransaction.transaction_type == "usage",
-            ~was_refunded,
-        ).order_by(CreditTransaction.id).limit(1))
+        spends = _first_book_trial_spends(user_key, _first_book_trial_grant_id(user_key))
+        return await db.scalar(spends.order_by(CreditTransaction.id).limit(1))
+
+    async def first_book_trial_available(self, db: AsyncSession, user_key: str) -> bool:
+        """Check signup or unspent trial eligibility without creating credits."""
+        balances = select(UserCredits.user_key).where(UserCredits.user_key == user_key)
+        ledger = select(CreditTransaction.id).where(CreditTransaction.user_key == user_key).exists()
+        grant_id = _first_book_trial_grant_id(user_key)
+        spent = _first_book_trial_spends(user_key, grant_id).exists()
+        return bool(await db.scalar(select(or_(
+            and_(~balances.exists(), ~ledger),
+            and_(balances.where(UserCredits.credits > 0).exists(), grant_id.is_not(None), ~spent),
+        ))))
 
     async def _grant_free_month(self, db: AsyncSession, user_key: str, *, newly_created: bool = False) -> None:
         """One atomic top-up per Korea calendar month, without a paid subscription.

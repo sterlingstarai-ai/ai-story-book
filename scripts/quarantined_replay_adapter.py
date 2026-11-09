@@ -1,9 +1,7 @@
-"""Prepare a real-data replay without bypassing the synthetic replay guard.
+"""Verify a quarantined restore against witnessed privacy history.
 
-The currently available witness verifies only a prefix, not a latest head.
-Consequently this adapter never runs the mutation replayer or releases a
-restored system. A separately authenticated latest watermark and a reviewed
-production-target replay implementation are still required.
+Replay requires a matching fenced live-source binding and runs only inside
+the owned sandbox. The adapter never authorizes publication.
 """
 import fcntl
 import json
@@ -17,7 +15,7 @@ import time
 
 from independent_journal_evidence import _verified_witnessed_scan
 from narration_deploy_safety import _private_directory
-from quarantined_backup_ingest import _dispose_owned, _local_daemon, _remaining, _verify_sandbox
+from quarantined_backup_ingest import _dispose_owned, _local_daemon, _receive_worker_reply, _remaining, _verify_sandbox
 from replay_privacy_journal import encode_replay_transfer
 from src.services.privacy_journal_verify import fingerprint_entries
 
@@ -26,10 +24,19 @@ class QuarantinedReplayError(RuntimeError):
     pass
 
 
+def _replay_time_left(deadline):
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise QuarantinedReplayError('Isolated replay deadline expired')
+    return remaining
+
+
 def _evaluate(factory, container_id, token, *, timeout, live_journal_binding=None, require_exact_backup=False,
               apply_legacy_public_url=None):
+    deadline = time.monotonic() + timeout
     resources = []
     try:
+        _replay_time_left(deadline)
         arguments = factory()
         if not isinstance(arguments, dict):
             raise ValueError('invalid witness inputs')
@@ -37,6 +44,7 @@ def _evaluate(factory, container_id, token, *, timeout, live_journal_binding=Non
         resources = [getattr(journal, '_store', None), arguments.get('head_store'), arguments.get('checkpoint_store')]
         # An authenticated prefix is insufficient: the backup's matched
         # events must themselves fall inside the signed checkpoint.
+        _replay_time_left(deadline)
         scan = _verified_witnessed_scan(require_full_coverage=True, **arguments)
         if live_journal_binding is not None and (
                 len(scan.committed), fingerprint_entries(scan.committed)) != live_journal_binding:
@@ -44,7 +52,7 @@ def _evaluate(factory, container_id, token, *, timeout, live_journal_binding=Non
         result = subprocess.run(['docker', 'exec', '-u', '65534:65534',
                                  '-e', 'ASB_QUARANTINE_RESTORE=1', container_id,
                                  '/opt/venv/bin/python', '/offline/scripts/quarantined_replay_preflight.py', token],
-                                capture_output=True, timeout=timeout)
+                                capture_output=True, timeout=_replay_time_left(deadline))
         expected = {'status': 'RESTORED_TARGET_MATCHES_BACKUP_QUARANTINED',
                     'latest_journal_verified': False, 'privacy_replay_authorized': False,
                     'restore_authorized': False}
@@ -53,7 +61,7 @@ def _evaluate(factory, container_id, token, *, timeout, live_journal_binding=Non
         binding_result = subprocess.run(['docker', 'exec', '-u', '65534:65534',
                                  '-e', 'ASB_QUARANTINE_RESTORE=1', container_id,
                                  '/opt/venv/bin/python', '/offline/scripts/quarantined_outbox_binding.py', token],
-                                capture_output=True, timeout=timeout)
+                                        capture_output=True, timeout=_replay_time_left(deadline))
         if binding_result.returncode != 0 or len(binding_result.stdout) > 4 * 1024 * 1024:
             raise ValueError('backup journal checkpoint is unverified')
         binding = json.loads(binding_result.stdout)
@@ -82,13 +90,15 @@ def _evaluate(factory, container_id, token, *, timeout, live_journal_binding=Non
             replay = subprocess.run(['docker', 'exec', '-i', '-u', '65534:65534',
                                      '-e', 'ASB_QUARANTINE_RESTORE=1', container_id,
                                      '/opt/venv/bin/python', '/offline/scripts/quarantined_replay_preflight.py',
-                                     '--apply', token], input=transfer, capture_output=True, timeout=timeout)
+                                     '--apply', token], input=transfer, capture_output=True,
+                                    timeout=_replay_time_left(deadline))
             if replay.returncode or json.loads(replay.stdout) != {
                 'status': 'REPLAYED_STILL_QUARANTINED', 'applied_count': later_count, 'restore_authorized': False,
             }:
                 raise ValueError('Isolated replay did not complete')
         # Keep the authenticated replay plan in this process. The parent
         # receives no event payloads or credentials.
+        _replay_time_left(deadline)
         return {'backup_event_count': len(ids), 'later_event_count': later_count}
     finally:
         seen = set()
@@ -103,9 +113,10 @@ def _evaluate(factory, container_id, token, *, timeout, live_journal_binding=Non
                     pass
 
 
-def _worker(pipe, factory, container_id, token, live_journal_binding, require_exact_backup):
+def _worker(pipe, factory, container_id, token, live_journal_binding, require_exact_backup, deadline):
     try:
-        pipe.send(_evaluate(factory, container_id, token, timeout=300, live_journal_binding=live_journal_binding,
+        pipe.send(_evaluate(factory, container_id, token, timeout=_replay_time_left(deadline),
+                            live_journal_binding=live_journal_binding,
                             require_exact_backup=require_exact_backup))
     except BaseException:
         try:
@@ -139,7 +150,7 @@ def prepare_isolated_replay_direct(*, witness_factory, container_id, image_id, t
         completed = False
         try:
             _verify_sandbox(container_id, image_id, token, timeout=_remaining(deadline))
-            counts = _evaluate(witness_factory, container_id, token, timeout=_remaining(deadline),
+            counts = _evaluate(witness_factory, container_id, token, timeout=_replay_time_left(deadline),
                                live_journal_binding=live_journal_binding, require_exact_backup=require_exact_backup,
                                apply_legacy_public_url=apply_legacy_public_url)
             _verify_sandbox(container_id, image_id, token, timeout=_remaining(deadline))
@@ -189,10 +200,11 @@ def prepare_isolated_replay(*, witness_factory, container_id, image_id, token, l
             _verify_sandbox(container_id, image_id, token, timeout=_remaining(deadline))
             parent, child = multiprocessing.get_context('fork').Pipe(duplex=False)
             process = multiprocessing.get_context('fork').Process(target=_worker,
-                args=(child, witness_factory, container_id, token, live_journal_binding, require_exact_backup))
+                args=(child, witness_factory, container_id, token, live_journal_binding, require_exact_backup,
+                      deadline))
             process.start()
             child.close()
-            counts = parent.recv() if parent.poll(max(0, deadline - time.monotonic())) else None
+            counts = _receive_worker_reply(parent) if parent.poll(max(0, deadline - time.monotonic())) else None
             ok = (isinstance(counts, dict) and set(counts) == {'backup_event_count', 'later_event_count'}
                   and all(type(count) is int and 0 <= count <= 100000 for count in counts.values()))
             if ok:

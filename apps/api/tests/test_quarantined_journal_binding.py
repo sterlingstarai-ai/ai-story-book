@@ -3,6 +3,8 @@ import hashlib
 import importlib
 import io
 import json
+import multiprocessing
+import os
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -46,6 +48,53 @@ async def test_isolated_replay_does_not_accept_success_message_from_failed_child
     process = SimpleNamespace(is_alive=lambda: False, join=lambda timeout: None, exitcode=1)
     with pytest.raises(live.LiveFencedReplayError, match='did not exit cleanly'):
         await live._wait_successful_exit(process, time.monotonic() + 1)
+
+
+def _crash_without_reply(*_):
+    os._exit(9)
+
+
+@pytest.mark.parametrize('operation', ['ingest', 'replay'])
+def test_worker_exit_without_reply_is_a_controlled_quarantine_failure(
+    monkeypatch, modules, tmp_path, operation,
+):
+    _, adapter = modules
+    ingest = importlib.import_module('quarantined_backup_ingest')
+    tmp_path.chmod(0o700)
+    container_id, image_id, token = 'a' * 64, 'sha256:' + 'b' * 64, 'c' * 32
+    sandbox = {'HostConfig': {
+        'Tmpfs': {'/var/lib/asb-restore': 'size=512m'},
+        'Memory': 1024 * 1024 * 1024,
+    }}
+    module = ingest if operation == 'ingest' else adapter
+    monkeypatch.setattr(module, '_verify_sandbox', lambda *_, **__: sandbox)
+    monkeypatch.setattr(module, '_worker', _crash_without_reply)
+    disposed = []
+    monkeypatch.setattr(module, '_dispose_owned', lambda *args: disposed.append(args) or True)
+
+    if operation == 'ingest':
+        monkeypatch.setattr(ingest, '_ensure_empty', lambda *_, **__: None)
+        store = SimpleNamespace(_bucket='synthetic', _token_provider=None)
+        with pytest.raises(ingest.QuarantinedIngestError, match='owned sandbox was removed'):
+            ingest._ingest_locked(store, 'a' * 32, 'b' * 64, 'a' * 12, container_id,
+                                  image_id, token, time.monotonic() + 5)
+    else:
+        monkeypatch.setattr(adapter, '_local_daemon', lambda _: None)
+        with pytest.raises(adapter.QuarantinedReplayError, match='owned sandbox was removed'):
+            adapter.prepare_isolated_replay(
+                witness_factory=dict, container_id=container_id, image_id=image_id,
+                token=token, lock_dir=tmp_path, timeout_seconds=30,
+            )
+    assert disposed == [(container_id, image_id, token)]
+
+
+@pytest.mark.asyncio
+async def test_live_fence_worker_pipe_eof_is_a_controlled_failure(modules):
+    live = importlib.import_module('live_fenced_replay_preflight')
+    parent, child = multiprocessing.Pipe(duplex=False)
+    child.close()
+    with parent, pytest.raises(live.LiveFencedReplayError, match='process exited'):
+        await live._wait_message(parent, SimpleNamespace(is_alive=lambda: False), time.monotonic() + 1)
 
 
 def _frame(kind, value):
@@ -117,6 +166,55 @@ def test_verified_witness_must_contain_exact_restored_outbox(monkeypatch, module
     binding['journal_sha256'] = '0' * 64
     with pytest.raises(ValueError, match='does not contain'):
         adapter._evaluate(lambda: {}, 'b' * 64, 'c' * 32, timeout=10)
+
+
+@pytest.mark.parametrize('expired', [False, True])
+def test_direct_replay_uses_one_budget_without_the_inspection_cap(monkeypatch, modules, tmp_path, expired):
+    _, adapter = modules
+    tmp_path.chmod(0o700)
+    now = 100.0
+    clock = SimpleNamespace(monotonic=lambda: now)
+    monkeypatch.setattr(adapter, 'time', clock)
+    monkeypatch.setattr(importlib.import_module('quarantined_backup_ingest'), 'time', clock)
+    monkeypatch.setattr(adapter, '_local_daemon', lambda _: None)
+    monkeypatch.setattr(adapter, '_verify_sandbox', lambda *_, **__: None)
+    disposed = []
+    monkeypatch.setattr(adapter, '_dispose_owned', lambda *args: disposed.append(args) or True)
+    deadlines = []
+    digest = fingerprint_entries(())
+
+    def witnessed(**_):
+        nonlocal now
+        now += 10
+        return JournalScan((), 0)
+
+    def docker(argv, *, timeout, **_):
+        nonlocal now
+        deadlines.append(timeout)
+        if argv[-2].endswith('quarantined_replay_preflight.py'):
+            now += 51 if expired else 30
+            data = {'status': 'RESTORED_TARGET_MATCHES_BACKUP_QUARANTINED',
+                    'latest_journal_verified': False, 'privacy_replay_authorized': False,
+                    'restore_authorized': False}
+        else:
+            data = {'status': 'BACKUP_OUTBOX_CHECKPOINT_MATCHES', 'event_ids': [],
+                    'journal_sha256': digest, 'restore_authorized': False}
+        return SimpleNamespace(returncode=0, stdout=json.dumps(data).encode())
+
+    monkeypatch.setattr(adapter, '_verified_witnessed_scan', witnessed)
+    monkeypatch.setattr(adapter.subprocess, 'run', docker)
+    args = dict(witness_factory=lambda: {}, container_id='a' * 64, image_id='sha256:' + 'b' * 64,
+                token='c' * 32, lock_dir=tmp_path, timeout_seconds=60, live_journal_binding=(0, digest),
+                require_exact_backup=True)
+    if expired:
+        with pytest.raises(adapter.QuarantinedReplayError, match='deadline expired'):
+            adapter.prepare_isolated_replay_direct(**args)
+        assert deadlines == [50] and len(disposed) == 1
+    else:
+        result = adapter.prepare_isolated_replay_direct(**args)
+        assert result['status'] == 'RESTORED_OUTBOX_MATCHES_FENCED_LIVE_HISTORY'
+        assert result['restore_authorized'] is False and result['service_publish_authorized'] is False
+        assert deadlines == [50, 20] and not disposed
 
 
 def test_signed_prefix_must_cover_all_scanned_events_for_binding(monkeypatch, modules):

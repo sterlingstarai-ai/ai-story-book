@@ -110,6 +110,8 @@ Future<void> openPreview(
   SharedPreferences.setMockInitialValues({});
   final prefs = await SharedPreferences.getInstance();
   final gate = ParentalControlService();
+  final previewImage =
+      MemoryImage(brokenImage ? base64Decode('aW52YWxpZA==') : _pixel);
   if (verified) gate.markAgeGateVerified();
   await tester.pumpWidget(ProviderScope(
       overrides: [
@@ -138,18 +140,23 @@ Future<void> openPreview(
                                 builder: (_) => CharacterAvatarPreviewScreen(
                                     characterId: api.current.id,
                                     initialCharacter: api.current,
-                                    imageProviderBuilder: (_) => MemoryImage(
-                                        brokenImage
-                                            ? base64Decode('aW52YWxpZA==')
-                                            : _pixel))));
+                                    imageProviderBuilder: (_) =>
+                                        previewImage)));
                         onResult?.call(result);
                       },
                       child: const Text('open')))))));
-  await tester.tap(find.text('open'));
+  final opener = find.text('open');
+  if (!brokenImage) {
+    final context = tester.element(opener);
+    await tester.runAsync(() => precacheImage(previewImage, context));
+  }
+  await tester.tap(opener);
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 350));
-  await tester.runAsync(
-      () async => Future<void>.delayed(const Duration(milliseconds: 30)));
+  if (brokenImage) {
+    await tester.runAsync(
+        () async => Future<void>.delayed(const Duration(milliseconds: 30)));
+  }
   await tester.pump();
   await tester.pump();
 }

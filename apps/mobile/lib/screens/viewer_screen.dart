@@ -27,6 +27,7 @@ import '../utils/constants.dart';
 import '../widgets/age_gate_dialog.dart';
 import '../widgets/common_widgets.dart';
 import '../widgets/scoped_book_image.dart';
+import '../services/book_media_store.dart';
 import '../services/book_scoped_cache_manager.dart';
 import '../widgets/credit_shortage_modal.dart';
 import '../widgets/content_report_sheet.dart';
@@ -46,7 +47,13 @@ class ViewerScreen extends ConsumerStatefulWidget {
 
 class _ViewerScreenState extends ConsumerState<ViewerScreen>
     with WidgetsBindingObserver {
+  static const _narrationSpeedKey = 'narration_playback_speed_v1';
+  static const _narrationSpeeds = [0.9, 1.0, 1.15, 1.3];
+  static const _narrationPrefetchGrace = Duration(milliseconds: 200);
+  static const _illustrationRefreshInterval = Duration(minutes: 1);
+
   Timer? _mediaRefreshTimer;
+  Timer? _illustrationRefreshCooldown;
   late PageController _pageController;
   late final ConfettiController _completionConfettiController;
   final AudioPlayer _audioPlayer = AudioPlayer();
@@ -80,7 +87,13 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   bool _allowKakaoShare = true;
   bool _sleepModeEnabled = false;
   DateTime? _sleepModeEndsAt;
-  bool _sleepAutoAdvancing = false;
+  bool _continuousNarration = false;
+  bool _narrationAutoAdvancing = false;
+  String? _lastNarrationPrefetch;
+  ({String key, Future<void> done})? _activeNarrationPrefetch;
+  BookMediaStore? _narrationCacheStore;
+  final _narrationCaches =
+      <({String extension, bool lookahead}), BookScopedCacheManager>{};
   double _audioProgress = 0;
   int _audioProgressPage = 0;
   BookResult? _activeBook;
@@ -105,6 +118,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     super.initState();
     _readingSessionApi = ref.read(apiClientProvider);
     _audioPreferences = ref.read(sharedPreferencesProvider);
+    final savedSpeed = _audioPreferences.get(_narrationSpeedKey);
+    if (savedSpeed is double && _narrationSpeeds.contains(savedSpeed)) {
+      unawaited(_audioPlayer.setSpeed(savedSpeed).catchError((Object _) {}));
+    }
     _pageAudio = PageAudioPlayback(
       JustAudioPagePlayer(_audioPlayer),
       onError: (error) => unawaited(_showAudioError(error)),
@@ -115,7 +132,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     _readingSessionScope = ProviderScope.containerOf(context, listen: false);
     WidgetsBinding.instance.addObserver(this);
     _mediaRefreshTimer = Timer.periodic(
-      const Duration(minutes: 1),
+      _illustrationRefreshInterval,
       (_) => _refreshMediaIfNeeded(),
     );
     _pageController = PageController();
@@ -144,11 +161,15 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
         });
       }
       if (mounted &&
-          _sleepModeEnabled &&
+          (_sleepModeEnabled || _continuousNarration) &&
           state.playing &&
           state.processingState == ProcessingState.completed &&
           _pageAudio.takeCompletion()) {
-        unawaited(_handleSleepPlaybackCompleted());
+        unawaited(_advanceNarration());
+      } else if (mounted &&
+          state.playing &&
+          state.processingState == ProcessingState.ready) {
+        unawaited(_prefetchNextNarration());
       }
     });
     _positionSubscription = _audioPlayer.positionStream.listen((position) {
@@ -181,10 +202,45 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   void _refreshMediaIfNeeded() {
     final book = _activeBook;
     if (!mounted || book == null) return;
-    if (mediaUrlNeedsRefresh(book.coverImageUrl) ||
-        book.pages.any((p) => mediaUrlNeedsRefresh(p.imageUrl))) {
-      ref.invalidate(bookDetailProvider(widget.bookId));
+    // The adjacent pages are the ones PageView may prepare for the next turn.
+    final first = max(0, _currentPage - 1);
+    final last = min(book.pages.length, _currentPage + 1);
+    for (var index = first; index <= last; index++) {
+      final url = index == 0
+          ? book.coverImageUrl
+          : book.pages[index - 1].imageUrl;
+      if (mediaUrlNeedsRefresh(url)) {
+        _refreshRejectedIllustration();
+        return;
+      }
     }
+  }
+
+  bool get _canRefreshBookMedia =>
+      mounted &&
+      identical(ref.read(apiClientProvider), _readingSessionApi) &&
+      !ref.read(bookMediaBlockedProvider(widget.bookId));
+
+  void _requestIllustrationRefresh({required bool automatic}) {
+    if (automatic && _illustrationRefreshCooldown?.isActive == true) return;
+    final detail = bookDetailProvider(widget.bookId);
+    if (ref.read(detail).isLoading) return;
+    _illustrationRefreshCooldown?.cancel();
+    _illustrationRefreshCooldown = Timer(
+      _illustrationRefreshInterval,
+      () => _illustrationRefreshCooldown = null,
+    );
+    ref.invalidate(detail);
+  }
+
+  void _refreshRejectedIllustration() {
+    if (_canRefreshBookMedia) _requestIllustrationRefresh(automatic: true);
+  }
+
+  Future<void> _retryRejectedIllustration() async {
+    if (!_canRefreshBookMedia) return;
+    _requestIllustrationRefresh(automatic: false);
+    await ref.read(bookDetailProvider(widget.bookId).future);
   }
 
   @override
@@ -196,6 +252,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _mediaRefreshTimer?.cancel();
+    _illustrationRefreshCooldown?.cancel();
     _recordAbandonedReadIfNeeded();
     // Cancel subscription to prevent memory leak
     _playerStateSubscription?.cancel();
@@ -204,6 +261,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     _completionConfettiController.dispose();
     _pageController.dispose();
     _pageAudio.dispose();
+    _closeNarrationCaches();
     unawaited(_audioPlayer.dispose());
     super.dispose();
   }
@@ -262,7 +320,16 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
       previous,
       blocked,
     ) {
-      if (blocked) unawaited(_pageAudio.stop());
+      if (blocked) _stopUnavailableNarration();
+    });
+    ref.listen(apiClientProvider, (previous, next) {
+      if (!identical(next, _readingSessionApi)) _stopUnavailableNarration();
+    });
+    ref.listen(bookMediaStoreProvider, (previous, next) {
+      if (_narrationCacheStore != null &&
+          !identical(next.valueOrNull?.store, _narrationCacheStore)) {
+        _stopUnavailableNarration();
+      }
     });
     final bookAsync = ref.watch(bookDetailProvider(widget.bookId));
 
@@ -334,6 +401,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     _restoreReadingProgressIfNeeded(totalPages);
     final currentWarning = _currentGenerationWarning(book);
 
+    final l = AppLocalizations.of(context);
+    final controlsHint = _showControls
+        ? l.viewerHideReadingControls
+        : l.viewerShowReadingControls;
     final audioOk = narrationSupported(
       ref.watch(capabilitiesProvider).valueOrNull,
     );
@@ -343,8 +414,11 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
         // 페이지 뷰
         PageView.builder(
           controller: _pageController,
+          allowImplicitScrolling: true,
           itemCount: totalPages,
           onPageChanged: (index) async {
+            final continueNarration =
+                _narrationAutoAdvancing || _isPlaying || _pageAudio.loading;
             final stopped = _pageAudio.stop();
             setState(() {
               _currentPage = index;
@@ -354,11 +428,15 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
             if (index > _maxPageReached) {
               _maxPageReached = index;
             }
-            unawaited(_saveReadingProgress(index, totalPages));
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (_currentPage == index) _refreshMediaIfNeeded();
+            });
+            unawaited(_saveReadingProgress(index));
             await stopped;
             if (mounted &&
                 _currentPage == index &&
-                _sleepModeEnabled &&
+                (_sleepModeEnabled ||
+                    (_continuousNarration && continueNarration)) &&
                 index > 0) {
               await _playPageAudio(book, restart: true);
             }
@@ -371,6 +449,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                 title: book.getTitle(_selectedLanguage),
                 imageUrl: book.coverImageUrl,
                 onTap: _toggleControls,
+                controlsHint: controlsHint,
+                onSignedUrlRejected: _refreshRejectedIllustration,
+                onRetrySignedUrl: _retryRejectedIllustration,
               );
             } else {
               // 본문 페이지
@@ -383,6 +464,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                 showInlineLearning: !_showControls,
                 sleepMode: _sleepModeEnabled,
                 onIllustrationTap: _toggleControls,
+                controlsHint: controlsHint,
+                onSignedUrlRejected: _refreshRejectedIllustration,
+                onRetrySignedUrl: _retryRejectedIllustration,
                 onNarrate: audioOk && index == _currentPage
                     ? () {
                         if (!_showControls) {
@@ -795,6 +879,11 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                       key: const Key('viewer_sleep_countdown'),
                       style: metaStyle,
                     ),
+                  if (_isLoadingAudio)
+                    Semantics(
+                      liveRegion: true,
+                      child: Text(l.viewerNarrationPreparing, style: metaStyle),
+                    ),
                 ],
               ),
             ),
@@ -817,6 +906,24 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                             );
                           },
                   ),
+                  if (_currentPage == 0 && audioOk && book.pages.isNotEmpty)
+                    Flexible(
+                      child: TextButton(
+                        style: TextButton.styleFrom(
+                          minimumSize: const Size.square(
+                            AppSizing.minTouchTarget,
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.xs,
+                          ),
+                        ),
+                        onPressed: () => _startContinuousNarration(book),
+                        child: Text(
+                          l.viewerListenFromStart,
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
                   if (_currentPage > 0 && audioOk)
                     IconButton(
                       style: buttonStyle,
@@ -911,6 +1018,46 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     await _playPageAudio(book);
   }
 
+  String _narrationSpeedLabel(AppLocalizations l, double speed) =>
+      l.viewerNarrationSpeedValue(speed == 1 ? '1' : speed.toString());
+
+  Future<void> _pickNarrationSpeed() async {
+    final l = AppLocalizations.of(context);
+    final speed = await showDialog<double>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: Text(l.viewerNarrationSpeed),
+        children: [
+          for (final option in _narrationSpeeds)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(context, option),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 48),
+                child: Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: Semantics(
+                    selected: option == _audioPlayer.speed,
+                    child: Text(_narrationSpeedLabel(l, option)),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+    if (!mounted || speed == null || speed == _audioPlayer.speed) return;
+    try {
+      await _audioPlayer.setSpeed(speed);
+      if (await _audioPreferences.setDouble(_narrationSpeedKey, speed)) return;
+    } catch (_) {
+      // A speed change never re-requests the recording.
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(l.settingsSaveError)));
+  }
+
   Future<void> _saveAudioPosition(Duration position) async {
     if (_currentPage < 1 || _completionHandled) return;
     if (!identical(ref.read(apiClientProvider), _readingSessionApi)) return;
@@ -923,26 +1070,33 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     final provider = narrationAudioProvider(
       ref.read(capabilitiesProvider).valueOrNull,
     );
-    final value = '$_currentPage|$_selectedLanguage|${position.inMilliseconds}|$voice|$style|${provider ?? 'unknown'}';
+    final value =
+        '$_currentPage|$_selectedLanguage|${position.inMilliseconds}|$voice|$style|${provider ?? 'unknown'}';
     try {
-      final progress = await ref.read(readingProgressProvider(widget.bookId).future);
+      final progress = await ref.read(
+        readingProgressProvider(widget.bookId).future,
+      );
       await progress.saveAudio(value);
     } catch (_) {
       // Saving a resume point must not interrupt playback.
     }
   }
 
-  Future<Duration> _savedAudioPosition(int page, String language) async {
-    if (!identical(ref.read(apiClientProvider), _readingSessionApi)) return Duration.zero;
-    final voice = narrationVoiceOrDefault(
-      _audioPreferences.getString(narrationVoicePreferenceKey),
-    );
-    final style = narrationStyleOrDefault(
-      _audioPreferences.getString(narrationStylePreferenceKey),
-    );
+  Future<Duration> _savedAudioPosition({
+    required int page,
+    required String language,
+    required String voice,
+    required String style,
+    required String? provider,
+  }) async {
+    if (!identical(ref.read(apiClientProvider), _readingSessionApi)) {
+      return Duration.zero;
+    }
     String? saved;
     try {
-      final progress = await ref.read(readingProgressProvider(widget.bookId).future);
+      final progress = await ref.read(
+        readingProgressProvider(widget.bookId).future,
+      );
       saved = await progress.audio();
     } catch (_) {
       return Duration.zero;
@@ -954,9 +1108,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
       language: language,
       voice: voice,
       style: style,
-      provider: narrationAudioProvider(
-        ref.read(capabilitiesProvider).valueOrNull,
-      ),
+      provider: provider,
     );
   }
 
@@ -999,8 +1151,183 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     );
   }
 
+  String? _defaultNarrationUrl(
+    BookResult book,
+    PageResult page,
+    String language,
+  ) {
+    final localized = switch (language) {
+      'ko' => page.audioUrlKo,
+      'en' => page.audioUrlEn,
+      _ => null,
+    };
+    return localized ??
+        (language == (book.language ?? 'ko') ? page.audioUrl : null);
+  }
+
+  String _narrationExtension(String? url, String? provider) {
+    final path = Uri.tryParse(url ?? '')?.path.toLowerCase() ?? '';
+    if (path.endsWith('.wav')) return 'wav';
+    if (path.endsWith('.mp3')) return 'mp3';
+    return provider == 'openai_realtime' ? 'wav' : 'mp3';
+  }
+
+  void _closeNarrationCaches() {
+    for (final cache in _narrationCaches.values) {
+      unawaited(cache.dispose());
+    }
+    _narrationCaches.clear();
+    _narrationCacheStore = null;
+  }
+
+  void _stopUnavailableNarration() {
+    _closeNarrationCaches();
+    // Provider invalidation can run while the viewer is being built.
+    unawaited(
+      Future<void>.microtask(() async {
+        if (mounted) await _pageAudio.stop();
+      }),
+    );
+  }
+
+  BookScopedCacheManager _narrationCache(
+    BookMediaStore store,
+    String extension, {
+    required bool lookahead,
+  }) {
+    if (!identical(store, _narrationCacheStore)) {
+      _closeNarrationCaches();
+      _narrationCacheStore = store;
+    }
+    // A stalled lookahead must never hold the foreground request after its
+    // short handoff grace period. Each lane reuses its own HTTP connections.
+    return _narrationCaches.putIfAbsent(
+      (extension: extension, lookahead: lookahead),
+      () => BookScopedCacheManager(
+        store: store,
+        bookId: widget.bookId,
+        fileExtension: extension,
+        reuseConnections: true,
+        connectionIdleTimeout: const Duration(minutes: 1),
+      ),
+    );
+  }
+
+  Future<void> _prefetchNextNarration() async {
+    final book = _activeBook;
+    final page = _currentPage;
+    if (book == null ||
+        page == 0 ||
+        page >= book.pages.length ||
+        !(_continuousNarration || _sleepModeEnabled) ||
+        _activeNarrationPrefetch != null) {
+      return;
+    }
+    final caps = ref.read(capabilitiesProvider).valueOrNull;
+    final canLookup = caps?['narration_cached_lookup_supported'] == true;
+    final language = _selectedLanguage;
+    final voice = narrationVoiceOrDefault(
+      _audioPreferences.getString(narrationVoicePreferenceKey),
+    );
+    final style = narrationStyleOrDefault(
+      _audioPreferences.getString(narrationStylePreferenceKey),
+    );
+    final provider = narrationAudioProvider(caps);
+    final next = book.pages[page];
+    final defaultUrl = voice == 'default' && style == 'legacy'
+        ? _defaultNarrationUrl(book, next, language)
+        : null;
+    final embeddedUrl =
+        defaultUrl != null &&
+            defaultUrl.isNotEmpty &&
+            !mediaUrlNeedsRefresh(defaultUrl)
+        ? defaultUrl
+        : null;
+    if (embeddedUrl == null && !canLookup) return;
+    final key = pageAudioCacheKey(
+      book.bookId,
+      page + 1,
+      language,
+      next.getText(language),
+      voice: voice,
+      style: style,
+      provider: provider,
+    );
+    bool sessionIsCurrent() =>
+        mounted &&
+        identical(ref.read(apiClientProvider), _readingSessionApi) &&
+        !ref.read(bookMediaBlockedProvider(widget.bookId));
+    bool isCurrent() =>
+        sessionIsCurrent() &&
+        (_currentPage == page || _currentPage == page + 1) &&
+        _selectedLanguage == language &&
+        (_continuousNarration || _sleepModeEnabled);
+    if (_lastNarrationPrefetch == key || !isCurrent()) return;
+    _lastNarrationPrefetch = key;
+    final finished = Completer<void>();
+    _activeNarrationPrefetch = (key: key, done: finished.future);
+    try {
+      final media = await ref.read(bookMediaStoreProvider.future);
+      bool mediaIsCurrent() =>
+          mounted &&
+          identical(
+            ref.read(bookMediaStoreProvider).valueOrNull?.store,
+            media.store,
+          );
+      if (!isCurrent() || !media.serverVerified || !mediaIsCurrent()) return;
+      Future<String?> lookupSavedUrl() =>
+          _readingSessionApi.getCachedPageAudioUrl(
+            book.bookId,
+            page + 1,
+            language: language,
+            voice: voice,
+            style: style,
+          );
+      await cachedPageAudio(
+        key,
+        () async {
+          final url = embeddedUrl ?? await lookupSavedUrl();
+          if (url == null || url.isEmpty) {
+            throw StateError('No saved narration');
+          }
+          return url;
+        },
+        cache: _narrationCache(
+          media.store,
+          _narrationExtension(defaultUrl, provider),
+          lookahead: true,
+        ),
+        isCurrent: () => isCurrent() && mediaIsCurrent(),
+        shouldRemoveLateFile: () => !sessionIsCurrent() || !mediaIsCurrent(),
+        refreshRejectedUrl: (rejectedUrl) async {
+          if (!canLookup ||
+              (embeddedUrl == null && !hasS3MediaSignature(rejectedUrl))) {
+            return null;
+          }
+          return lookupSavedUrl();
+        },
+      );
+    } catch (_) {
+      // Lookahead is optional. The requested page still uses normal playback.
+    } finally {
+      _activeNarrationPrefetch = null;
+      finished.complete();
+      if (mounted &&
+          _currentPage != page &&
+          _isPlaying &&
+          _pageAudio.hasLoadedSource) {
+        unawaited(_prefetchNextNarration());
+      }
+    }
+  }
+
   Future<void> _playPageAudio(BookResult book, {bool restart = false}) async {
-    if (!mounted || _currentPage == 0 || _pageAudio.loading) return;
+    if (!mounted ||
+        _currentPage == 0 ||
+        _pageAudio.loading ||
+        ref.read(bookMediaBlockedProvider(widget.bookId))) {
+      return;
+    }
     final pageIndex = _currentPage;
     final language = _selectedLanguage;
     final voice = narrationVoiceOrDefault(
@@ -1010,6 +1337,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
       _audioPreferences.getString(narrationStylePreferenceKey),
     );
     final caps = ref.read(capabilitiesProvider).valueOrNull;
+    final provider = narrationAudioProvider(caps);
     if (style != 'legacy' &&
         caps?['narration_style_selection_supported'] != true) {
       await _showAudioError(StateError('Narration style is unavailable'));
@@ -1028,49 +1356,79 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
       page.getText(language),
       voice: voice,
       style: style,
-      provider: narrationAudioProvider(caps),
+      provider: provider,
     );
     setState(() {
       _audioProgressPage = pageIndex;
     });
-    final initialPosition = restart ? Duration.zero : await _savedAudioPosition(pageIndex, language);
-    if (!mounted || _currentPage != pageIndex || _selectedLanguage != language) return;
+    bool scopeIsCurrent() =>
+        mounted &&
+        _currentPage == pageIndex &&
+        _selectedLanguage == language &&
+        identical(ref.read(apiClientProvider), _readingSessionApi) &&
+        !ref.read(bookMediaBlockedProvider(widget.bookId));
+    if (!scopeIsCurrent()) return;
     await _pageAudio.play(
       key,
       () async {
         final requestIsCurrent = _pageAudio.captureRequestGuard();
-        var usedBookAudioUrl = false;
+        final canLookup = caps?['narration_cached_lookup_supported'] == true;
         final media = await ref.read(bookMediaStoreProvider.future);
-        if (!requestIsCurrent() || !mounted) {
+        bool mediaIsCurrent() =>
+            scopeIsCurrent() &&
+            identical(
+              ref.read(bookMediaStoreProvider).valueOrNull?.store,
+              media.store,
+            );
+        if (!requestIsCurrent() || !mediaIsCurrent()) {
+          throw StateError('Narration request is no longer active');
+        }
+        final prefetch = _activeNarrationPrefetch;
+        if (prefetch != null &&
+            prefetch.key == key &&
+            (_continuousNarration || _sleepModeEnabled)) {
+          // A nearly finished download can satisfy playback without another
+          // audio request. A slow lookahead never owns the foreground load.
+          await prefetch.done.timeout(
+            _narrationPrefetchGrace,
+            onTimeout: () {},
+          );
+        }
+        if (!requestIsCurrent() || !mediaIsCurrent()) {
           throw StateError('Narration request is no longer active');
         }
         final usesDefaultAudio = voice == 'default' && style == 'legacy';
-        String? existingUrl = usesDefaultAudio
-            ? (language == 'ko'
-                  ? page.audioUrlKo
-                  : language == 'en'
-                  ? page.audioUrlEn
-                  : null)
+        final existingUrl = usesDefaultAudio
+            ? _defaultNarrationUrl(book, page, language)
             : null;
-        if (usesDefaultAudio && language == (book.language ?? 'ko')) {
-          existingUrl ??= page.audioUrl;
-        }
-        final oldPath =
-            Uri.tryParse(existingUrl ?? '')?.path.toLowerCase() ?? '';
-        final audioExtension = oldPath.endsWith('.wav')
-            ? 'wav'
-            : oldPath.endsWith('.mp3')
-            ? 'mp3'
-            : narrationAudioProvider(caps) == 'openai_realtime'
-            ? 'wav'
-            : 'mp3';
+        final embeddedUrl =
+            existingUrl != null &&
+                existingUrl.isNotEmpty &&
+                !mediaUrlNeedsRefresh(existingUrl)
+            ? existingUrl
+            : null;
+        Future<String> resolveNarration() => _readingSessionApi.getPageAudioUrl(
+          book.bookId,
+          pageIndex,
+          language: language,
+          voice: voice,
+          style: style,
+        );
         return cachedPageAudio(
           key,
-          () async {
-            // The base audio slot belongs to the book language, never a translation.
-            final url = existingUrl;
-            if (url == null || url.isEmpty || mediaUrlNeedsRefresh(url)) {
-              return _readingSessionApi.getPageAudioUrl(
+          () async => embeddedUrl ?? await resolveNarration(),
+          cache: _narrationCache(
+            media.store,
+            _narrationExtension(existingUrl, provider),
+            lookahead: false,
+          ),
+          isCurrent: () => requestIsCurrent() && mediaIsCurrent(),
+          shouldRemoveLateFile: () => !mediaIsCurrent(),
+          refreshRejectedUrl: (rejectedUrl) async {
+            if (!hasS3MediaSignature(rejectedUrl)) return null;
+            if (canLookup) {
+              // A retry renews a recording's URL without asking for synthesis.
+              return _readingSessionApi.getCachedPageAudioUrl(
                 book.bookId,
                 pageIndex,
                 language: language,
@@ -1078,66 +1436,62 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                 style: style,
               );
             }
-            usedBookAudioUrl =
-                Uri.tryParse(
-                  url,
-                )?.queryParameters.containsKey('X-Amz-Signature') ??
-                false;
-            return url;
-          },
-          cache: BookScopedCacheManager(
-            store: media.store,
-            bookId: book.bookId,
-            fileExtension: audioExtension,
-          ),
-          isCurrent: () =>
-              requestIsCurrent() &&
-              mounted &&
-              _currentPage == pageIndex &&
-              _selectedLanguage == language,
-          shouldRemoveLateFile: () =>
-              !mounted ||
-              _currentPage != pageIndex ||
-              _selectedLanguage != language,
-          refreshRejectedUrl: () async {
-            if (!usedBookAudioUrl) return null;
-            return _readingSessionApi.getPageAudioUrl(
-              book.bookId,
-              pageIndex,
-              language: language,
-              voice: voice,
-              style: style,
-            );
+            if (rejectedUrl != embeddedUrl) return null;
+            return resolveNarration();
           },
         );
       },
       restart: restart,
-      initialPosition: initialPosition,
+      initialPosition: restart
+          ? Duration.zero
+          : _savedAudioPosition(
+              page: pageIndex,
+              language: language,
+              voice: voice,
+              style: style,
+              provider: provider,
+            ),
+      isCurrent: scopeIsCurrent,
     );
   }
 
-  Future<void> _handleSleepPlaybackCompleted() async {
-    if (!_sleepModeEnabled || _sleepAutoAdvancing) {
-      return;
-    }
+  Future<void> _advanceNarration() async {
     final book = _activeBook;
-    if (book == null) {
+    if (book == null || _narrationAutoAdvancing) return;
+    if (_currentPage >= book.pages.length) {
+      if (_continuousNarration) setState(() => _continuousNarration = false);
       return;
     }
-    final totalPages = book.pages.length + 1;
-    if (_currentPage >= totalPages - 1) {
-      return;
-    }
+    await _goToNarrationPage(_currentPage + 1);
+  }
 
-    _sleepAutoAdvancing = true;
+  Future<void> _goToNarrationPage(int page) async {
+    if (_narrationAutoAdvancing || !_pageController.hasClients) return;
+    _narrationAutoAdvancing = true;
     try {
       await _pageController.animateToPage(
-        _currentPage + 1,
+        page,
         duration: const Duration(milliseconds: 450),
         curve: Curves.easeInOut,
       );
     } finally {
-      _sleepAutoAdvancing = false;
+      _narrationAutoAdvancing = false;
+    }
+  }
+
+  Future<void> _startContinuousNarration(BookResult book) async {
+    if (_narrationAutoAdvancing ||
+        _sleepModeEnabled ||
+        ref.read(bookMediaBlockedProvider(widget.bookId))) {
+      return;
+    }
+    setState(() => _continuousNarration = true);
+    if (_currentPage == 0) {
+      await _goToNarrationPage(1);
+    } else if (!_isPlaying) {
+      await _playPageAudio(book);
+    } else {
+      unawaited(_prefetchNextNarration());
     }
   }
 
@@ -1165,6 +1519,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     final normalizedMinutes = minutes.clamp(10, 60);
     _sleepModeTimer?.cancel();
     setState(() {
+      _continuousNarration = false;
       _sleepModeEnabled = true;
       _sleepModeEndsAt = DateTime.now().add(
         Duration(minutes: normalizedMinutes),
@@ -1238,15 +1593,24 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     }
     _progressRestored = true;
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (!mounted || !identical(ref.read(apiClientProvider), _readingSessionApi)) return;
+      if (!mounted ||
+          !identical(ref.read(apiClientProvider), _readingSessionApi)) {
+        return;
+      }
       int savedPage;
       try {
-        final progress = await ref.read(readingProgressProvider(widget.bookId).future);
+        final progress = await ref.read(
+          readingProgressProvider(widget.bookId).future,
+        );
         savedPage = await progress.page() ?? 0;
       } catch (_) {
         return;
       }
-      if (!mounted || _currentPage != 0 || savedPage <= 0 || savedPage >= totalPages) {
+      if (!mounted ||
+          _currentPage != 0 ||
+          _continuousNarration ||
+          savedPage <= 0 ||
+          savedPage >= totalPages) {
         return;
       }
       _currentPage = savedPage;
@@ -1256,15 +1620,20 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     });
   }
 
-  Future<void> _saveReadingProgress(int pageIndex, int totalPages) async {
-    if (!mounted || !identical(ref.read(apiClientProvider), _readingSessionApi)) return;
+  Future<void> _saveReadingProgress(int pageIndex) async {
+    if (!mounted ||
+        _completionHandled ||
+        !identical(ref.read(apiClientProvider), _readingSessionApi)) {
+      return;
+    }
     try {
-      final progress = await ref.read(readingProgressProvider(widget.bookId).future);
-      if (pageIndex >= totalPages - 1) {
-        await progress.clearPage();
-      } else {
-        await progress.savePage(pageIndex);
-      }
+      final progress = await ref.read(
+        readingProgressProvider(widget.bookId).future,
+      );
+      // Navigating to the last page still leaves a reading position. Only
+      // the explicit completion action clears it.
+      if (_completionHandled || _currentPage != pageIndex) return;
+      await progress.savePage(pageIndex);
       if (mounted) ref.invalidate(homeReadingProgressProvider(widget.bookId));
     } catch (_) {
       // A missing scope never blocks reading.
@@ -1272,9 +1641,14 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
   }
 
   Future<void> _clearReadingProgress() async {
-    if (!mounted || !identical(ref.read(apiClientProvider), _readingSessionApi)) return;
+    if (!mounted ||
+        !identical(ref.read(apiClientProvider), _readingSessionApi)) {
+      return;
+    }
     try {
-      final progress = await ref.read(readingProgressProvider(widget.bookId).future);
+      final progress = await ref.read(
+        readingProgressProvider(widget.bookId).future,
+      );
       await progress.clearReading();
       if (mounted) ref.invalidate(homeReadingProgressProvider(widget.bookId));
     } catch (_) {
@@ -1361,6 +1735,31 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                 Navigator.pop(this.context);
               },
             ),
+            if (audioOk &&
+                !_sleepModeEnabled &&
+                !_continuousNarration &&
+                _currentPage > 0 &&
+                _currentPage < book.pages.length)
+              ListTile(
+                minTileHeight: AppSizing.minTouchTarget,
+                leading: const Icon(Icons.headphones),
+                title: Text(l.viewerListenFromHere),
+                onTap: () {
+                  Navigator.pop(context);
+                  unawaited(_startContinuousNarration(book));
+                },
+              ),
+            if (audioOk)
+              ListTile(
+                minTileHeight: AppSizing.minTouchTarget,
+                leading: const Icon(Icons.speed_outlined),
+                title: Text(l.viewerNarrationSpeed),
+                subtitle: Text(_narrationSpeedLabel(l, _audioPlayer.speed)),
+                onTap: () {
+                  Navigator.pop(context);
+                  unawaited(_pickNarrationSpeed());
+                },
+              ),
             if (book.titleKo != null || book.titleEn != null)
               ListTile(
                 minTileHeight: AppSizing.minTouchTarget,
@@ -2373,12 +2772,18 @@ class _CoverPage extends StatelessWidget {
   final String title;
   final String imageUrl;
   final VoidCallback onTap;
+  final String controlsHint;
+  final VoidCallback onSignedUrlRejected;
+  final Future<void> Function() onRetrySignedUrl;
 
   const _CoverPage({
     required this.bookId,
     required this.title,
     required this.imageUrl,
     required this.onTap,
+    required this.controlsHint,
+    required this.onSignedUrlRejected,
+    required this.onRetrySignedUrl,
   });
 
   @override
@@ -2386,12 +2791,17 @@ class _CoverPage extends StatelessWidget {
     final l = AppLocalizations.of(context);
     return GestureDetector(
       onTap: onTap,
+      excludeFromSemantics: true,
       child: Stack(
         fit: StackFit.expand,
         children: [
           Semantics(
+            container: true,
             label: l.viewerCoverImageSemantics(title),
+            hint: controlsHint,
             image: true,
+            button: true,
+            onTap: onTap,
             child: imageUrl.trim().isEmpty
                 ? Container(
                     color: AppColors.primary,
@@ -2404,6 +2814,8 @@ class _CoverPage extends StatelessWidget {
                 : ScopedBookImage(
                     bookId: bookId,
                     imageUrl: imageUrl,
+                    onSignedUrlRejected: onSignedUrlRejected,
+                    onRetrySignedUrl: onRetrySignedUrl,
                     fit: BoxFit.contain,
                     placeholder: const Center(
                       child: CircularProgressIndicator(color: Colors.white),
@@ -2418,12 +2830,14 @@ class _CoverPage extends StatelessWidget {
                     ),
                   ),
           ),
-          Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [Colors.transparent, AppColors.blackOverlayStrong],
+          const IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Colors.transparent, AppColors.blackOverlayStrong],
+                ),
               ),
             ),
           ),
@@ -2469,6 +2883,9 @@ class _ContentPage extends StatelessWidget {
   final bool showInlineLearning;
   final bool sleepMode;
   final VoidCallback onIllustrationTap;
+  final String controlsHint;
+  final VoidCallback onSignedUrlRejected;
+  final Future<void> Function() onRetrySignedUrl;
   final VoidCallback? onNarrate;
   final int pageNumber;
   final String text;
@@ -2486,6 +2903,9 @@ class _ContentPage extends StatelessWidget {
     required this.showInlineLearning,
     required this.sleepMode,
     required this.onIllustrationTap,
+    required this.controlsHint,
+    required this.onSignedUrlRejected,
+    required this.onRetrySignedUrl,
     this.onNarrate,
     required this.pageNumber,
     required this.text,
@@ -2512,9 +2932,10 @@ class _ContentPage extends StatelessWidget {
           Expanded(
             child: LayoutBuilder(
               builder: (context, constraints) {
-                return SingleChildScrollView(
-                  key: ValueKey('reader-content-$pageNumber'),
-                  primary: false,
+                return _ReaderPageScroll(
+                  key: ValueKey(pageNumber),
+                  pageNumber: pageNumber,
+                  thumbColor: palette.textSecondary.withValues(alpha: 0.6),
                   child: Column(
                     children: [
                       SizedBox(
@@ -2525,9 +2946,14 @@ class _ContentPage extends StatelessWidget {
                         ),
                         child: GestureDetector(
                           onTap: onIllustrationTap,
+                          excludeFromSemantics: true,
                           child: Semantics(
+                            container: true,
                             label: l.viewerPageImageSemantics(pageNumber),
+                            hint: controlsHint,
                             image: true,
+                            button: true,
+                            onTap: onIllustrationTap,
                             child: imageUrl.trim().isEmpty
                                 ? Container(
                                     width: double.infinity,
@@ -2541,6 +2967,8 @@ class _ContentPage extends StatelessWidget {
                                 : ScopedBookImage(
                                     bookId: bookId,
                                     imageUrl: imageUrl,
+                                    onSignedUrlRejected: onSignedUrlRejected,
+                                    onRetrySignedUrl: onRetrySignedUrl,
                                     fit: BoxFit.contain,
                                     width: double.infinity,
                                     placeholder: Container(
@@ -2627,6 +3055,51 @@ class _ContentPage extends StatelessWidget {
           if (showInlineLearning)
             SizedBox(height: MediaQuery.paddingOf(context).bottom),
         ],
+      ),
+    );
+  }
+}
+
+class _ReaderPageScroll extends StatefulWidget {
+  const _ReaderPageScroll({
+    super.key,
+    required this.pageNumber,
+    required this.thumbColor,
+    required this.child,
+  });
+
+  final int pageNumber;
+  final Color thumbColor;
+  final Widget child;
+
+  @override
+  State<_ReaderPageScroll> createState() => _ReaderPageScrollState();
+}
+
+class _ReaderPageScrollState extends State<_ReaderPageScroll> {
+  final _controller = ScrollController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RawScrollbar(
+      controller: _controller,
+      thumbVisibility: true,
+      interactive: false,
+      thumbColor: widget.thumbColor,
+      thickness: 3,
+      radius: const Radius.circular(AppSpacing.xs),
+      crossAxisMargin: AppSpacing.xs,
+      child: SingleChildScrollView(
+        key: ValueKey('reader-content-${widget.pageNumber}'),
+        controller: _controller,
+        primary: false,
+        child: widget.child,
       ),
     );
   }

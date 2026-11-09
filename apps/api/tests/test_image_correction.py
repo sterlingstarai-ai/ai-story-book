@@ -43,7 +43,6 @@ def test_action_correction_requests_the_story_required_visible_object_state():
                                 issues=["action_mismatch"]):
         expanded = provider_prompt_with_correction(complete_prompt())
     assert "visible pages in an open book" in expanded.positive_prompt
-    assert "do not invent a state" in expanded.positive_prompt
     assert "The children leave the book open to dry." in expanded.positive_prompt
 
 
@@ -55,20 +54,110 @@ def test_action_correction_distinguishes_a_plan_from_the_action_being_planned():
     assert text in expanded.positive_prompt
 
 
+def test_action_correction_overrides_an_incomplete_cast_count():
+    prompt = complete_prompt().model_copy(update={"positive_prompt": "Visible cast: three children."})
+    narrative = "The three children and the attendant tie the sign to the noticeboard together."
+    with image_correction_scope(page_text=narrative, issues=["action_mismatch"]):
+        expanded = provider_prompt_with_correction(prompt)
+    assert "Follow the narrative over conflicting staging or cast counts." in expanded.positive_prompt
+    assert "Show only its stated actors." in expanded.positive_prompt
+    assert narrative in expanded.positive_prompt
+    assert expanded.positive_prompt.startswith(f"CURRENT PAGE NARRATIVE: {narrative}")
+    assert expanded.positive_prompt.endswith(f"COMPATIBLE BRIEF: {prompt.positive_prompt}")
+
+
+def test_action_correction_omits_old_staging_when_cast_looks_are_separate():
+    prompt = complete_prompt().model_copy(update={
+        "positive_prompt": "Haru puts the pebble in the flowerpot. Dami watches.",
+        "guidance_notes": "CAST LOOKS: Haru = brown bear, yellow hat; Dami = white rabbit, purple scarf",
+    })
+    narrative = "Dami sets the pebble on the ground beside the flowerpot."
+    with image_correction_scope(page_text=narrative, issues=["action_mismatch"]):
+        corrected = provider_prompt_with_correction(prompt, use_cast_looks=True)
+        without_cover = provider_prompt_with_correction(prompt)
+    assert corrected.positive_prompt.startswith(f"CURRENT PAGE NARRATIVE: {narrative}")
+    assert corrected.positive_prompt.endswith(prompt.guidance_notes)
+    assert "Connect each held prop to the named actor's hand; observers keep hands clear." in corrected.positive_prompt
+    assert "Show direct actions without adding tools." in corrected.positive_prompt
+    assert "Keep each prop's stated count, state and position." in corrected.positive_prompt
+    assert prompt.positive_prompt not in corrected.positive_prompt
+    assert prompt.positive_prompt in without_cover.positive_prompt
+
+    with image_correction_scope(page_text=narrative, issues=["readable_text"]):
+        typography = provider_prompt_with_correction(prompt)
+    assert typography.positive_prompt.startswith(prompt.positive_prompt)
+
+
+@pytest.mark.parametrize("brief", [
+    "ACTION FOCUS: The only line",
+    "Wide forest view.\nACTION FOCUS: The second line",
+    "ACTION FOCUS: \nWide forest view.",
+    f"ACTION FOCUS: {'x' * 181}\nWide forest view.",
+    "ACTION FOCUS: A hidden\u200b character.\nWide forest view.",
+])
+def test_optional_action_focus_ignores_missing_or_invalid_lines(brief):
+    prompt = complete_prompt().model_copy(update={
+        "positive_prompt": brief,
+        "guidance_notes": "CAST LOOKS: Haru = white rabbit",
+    })
+    with image_correction_scope(
+        page_text="Haru watches.", issues=["action_mismatch"], use_prompt_action_focus=True,
+    ):
+        repaired = provider_prompt_with_correction(prompt, use_cast_looks=True)
+    assert "ACTION FOCUS" not in repaired.positive_prompt
+    assert prompt.guidance_notes in repaired.positive_prompt
+
+
+def test_action_correction_uses_adjacent_pages_only_for_continuity():
+    prompt = complete_prompt().model_copy(update={
+        "positive_prompt": "The plant grows out of the garden bed.",
+        "guidance_notes": "CAST LOOKS: Haru = brown bear, yellow hat",
+    })
+    narrative = "The tiny green loop pushes through the soil. Haru stops watering and watches."
+    previous = "Haru set two flowerpots beside the wooden box."
+    following = "Tomorrow the plant opens two leaves in the first pot."
+    with image_correction_scope(
+        page_text=narrative, issues=["action_mismatch"],
+        previous_page_text=previous, next_page_text=following,
+    ):
+        corrected = provider_prompt_with_correction(prompt, use_cast_looks=True).positive_prompt
+    assert corrected.startswith(f"CURRENT PAGE NARRATIVE: {narrative}")
+    assert "show the stopped state" in corrected
+    assert "persistent setting and props only; do not show their actions or later states" in corrected
+    assert f"Previous page: {previous}" in corrected
+    assert f"Next page: {following}" in corrected
+    assert prompt.positive_prompt not in corrected
+    assert prompt.guidance_notes in corrected
+    with image_correction_scope(
+        page_text=narrative, issues=["readable_text"],
+        previous_page_text=previous, next_page_text=following,
+    ):
+        typography = provider_prompt_with_correction(prompt).positive_prompt
+    assert previous not in typography and following not in typography
+
+
 def test_full_repair_context_fits_reference_provider_request_without_losing_tail():
     original = complete_prompt().model_copy(update={"negative_prompt": "n" * 600})
     narrative = "The tap fills the watering can through its top opening. " + "x" * 540
     assert len(narrative) <= 600
-    with image_correction_scope(page_text=narrative, issues=list(CORRECTION_INSTRUCTIONS)):
+    with image_correction_scope(
+        page_text=narrative, issues=list(CORRECTION_INSTRUCTIONS),
+        previous_page_text="a" * 600, next_page_text="b" * 600,
+    ):
         expanded = provider_prompt_with_correction(original)
         wire = image._REFERENCE_RULES + "\n" + image.gemini_prompt_text(expanded)
     # Cross-boundary regression: bounded product context must still fit the
     # stricter live acceptance request guard with a full negative prompt/reference.
     assert len(wire) <= 5000
     assert original.positive_prompt in wire and narrative in wire
-    assert "The narrative overrides conflicting staging" in wire
-    assert "Show all stated actors" in wire
-    assert "Show each prop only in its current state and place" in wire
+    assert "Follow the narrative over conflicting staging" in wire
+    assert "Match contact, scale and flow" in wire
+    assert "keep beside distinct from inside" in wire
+    assert "Show only its stated actors" in wire
+    assert "Keep each prop's stated count, state and position" in wire
+    assert "never from the lower tap" in wire
+    assert "crop the fittings out" in wire
+    assert "No fresh stream or drips" in wire
     assert wire.endswith(original.negative_prompt)
 
 
@@ -107,7 +196,8 @@ async def test_every_provider_wire_keeps_full_cast_and_narrative_without_scope_l
     # Error unwinding must reset context before unrelated subsequent calls.
     with pytest.raises(StoryBookError):
         await image.generate_image(prompt)
-    assert payloads[0].startswith(prompt.positive_prompt)
+    assert payloads[0].startswith(f"CURRENT PAGE NARRATIVE: {body}")
+    assert f"COMPATIBLE BRIEF: {prompt.positive_prompt}" in payloads[0]
     assert body in payloads[0]
     assert all(instruction in payloads[0] for instruction in CORRECTION_INSTRUCTIONS.values())
     assert "gray hair in a bun, wire glasses and a long brown skirt" in payloads[0]

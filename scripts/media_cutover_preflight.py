@@ -82,6 +82,30 @@ def gcs_freeze_canary_payload(key):
     return ('AI Story Book narration restore proof: ' + key).encode('ascii')
 
 
+def _gcs_if_generation(client, method, generation, **kwargs):
+    # GCS XML uses generation preconditions on writes, not S3's ETag If-Match.
+    event = 'before-sign.s3.' + client.meta.method_to_api_mapping[method]
+
+    def add_precondition(request, **_):
+        request.headers['x-goog-if-generation-match'] = generation
+
+    client.meta.events.register(event, add_precondition)
+    try:
+        return getattr(client, method)(**kwargs)
+    finally:
+        client.meta.events.unregister(event, add_precondition)
+
+
+def _verified_gcs_generation(result, payload):
+    with closing(result['Body']) as body:
+        if body.read(len(payload) + 1) != payload:
+            raise MediaCutoverError('GCS freeze canary contents differ')
+    generation = result.get('ResponseMetadata', {}).get('HTTPHeaders', {}).get('x-goog-generation')
+    if not isinstance(generation, str) or re.fullmatch(r'[1-9][0-9]{0,18}', generation) is None:
+        raise MediaCutoverError('GCS freeze canary generation is unverified')
+    return generation
+
+
 def verify_frozen_gcs_writer(values, canary):
     """Require the configured GCS writer to have only read access during backup."""
     bucket = values['S3_BUCKET']
@@ -101,9 +125,9 @@ def verify_frozen_gcs_writer(values, canary):
             _require_denied(lambda: client.head_object(**args), {404})
             # A create-only grant may permit a direct upload independently of
             # delete or multipart operations. Use only our random absent key.
-            payload = b'AI Story Book frozen writer verification'
+            payload = ('AI Story Book frozen writer verification: ' + key).encode('ascii')
             try:
-                _require_denied(lambda: client.put_object(**args, Body=payload, IfNoneMatch='*'), {403})
+                _require_denied(lambda: _gcs_if_generation(client, 'put_object', '0', **args, Body=payload), {403})
             finally:
                 try:
                     result = client.get_object(**args)
@@ -111,10 +135,8 @@ def verify_frozen_gcs_writer(values, canary):
                     if exc.response.get('ResponseMetadata', {}).get('HTTPStatusCode') != 404:
                         raise
                 else:
-                    with closing(result['Body']) as body:
-                        if body.read(len(payload) + 1) != payload:
-                            raise MediaCutoverError('Unexpected object at the probe key')
-                    client.delete_object(**args)
+                    generation = _verified_gcs_generation(result, payload)
+                    _gcs_if_generation(client, 'delete_object', generation, **args)
                     raise MediaCutoverError('The frozen GCS credential created a probe object')
             try:
                 upload = client.create_multipart_upload(**args)
@@ -128,13 +150,15 @@ def verify_frozen_gcs_writer(values, canary):
                     except ClientError:
                         pass
                 raise MediaCutoverError('The frozen GCS credential can still initiate writes')
-            # GCS can return 404 for deletion of an absent key without proving
-            # write denial. Verify our existing canary before testing delete.
-            result = client.get_object(Bucket=bucket, Key=canary)
-            with closing(result['Body']) as body:
-                if body.read(len(canary_payload) + 1) != canary_payload:
-                    raise MediaCutoverError('GCS freeze canary contents differ')
-            _require_denied(lambda: client.delete_object(Bucket=bucket, Key=canary), {403})
+            # Only the verified generation of our synthetic canary may be
+            # overwritten or deleted. A missing or changed object is no proof.
+            canary_args = {'Bucket': bucket, 'Key': canary}
+            generation = _verified_gcs_generation(client.get_object(**canary_args), canary_payload)
+            _require_denied(lambda: _gcs_if_generation(
+                client, 'put_object', generation, **canary_args, Body=canary_payload), {403})
+            _require_denied(lambda: _gcs_if_generation(client, 'delete_object', generation, **canary_args), {403})
+            if _verified_gcs_generation(client.get_object(**canary_args), canary_payload) != generation:
+                raise MediaCutoverError('GCS freeze canary changed during permission verification')
     except MediaCutoverError:
         raise
     except Exception:

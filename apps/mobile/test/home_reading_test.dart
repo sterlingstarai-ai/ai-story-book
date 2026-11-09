@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:ai_story_book/core/api_error.dart';
 import 'package:ai_story_book/l10n/app_localizations.dart';
+import 'package:ai_story_book/models/generation_options.dart';
 import 'package:ai_story_book/models/models.dart';
 import 'package:ai_story_book/providers/providers.dart';
 import 'package:ai_story_book/screens/home_screen.dart';
@@ -49,6 +52,25 @@ class _TodayFailure extends ApiClient {
   }
 }
 
+class _PendingTodayStory extends ApiClient {
+  _PendingTodayStory() : super(baseUrl: 'http://test', userKey: 'test');
+
+  final completion = Completer<String>();
+  final sentKeys = <String?>[];
+
+  @override
+  Future<String> generateTodayStory({
+    required String targetAge,
+    required String style,
+    String? protagonistName,
+    String language = 'ko',
+    String? idempotencyKey,
+  }) {
+    sentKeys.add(idempotencyKey);
+    return completion.future;
+  }
+}
+
 LibraryBook _book(String id, String title) => LibraryBook(
   id: id,
   title: title,
@@ -75,6 +97,7 @@ Future<void> _pump(
   required List<RouteSettings> navigation,
   Map<String, Object> initialPreferences = const {},
   List<Override> overrides = const [],
+  Future<List<JobStatus>> Function()? loadActiveJobs,
   HomeStreakSnapshot streak = _streak,
 }) async {
   SharedPreferences.setMockInitialValues(initialPreferences);
@@ -90,6 +113,9 @@ Future<void> _pump(
       overrides: [
         sharedPreferencesProvider.overrideWithValue(prefs),
         libraryProvider.overrideWith(() => _Library(load)),
+        activeBookGenerationsProvider.overrideWith(
+          (ref) async => loadActiveJobs == null ? [] : await loadActiveJobs(),
+        ),
         charactersProvider.overrideWith(_Characters.new),
         homeStreakProvider.overrideWith((ref) async => streak),
         growthReportProvider.overrideWith(
@@ -130,6 +156,107 @@ Future<void> _scrollTo(WidgetTester tester, Finder target) async {
 }
 
 void main() {
+  const resumeGeneration = Key('home_resume_generation');
+  for (final count in [1, 2]) {
+    testWidgets('home resumes existing generation work ($count jobs)', (
+      tester,
+    ) async {
+      final navigation = <RouteSettings>[];
+      await _pump(
+        tester,
+        load: () async => [],
+        loadActiveJobs: () async => [
+          for (var index = 0; index < count; index++)
+            JobStatus(
+              jobId: 'existing-$index',
+              status: JobState.running,
+              progress: 33,
+            ),
+        ],
+        navigation: navigation,
+      );
+      final resume = find.byKey(resumeGeneration);
+      expect(resume.hitTestable(), findsOneWidget);
+      expect(tester.getSize(resume).height, greaterThanOrEqualTo(64));
+      await tester.tap(resume);
+      await tester.pumpAndSettle();
+      expect(navigation.single.name, count == 1 ? '/loading' : '/library');
+      expect(navigation.single.arguments, count == 1 ? 'existing-0' : null);
+    });
+  }
+
+  testWidgets(
+    'refreshing and failed active work reads keep saved books usable',
+    (tester) async {
+      final refresh = Completer<List<JobStatus>>();
+      final navigation = <RouteSettings>[];
+      var lookups = 0;
+      await _pump(
+        tester,
+        load: () async => [_book('saved-book', '보관한 책')],
+        loadActiveJobs: () async => lookups++ == 0
+            ? [
+                JobStatus(
+                  jobId: 'old-job',
+                  status: JobState.running,
+                  progress: 33,
+                ),
+              ]
+            : refresh.future,
+        navigation: navigation,
+      );
+      final resume = find.byKey(resumeGeneration);
+      expect(resume, findsOneWidget);
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(HomeScreen)),
+      );
+      container.invalidate(activeBookGenerationsProvider);
+      await tester.pumpAndSettle();
+      expect(resume, findsNothing);
+      refresh.completeError(StateError('private-debug-text'));
+      await tester.pumpAndSettle();
+      expect(resume, findsNothing);
+      expect(find.textContaining('private-debug-text'), findsNothing);
+      await tester.tap(find.byKey(const Key('home_featured_book')));
+      await tester.pumpAndSettle();
+      expect(navigation.single.arguments, 'saved-book');
+    },
+  );
+
+  testWidgets('a story finished while away appears on the existing home', (
+    tester,
+  ) async {
+    var completedWhileAway = false;
+    var libraryReads = 0;
+    await _pump(
+      tester,
+      load: () async {
+        libraryReads++;
+        return [if (completedWhileAway) _book('new-book', '새 동화')];
+      },
+      loadActiveJobs: () async => [
+        if (!completedWhileAway)
+          JobStatus(
+            jobId: 'running-job',
+            status: JobState.running,
+            progress: 60,
+          ),
+      ],
+      navigation: [],
+    );
+    expect(find.byKey(resumeGeneration), findsOneWidget);
+    expect(find.text('새 동화'), findsNothing);
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(HomeScreen)),
+    );
+    completedWhileAway = true;
+    container.invalidate(activeBookGenerationsProvider);
+    await tester.pumpAndSettle();
+    expect(libraryReads, 2);
+    expect(find.byKey(resumeGeneration), findsNothing);
+    expect(find.text('새 동화'), findsOneWidget);
+  });
+
   for (final status in [402, 503]) {
     testWidgets('today story failure routes by API error ($status)', (
       tester,
@@ -155,6 +282,9 @@ void main() {
           capabilitiesProvider.overrideWith(
             (ref) async => {'free_first_book_trial': status == 402},
           ),
+          generationOptionsProvider.overrideWith(
+            (ref) async => const GenerationOptions(BookStyle.values),
+          ),
         ],
       );
       final l = await AppLocalizations.delegate.load(const Locale('ko'));
@@ -175,6 +305,138 @@ void main() {
         expect(navigation.single.name, '/create');
       }
     });
+  }
+
+  for (final bool? eligible in [true, null]) {
+    testWidgets(
+      'today story reviews settings before a possible first book ($eligible)',
+      (tester) async {
+        final navigation = <RouteSettings>[];
+        final api = _TodayFailure(503);
+        addTearDown(api.close);
+        final options = Completer<GenerationOptions>();
+        if (eligible == true) {
+          options.complete(
+            const GenerationOptions(
+              BookStyle.values,
+              firstBookTrialAvailable: true,
+            ),
+          );
+        }
+        await _pump(
+          tester,
+          load: () async => [],
+          navigation: navigation,
+          streak: const HomeStreakSnapshot(
+            currentStreak: 0,
+            longestStreak: 0,
+            totalDays: 0,
+            readToday: false,
+            todayThemeName: '우정',
+            todayTopic: '숲에서 만난 친구',
+            todayBookId: null,
+            readDates: {},
+          ),
+          overrides: [
+            apiClientProvider.overrideWithValue(api),
+            capabilitiesProvider.overrideWith(
+              (ref) async => {'free_first_book_trial': true},
+            ),
+            generationOptionsProvider.overrideWith((ref) => options.future),
+          ],
+        );
+        final review = find.text('오늘 주제로 동화 만들기');
+        await _scrollTo(tester, review);
+        await tester.tap(review);
+        await tester.pumpAndSettle();
+        expect(api.requestedAge, isNull);
+        expect(navigation.single.name, '/create');
+        expect(navigation.single.arguments, {'topic': '숲에서 만난 친구'});
+      },
+    );
+  }
+
+  for (final scenario in ['stay', 'open settings', 'switch account']) {
+    testWidgets(
+      'today submission stays within its route and account ($scenario)',
+      (tester) async {
+        final navigation = <RouteSettings>[];
+        final api = _PendingTodayStory();
+        final currentApi = StateProvider<ApiClient>((ref) => api);
+        addTearDown(api.close);
+        await _pump(
+          tester,
+          load: () async => [],
+          navigation: navigation,
+          streak: const HomeStreakSnapshot(
+            currentStreak: 0,
+            longestStreak: 0,
+            totalDays: 0,
+            readToday: false,
+            todayThemeName: '우정',
+            todayTopic: '숲에서 만난 친구',
+            todayBookId: null,
+            readDates: {},
+          ),
+          overrides: [
+            apiClientProvider.overrideWith((ref) => ref.watch(currentApi)),
+            capabilitiesProvider.overrideWith(
+              (ref) async => {'free_first_book_trial': false},
+            ),
+            generationOptionsProvider.overrideWith(
+              (ref) async => const GenerationOptions(BookStyle.values),
+            ),
+          ],
+        );
+        final l = await AppLocalizations.delegate.load(const Locale('ko'));
+        final create = find.text(l.homeMakeTodayStory);
+        await _scrollTo(tester, create);
+        final home = tester.element(find.byType(HomeScreen));
+        await tester.tap(create);
+        await tester.tap(create);
+        await tester.pump();
+        expect(api.sentKeys, [isNotEmpty]);
+        expect(
+          find.bySemanticsLabel(l.loadingStepCheckingStatus),
+          findsOneWidget,
+        );
+
+        if (scenario == 'open settings') {
+          unawaited(Navigator.of(home).pushNamed('/settings'));
+          await tester.pump();
+        }
+        if (scenario == 'switch account') {
+          final next = _PendingTodayStory();
+          addTearDown(next.close);
+          final container = ProviderScope.containerOf(home, listen: false);
+          container.read(currentApi.notifier).state = next;
+          container.invalidate(todayAttemptKeyProvider);
+          container.invalidate(todayAttemptSigProvider);
+          await tester.pump();
+          await tester.tap(create);
+          await tester.pump();
+          expect(next.sentKeys, [isNotEmpty]);
+          expect(next.sentKeys.single, isNot(api.sentKeys.single));
+          api.completion.complete('old-account-job');
+          await tester.pump();
+          expect(navigation, isEmpty);
+          expect(
+            find.bySemanticsLabel(l.loadingStepCheckingStatus),
+            findsOneWidget,
+          );
+          next.completion.complete('new-job');
+        } else {
+          api.completion.complete('new-job');
+        }
+        await tester.pumpAndSettle();
+        expect(navigation.map((route) => route.name), [
+          scenario == 'open settings' ? '/settings' : '/loading',
+        ]);
+        if (scenario != 'open settings') {
+          expect(navigation.single.arguments, 'new-job');
+        }
+      },
+    );
   }
 
   testWidgets('scoped saved page offers continue reading', (tester) async {
@@ -246,19 +508,53 @@ void main() {
     },
   );
 
-  testWidgets('empty home leads to making the first book', (tester) async {
-    final navigation = <RouteSettings>[];
-    await _pump(tester, load: () async => [], navigation: navigation);
-    expect(find.text('아직 만든 책이 없어요'), findsOneWidget);
-    expect(find.byKey(const Key('home_featured_book')), findsNothing);
-    final create = find.byKey(const Key('home_create_book'));
-    await tester.ensureVisible(create);
-    await tester.pumpAndSettle();
-    await tester.tap(create);
-    await tester.pumpAndSettle();
-    expect(navigation.last.name, '/create');
-    expect(tester.takeException(), isNull);
-  });
+  for (final (trial, eligible) in [
+    (false, false),
+    (true, false),
+    (true, true),
+  ]) {
+    testWidgets(
+      'empty home leads to the first book (trial: $trial, eligible: $eligible)',
+      (tester) async {
+        final navigation = <RouteSettings>[];
+        await _pump(
+          tester,
+          load: () async => [],
+          navigation: navigation,
+          overrides: [
+            capabilitiesProvider.overrideWith(
+              (ref) async => {
+                'free_first_book_trial': trial,
+                'narration_supported': true,
+              },
+            ),
+            generationOptionsProvider.overrideWith(
+              (ref) async => GenerationOptions(const [
+                BookStyle.watercolor,
+              ], firstBookTrialAvailable: eligible),
+            ),
+          ],
+        );
+        final l = await AppLocalizations.delegate.load(const Locale('ko'));
+        expect(find.text('아직 만든 책이 없어요'), findsOneWidget);
+        expect(find.byKey(const Key('home_featured_book')), findsNothing);
+        final create = find.byKey(const Key('home_create_book'));
+        await tester.ensureVisible(create);
+        await tester.pumpAndSettle();
+        expect(
+          find.descendant(
+            of: create,
+            matching: find.text(l.firstBookTrialOffer),
+          ),
+          eligible ? findsOneWidget : findsNothing,
+        );
+        await tester.tap(create);
+        await tester.pumpAndSettle();
+        expect(navigation.last.name, '/create');
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   testWidgets('library retry stays near the top and never shows raw errors', (
     tester,

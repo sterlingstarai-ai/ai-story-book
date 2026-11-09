@@ -23,7 +23,9 @@ SCRIPTS = ('run_backup_restore_rehearsal.py', 'run_runtime_e2e.py', 'mock_illust
            'run_source_privacy_fixture.py', 'run_witness_fixture.py', 'run_purge_health_fixture.py',
            'quarantined_backup_receiver.py', 'quarantined_restore_runtime.py',
            'quarantined_db_fingerprint.py', 'quarantined_replay_preflight.py', 'quarantined_outbox_binding.py',
-           'verify_backup_set.py')
+           'verify_backup_set.py', 'backup_external.py', 'final_external_preflight.py',
+           'publish_backup_gcs.py', 'quarantined_backup_ingest.py', 'check_restore_sandbox.py',
+           'narration_deploy_safety.py')
 
 
 class OfflineRehearsalError(RuntimeError):

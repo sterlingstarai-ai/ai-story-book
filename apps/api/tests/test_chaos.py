@@ -88,8 +88,9 @@ class TestImageAPIFailures:
     """Image API failure scenarios."""
 
     @pytest.mark.asyncio
-    async def test_image_rate_limit_429(self):
-        """Image API 429 should be handled gracefully."""
+    @pytest.mark.parametrize("retry_after, delays", [(None, [5, 10]), (11, [11, 11]), (120, [])])
+    async def test_image_rate_limit_429(self, retry_after, delays):
+        """Retry transient throttles and stop when the requested wait exceeds the attempt limit."""
         from src.services.orchestrator import generate_image_with_retry
         from src.models.dto import ImagePrompt
 
@@ -110,17 +111,25 @@ class TestImageAPIFailures:
             if call_count < 3:
                 from src.core.errors import ImageError, ErrorCode
 
-                raise ImageError(ErrorCode.IMAGE_RATE_LIMIT, "Rate limited", page=1)
+                raise ImageError(ErrorCode.IMAGE_RATE_LIMIT, "Rate limited", page=1, retry_after=retry_after)
             return "https://example.com/image.png"
 
-        with patch("src.services.image.generate_image", side_effect=mock_generate):
-            with patch("src.services.orchestrator.settings") as mock_settings:
-                mock_settings.image_max_retries = 5
-                mock_settings.image_timeout = 10
+        with (
+            patch("src.services.image.generate_image", side_effect=mock_generate),
+            patch("src.services.orchestrator.settings") as mock_settings,
+            patch("src.services.orchestrator.record_job_image_keys", new_callable=AsyncMock),
+            patch("src.services.orchestrator.asyncio.sleep", new_callable=AsyncMock) as sleep,
+        ):
+            mock_settings.image_max_retries = 5
+            mock_settings.image_timeout = 20
+            url = await generate_image_with_retry(prompt, "test-job", 1)
 
-                url = await generate_image_with_retry(prompt, "test-job", 1)
-                # Should either succeed or return placeholder
-                assert url is not None
+        assert [call.args[0] for call in sleep.await_args_list] == delays
+        assert call_count == len(delays) + 1
+        if delays:
+            assert url == "https://example.com/image.png"
+        else:
+            assert "placeholder" in url
 
     @pytest.mark.asyncio
     async def test_image_500_error(self):

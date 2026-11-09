@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../providers/active_child_profile.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -14,6 +16,8 @@ import '../widgets/storybook_illustration.dart';
 import '../widgets/credit_shortage_modal.dart';
 import '../providers/providers.dart';
 import '../services/analytics.dart';
+import '../services/api_client.dart';
+import '../services/page_audio_playback.dart';
 
 /// 홈 화면
 /// H25: 서버가 내려주는 안정 theme id → 로케일 표시명(미지 id는 서버 폴백).
@@ -105,22 +109,43 @@ String dailyTopicLabel(AppLocalizations l, String topicId, String fallback) {
   }
 }
 
-class HomeScreen extends ConsumerWidget {
+class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
+  @override
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends ConsumerState<HomeScreen> {
+  ApiClient? _todayStoryApi;
+
   /// 오늘의 동화 카드 기본 액션.
-  /// 오늘 책이 있으면 바로 읽고, 없으면 오늘의 테마로 *원탭 개인화 생성*(B3) → 로딩.
+  /// 오늘 책은 바로 열고, 무료 첫 권은 만들기 화면에서 설정을 확인한다.
   /// 과금 제한은 안내하고, 다른 생성 실패는 일반 생성 화면에서 다시 시도한다.
   Future<void> _onTodayPrimary(
-    BuildContext context,
-    WidgetRef ref,
     HomeStreakSnapshot streak,
     bool firstBookTrial,
+    bool reviewBeforeCreating,
   ) async {
+    if (ModalRoute.of(context)?.isCurrent == false) return;
     if (streak.todayBookId != null) {
       Navigator.pushNamed(context, '/viewer', arguments: streak.todayBookId);
       return;
     }
+    if (reviewBeforeCreating) {
+      ref.read(analyticsProvider).logEvent(AnalyticsEvents.todayStoryRequested);
+      final l = AppLocalizations.of(context);
+      Navigator.pushNamed(
+        context,
+        '/create',
+        arguments: {
+          'topic': dailyTopicLabel(l, streak.todayTopicId, streak.todayTopic),
+        },
+      );
+      return;
+    }
+    final api = ref.read(apiClientProvider);
+    if (identical(_todayStoryApi, api)) return;
     ref.read(analyticsProvider).logEvent(AnalyticsEvents.todayStoryRequested);
     // 오늘의 동화도 앱 로케일 언어로 생성(영/일 UI에서 한국어 동화 방지).
     final language = Localizations.localeOf(context).languageCode;
@@ -147,45 +172,77 @@ class HomeScreen extends ConsumerWidget {
       keyNotifier.state = const Uuid().v4();
       sigNotifier.state = '$todaySig|$age';
     }
+    setState(() => _todayStoryApi = api);
     try {
-      final jobId = await ref
-          .read(apiClientProvider)
-          .generateTodayStory(
-            targetAge: age,
-            style: 'watercolor',
-            language: language,
-            idempotencyKey: keyNotifier.state,
-          );
+      final jobId = await api.generateTodayStory(
+        targetAge: age,
+        style: 'watercolor',
+        language: language,
+        idempotencyKey: keyNotifier.state,
+      );
+      if (!mounted || !identical(api, ref.read(apiClientProvider))) return;
       keyNotifier.state = null; // 성공 → 다음 생성은 새 키
       sigNotifier.state = null;
-      if (context.mounted) {
+      ref.invalidate(generationOptionsProvider);
+      ref.invalidate(activeBookGenerationsProvider);
+      if (ModalRoute.of(context)?.isCurrent != false) {
         Navigator.pushReplacementNamed(context, '/loading', arguments: jobId);
       }
     } catch (error) {
-      if (!context.mounted) return;
+      if (!mounted ||
+          !identical(api, ref.read(apiClientProvider)) ||
+          ModalRoute.of(context)?.isCurrent == false) {
+        return;
+      }
       final apiError = error is DioException ? error.error : error;
       if (apiError is ApiError && apiError.code == 'PAYMENT_REQUIRED') {
-        await showCreditShortageModal(
-          context,
-          preferCreditPack: !apiError.isPlanUpgradeRequired,
+        unawaited(
+          showCreditShortageModal(
+            context,
+            preferCreditPack: !apiError.isPlanUpgradeRequired,
+          ),
         );
         return;
       }
       Navigator.pushNamed(context, '/create');
+    } finally {
+      if (mounted && identical(_todayStoryApi, api)) {
+        setState(() => _todayStoryApi = null);
+      }
     }
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
+    final submittingTodayStory =
+        _todayStoryApi != null &&
+        identical(_todayStoryApi, ref.watch(apiClientProvider));
     final libraryAsync = ref.watch(libraryProvider);
+    final activeJobs = ref.watch(visibleActiveBookGenerationsProvider);
+    ref.listen(activeBookGenerationsProvider, (previous, next) {
+      if (activeBookGenerationMayHaveFinished(previous, next)) {
+        ref.invalidate(libraryProvider);
+      }
+    });
     final charactersAsync = ref.watch(charactersProvider);
     final streakAsync = ref.watch(homeStreakProvider);
-    final firstBookTrial = ref.watch(
-      capabilitiesProvider.select(
-        (caps) => caps.valueOrNull?['free_first_book_trial'] == true,
-      ),
-    );
+    final capabilities = ref.watch(capabilitiesProvider);
+    final firstBookTrialFlag =
+        capabilities.asData?.value['free_first_book_trial'];
+    final firstBookTrial = firstBookTrialFlag == true;
+    final trialOptions = firstBookTrial
+        ? ref.watch(generationOptionsProvider)
+        : null;
+    final accountEligible =
+        trialOptions?.isLoading == false &&
+        trialOptions?.asData?.value.firstBookTrialAvailable == true;
+    final reviewTodayStory =
+        capabilities.isLoading ||
+        firstBookTrialFlag is! bool ||
+        (firstBookTrial &&
+            (trialOptions?.isLoading != false ||
+                trialOptions?.asData?.value.firstBookTrialAvailable != false));
     final growthAsync = ref.watch(growthReportProvider);
     final growthSubtitle = growthAsync.maybeWhen(
       data: (g) => (g.vocabLearned > 0 || g.quizTotal > 0)
@@ -198,6 +255,15 @@ class HomeScreen extends ConsumerWidget {
     );
 
     final hasBooks = libraryAsync.valueOrNull?.isNotEmpty ?? false;
+    final trialAvailable =
+        firstBookTrial &&
+        libraryAsync.asData?.value.isEmpty == true &&
+        accountEligible;
+    final trialOffer = trialAvailable
+        ? (narrationSupported(capabilities.valueOrNull)
+              ? l.firstBookTrialOffer
+              : l.firstBookTrialIllustratedOffer)
+        : null;
 
     return AppShell(
       currentIndex: 0,
@@ -254,6 +320,48 @@ class HomeScreen extends ConsumerWidget {
               ),
             ),
 
+            if (activeJobs.isNotEmpty)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.lg,
+                  ),
+                  child: Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: TextButton.icon(
+                      key: const Key('home_resume_generation'),
+                      style: TextButton.styleFrom(
+                        minimumSize: const Size(64, AppSizing.minTouchTarget),
+                      ),
+                      onPressed: () {
+                        final jobs = ref.read(
+                          visibleActiveBookGenerationsProvider,
+                        );
+                        if (jobs.isEmpty ||
+                            ModalRoute.of(context)?.isCurrent == false) {
+                          return;
+                        }
+                        if (jobs.length == 1) {
+                          Navigator.pushNamed(
+                            context,
+                            '/loading',
+                            arguments: jobs.single.jobId,
+                          );
+                        } else {
+                          Navigator.pushNamed(context, '/library');
+                        }
+                      },
+                      icon: const Icon(Icons.auto_stories_outlined),
+                      label: Text(
+                        activeJobs.any((job) => job.isRechecking)
+                            ? l.loadingCheckStatusButton
+                            : l.libraryActiveGenerations(activeJobs.length),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
             // Saved stories are the first useful action for a returning reader.
             SliverToBoxAdapter(
               child: libraryAsync.when(
@@ -299,7 +407,11 @@ class HomeScreen extends ConsumerWidget {
                 padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
                 child: _CreateBookCard(
                   compact: hasBooks,
-                  onTap: () => Navigator.pushNamed(context, '/create'),
+                  trialOffer: trialOffer,
+                  onTap: () {
+                    ref.invalidate(generationOptionsProvider);
+                    Navigator.pushNamed(context, '/create');
+                  },
                 ),
               ),
             ),
@@ -348,8 +460,13 @@ class HomeScreen extends ConsumerWidget {
                 child: streakAsync.when(
                   data: (streak) => _StreakSummaryCard(
                     data: streak,
-                    onTapPrimary: () =>
-                        _onTodayPrimary(context, ref, streak, firstBookTrial),
+                    reviewBeforeCreating: reviewTodayStory,
+                    submittingTodayStory: submittingTodayStory,
+                    onTapPrimary: () => _onTodayPrimary(
+                      streak,
+                      firstBookTrial,
+                      reviewTodayStory,
+                    ),
                   ),
                   loading: () => const _StreakLoadingCard(),
                   error: (_, __) => _StreakErrorCard(
@@ -612,8 +729,13 @@ class _HomeBookCover extends StatelessWidget {
 class _CreateBookCard extends StatelessWidget {
   final VoidCallback onTap;
   final bool compact;
+  final String? trialOffer;
 
-  const _CreateBookCard({required this.onTap, this.compact = false});
+  const _CreateBookCard({
+    required this.onTap,
+    this.compact = false,
+    this.trialOffer,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -648,7 +770,7 @@ class _CreateBookCard extends StatelessWidget {
                     if (!compact) ...[
                       const SizedBox(height: AppSpacing.xs),
                       Text(
-                        l.homeCreateCardSubtitle,
+                        trialOffer ?? l.homeCreateCardSubtitle,
                         style: AppTextStyles.bodySmall.copyWith(
                           color: palette.textSecondary,
                         ),
@@ -669,9 +791,16 @@ class _CreateBookCard extends StatelessWidget {
 
 class _StreakSummaryCard extends StatelessWidget {
   final HomeStreakSnapshot data;
+  final bool reviewBeforeCreating;
+  final bool submittingTodayStory;
   final VoidCallback onTapPrimary;
 
-  const _StreakSummaryCard({required this.data, required this.onTapPrimary});
+  const _StreakSummaryCard({
+    required this.data,
+    required this.reviewBeforeCreating,
+    required this.submittingTodayStory,
+    required this.onTapPrimary,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -744,6 +873,8 @@ class _StreakSummaryCard extends StatelessWidget {
             ),
             topic: dailyTopicLabel(l, data.todayTopicId, data.todayTopic),
             hasTodayBook: data.todayBookId != null,
+            reviewBeforeCreating: reviewBeforeCreating,
+            isSubmitting: submittingTodayStory,
             onTap: onTapPrimary,
           ),
           const SizedBox(height: AppSpacing.md),
@@ -819,12 +950,16 @@ class _TodayStoryPanel extends StatelessWidget {
   final String themeName;
   final String topic;
   final bool hasTodayBook;
+  final bool reviewBeforeCreating;
+  final bool isSubmitting;
   final VoidCallback onTap;
 
   const _TodayStoryPanel({
     required this.themeName,
     required this.topic,
     required this.hasTodayBook,
+    required this.reviewBeforeCreating,
+    required this.isSubmitting,
     required this.onTap,
   });
 
@@ -850,10 +985,19 @@ class _TodayStoryPanel extends StatelessWidget {
           const SizedBox(height: AppSpacing.xs),
           Text(topic, style: AppTextStyles.body),
           const SizedBox(height: AppSpacing.sm),
-          PrimaryButton(
-            text: hasTodayBook ? l.homeContinueReading : l.homeMakeTodayStory,
-            onPressed: onTap,
-            isFullWidth: false,
+          Semantics(
+            liveRegion: isSubmitting,
+            label: isSubmitting ? l.loadingStepCheckingStatus : null,
+            child: PrimaryButton(
+              text: hasTodayBook
+                  ? l.homeContinueReading
+                  : reviewBeforeCreating
+                  ? l.homeReviewTodayStory
+                  : l.homeMakeTodayStory,
+              onPressed: onTap,
+              isLoading: isSubmitting,
+              isFullWidth: false,
+            ),
           ),
         ],
       ),

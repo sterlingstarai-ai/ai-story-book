@@ -17,9 +17,13 @@ SCRIPT_NAMES = (
     'backup_service_guard.py', 'postgres_backup_fence.py', 'publish_backup_gcs.py',
     'verify_backup_set.py', 'final_external_preflight.py',
     'narration_marker_exec_condition.py', 'narration_deploy_safety.py',
-    'provider_rotation_quarantine.py',
+    'provider_rotation_quarantine.py', 'check_backup_status.py', 'publish_backup_health.py',
 )
 UNIT_NAMES = ('asb-backup.service', 'asb-backup.timer', 'asb-backup-recover.service',
+              'asb-backup-recover.service.d/narration-guard.conf',
+              'asb-backup-recover.service.d/provider-order.conf',
+              'asb-backup-watch.service', 'asb-backup-watch.timer',
+              'asb-backup-signal.service', 'asb-backup-signal.timer',
               'asb-provider-rotation-quarantine.service')
 _HASH = re.compile(r'^[0-9a-f]{64}$')
 
@@ -31,7 +35,6 @@ class CandidateError(ValueError):
 def _files(root):
     names = [f'scripts/{name}' for name in SCRIPT_NAMES]
     names += [f'infra/gcp-pilot/{name}' for name in UNIT_NAMES]
-    names.append('infra/gcp-pilot/asb-backup-recover.service.d/narration-guard.conf')
     names.append('apps/api/requirements.txt')
     names.append('apps/api/scripts/activate_generation_budget.py')
     for directory in ('apps/api/src', 'apps/api/alembic'):

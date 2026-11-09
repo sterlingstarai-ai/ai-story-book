@@ -124,6 +124,10 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
     _didHandleRouteArgs = true;
     final args = ModalRoute.of(context)?.settings.arguments;
     if (args is Map) {
+      final topic = args['topic'];
+      if (topic is String) {
+        _topicController.text = topic.trim();
+      }
       // 신규: characterIds 배열 / 레거시: 단일 characterId — 둘 다 수용해 병합
       final ids = args['characterIds'];
       if (ids is List) {
@@ -192,10 +196,12 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
         ? null
         : optionsState.asData?.value;
     final selectedStyle = _styleFor(options);
-    if (selectedStyle == null) return;
+    if (selectedStyle == null || options?.generationAccessAllowed == false) {
+      return;
+    }
     final api = ref.read(apiClientProvider);
-    // Reserve the attempt before the first async call so repeated taps cannot
-    // race the credit lookup and create more than one book.
+    // Reserve the attempt before character validation so repeated taps cannot
+    // submit more than one book.
     setState(() => _isLoading = true);
 
     try {
@@ -239,22 +245,6 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
           ],
         );
       }
-      try {
-        final credits = await api.getCreditsBalance();
-        if (!mounted) return;
-        if (credits <= 0) {
-          ref
-              .read(analyticsProvider)
-              .logEvent(
-                AnalyticsEvents.paywallShown,
-                params: const {'reason': 'no_credits'},
-              );
-          await showCreditShortageModal(context, preferCreditPack: true);
-          return;
-        }
-      } catch (_) {
-        // The server still validates credits if the preliminary lookup fails.
-      }
       if (!mounted) return;
       final latestOptions = ref.read(generationOptionsProvider);
       if (!identical(api, ref.read(apiClientProvider)) ||
@@ -287,9 +277,12 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
             : null,
       );
 
+      // The server resolves an existing attempt before checking credits. A
+      // separate balance read could reject a retry after the original charge.
       final jobId = await ref
           .read(bookCreationProvider.notifier)
           .createBook(spec);
+      if (!mounted || !identical(api, ref.read(apiClientProvider))) return;
 
       ref
           .read(analyticsProvider)
@@ -302,11 +295,9 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
             },
           );
 
-      if (mounted) {
-        Navigator.pushReplacementNamed(context, '/loading', arguments: jobId);
-      }
+      Navigator.pushReplacementNamed(context, '/loading', arguments: jobId);
     } catch (e) {
-      if (mounted) {
+      if (mounted && identical(api, ref.read(apiClientProvider))) {
         final l = AppLocalizations.of(context);
         final apiError = _extractApiError(e);
         if (apiError != null && apiError.code == 'PAYMENT_REQUIRED') {
@@ -529,15 +520,24 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
             capabilities?['narration_style_selection_supported'] == true;
       }),
     );
-    ref.watch(
-      capabilitiesProvider.select(
-        (caps) => caps.valueOrNull?['free_first_book_trial'] == true,
-      ),
-    );
     final optionsAsync = ref.watch(generationOptionsProvider);
     final options = optionsAsync.isLoading || optionsAsync.hasError
         ? null
         : optionsAsync.asData?.value;
+    final firstBookTrial = options?.firstBookTrialAvailable == true;
+    final accessBlocked = options?.generationAccessAllowed == false;
+    final invitationRequired =
+        accessBlocked &&
+        ref.watch(
+          capabilitiesProvider.select(
+            (caps) =>
+                caps.valueOrNull?['generation_invitation_supported'] == true,
+          ),
+        );
+    final trialOffer =
+        narrationSupported(ref.watch(capabilitiesProvider).valueOrNull)
+        ? l.firstBookTrialOffer
+        : l.firstBookTrialIllustratedOffer;
     final allowedStyles = options?.allowedStyles ?? const <BookStyle>[];
     final selectedStyle = _styleFor(options);
     final agePreview = switch (_selectedAge) {
@@ -673,6 +673,17 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                             l.createAgePreviewCaption,
                             style: AppTextStyles.caption.copyWith(
                               color: AppPalette.of(context).textSecondary,
+                            ),
+                          ),
+                          const SizedBox(height: AppSpacing.sm),
+                          Center(
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(AppRadius.sm),
+                              child: Image.asset(
+                                'assets/images/reading-sample-kite.jpg',
+                                height: 160,
+                                semanticLabel: l.createAgePreviewIllustration,
+                              ),
                             ),
                           ),
                           const SizedBox(height: AppSpacing.sm),
@@ -1333,10 +1344,41 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
                     child: Text(l.createRequestPending),
                   ),
                 ),
+              if (firstBookTrial)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                  child: Text(
+                    '$trialOffer\n${l.createFirstBookDuration}',
+                    style: AppTextStyles.bodySmall,
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              if (accessBlocked)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                  child: Text(
+                    invitationRequired
+                        ? l.createGenerationInviteRequired
+                        : l.createGenerationPaused,
+                    style: AppTextStyles.bodySmall,
+                    textAlign: TextAlign.center,
+                  ),
+                ),
               PrimaryButton(
-                text: l.createMakeButton,
+                text: invitationRequired
+                    ? l.createOpenBetaInvitation
+                    : firstBookTrial
+                    ? l.createFreeFirstBookButton
+                    : l.createMakeButton,
                 isLoading: _isLoading,
-                onPressed: selectedStyle == null ? null : _createBook,
+                onPressed: invitationRequired
+                    ? () async {
+                        await Navigator.pushNamed(context, '/settings');
+                        if (mounted) ref.invalidate(generationOptionsProvider);
+                      }
+                    : selectedStyle == null || accessBlocked
+                    ? null
+                    : _createBook,
               ),
             ],
           ),

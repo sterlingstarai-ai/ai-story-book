@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../l10n/app_localizations.dart';
 import '../providers/providers.dart';
+import '../services/page_audio_playback.dart';
 import '../utils/constants.dart';
 
 class OnboardingScreen extends ConsumerStatefulWidget {
@@ -26,7 +27,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     Icons.card_giftcard,
   ];
 
-  List<_Slide> _slides(AppLocalizations l, {required bool firstBookTrial}) => [
+  List<_Slide> _slides(AppLocalizations l, {String? trialOffer}) => [
     (
       icon: _icons[0],
       title: l.onboardingSlide1Title,
@@ -45,9 +46,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     (
       icon: _icons[3],
       title: l.onboardingSlide4Title,
-      subtitle: firstBookTrial
-          ? l.onboardingFirstBookTrialSubtitle
-          : l.onboardingSlide4Subtitle,
+      subtitle: trialOffer ?? l.onboardingSlide4Subtitle,
     ),
   ];
 
@@ -73,10 +72,24 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
-    final firstBookTrial =
-        ref.watch(capabilitiesProvider).valueOrNull?['free_first_book_trial'] ==
-        true;
-    final slides = _slides(l, firstBookTrial: firstBookTrial);
+    final capabilities = ref.watch(capabilitiesProvider).valueOrNull;
+    final trialAvailable =
+        capabilities?['free_first_book_trial'] == true &&
+        ref.watch(
+          generationOptionsProvider.select(
+            (options) =>
+                !options.isLoading &&
+                options.asData?.value.firstBookTrialAvailable == true,
+          ),
+        );
+    final slides = _slides(
+      l,
+      trialOffer: trialAvailable
+          ? (narrationSupported(capabilities)
+                ? l.firstBookTrialOffer
+                : l.firstBookTrialIllustratedOffer)
+          : null,
+    );
     final isLast = _page == slides.length - 1;
 
     return Scaffold(

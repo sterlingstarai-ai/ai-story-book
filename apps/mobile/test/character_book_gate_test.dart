@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:ai_story_book/l10n/app_localizations.dart';
 import 'package:ai_story_book/main.dart' show buildAppRoute;
 import 'package:ai_story_book/models/models.dart';
@@ -19,12 +21,14 @@ class _Api extends ApiClient {
       : super(baseUrl: 'http://test', userKey: 'u', enableLogging: false);
   final List<Character> characters;
   int credits = 0, approvals = 0, reads = 0;
+  Completer<void>? characterGate;
   final specs = <BookSpec>[];
   @override
   Future<List<Character>> getCharacters() async => characters;
   @override
   Future<Character> getCharacter(String id) async {
     reads++;
+    await characterGate?.future;
     return characters.singleWhere((c) => c.id == id);
   }
 
@@ -125,7 +129,21 @@ void main() {
     expect(find.byType(CharacterAvatarPreviewScreen), findsNothing);
     expect(api.approvals, 0);
     expect(api.specs.single.characterIds, ['photo', 'manual']);
-    expect(api.credits, 1);
+    expect(api.credits, 0);
+  });
+  testWidgets('leaving during character validation does not submit a book',
+      (tester) async {
+    final api = _Api([_character('photo')])
+      ..characterGate = Completer<void>();
+    await _open(tester, api, ['photo']);
+    await _submit(tester);
+    expect(api.reads, 1);
+    expect(api.specs, isEmpty);
+    await tester.pumpWidget(const SizedBox());
+    api.characterGate!.complete();
+    await tester.pump();
+    expect(api.specs, isEmpty);
+    expect(tester.takeException(), isNull);
   });
   testWidgets(
       'two photo IDs injected through route cannot create or consume credits',

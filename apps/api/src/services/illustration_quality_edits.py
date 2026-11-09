@@ -20,8 +20,8 @@ from src.services.image_request_budget import image_request_budget
 from src.services.image_correction import image_correction_scope
 from src.services.illustration_policy import max_repair_pages
 from src.services.illustration_quality_pipeline import (
+    enqueue_discarded_images,
     quality_failure,
-    queue_discarded_images,
     seconds_remaining,
     verify_and_repair_illustrations,
 )
@@ -326,12 +326,13 @@ async def edit_verified_page(
                 reason="rejected_illustration",
                 keys=[key_from_public_url(url) for url in generated_urls if url not in retained],
             )
+            previous_url = snapshot.pages[page_number]["image_url"]
+            if previous_url != page.image_url:
+                # The reference query must see the new page URL even though
+                # the production session disables autoflush.
+                await db.flush()
+                await enqueue_discarded_images(db, snapshot.book["user_key"], [previous_url], retained)
             await db.commit()
-        await queue_discarded_images(
-            snapshot.book["user_key"],
-            [snapshot.pages[page_number]["image_url"]],
-            set(verified.image_urls.values()),
-        )
 
 
 async def publish_verified_retell(

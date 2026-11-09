@@ -93,6 +93,16 @@ async def test_openai_persists_b64_and_sends_explicit_gpt_image_quality(monkeypa
     monkeypatch.setattr(settings, "openai_image_quality", quality)
     raw_bytes = b"\x89PNG-fake-bytes"
     sent = {}
+    response = _FakeResp(200, {"data": [{"b64_json": base64.b64encode(raw_bytes).decode()}]})
+    json_calls = 0
+    decode = response.json
+
+    def decode_once():
+        nonlocal json_calls
+        json_calls += 1
+        return decode()
+
+    monkeypatch.setattr(response, "json", decode_once)
 
     class _Client:
         def __init__(self, *a, **k):
@@ -106,7 +116,7 @@ async def test_openai_persists_b64_and_sends_explicit_gpt_image_quality(monkeypa
 
         async def post(self, url, headers=None, json=None):
             sent["json"] = json
-            return _FakeResp(200, {"data": [{"b64_json": base64.b64encode(raw_bytes).decode()}]})
+            return response
 
     monkeypatch.setattr(image_mod.httpx, "AsyncClient", _Client)
 
@@ -129,6 +139,7 @@ async def test_openai_persists_b64_and_sends_explicit_gpt_image_quality(monkeypa
     # 결과가 S3 영속 URL(provider 임시 URL 아님) + 디코드된 바이트가 업로드됨
     assert url.startswith("https://s3.example.com/images/openai/")
     assert uploaded["data"] == raw_bytes
+    assert json_calls == 1
 
 
 @pytest.mark.asyncio

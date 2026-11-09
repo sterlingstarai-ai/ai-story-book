@@ -96,6 +96,8 @@ Real PostgreSQL/Celery/private-S3 rehearsal with disposable Docker dependencies:
 This uses deterministic AI providers and local images only. It proves runtime
 integration and media access control, including a synthetic portrait's preview,
 parental approval, twelve-page book generation and consent-withdrawal erasure.
+The queued-book check opens a fresh HTTP client before the worker starts and
+verifies that the same profile can rediscover the job and see the completed book.
 PostgreSQL also checks that photo publication and withdrawal serialize for one
 account without blocking another account. Live AI/store acceptance remains separate.
 
@@ -161,6 +163,8 @@ Production deploy is image-based. The repository is not the build artifact; tagg
 Key properties:
 - `infra/docker-compose.prod.yml` uses `image:` for `api` and `worker`
 - `scripts/deploy.sh` supports `--env-file`, `--compose-file`, `--image-tag`
+- Repeat `--compose-file` to add the optional private provider-key mount after the base file.
+- With `FREE_PLAN_FIRST_BOOK_TRIAL` enabled, `deploy` and `start` check the free beta configuration and bundled policy status before modifying services.
 - health validation requires exact HTTP 200 over the configured `PROD_API_URL` HTTPS origin, with certificate validation
 
 More detail: `docs/DEPLOYMENT.md`

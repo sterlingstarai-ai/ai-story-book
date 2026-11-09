@@ -11,6 +11,9 @@ class _FakeScalarResult:
     def scalar_one_or_none(self):
         return self._page
 
+    def one_or_none(self):
+        return self._page
+
 
 class _FakeDbSession:
     def __init__(self, pages):
@@ -23,11 +26,12 @@ class _FakeDbSession:
         pass
 
     async def scalar(self, _query):
-        return self._pages[self._index - 1]
+        row = self._pages[self._index - 1]
+        return row[-1] if isinstance(row, tuple) else row
 
     async def execute(self, _query):
         if getattr(_query, "is_update", False):
-            page = self._pages[self._index - 1]
+            page = await self.scalar(_query)
             for column, value in _query._values.items():
                 setattr(page, column.key, value.value)
             return SimpleNamespace(rowcount=1)
@@ -120,7 +124,7 @@ async def test_get_page_audio_rolls_back_when_commit_fails():
 
     book = SimpleNamespace(id="book-123", job_id="job-123", user_key="user-123", language="ko", target_age="5-7")
     page = SimpleNamespace(id="page-1", page_number=1, text="hello", text_ko=None, text_en=None, audio_url=None)
-    fake_db = _FakeDbSession([book, page])
+    fake_db = _FakeDbSession([(book, page)])
 
     synthesize_mock = AsyncMock(return_value=b"audio-1")
     upload_mock = AsyncMock(return_value="https://cdn.example.com/audio-1.mp3")
@@ -151,11 +155,12 @@ class _FakeDbSessionOK:
         pass
 
     async def scalar(self, _query):
-        return self._rows[self._index - 1]
+        row = self._rows[self._index - 1]
+        return row[-1] if isinstance(row, tuple) else row
 
     async def execute(self, _query):
         if getattr(_query, "is_update", False):
-            page = self._rows[self._index - 1]
+            page = await self.scalar(_query)
             for column, value in _query._values.items():
                 setattr(page, column.key, value.value)
             return SimpleNamespace(rowcount=1)
@@ -208,7 +213,7 @@ async def test_get_page_audio_ja_uses_base_slot_and_ja_voice():
     page = SimpleNamespace(
         id="p1", page_number=1, text="ねこ", text_ko=None, text_en=None, audio_url=None, audio_url_ko=None, audio_url_en=None
     )
-    fake_db = _FakeDbSessionOK([book, page])
+    fake_db = _FakeDbSessionOK([(book, page)])
 
     synth = AsyncMock(return_value=b"aud")
     upload = AsyncMock(return_value="https://cdn.example.com/ja1.mp3")
@@ -234,7 +239,7 @@ async def test_get_page_audio_rejects_unsupported_language():
 
     book = SimpleNamespace(id="b1", user_key="u1", language="ko", target_age="3-5")
     page = SimpleNamespace(id="p1", text="hi", audio_url=None)
-    fake_db = _FakeDbSessionOK([book, page])
+    fake_db = _FakeDbSessionOK([(book, page)])
 
     with pytest.raises(ValidationError):
         await get_page_audio(

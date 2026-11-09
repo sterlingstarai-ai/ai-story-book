@@ -9,6 +9,7 @@ import asyncio
 import base64
 from datetime import datetime, timezone
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -19,7 +20,16 @@ import sys
 import tempfile
 import time
 import uuid
+from unittest.mock import patch
+from urllib.parse import unquote
 
+import httpx
+
+from backup_external import _download_media, inventory
+from publish_backup_gcs import BackupPublishError, GCSBackupStore, publish_verified_backup
+from quarantined_backup_ingest import QuarantinedIngestError, iter_backup_stream
+from quarantined_backup_receiver import ReceiveError, receive
+from quarantined_restore_runtime import _restore_media
 from run_runtime_e2e import GateFailure, MINIO_TEST_IMAGE, clean_environment, port_for, require, run
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -304,17 +314,79 @@ def binary_command(command, env, *, source=None, destination=None):
     result = subprocess.run(command, env=env, stdin=source, stdout=destination or subprocess.PIPE,
         stderr=subprocess.PIPE, timeout=120)
     require(result.returncode == 0, "PostgreSQL archive step failed")
+    return result.stdout
 
 
-def copy_media(source, destination, folder):
-    manifest = object_inventory(source)
-    for index, (key, metadata) in enumerate(sorted(manifest.items())):
-        path = folder / str(index)
-        source.download_file(BUCKET, key, str(path))
-        require(sha256(path.read_bytes()) == metadata["sha256"], "Media backup checksum mismatch")
-        destination.upload_file(str(path), BUCKET, key, ExtraArgs={
-            "ContentType": metadata["content_type"], "Metadata": metadata["metadata"]})
-    return manifest
+def rehearse_remote_import(folder, sandbox, revision, *, journal_checkpoint=None):
+    run_id = uuid.uuid4().hex
+    prefix = f"backups/v1/{run_id}/"
+    records = {}
+    change_marker_on_download = False
+
+    def handle(request):
+        if request.method == "POST":
+            require(request.url.params["ifGenerationMatch"] == "0", "Backup upload must be create-only")
+            name = request.url.params["name"]
+            if name in records:
+                return httpx.Response(412)
+            records[name] = request.read()
+            return httpx.Response(200)
+        name = unquote(request.url.raw_path.decode().split("/o/", 1)[1].split("?", 1)[0])
+        if change_marker_on_download and name == prefix + "database.dump":
+            records[prefix + "verified.json"] += b" "
+        if name not in records:
+            return httpx.Response(404)
+        return httpx.Response(200, content=records[name])
+
+    manifest_path = folder / "manifest.json"
+    manifest_hash = sha256(manifest_path.read_bytes())
+    token = uuid.uuid4().hex
+    sandbox.mkdir()
+    with httpx.Client(transport=httpx.MockTransport(handle)) as client:
+        store = GCSBackupStore("synthetic-backup", lambda: "fixture-token", client)
+        publish_verified_backup(folder, run_id, store, journal_checkpoint=journal_checkpoint)
+        require(next(reversed(records)) == prefix + "verified.json", "Backup marker was not published last")
+
+        marker = records.pop(prefix + "verified.json")
+        try:
+            next(iter_backup_stream(store, run_id, manifest_hash, revision, 128 * 1024 * 1024))
+        except BackupPublishError:
+            pass
+        else:
+            raise GateFailure("Incomplete backup was eligible for ingestion")
+        records[prefix + "verified.json"] = marker
+        for changed in ("database.dump", "verified.json"):
+            name = prefix + changed
+            original = records[name]
+            change_marker_on_download = changed == "verified.json"
+            if not change_marker_on_download:
+                # A same-size corruption must fail the checksum, not just the length.
+                records[name] = bytes([original[0] ^ 1]) + original[1:]
+            with io.BytesIO() as stream, patch("quarantined_backup_receiver.ROOT", sandbox):
+                try:
+                    for chunk in iter_backup_stream(store, run_id, manifest_hash, revision, 128 * 1024 * 1024):
+                        stream.write(chunk)
+                except (BackupPublishError, QuarantinedIngestError):
+                    pass
+                else:
+                    raise GateFailure("Changed remote backup completed its stream")
+                stream.seek(0)
+                try:
+                    receive(stream, token)
+                except ReceiveError:
+                    require(not any(sandbox.iterdir()), "Failed backup stream left partial quarantine data")
+                else:
+                    raise GateFailure("Changed remote backup was received")
+            records[name] = original
+        change_marker_on_download = False
+        with io.BytesIO() as stream, patch("quarantined_backup_receiver.ROOT", sandbox):
+            for chunk in iter_backup_stream(store, run_id, manifest_hash, revision, 128 * 1024 * 1024):
+                stream.write(chunk)
+            stream.seek(0)
+            require(receive(stream, token) == {
+                "status": "BACKUP_IMPORTED_QUARANTINED", "restore_authorized": False
+            }, "Backup receiver did not complete in quarantine")
+    return sandbox / ("ingest-" + token)
 
 
 def main():
@@ -421,6 +493,7 @@ def main():
                 cwd=api, log=report_dir / 'synthetic-mirrored-privacy-routes.log')
             report['checks'].append('Synthetic privacy routes write matching journal records to two S3 stores and block on a witness outage')
             report['checks'].append('A GCS stand-in and S3 witness are checked before and after backup; a missing replica blocks publication and restores services')
+            report['checks'].append('Loss of a disposable S3 witness during remote manifest upload blocks the completion marker and restores services')
             for key, (data, content_type) in media.items():
                 source_s3.put_object(Bucket=BUCKET, Key=key, Body=data, ContentType=content_type,
                                      Metadata={"fixture": "synthetic-restore"})
@@ -429,23 +502,45 @@ def main():
             run([sys.executable, str(ROOT / 'scripts/run_source_privacy_fixture.py')], env=privacy_fixture_env,
                 cwd=api, log=report_dir / 'synthetic-prebackup-consent.log')
             source_snapshot = asyncio.run(database_snapshot(source_pg))
-            archive = workspace / "database.dump"
+            folder = workspace / "synthetic-backup"
+            folder.mkdir()
+            objects_dir = folder / "objects"
+            objects_dir.mkdir()
+            archive = folder / "database.dump"
             print("Backing up synthetic rows/media and restoring to the empty environment...", flush=True)
             backup_started = time.monotonic()
             with archive.open("wb") as destination:
                 binary_command(source_compose + ["exec", "-T", "postgres", "pg_dump", "-U", "runtime_test",
-                               "--format=custom", "--no-owner", "--no-privileges", "runtime_test"], env, destination=destination)
+                               "--format=custom", "--schema=public", "--no-owner", "--no-privileges",
+                               "runtime_test"], env, destination=destination)
+            revision = binary_command(source_compose + ["exec", "-T", "postgres", "psql", "-XAt",
+                "-U", "runtime_test", "-c", "SELECT version_num FROM public.alembic_version"], env).decode().strip()
+            media_before = inventory(source_s3, BUCKET)
+            objects = _download_media(source_s3, BUCKET, objects_dir, media_before, workers=2)
+            require(inventory(source_s3, BUCKET) == media_before, "Synthetic media changed during backup")
+            archive_info = {"bytes": archive.stat().st_size, "sha256": sha256(archive.read_bytes())}
+            (folder / "manifest.json").write_text(json.dumps({
+                "format_version": 1, "database_scope": "public", "alembic_revision": revision,
+                "requires_latest_deletion_and_identity_revocations": True,
+                "database": {"file": "database.dump", "size": archive_info["bytes"], "sha256": archive_info["sha256"]},
+                "objects": objects,
+            }))
+            ingested = rehearse_remote_import(folder, workspace / "synthetic-quarantine", revision)
+            report["checks"].append("The real backup publisher and quarantine receiver round-trip through a GCS stand-in; missing marker, corrupt payload and marker replacement leave no complete import")
+            archive = ingested / "database.dump"
             with archive.open("rb") as source:
                 binary_command(target_compose + ["exec", "-T", "postgres", "pg_restore", "--list"], env, source=source)
-            report["database_archive"] = {"bytes": archive.stat().st_size, "sha256": sha256(archive.read_bytes())}
+            report["database_archive"] = archive_info
             restore_started = time.monotonic()
+            binary_command(target_compose + ["exec", "-T", "postgres", "psql", "-X",
+                "--set", "ON_ERROR_STOP=1", "-U", "runtime_test", "-c", "DROP SCHEMA public CASCADE"], env)
             with archive.open("rb") as source:
                 binary_command(target_compose + ["exec", "-T", "postgres", "pg_restore", "-U", "runtime_test",
                                "--dbname=runtime_test", "--no-owner", "--no-privileges", "--exit-on-error", "--single-transaction"],
                                env, source=source)
-            folder = workspace / "media"
-            folder.mkdir()
-            manifest = copy_media(source_s3, target_s3, folder)
+            manifest = object_inventory(source_s3)
+            ingested_manifest = json.loads((ingested / "manifest.json").read_bytes())
+            _restore_media(target_s3, BUCKET, ingested, ingested_manifest["objects"])
             report["fixture_restore_seconds"] = round(time.monotonic() - restore_started, 3)
             report["fixture_backup_and_restore_seconds"] = round(time.monotonic() - backup_started, 3)
             restored_snapshot = asyncio.run(database_snapshot(target_pg))

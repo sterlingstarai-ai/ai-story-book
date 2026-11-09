@@ -307,11 +307,17 @@ void main() {
     'library long titles and filters remain usable at 320px and 1.4x',
     (tester) async {
       _smallScreen(tester);
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
       await tester.pumpWidget(
         _harness(
           const LibraryScreen(),
           brightness: Brightness.dark,
-          overrides: [libraryBrowseProvider.overrideWith(_Browse.new)],
+          overrides: [
+            sharedPreferencesProvider.overrideWithValue(prefs),
+            libraryBrowseProvider.overrideWith(_Browse.new),
+            activeBookGenerationsProvider.overrideWith((ref) async => []),
+          ],
         ),
       );
       await tester.pump();
@@ -339,12 +345,16 @@ void main() {
     'empty library keeps the first-book action reachable below filters',
     (tester) async {
       _smallScreen(tester);
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
       await tester.pumpWidget(
         _harness(
           const LibraryScreen(),
           brightness: Brightness.dark,
           overrides: [
+            sharedPreferencesProvider.overrideWithValue(prefs),
             libraryBrowseProvider.overrideWith(() => _Browse(empty: true)),
+            activeBookGenerationsProvider.overrideWith((ref) async => []),
           ],
         ),
       );

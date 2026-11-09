@@ -5,8 +5,13 @@ on 2026-09-06. Only the documented Astra/Sol aliases opt into Responses;
 unverified model names retain the existing Chat Completions request shape.
 """
 
+import asyncio
 import base64
 import binascii
+from collections.abc import Callable
+from contextlib import asynccontextmanager
+from contextvars import ContextVar
+from http.cookiejar import CookieJar, DefaultCookiePolicy
 
 import httpx
 import structlog
@@ -14,15 +19,54 @@ import structlog
 from src.core.errors import ErrorCode, LLMError
 from src.services.structured_output import provider_output_schema
 from src.services.provider_runtime import (
-    begin_provider_request, observe_invalid_provider_response, observe_json_output, observe_provider_response,
+    begin_provider_request, observe_invalid_provider_response, observe_json_output, read_provider_response,
 )
 
 logger = structlog.get_logger()
+_BOOK_CLIENT: ContextVar[Callable[[], httpx.AsyncClient] | None] = ContextVar("openai_book_client", default=None)
+
+
+@asynccontextmanager
+async def openai_book_connection_scope():
+    """Pool OpenAI JSON connections within one book, including parallel reviews."""
+    client = None
+    closed = False
+
+    def get_client():
+        nonlocal client
+        if closed:
+            raise LLMError(ErrorCode.UNKNOWN, "OpenAI book connection scope ended")
+        if client is None:
+            client = httpx.AsyncClient(
+                limits=httpx.Limits(max_connections=2, max_keepalive_connections=2, keepalive_expiry=60),
+                # Reuse the transport without carrying cookies between requests.
+                cookies=CookieJar(policy=DefaultCookiePolicy(allowed_domains=())),
+            )
+        return client
+
+    token = _BOOK_CLIENT.set(get_client)
+    try:
+        yield
+    finally:
+        closed = True
+        _BOOK_CLIENT.reset(token)
+        if client is not None:
+            await client.aclose()
+
+
+async def _post_openai(url, payload, api_key, timeout):
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    get_client = _BOOK_CLIENT.get()
+    if get_client is not None:
+        return await get_client().post(url, headers=headers, json=payload, timeout=timeout)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        return await client.post(url, headers=headers, json=payload)
 
 RESPONSES_MODELS = frozenset({"gpt-6-astra", "gpt-5.6-sol", "gpt-5.6"})
 MAX_RESPONSE_OUTPUT_TOKENS = 32_000
 _OUTPUT_FORMAT_NAMES = {
     "StoryDraft": "story_draft", "ImagePrompts": "image_prompts",
+    "_StoryLengthRepair": "story_length_repair",
     "CharacterSheet": "character_sheet",
     "BookIllustrationReview": "book_illustration_review",
     "AvatarIllustrationReview": "avatar_illustration_review",
@@ -33,6 +77,24 @@ MAX_REVIEW_TOTAL_IMAGE_BYTES = 32 * 1024 * 1024
 _REVIEW_IMAGE_PREFIXES = (
     "data:image/png;base64,", "data:image/jpeg;base64,", "data:image/webp;base64,",
 )
+_REVIEW_IMAGE_MIME_TYPES = {"image/png", "image/jpeg", "image/webp"}
+
+
+def _encode_review_images(images: list[tuple[bytes, str]], *, modern: bool) -> list[str]:
+    invalid = LLMError(ErrorCode.UNKNOWN, "Invalid OpenAI multi-image input")
+    if not modern or type(images) is not list or not 1 <= len(images) <= MAX_REVIEW_IMAGES:
+        raise invalid
+    total = 0
+    for item in images:
+        if type(item) is not tuple or len(item) != 2:
+            raise invalid
+        data, mime = item
+        if type(data) is not bytes or not isinstance(mime, str) or mime not in _REVIEW_IMAGE_MIME_TYPES:
+            raise invalid
+        total += len(data)
+        if not 0 < len(data) <= MAX_REVIEW_IMAGE_BYTES or total > MAX_REVIEW_TOTAL_IMAGE_BYTES:
+            raise invalid
+    return [f"data:{mime};base64," + base64.b64encode(data).decode("ascii") for data, mime in images]
 
 
 def _validate_review_images(image_urls: list[str], *, modern: bool) -> None:
@@ -97,15 +159,22 @@ def openai_request(
     system_prompt: str | None = None, temperature: float | None = None,
     image_url: str | None = None,
     image_urls: list[str] | None = None,
+    review_images: list[tuple[bytes, str]] | None = None,
     response_schema: dict | None = None,
 ) -> tuple[str, dict]:
     """Build either API shape without retaining prompts or image data."""
     modern = model in RESPONSES_MODELS
     content: str | list = user_prompt
-    if image_urls is not None:
+    if review_images is not None:
+        if image_urls is not None or image_url is not None:
+            raise LLMError(ErrorCode.UNKNOWN, "Conflicting OpenAI image inputs")
+        image_urls = _encode_review_images(review_images, modern=modern)
+    elif image_urls is not None:
         if image_url is not None:
             raise LLMError(ErrorCode.UNKNOWN, "Conflicting OpenAI image inputs")
         _validate_review_images(image_urls, modern=modern)
+
+    if image_urls is not None:
         content = [{"type": "input_text", "text": user_prompt}]
         for page_number, inline_image in enumerate(image_urls):
             content.extend([
@@ -211,32 +280,34 @@ async def request_openai_json(
     max_tokens: int, system_prompt: str | None = None,
     temperature: float | None = None, image_url: str | None = None,
     image_urls: list[str] | None = None,
+    review_images: list[tuple[bytes, str]] | None = None,
     response_schema: dict | None = None,
 ) -> str:
     """Single bounded HTTP attempt; retry policy belongs to the caller."""
     if not api_key:
         raise LLMError(ErrorCode.UNKNOWN, "OpenAI API 키가 설정되지 않았습니다.")
-    url, payload = openai_request(
-        model, user_prompt=user_prompt, system_prompt=system_prompt,
+    options = dict(
+        user_prompt=user_prompt, system_prompt=system_prompt,
         max_tokens=max_tokens, temperature=temperature, image_url=image_url,
-        image_urls=image_urls,
+        image_urls=image_urls, review_images=review_images,
         response_schema=response_schema,
     )
+    if review_images is not None:
+        # This bounded, CPU-only work never owns a transport. Cancelling it
+        # cannot start a provider request after the caller's deadline.
+        url, payload = await asyncio.to_thread(openai_request, model, **options)
+    else:
+        url, payload = openai_request(model, **options)
     attempt = begin_provider_request("openai", model, "llm", api_key)
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(
-                url,
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json=payload,
-            )
+        response = await _post_openai(url, payload, api_key, timeout)
     except (httpx.TimeoutException, TimeoutError):
         logger.warning("OpenAI request timed out")
         raise LLMError(ErrorCode.LLM_TIMEOUT, "OpenAI request timed out") from None
     except httpx.HTTPError:
         logger.warning("OpenAI transport failed")
         raise LLMError(ErrorCode.UNKNOWN, "OpenAI transport failed") from None
-    permanent_error = await observe_provider_response(attempt, response, defer_success=True)
+    data, permanent_error = await read_provider_response(attempt, response, defer_success=True)
     if permanent_error:
         raise LLMError(permanent_error, "AI 제공자 서비스를 현재 사용할 수 없습니다.")
     if response.status_code != 200:
@@ -244,13 +315,12 @@ async def request_openai_json(
         logger.warning("OpenAI request failed", status=status)
         code = ErrorCode.LLM_TIMEOUT if status in {408, 429, 500, 502, 503, 504} else ErrorCode.UNKNOWN
         raise LLMError(code, "OpenAI request failed")
-    try:
-        data = response.json()
-        text = openai_response_text(data, model=model)
-    except ValueError:
+    if data is None:
         await observe_invalid_provider_response(attempt)
         logger.warning("OpenAI response JSON invalid")
-        raise _invalid_response() from None
+        raise _invalid_response()
+    try:
+        text = openai_response_text(data, model=model)
     except LLMError:
         await observe_invalid_provider_response(attempt)
         raise

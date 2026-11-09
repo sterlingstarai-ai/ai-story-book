@@ -37,6 +37,14 @@ def _remaining(deadline):
     return min(value, 20)
 
 
+def _receive_worker_reply(pipe):
+    try:
+        return pipe.recv()
+    except EOFError:
+        # A dead worker makes the pipe readable without sending a result.
+        return None
+
+
 def _local_daemon(deadline):
     if os.environ.get('DOCKER_HOST') or os.environ.get('DOCKER_CONTEXT'):
         raise QuarantinedIngestError('Explicit Docker host or context is not allowed')
@@ -93,8 +101,65 @@ def _dispose_owned(identifier, image_id, token):
         return False
 
 
-def _frame(stream, value):
-    stream.write(json.dumps(value, sort_keys=True, separators=(',', ':')).encode() + b'\n')
+def _frame(value):
+    return (json.dumps(value, sort_keys=True, separators=(',', ':')) + '\n').encode()
+
+
+def iter_backup_stream(store, run_id, expected_manifest_hash, expected_revision, capacity):
+    """Yield verified backup frames; withhold the end frame if remote data changes."""
+    prefix = 'backups/v1/' + run_id + '/'
+    marker_before = store.read_small(prefix + 'verified.json', 4096)
+    manifest = store.read_small(prefix + 'manifest.json', MAX_MANIFEST)
+    digest = hashlib.sha256(manifest).hexdigest()
+    marker = json.loads(marker_before)
+    if (not hmac.compare_digest(digest, expected_manifest_hash) or not isinstance(marker, dict)
+            or type(marker.get('version')) is not int or marker['version'] != 1
+            or marker.get('restore_authorized') is not False or marker.get('manifest_sha256') != digest):
+        raise QuarantinedIngestError('Backup manifest identity differs')
+    parsed = json.loads(manifest)
+    if (not isinstance(parsed, dict) or type(parsed.get('format_version')) is not int
+            or parsed['format_version'] != 1 or parsed.get('database_scope') != 'public'
+            or parsed.get('requires_latest_deletion_and_identity_revocations') is not True
+            or parsed.get('alembic_revision') != expected_revision):
+        raise QuarantinedIngestError('Backup manifest is invalid')
+    objects = parsed.get('objects') if isinstance(parsed, dict) else None
+    if not isinstance(objects, list) or len(objects) > MAX_OBJECTS:
+        raise QuarantinedIngestError('Backup inventory is invalid')
+    descriptors = [parsed.get('database'), *objects]
+    total = len(manifest) + len(marker_before)
+    names = set()
+    for index, descriptor in enumerate(descriptors):
+        if not isinstance(descriptor, dict):
+            raise QuarantinedIngestError('Backup inventory is invalid')
+        if index == 0:
+            expected_name = 'database.dump'
+        else:
+            key = descriptor.get('key')
+            if not isinstance(key, str) or not key:
+                raise QuarantinedIngestError('Backup inventory is invalid')
+            expected_name = 'objects/' + hashlib.sha256(key.encode()).hexdigest()
+        size, value = descriptor.get('size'), descriptor.get('sha256')
+        if (descriptor.get('file') != expected_name or expected_name in names
+                or type(size) is not int or size < 0 or (index == 0 and size == 0)
+                or not isinstance(value, str) or not re.fullmatch('[0-9a-f]{64}', value)):
+            raise QuarantinedIngestError('Backup inventory is invalid')
+        names.add(expected_name)
+        total += descriptor['size']
+    if total > MAX_TOTAL or total + 32 * 1024 * 1024 > capacity:
+        raise QuarantinedIngestError('Backup exceeds isolated memory capacity')
+    yield _frame({'kind': 'manifest', 'size': len(manifest), 'sha256': digest})
+    yield manifest
+    yield _frame({'kind': 'verification', 'size': len(marker_before),
+                  'sha256': hashlib.sha256(marker_before).hexdigest()})
+    yield marker_before
+    for descriptor in descriptors:
+        name, size, expected = descriptor['file'], descriptor['size'], descriptor['sha256']
+        yield _frame({'kind': 'object', 'name': name, 'size': size, 'sha256': expected})
+        yield from store.iter_verified(prefix + name, expected_size=size, expected_hash=expected)
+    if (store.read_small(prefix + 'verified.json', 4096) != marker_before
+            or store.read_small(prefix + 'manifest.json', MAX_MANIFEST) != manifest):
+        raise QuarantinedIngestError('Remote backup changed during ingestion')
+    yield _frame({'kind': 'end'})
 
 
 def _worker(pipe, bucket, token_provider, run_id, expected_manifest_hash, expected_revision,
@@ -104,69 +169,20 @@ def _worker(pipe, bucket, token_provider, run_id, expected_manifest_hash, expect
     process = None
     try:
         store = GCSBackupStore(bucket, token_provider)
-        prefix = 'backups/v1/' + run_id + '/'
-        marker_before = store.read_small(prefix + 'verified.json', 4096)
-        manifest = store.read_small(prefix + 'manifest.json', MAX_MANIFEST)
-        digest = hashlib.sha256(manifest).hexdigest()
-        marker = json.loads(marker_before)
-        if (not hmac.compare_digest(digest, expected_manifest_hash) or not isinstance(marker, dict)
-                or type(marker.get('version')) is not int or marker['version'] != 1
-                or marker.get('restore_authorized') is not False or marker.get('manifest_sha256') != digest):
-            raise QuarantinedIngestError('Backup manifest identity differs')
-        parsed = json.loads(manifest)
-        if (not isinstance(parsed, dict) or type(parsed.get('format_version')) is not int
-                or parsed['format_version'] != 1 or parsed.get('database_scope') != 'public'
-                or parsed.get('requires_latest_deletion_and_identity_revocations') is not True
-                or parsed.get('alembic_revision') != expected_revision):
-            raise QuarantinedIngestError('Backup manifest is invalid')
-        objects = parsed.get('objects') if isinstance(parsed, dict) else None
-        if not isinstance(objects, list) or len(objects) > MAX_OBJECTS:
-            raise QuarantinedIngestError('Backup inventory is invalid')
-        descriptors = [parsed.get('database'), *objects]
-        total = len(manifest) + len(marker_before)
-        names = set()
-        for index, descriptor in enumerate(descriptors):
-            if not isinstance(descriptor, dict):
-                raise QuarantinedIngestError('Backup inventory is invalid')
-            if index == 0:
-                expected_name = 'database.dump'
-            else:
-                key = descriptor.get('key')
-                if not isinstance(key, str) or not key:
-                    raise QuarantinedIngestError('Backup inventory is invalid')
-                expected_name = 'objects/' + hashlib.sha256(key.encode()).hexdigest()
-            size, value = descriptor.get('size'), descriptor.get('sha256')
-            if (descriptor.get('file') != expected_name or expected_name in names
-                    or type(size) is not int or size < 0 or (index == 0 and size == 0)
-                    or not isinstance(value, str) or not re.fullmatch('[0-9a-f]{64}', value)):
-                raise QuarantinedIngestError('Backup inventory is invalid')
-            names.add(expected_name)
-            total += descriptor['size']
-        if total > MAX_TOTAL or total + 32 * 1024 * 1024 > capacity:
-            raise QuarantinedIngestError('Backup exceeds isolated memory capacity')
+        stream = iter_backup_stream(store, run_id, expected_manifest_hash, expected_revision, capacity)
+        header = next(stream)
         process = subprocess.Popen(['docker', 'exec', '-i', '-u', '65534:65534', identifier,
                                     '/opt/venv/bin/python', '/offline/scripts/quarantined_backup_receiver.py', token],
                                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        _frame(process.stdin, {'kind': 'manifest', 'size': len(manifest), 'sha256': digest})
-        process.stdin.write(manifest)
-        _frame(process.stdin, {'kind': 'verification', 'size': len(marker_before),
-                               'sha256': hashlib.sha256(marker_before).hexdigest()})
-        process.stdin.write(marker_before)
-        for descriptor in descriptors:
-            name, size, expected = descriptor['file'], descriptor['size'], descriptor['sha256']
-            _frame(process.stdin, {'kind': 'object', 'name': name, 'size': size, 'sha256': expected})
-            for chunk in store.iter_verified(prefix + name, expected_size=size, expected_hash=expected):
-                process.stdin.write(chunk)
-        _frame(process.stdin, {'kind': 'end'})
+        process.stdin.write(header)
+        for chunk in stream:
+            process.stdin.write(chunk)
         process.stdin.close()
         process.stdin = None
         stdout, _ = process.communicate(timeout=30)
         if (process.returncode != 0 or json.loads(stdout) !=
                 {'status': 'BACKUP_IMPORTED_QUARANTINED', 'restore_authorized': False}):
             raise QuarantinedIngestError('Quarantine receiver did not complete')
-        if (store.read_small(prefix + 'verified.json', 4096) != marker_before
-                or store.read_small(prefix + 'manifest.json', MAX_MANIFEST) != manifest):
-            raise QuarantinedIngestError('Remote backup changed during ingestion')
         pipe.send(True)
     except BaseException:
         try:
@@ -232,7 +248,8 @@ def _ingest_locked(store, run_id, expected_manifest_sha256, expected_revision,
                   expected_revision, container_id, token, capacity))
         process.start()
         child.close()
-        worker_ok = parent.poll(max(0, deadline - time.monotonic())) and parent.recv() is True
+        worker_ok = (parent.poll(max(0, deadline - time.monotonic()))
+                     and _receive_worker_reply(parent) is True)
         if worker_ok:
             process.join(max(0, min(10, deadline - time.monotonic())))
             if process.is_alive() or process.exitcode != 0:

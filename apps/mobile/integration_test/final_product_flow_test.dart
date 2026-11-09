@@ -4,6 +4,7 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,6 +16,7 @@ import 'package:uuid/uuid.dart';
 
 import 'package:ai_story_book/l10n/app_localizations.dart';
 import 'package:ai_story_book/main.dart' show buildAppRoute;
+import 'package:ai_story_book/models/models.dart';
 import 'package:ai_story_book/providers/providers.dart';
 import 'package:ai_story_book/screens/screens.dart';
 import 'package:ai_story_book/services/api_client.dart';
@@ -26,8 +28,9 @@ import 'package:ai_story_book/widgets/common_widgets.dart';
 import 'package:ai_story_book/widgets/content_report_sheet.dart';
 
 class _IsolatedUser extends UserService {
-  _IsolatedUser(super.preferences);
-  final key = const Uuid().v4();
+  _IsolatedUser(super.preferences, {String? trialOwner})
+    : key = trialOwner ?? const Uuid().v4();
+  final String key;
   @override
   String getUserKey() => key;
 }
@@ -57,23 +60,64 @@ class _NoStoreReview extends ReviewService {
   Future<void> requestReviewIfEligible(SharedPreferences prefs) async {}
 }
 
+class _LocalJourneyApi extends ApiClient {
+  _LocalJourneyApi({
+    required super.baseUrl,
+    required super.userKey,
+    required super.profileId,
+    required this.holdCompletion,
+  }) : super(enableLogging: false);
+
+  final bool Function() holdCompletion;
+
+  @override
+  Future<JobStatus> getBookStatus(
+    String jobId, {
+    CancelToken? cancelToken,
+  }) async {
+    final status = await super.getBookStatus(jobId, cancelToken: cancelToken);
+    // The mock worker may finish before the first frame. Release its real
+    // result only once the waiting flow has moved to the library.
+    if (status.isComplete && holdCompletion()) {
+      return JobStatus(jobId: jobId, status: JobState.running, progress: 90);
+    }
+    return status;
+  }
+}
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   const baseUrl = String.fromEnvironment('FINAL_E2E_LOCAL_API');
+  const trialOwner = String.fromEnvironment('FINAL_E2E_TRIAL_OWNER');
+  const firstBookTrial = trialOwner != '';
   testWidgets(
     'full local HTTP journey: consent, profile, twelve pages, report, library and settings',
     (tester) async {
       final semantics = tester.ensureSemantics();
       try {
+        final endpoint = Uri.parse(baseUrl);
         expect(
-          Uri.parse(baseUrl).host,
-          anyOf('127.0.0.1', 'localhost', '10.0.2.2'),
+          endpoint.scheme == 'http' &&
+              endpoint.userInfo.isEmpty &&
+              const {
+                '127.0.0.1',
+                'localhost',
+                '10.0.2.2',
+              }.contains(endpoint.host),
+          isTrue,
           reason:
               'This test creates and deletes a synthetic account; remote hosts are refused.',
         );
+        if (firstBookTrial) {
+          expect(Uuid.isValidUUID(fromString: trialOwner), isTrue);
+        }
         SharedPreferences.setMockInitialValues({});
         final prefs = await SharedPreferences.getInstance();
-        final user = _IsolatedUser(prefs);
+        var holdCompletion = firstBookTrial;
+        final user = _IsolatedUser(
+          prefs,
+          trialOwner: firstBookTrial ? trialOwner : null,
+        );
         final container = ProviderContainer(
           overrides: [
             sharedPreferencesProvider.overrideWithValue(prefs),
@@ -81,11 +125,11 @@ void main() {
             apiBaseUrlProvider.overrideWithValue(baseUrl),
             apiClientProvider.overrideWith((ref) {
               final service = ref.watch(userServiceProvider);
-              final api = ApiClient(
+              final api = _LocalJourneyApi(
                 baseUrl: baseUrl,
                 userKey: service.getUserKey(),
                 profileId: service.getActiveProfileId(),
-                enableLogging: false,
+                holdCompletion: () => holdCompletion,
               );
               ref.onDispose(api.close);
               return api;
@@ -125,6 +169,11 @@ void main() {
         final caps = await cleanup.getCapabilities();
         expect(caps['audio_supported'], false);
         expect(caps['pod_ordering_supported'], false);
+        if (firstBookTrial) {
+          expect(caps['free_first_book_trial'], true);
+          expect(caps['generation_invitation_supported'], true);
+          expect(caps['purchases_supported'], false);
+        }
         await tester.pumpWidget(
           UncontrolledProviderScope(
             container: container,
@@ -258,23 +307,30 @@ void main() {
         await tap(find.text(l.settingsChildProfile));
         await until(find.byType(ProfilesScreen));
         await tap(find.byTooltip(l.profilesAddTooltip));
-        await tester.enterText(find.byType(TextField), '시우');
+        const readerName = '가람';
+        await tester.enterText(find.byType(TextField), readerName);
         FocusManager.instance.primaryFocus?.unfocus();
         await tester.pumpAndSettle();
         await tap(find.text(l.profilesAgeBand57));
         await until(find.text(l.profilesAgeBand79));
         await tap(find.text(l.profilesAgeBand79).last);
         await tap(find.widgetWithText(TextButton, l.profilesAddAction));
-        await until(find.text('시우'));
+        await until(find.text(readerName));
         await shot('04-profile');
         final profiles = await cleanup.getProfiles();
-        expect((profiles['profiles'] as List).single['name'], '시우');
+        final profile = (profiles['profiles'] as List).single;
+        expect(profile['name'], readerName);
+        expect(profile['age_band'], '7-9');
         await tap(find.byType(BackButton));
         await tap(find.byType(BackButton));
         await until(find.byType(HomeScreen));
         await tap(find.byKey(const Key('home_create_book')));
         await until(find.byType(CreateScreen));
-        await tap(find.text(l.libraryAge7to9));
+        if (firstBookTrial) {
+          await until(find.textContaining(l.createFirstBookDuration));
+          expect(await cleanup.getCreditsBalance(), 1);
+          expect((await cleanup.getAccountMediaScope()).length, 64);
+        }
         await tester.enterText(
           find.byType(TextFormField).first,
           '친구와 함께 작은 정원에 꽃을 피우는 이야기',
@@ -291,28 +347,61 @@ void main() {
           scrollable: find.byType(Scrollable).first,
         );
         await tester.ensureVisible(protagonist);
-        await tester.enterText(protagonist, '시우');
+        await tester.enterText(protagonist, readerName);
         FocusManager.instance.primaryFocus?.unfocus();
         await tester.pump(const Duration(milliseconds: 300));
 
         await shot('05-create');
         await tap(find.byType(PrimaryButton));
+        if (firstBookTrial) {
+          await until(find.byType(LoadingScreen));
+          await until(find.text(l.loadingInProgressHint), seconds: 90);
+          expect(find.text(l.loadingTitle), findsOneWidget);
+        }
         await shot('06-generation');
+        if (firstBookTrial) {
+          await tap(find.text(l.loadingBrowseLibrary));
+          await until(find.byType(LibraryScreen));
+          final browse = container.read(libraryBrowseProvider.notifier);
+          await browse.setTargetAgeFilter('3-5');
+          final openFinishedBook = find.text(l.libraryOpenCompletedStory);
+          expect(openFinishedBook, findsNothing);
+          holdCompletion = false;
+          await until(openFinishedBook, seconds: 90);
+          expect(
+            container.read(libraryBrowseProvider).valueOrNull?.targetAge,
+            '3-5',
+          );
+          await shot('06b-finished-in-filtered-library');
+          await tap(openFinishedBook);
+        }
         await until(find.byType(ViewerScreen), seconds: 90);
         await until(find.byType(PageView));
         final scoped = container.read(apiClientProvider);
         final library = await scoped.getLibrary();
         expect(library.books.length, 1);
+        if (firstBookTrial) {
+          expect(library.books.single.targetAge, '7-9');
+          expect(await cleanup.getCreditsBalance(), 0);
+        }
         final book = await scoped.getBook(library.books.single.id);
         expect(book.pages.length, 12);
         await loadedImage(l.viewerCoverImageSemantics(book.title));
         await shot('07-cover');
         for (var page = 1; page <= 3; page++) {
-          await tap(find.bySemanticsLabel(l.viewerNextPageTooltip));
+          await tap(find.byTooltip(l.viewerNextPageTooltip));
+          if (firstBookTrial || page == 3) {
+            await loadedImage(l.viewerPageImageSemantics(page));
+          }
         }
-        await loadedImage(l.viewerPageImageSemantics(3));
         await shot('08-reader');
-        await tap(find.byTooltip(l.viewerCloseTooltip));
+        await tap(find.byTooltip(l.viewerMoreOptionsTooltip));
+        await tap(find.text(l.viewerCloseTooltip));
+        if (firstBookTrial) {
+          await until(find.byType(LibraryScreen));
+          await container.read(libraryBrowseProvider.notifier).clearFilters();
+          await tap(find.bySemanticsLabel(l.navShellHome));
+        }
         await until(find.byType(HomeScreen));
         await tap(find.bySemanticsLabel(l.navShellLibrary));
         await until(find.text(book.title));
@@ -337,9 +426,25 @@ void main() {
         await shot('10-report-received');
         await tap(find.text(l.reportContentClose));
         for (var page = 4; page <= 12; page++) {
-          await tap(find.bySemanticsLabel(l.viewerNextPageTooltip));
+          await tap(find.byTooltip(l.viewerNextPageTooltip));
+          if (firstBookTrial) {
+            await loadedImage(l.viewerPageImageSemantics(page));
+          }
         }
         expect(find.text(l.viewerCompletionTitle), findsNothing);
+        if (firstBookTrial) {
+          await tap(find.byTooltip(l.viewerMoreOptionsTooltip));
+          await tap(find.text(l.viewerCloseTooltip));
+          await until(find.byType(LibraryScreen));
+          await tap(find.text(book.title));
+          await loadedImage(l.viewerPageImageSemantics(12));
+          final controller = tester
+              .widget<PageView>(find.byType(PageView))
+              .controller;
+          expect(controller?.page?.round(), 12);
+          expect(find.text(l.viewerCompletionTitle), findsNothing);
+          await shot('10b-resumed-last-page');
+        }
         await tap(find.byKey(const Key('viewer-finish-reading')));
         await until(find.text(l.viewerCompletionTitle));
         await shot('11-complete');

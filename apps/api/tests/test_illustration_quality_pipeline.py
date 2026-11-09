@@ -3,6 +3,7 @@
 import asyncio
 from datetime import datetime
 from datetime import timedelta
+from io import BytesIO
 import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -109,6 +110,128 @@ async def test_all_pages_pass_without_extra_generation(monkeypatch, review_bytes
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("fresh_prompts", [True, False])
+async def test_action_repair_only_reuses_focus_for_the_original_story(
+    monkeypatch, review_bytes, fresh_prompts,
+):
+    from src.services.image_correction import provider_prompt_with_correction
+
+    inputs = _inputs()
+    action = "Dari, the green-shirted squirrel, picks up the napkin while Haru watches."
+    narrative = "다리가 냅킨을 주웠어요." if fresh_prompts else "이번에는 하루가 냅킨을 주웠어요."
+    inputs["page_texts"][3] = narrative
+    original = inputs["image_prompts"][3].model_copy(update={
+        "positive_prompt": f"ACTION FOCUS: {action}\nVisible cast: 2. Wide forest view.",
+        "guidance_notes": "CAST LOOKS: Dari = squirrel, green shirt; Haru = white rabbit",
+    })
+    inputs["image_prompts"][3] = original
+    reviewer = AsyncMock(side_effect=[_review(failures={3: ["action_mismatch"]}), _review()])
+    monkeypatch.setattr(image_quality, "review_book_illustrations", reviewer)
+
+    async def repair(page, prompt, _urls):
+        assert page == 3
+        wire = provider_prompt_with_correction(prompt, use_cast_looks=True).positive_prompt
+        assert wire.startswith(f"CURRENT PAGE NARRATIVE: {narrative}\n")
+        assert (action in wire) is fresh_prompts
+        assert "Wide forest view" not in wire
+        assert original.guidance_notes in wire
+        if fresh_prompts:
+            assert f"ACTION FOCUS (only if supported by the current narrative): {action}" in wire
+        return canonical_media_url("jobs/q/new-3.png")
+
+    flags = {"use_prompt_action_focus": True} if fresh_prompts else {}
+    result = await pipeline.verify_and_repair_illustrations(**inputs, regenerate=repair, **flags)
+    assert result.image_prompts[3].positive_prompt == original.positive_prompt
+    assert reviewer.await_count == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cover_flagged", [True, False])
+async def test_action_repair_keeps_the_supporting_cast_details_without_the_old_staging(
+    monkeypatch, review_bytes, cover_flagged,
+):
+    from src.services.image_correction import provider_prompt_with_correction
+
+    inputs = _inputs()
+    details = "Haru = white rabbit, red scarf; Keeper = adult gray badger, navy cap, orange jacket"
+    wrong_staging = "Both characters hold the same green litter tongs."
+    brief = "ACTION FOCUS: Haru picks up the can with tongs while Keeper watches."
+    inputs["image_prompts"][3] = inputs["image_prompts"][3].model_copy(update={
+        "positive_prompt": f"{brief}\nCAST DETAILS: {details}\n{wrong_staging}",
+        "guidance_notes": "CAST LOOKS: Haru = white rabbit; Keeper = gray badger",
+    })
+    failures = {3: ["action_mismatch"]}
+    if cover_flagged:
+        failures[0] = ["readable_text"]
+    reviewer = AsyncMock(side_effect=[_review(failures=failures), _review()])
+    monkeypatch.setattr(image_quality, "review_book_illustrations", reviewer)
+
+    async def repair(page, prompt, urls):
+        if page == 3:
+            wire = provider_prompt_with_correction(prompt, use_cast_looks=0 in urls).positive_prompt
+            assert f"CAST DETAILS (fixed appearance of current cast only): {details}" in wire
+            assert wrong_staging not in wire
+            assert len(wire) <= 3000
+        return canonical_media_url(f"jobs/q/new-{page}.png")
+
+    result = await pipeline.verify_and_repair_illustrations(**inputs, regenerate=repair, use_prompt_action_focus=True)
+    assert 3 in result.repaired_pages
+    assert result.image_prompts[3].positive_prompt == inputs["image_prompts"][3].positive_prompt
+
+
+@pytest.mark.asyncio
+async def test_full_recheck_reads_current_bytes_using_one_storage_client_per_round(monkeypatch):
+    from src.services import storage
+
+    clients = []
+    images = {f"jobs/q/page-{page}.png": b"\x89PNG\r\n\x1a\n" + bytes([page]) for page in range(13)}
+
+    class ReadClient:
+        def __init__(self):
+            self.keys = []
+            self.bodies = []
+            self.closed = False
+
+        def get_object(self, *, Bucket, Key):
+            assert not self.closed
+            self.keys.append(Key)
+            body = BytesIO(images[Key])
+            self.bodies.append(body)
+            return {"Body": body}
+
+        def close(self):
+            assert all(body.closed for body in self.bodies)
+            self.closed = True
+
+    def make_client():
+        client = ReadClient()
+        clients.append(client)
+        return client
+
+    async def repair(page, _prompt, _urls):
+        assert page == 3
+        # Simulate a changed sibling in storage. The final review has to see
+        # its current bytes in addition to the explicitly repaired page.
+        images["jobs/q/page-4.png"] = b"\x89PNG\r\n\x1a\nchanged sibling"
+        images["jobs/q/new-3.png"] = b"\x89PNG\r\n\x1a\nrepaired"
+        return canonical_media_url("jobs/q/new-3.png")
+
+    monkeypatch.setattr(storage, "get_s3_client", make_client)
+    reviewer = AsyncMock(side_effect=[_review(13, {3: ["action_mismatch"]}), _review(13)])
+    monkeypatch.setattr(image_quality, "review_book_illustrations", reviewer)
+
+    result = await pipeline.verify_and_repair_illustrations(**_inputs(13), regenerate=repair)
+    assert result.repaired_pages == [3]
+    assert len(clients) == 2
+    assert all(client.closed and len(client.keys) == 13 for client in clients)
+    assert "jobs/q/page-3.png" in clients[0].keys
+    assert "jobs/q/page-3.png" not in clients[1].keys
+    first, final = [call.kwargs["images"] for call in reviewer.await_args_list]
+    assert first[4][0] != final[4][0] == images["jobs/q/page-4.png"]
+    assert final[3][0] == images["jobs/q/new-3.png"]
+
+
+@pytest.mark.asyncio
 async def test_only_bad_pages_repaired_once_and_entire_book_rechecked(monkeypatch, review_bytes):
     from src.services import image
     reviewer = AsyncMock(
@@ -116,16 +239,21 @@ async def test_only_bad_pages_repaired_once_and_entire_book_rechecked(monkeypatc
     )
     monkeypatch.setattr(image_quality, "review_book_illustrations", reviewer)
     calls = []
+    completed = []
 
     async def generate(page, prompt, current):
         from src.services.image_correction import provider_prompt_with_correction
 
+        if page != 0:
+            assert completed == [0]
         calls.append((page, provider_prompt_with_correction(prompt), current, image._book_reference_url.get()))
+        await asyncio.sleep(0)
+        completed.append(page)
         return canonical_media_url(f"jobs/q/repaired-{page}.png")
 
     original = _inputs()
     with image.image_book_reference_scope("https://other-book.invalid/cover.png"):
-        result = await pipeline.verify_and_repair_illustrations(**original, regenerate=generate)
+        result = await pipeline.verify_and_repair_illustrations(**original, regenerate=generate, repair_concurrency=4)
         assert image._book_reference_url.get() == "https://other-book.invalid/cover.png"
     assert [call[0] for call in calls] == [0, 3]
     # Repairing the flagged cover first is not evidence it is now correct.
@@ -143,15 +271,21 @@ async def test_only_bad_pages_repaired_once_and_entire_book_rechecked(monkeypatc
 @pytest.mark.asyncio
 async def test_page_repairs_use_only_the_current_cover_that_passed_full_review(monkeypatch, review_bytes):
     from src.services import image
-    from src.services.image_correction import correction_scene_reference
+    from src.services.image_correction import correction_scene_reference, provider_prompt_with_correction
 
     original = _inputs()
     reviewer = AsyncMock(side_effect=[_review(failures={1: ["action_mismatch"], 3: ["readable_text"]}), _review()])
     monkeypatch.setattr(image_quality, "review_book_illustrations", reviewer)
     seen = []
 
-    async def generate(page, _prompt, current):
+    async def generate(page, prompt, current):
         await asyncio.sleep(0)
+        repair_text = provider_prompt_with_correction(prompt).positive_prompt
+        if page == 1:
+            assert f'Next page: {original["page_texts"][2]}' in repair_text
+            assert "Previous page:" not in repair_text  # Cover title is not adjacent prose.
+        else:
+            assert "NEIGHBORING PAGES" not in repair_text
         seen.append((page, image._book_reference_url.get(), correction_scene_reference(), current.get(0)))
         return canonical_media_url(f"jobs/q/repaired-{page}.png")
 
@@ -163,6 +297,102 @@ async def test_page_repairs_use_only_the_current_cover_that_passed_full_review(m
     assert result.repaired_pages == [1, 3]
     assert reviewer.await_count == 2
     assert image._book_reference_url.get() is None
+
+
+@pytest.mark.asyncio
+async def test_new_book_repairs_at_most_two_at_once_and_reviews_all_pages(monkeypatch, review_bytes):
+    from src.services.image_request_budget import consume_image_request, image_request_budget
+
+    inputs = _inputs(13)
+    failed_pages = [1, 4, 8]
+    reviewer = AsyncMock(side_effect=[_review(13, dict.fromkeys(failed_pages, ["readable_text"])), _review(13)])
+    monkeypatch.setattr(image_quality, "review_book_illustrations", reviewer)
+    pair_started = asyncio.Event()
+    third_started = asyncio.Event()
+    active = set()
+    finished = set()
+
+    async def repair(page, _prompt, current):
+        consume_image_request()
+        assert current[0] == inputs["image_urls"][0]
+        assert current[page] == inputs["image_urls"][page]
+        active.add(page)
+        assert len(active) <= 2
+        try:
+            if page == failed_pages[-1]:
+                assert finished == {failed_pages[0]}
+                assert failed_pages[1] in active
+                third_started.set()
+            else:
+                if len(active) == 2:
+                    pair_started.set()
+                await pair_started.wait()
+                if page == failed_pages[1]:
+                    await third_started.wait()
+            finished.add(page)
+            return canonical_media_url(f"jobs/q/parallel-repaired-{page}.png")
+        finally:
+            active.remove(page)
+
+    with image_request_budget(16, inputs["deadline"]) as budget:
+        for _ in range(13):
+            consume_image_request()
+        result = await asyncio.wait_for(pipeline.verify_and_repair_illustrations(
+            **inputs, regenerate=repair, repair_concurrency=4,
+        ), timeout=2)
+
+    assert result.repaired_pages == failed_pages and budget.used == 16
+    assert not active and reviewer.await_count == 2
+    assert list(reviewer.call_args.kwargs["images"]) == list(range(13))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("slots", [1, 2])
+async def test_repair_deadline_accounts_for_parallel_slots(monkeypatch, review_bytes, slots):
+    inputs = _inputs(13)
+    inputs["deadline"] = time.monotonic() + 100
+    reviewer = AsyncMock(side_effect=[_review(13, {1: ["readable_text"], 4: ["readable_text"]}), _review(13)])
+    monkeypatch.setattr(image_quality, "review_book_illustrations", reviewer)
+    repair = AsyncMock(side_effect=lambda page, *_: canonical_media_url(f"jobs/q/repair-{page}.png"))
+    if slots == 1:
+        with pytest.raises(StoryBookError):
+            await pipeline.verify_and_repair_illustrations(**inputs, regenerate=repair, repair_concurrency=slots)
+        repair.assert_not_awaited()
+        assert reviewer.await_count == 1
+    else:
+        result = await pipeline.verify_and_repair_illustrations(**inputs, regenerate=repair, repair_concurrency=slots)
+        assert result.repaired_pages == [1, 4]
+        assert repair.await_count == reviewer.await_count == 2
+        assert list(reviewer.call_args.kwargs["images"]) == list(range(13))
+
+
+@pytest.mark.asyncio
+async def test_failed_parallel_repair_cancels_sibling_without_another_batch(monkeypatch, review_bytes):
+    failures = {page: ["readable_text"] for page in (1, 2, 3)}
+    reviewer = AsyncMock(return_value=_review(13, failures))
+    monkeypatch.setattr(image_quality, "review_book_illustrations", reviewer)
+    sibling_started = asyncio.Event()
+    sibling_stopped = asyncio.Event()
+    attempted = []
+
+    async def repair(page, _prompt, _current):
+        attempted.append(page)
+        if page == 1:
+            await sibling_started.wait()
+            raise StoryBookError(ErrorCode.AI_PROVIDER_UNAVAILABLE, "inert failure")
+        sibling_started.set()
+        try:
+            await asyncio.Future()
+        finally:
+            sibling_stopped.set()
+
+    with pytest.raises(StoryBookError) as raised:
+        await asyncio.wait_for(pipeline.verify_and_repair_illustrations(
+            **_inputs(13), regenerate=repair, repair_concurrency=2,
+        ), timeout=2)
+    assert raised.value.code == ErrorCode.AI_PROVIDER_UNAVAILABLE
+    assert attempted == [1, 2] and sibling_stopped.is_set()
+    assert reviewer.await_count == 1
 
 
 @pytest.mark.asyncio
@@ -404,11 +634,105 @@ async def test_external_url_not_fetched_or_reviewed(monkeypatch, review_bytes):
     review = AsyncMock()
     monkeypatch.setattr(image_quality, "review_book_illustrations", review)
     inputs = _inputs()
-    inputs["image_urls"][0] = "http://127.0.0.1/private-photo.png"
+    inputs["image_urls"][4] = "http://127.0.0.1/private-photo.png"
     with pytest.raises(StoryBookError):
         await pipeline.verify_and_repair_illustrations(**inputs, regenerate=AsyncMock())
     review.assert_not_awaited()
     review_bytes.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_review_downloads_overlap_and_preserve_page_order(monkeypatch):
+    inputs = _inputs()
+    reached_limit = asyncio.Event()
+    release = asyncio.Event()
+    active = peak = 0
+
+    async def download(key, *, max_bytes):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        if active == pipeline.REVIEW_DOWNLOAD_CONCURRENCY:
+            reached_limit.set()
+        try:
+            await release.wait()
+            return b"\x89PNG\r\n\x1a\n" + key.encode(), "unused"
+        finally:
+            active -= 1
+
+    monkeypatch.setattr(pipeline, "get_object_bytes", download)
+    reviewer = AsyncMock(return_value=_review())
+    monkeypatch.setattr(image_quality, "review_book_illustrations", reviewer)
+    task = asyncio.create_task(
+        pipeline.verify_and_repair_illustrations(**inputs, regenerate=AsyncMock())
+    )
+    try:
+        await asyncio.wait_for(reached_limit.wait(), timeout=2)
+    finally:
+        release.set()
+        await task
+    images = reviewer.call_args.kwargs["images"]
+    assert peak == pipeline.REVIEW_DOWNLOAD_CONCURRENCY
+    assert active == 0
+    assert list(images) == list(range(5))
+    assert all(data.endswith(f"page-{page}.png".encode()) for page, (data, _) in images.items())
+
+
+@pytest.mark.asyncio
+async def test_review_downloads_stop_before_reviewer_when_aggregate_bytes_exceed_limit(monkeypatch):
+    monkeypatch.setattr(pipeline, "MAX_REVIEW_IMAGE_BYTES", 20)
+    monkeypatch.setattr(pipeline, "MAX_REVIEW_TOTAL_IMAGE_BYTES", 34)
+    downloads = []
+    all_slots_started = asyncio.Event()
+
+    async def download(key, *, max_bytes):
+        downloads.append(max_bytes)
+        if len(downloads) == pipeline.REVIEW_DOWNLOAD_CONCURRENCY:
+            all_slots_started.set()
+        await asyncio.wait_for(all_slots_started.wait(), timeout=2)
+        return b"\x89PNG\r\n\x1a\n" + b"x" * 9, "image/png"
+
+    monkeypatch.setattr(pipeline, "get_object_bytes", download)
+    reviewer = AsyncMock(return_value=_review())
+    monkeypatch.setattr(image_quality, "review_book_illustrations", reviewer)
+    with pytest.raises(StoryBookError) as exc:
+        await pipeline.verify_and_repair_illustrations(**_inputs(), regenerate=AsyncMock())
+    assert exc.value.code == ErrorCode.IMAGE_QUALITY_FAILED
+    first_wave = pipeline.REVIEW_DOWNLOAD_CONCURRENCY
+    assert downloads[:first_wave] == [20] * first_wave
+    # One queued read can start as a slot frees, but it gets only the
+    # remaining budget. The last image never needs to be fetched.
+    assert downloads[first_wave:] in ([], [17])
+    reviewer.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_failed_review_download_cancels_pending_reads(monkeypatch):
+    active = set()
+    reached_limit = asyncio.Event()
+
+    async def download(key, *, max_bytes):
+        active.add(key)
+        if len(active) == pipeline.REVIEW_DOWNLOAD_CONCURRENCY:
+            reached_limit.set()
+        try:
+            if key.endswith("page-0.png"):
+                await reached_limit.wait()
+                raise OSError("inert storage failure")
+            await asyncio.Future()
+        finally:
+            active.remove(key)
+
+    monkeypatch.setattr(pipeline, "get_object_bytes", download)
+    reviewer = AsyncMock()
+    monkeypatch.setattr(image_quality, "review_book_illustrations", reviewer)
+    with pytest.raises(StoryBookError):
+        await asyncio.wait_for(
+            pipeline.verify_and_repair_illustrations(**_inputs(), regenerate=AsyncMock()),
+            timeout=2,
+        )
+    assert not active
+    reviewer.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -590,6 +914,8 @@ async def test_new_book_quality_failure_refunds_once_and_never_publishes(
     async def reject(**kwargs):
         return _review(len(kwargs["images"]), {1: ["uncertain"]})
 
+    learning = AsyncMock()
+    monkeypatch.setattr(orchestrator, "generate_learning_assets", learning)
     monkeypatch.setattr(image_quality, "review_book_illustrations", reject)
     assert (
         await orchestrator.start_book_generation("new-job", BookSpec(**valid_book_spec), "owner")
@@ -600,6 +926,7 @@ async def test_new_book_quality_failure_refunds_once_and_never_publishes(
     assert job.status == "failed" and job.error_code == "IMAGE_QUALITY_FAILED"
     assert await db_session.scalar(select(func.count(Book.id))) == 0
     assert await db_session.scalar(select(UserCredits.credits)) == starting_credits
+    learning.assert_not_awaited()
     repeated = await tasks._run_book_task_async("new-job", valid_book_spec, "owner")
     assert repeated["status"] == "skipped"
 
@@ -636,13 +963,24 @@ async def test_review_mime_comes_from_original_bytes_not_filename_or_metadata(mo
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("cleanup", ["normal", "enqueue_failed", "retained_alias", "referenced_cover"])
 async def test_manual_edit_publishes_page_and_operation_atomically(
-    db_session, monkeypatch, review_bytes
+    db_session, monkeypatch, review_bytes, cleanup
 ):
-    from src.services.illustration_quality_edits import edit_verified_page
-    from src.services import image
+    from src.services import image, illustration_quality_edits as edits
 
     await _seed_book(db_session)
+    old_key = "jobs/source/p1.png"
+    old_url = canonical_media_url(old_key)
+    if cleanup == "retained_alias":
+        sibling = await db_session.scalar(select(Page).where(Page.book_id == "source", Page.page_number == 2))
+        sibling.image_url = f"{old_url}?signed=fixture"
+    if cleanup == "referenced_cover":
+        # Exercise the DB lookup without relying on the current book's retained URLs.
+        db_session.add(Job(id="cover-job", user_key="owner", status="done"))
+        await db_session.flush()
+        db_session.add(Book(id="cover-book", job_id="cover-job", user_key="owner", title="공유 표지",
+                            language="ko", target_age="5-7", style="watercolor", cover_image_url=old_url))
     db_session.add(Job(id="edit-job", user_key="owner", status="running"))
     await db_session.commit()
     generated = canonical_media_url("books/source/edits/new.png")
@@ -650,27 +988,30 @@ async def test_manual_edit_publishes_page_and_operation_atomically(
     monkeypatch.setattr(
         image_quality, "review_book_illustrations", AsyncMock(return_value=_review())
     )
-    await edit_verified_page(
+    if cleanup == "enqueue_failed":
+        monkeypatch.setattr(edits, "enqueue_discarded_images", AsyncMock(side_effect=RuntimeError("queue failed")))
+    edit = edits.edit_verified_page(
         job_id="source-job",
         book_id="source",
         page_number=1,
         mode="image",
         operation_job_id="edit-job",
     )
+    if cleanup == "enqueue_failed":
+        with pytest.raises(RuntimeError, match="queue failed"):
+            await edit
+    else:
+        await edit
     db_session.expire_all()
     page = await db_session.scalar(
         select(Page).where(Page.book_id == "source", Page.page_number == 1)
     )
-    assert page.image_url == generated
-    assert (await db_session.get(Job, "edit-job")).status == "done"
-    guards = list(
-        (
-            await db_session.scalars(
-                select(StoragePurgeTask).where(StoragePurgeTask.kind == "prefix")
-            )
-        ).all()
-    )
-    assert guards[0].status == "cancelled"
+    failed = cleanup == "enqueue_failed"
+    assert page.image_url == (old_url if failed else generated)
+    assert (await db_session.get(Job, "edit-job")).status == ("running" if failed else "done")
+    tasks = (await db_session.scalars(select(StoragePurgeTask))).all()
+    assert [task.status for task in tasks if task.kind == "prefix"] == ["pending" if failed else "cancelled"]
+    assert [task.target for task in tasks if task.kind == "keys"] == ([old_key] if cleanup == "normal" else [])
 
 
 @pytest.mark.asyncio
@@ -773,8 +1114,9 @@ async def test_verified_retell_copies_images_only_after_pass(db_session, monkeyp
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("learning_outcome", ["available", "timeout", "deadline"])
 async def test_new_book_all_passes_is_published_after_review(
-    db_session, monkeypatch, valid_book_spec
+    db_session, monkeypatch, valid_book_spec, learning_outcome,
 ):
     from src.models.dto import BookSpec
     from src.services import orchestrator
@@ -787,9 +1129,16 @@ async def test_new_book_all_passes_is_published_after_review(
     async def approve(**kwargs):
         calls.append(kwargs)
         assert await db_session.scalar(select(func.count(Book.id))) == 0
+        if learning_outcome == "deadline":
+            monkeypatch.setattr(orchestrator, "time", SimpleNamespace(
+                monotonic=lambda: time.monotonic() + settings.job_sla_seconds,
+            ))
         return _review(len(kwargs["images"]))
 
     monkeypatch.setattr(image_quality, "review_book_illustrations", approve)
+    if learning_outcome != "available":
+        learning = AsyncMock(side_effect=asyncio.TimeoutError)
+        monkeypatch.setattr(orchestrator, "generate_learning_assets", learning)
     result = await orchestrator.start_book_generation(
         "new-job", BookSpec(**valid_book_spec), "owner"
     )
@@ -797,6 +1146,75 @@ async def test_new_book_all_passes_is_published_after_review(
     db_session.expire_all()
     assert (await db_session.get(Job, "new-job")).status == "done"
     assert await db_session.get(Book, result.book_id) is not None
+    if learning_outcome == "timeout":
+        learning.assert_awaited_once()
+        assert result.learning_assets is None
+    elif learning_outcome == "deadline":
+        learning.assert_not_awaited()
+        assert result.learning_assets is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("publish", [True, False])
+async def test_learning_assets_overlap_bounded_repairs_without_publishing_before_review(
+    db_session, monkeypatch, valid_book_spec, publish,
+):
+    from src.models.dto import BookSpec, LearningAssets
+    from src.services import orchestrator
+
+    monkeypatch.setattr(settings, "illustration_quality_enabled", True)
+    db_session.add(Job(id="new-job", status="queued", user_key="owner"))
+    await db_session.commit()
+    learning_started = asyncio.Event()
+    learning_stopped = asyncio.Event()
+    review_finished = asyncio.Event()
+    review_calls = 0
+    learning_calls = 0
+
+    async def learning(story):
+        nonlocal learning_calls
+        learning_calls += 1
+        learning_started.set()
+        try:
+            await review_finished.wait()
+            return LearningAssets(
+                source_language="ko",
+                target_language="en",
+                title_translation="A story",
+                pages=[{"page": page.page, "translated_text": "A translation."} for page in story.pages],
+                parent_guide={"summary": "Read together.", "discussion_prompts": [], "activities": []},
+            )
+        finally:
+            learning_stopped.set()
+
+    async def review(**kwargs):
+        nonlocal review_calls
+        review_calls += 1
+        pages = len(kwargs["images"])
+        if review_calls == 1:
+            assert not learning_started.is_set()
+            return _review(pages, {1: ["action_mismatch"]})
+        await asyncio.wait_for(learning_started.wait(), timeout=2)
+        assert await db_session.scalar(select(func.count(Book.id))) == 0
+        if not publish:
+            return _review(pages, {1: ["uncertain"]})
+        review_finished.set()
+        return _review(pages)
+
+    monkeypatch.setattr(orchestrator, "generate_learning_assets", learning)
+    monkeypatch.setattr(image_quality, "review_book_illustrations", review)
+    result = await orchestrator.start_book_generation("new-job", BookSpec(**valid_book_spec), "owner")
+    assert review_calls == 2 and learning_calls == 1 and learning_stopped.is_set()
+    db_session.expire_all()
+    job = await db_session.get(Job, "new-job")
+    if publish:
+        assert job.status == "done"
+        assert result.learning_assets.title_translation == "A story"
+        assert await db_session.get(Book, result.book_id) is not None
+    else:
+        assert result is None
+        assert job.status == "failed" and job.error_code == "IMAGE_QUALITY_FAILED"
+        assert await db_session.scalar(select(func.count(Book.id))) == 0
 
 
 @pytest.mark.asyncio
@@ -809,6 +1227,7 @@ async def test_twelve_page_book_uses_last_repair_for_one_remaining_defect(monkey
     ])
     monkeypatch.setattr(image_quality, "review_book_illustrations", reviewer)
     calls = []
+    progress = AsyncMock()
     async def repair(page, prompt, current):
         assert correction_scene_reference() is None
         consume_image_request()
@@ -818,10 +1237,19 @@ async def test_twelve_page_book_uses_last_repair_for_one_remaining_defect(monkey
     with image_request_budget(16, inputs["deadline"]) as budget:
         for _ in range(13):
             consume_image_request()
-        result = await pipeline.verify_and_repair_illustrations(**inputs, regenerate=repair)
+        result = await pipeline.verify_and_repair_illustrations(
+            **inputs, regenerate=repair, on_progress=progress,
+        )
         assert budget.used == 16
     assert calls == [2, 3, 3]
     assert reviewer.await_count == 3
+    assert [call.args for call in progress.await_args_list] == [
+        ("verify_illustrations", 86),
+        ("repair_illustrations", 87),
+        ("verify_illustrations", 90),
+        ("repair_illustrations", 91),
+        ("verify_illustrations", 92),
+    ]
     assert result.repaired_pages == [2, 3]
     assert len(result.discarded_urls) == 3
 

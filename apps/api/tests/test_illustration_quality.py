@@ -5,6 +5,7 @@ import base64
 from copy import deepcopy
 from io import BytesIO
 import json
+from threading import Event
 from types import SimpleNamespace
 
 import httpx
@@ -232,6 +233,10 @@ async def test_reader_threshold_preserves_material_findings_and_does_not_bypass_
     assert "an omitted\nearlier check or conversation is not evidence that it never happened" in instruction
     assert "text explicitly places the current moment\n  BEFORE required permission/safety checking" in instruction
     assert "only decoration is not a cast member changing species" in instruction
+    assert "additional garment that leaves the defining features and core outfit visible is acceptable" in instruction
+    assert "a different division of incidental chores is" in instruction
+    assert "identity determines the cause, lesson, safety or meaning" in instruction
+    assert "the result of a measurement central to the story" in instruction
     assert "visible indication of a material defect" in instruction
     assert "Do not pass an image that cannot actually be inspected" in instruction
     context = json.loads(body["input"][-1]["content"][0]["text"])
@@ -416,6 +421,52 @@ async def test_cancellation_propagates_without_fallback_review(monkeypatch, revi
     assert cancelled.is_set()
 
 
+@pytest.mark.asyncio
+async def test_cancelled_review_preparation_cannot_start_provider_request(monkeypatch, review_settings):
+    loop = asyncio.get_running_loop()
+    entered = asyncio.Event()
+    release = Event()
+    prepare = openai_contract.openai_request
+
+    def wait_in_preparation(*args, **kwargs):
+        loop.call_soon_threadsafe(entered.set)
+        assert release.wait(timeout=2)
+        return prepare(*args, **kwargs)
+
+    monkeypatch.setattr(openai_contract, "openai_request", wait_in_preparation)
+    requests = mock_response(monkeypatch, review_payload())
+    task = asyncio.create_task(image_quality.review_book_illustrations(**inputs()))
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=2)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert requests == []
+    finally:
+        release.set()
+
+
+def test_raw_review_input_matches_the_inline_wire_payload():
+    raw = [(png_bytes(), "image/png")] * 5
+    inline = [f"data:{mime};base64," + base64.b64encode(data).decode() for data, mime in raw]
+    args = {"user_prompt": "한글", "max_tokens": 2048}
+    legacy_url, legacy_payload = openai_contract.openai_request("gpt-5.6-sol", image_urls=inline, **args)
+    new_url, new_payload = openai_contract.openai_request("gpt-5.6-sol", review_images=raw, **args)
+    assert new_url == legacy_url
+    assert httpx.Request("POST", new_url, json=new_payload).content == httpx.Request("POST", legacy_url, json=legacy_payload).content
+
+
+@pytest.mark.parametrize("raw", [[], [(b"", "image/png")], [(b"payload", "text/html")],
+                                  [(b"x" * (8 * 1024 * 1024), "image/png")] * 5])
+def test_raw_review_input_is_bounded_before_encoding(monkeypatch, raw):
+    def unexpected_encoding(*_):
+        pytest.fail("invalid review input reached encoding")
+
+    monkeypatch.setattr(base64, "b64encode", unexpected_encoding)
+    with pytest.raises(LLMError):
+        openai_contract.openai_request("gpt-5.6-sol", user_prompt="JSON", max_tokens=2048, review_images=raw)
+
+
 @pytest.mark.parametrize("defect", ["conflict", "remote_url", "invalid_base64", "legacy", "too_many", "empty"])
 def test_multi_image_adapter_cannot_bypass_inline_boundary(defect):
     inline = "data:image/png;base64," + base64.b64encode(png_bytes()).decode()
@@ -445,4 +496,6 @@ def test_review_prompt_is_narrow_and_treats_printed_instructions_as_untrusted():
     assert "Simple symbols" in prompt and "NOT readable text" in prompt
     assert "A page can illustrate one legitimate" in prompt
     assert "Text takes precedence" in prompt
+    assert "a nearby or pointing hand alone does not show intervention" in prompt
+    assert "a mature plant contradicts a newly emerging shoot" in prompt
     assert "not a general aesthetic, story-quality, or face-recognition assessment" in prompt

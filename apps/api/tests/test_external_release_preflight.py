@@ -1,6 +1,7 @@
 """Release preflight cannot confuse configured keys with live launch acceptance."""
 
 import importlib.util
+from datetime import date
 import json
 import os
 from pathlib import Path
@@ -19,7 +20,7 @@ def configured():
     return {
         "LLM_PROVIDER": "openai", "LLM_API_KEY": "synthetic-openai-key", "LLM_MODEL": "gpt-5.6-sol",
         "ILLUSTRATION_QUALITY_ENABLED": "true",
-        "IMAGE_PROVIDER": "gemini", "IMAGE_API_KEY": "synthetic-gemini-key", "IMAGE_MODEL": "gemini-selected-image",
+        "IMAGE_PROVIDER": "openai", "IMAGE_API_KEY": "synthetic-openai-image-key", "IMAGE_MODEL": "gpt-image-2",
         "S3_ENDPOINT": "https://storage.invalid", "S3_ACCESS_KEY": "synthetic-access",
         "S3_SECRET_KEY": "synthetic-storage-secret", "S3_BUCKET": "storybook",
         "S3_PUBLIC_URL": "https://storage.invalid/storybook", "ADMIN_API_KEY": "a" * 40,
@@ -80,6 +81,7 @@ def test_enabled_purchases_require_both_stores_without_relaxing_receipts(configu
     ({"ILLUSTRATION_QUALITY_ENABLED": "false"}, "ILLUSTRATION_QUALITY_ENABLED (required for release)"),
     ({"LLM_MODEL": "gpt-unverified"}, "ILLUSTRATION_QUALITY_MODEL"),
     ({"DAILY_GENERATION_BUDGET": "0"}, "DAILY_GENERATION_BUDGET"),
+    ({"IMAGE_MAX_CONCURRENT": "0"}, "IMAGE_MAX_CONCURRENT (at least one image slot required)"),
     ({"OPENAI_IMAGE_QUALITY": "hd"}, "OPENAI_IMAGE_QUALITY"),
     ({"PROD_API_URL": "http://localhost:8000"}, "PROD_API_URL"),
     ({"PURCHASES_ENABLED": "definitely"}, "PURCHASES_ENABLED"),
@@ -99,20 +101,65 @@ def test_enabled_optional_integrations_are_checked(configured):
 
 
 @pytest.fixture
-def gemini_free_beta(configured):
+def realtime_free_beta(configured):
     return {**configured, "AUDIO_FEATURE_ENABLED": "true", "AUDIO_NARRATION_ONLY_ENABLED": "true",
             "PROD_API_URL": "https://api.storybook-beta.net",
-            "TTS_PROVIDER": "google_gemini", "GOOGLE_GEMINI_TTS_PROJECT": "storybook-test",
-            "GOOGLE_GEMINI_TTS_DAILY_REQUEST_LIMIT": "12", "GOOGLE_GEMINI_TTS_MONTHLY_REQUEST_LIMIT": "12",
+            "TTS_PROVIDER": "openai_realtime", "OPENAI_TTS_API_KEY": "synthetic-openai-tts-key",
             "GENERATION_ACCESS_MODE": "invite_only", "GENERATION_ALLOWED_USER_HASHES": "a" * 64,
             "FREE_PLAN_FIRST_BOOK_TRIAL": "true",
             "DAILY_GENERATION_BUDGET": "14"}
 
 
-def test_free_beta_accepts_narration_only_without_stt(gemini_free_beta):
-    assert preflight.assess(gemini_free_beta, free_beta=True)["status"] == "CONFIGURED_NOT_VERIFIED"
-    full_audio = {**gemini_free_beta, "AUDIO_NARRATION_ONLY_ENABLED": "false"}
+def test_free_beta_accepts_narration_only_without_stt(realtime_free_beta):
+    result = preflight.assess(realtime_free_beta, free_beta=True)
+    assert result["status"] == "CONFIGURED_NOT_VERIFIED"
+    assert not result["launch_ready"]
+    assert any("project-level ZDR" in gate for gate in result["required_external_evidence"])
+    full_audio = {**realtime_free_beta, "AUDIO_NARRATION_ONLY_ENABLED": "false"}
     assert "STT_PROVIDER" in preflight.assess(full_audio, free_beta=True)["missing_or_placeholder"]
+
+
+def test_free_beta_realtime_requires_dedicated_tts_key(realtime_free_beta):
+    result = preflight.assess({**realtime_free_beta, "OPENAI_TTS_API_KEY": ""}, free_beta=True)
+    assert result["status"] == "BLOCKED"
+    assert "OPENAI_TTS_API_KEY" in result["missing_or_placeholder"]
+
+
+def test_realtime_release_accepts_private_key_file_instead_of_raw_key(realtime_free_beta):
+    values = {**realtime_free_beta, 'OPENAI_TTS_API_KEY': '',
+              'OPENAI_TTS_API_KEY_FILE': '/run/asb-provider-keys/openai.key'}
+    assert preflight.assess(values, free_beta=True)['status'] == 'CONFIGURED_NOT_VERIFIED'
+    conflict = preflight.assess({**values, 'OPENAI_TTS_API_KEY': 'synthetic-hidden-key'}, free_beta=True)
+    assert conflict['status'] == 'BLOCKED'
+    assert 'OPENAI_TTS_API_KEY (key and file are mutually exclusive)' in conflict['invalid_configuration']
+    assert 'synthetic-hidden-key' not in json.dumps(conflict)
+    invalid = preflight.assess({**values, 'OPENAI_TTS_API_KEY_FILE': '../openai.key'}, free_beta=True)
+    assert invalid['status'] == 'BLOCKED'
+    assert any(error.startswith('OPENAI_TTS_API_KEY_FILE ') for error in invalid['invalid_configuration'])
+
+
+@pytest.mark.parametrize("model", ["dall-e-3", "gpt-image-unverified"])
+def test_free_beta_rejects_openai_image_models_without_documented_zdr_support(realtime_free_beta, model):
+    result = preflight.assess({**realtime_free_beta, "IMAGE_MODEL": model}, free_beta=True)
+    assert result["status"] == "BLOCKED"
+    assert any(error.startswith("IMAGE_MODEL (OpenAI image model") for error in result["invalid_configuration"])
+
+
+def test_project_zdr_evidence_includes_text_and_images_with_audio_and_photos_disabled(configured):
+    result = preflight.assess(configured)
+    assert result["status"] == "CONFIGURED_NOT_VERIFIED"
+    assert not result["features"]["audio"] and not result["features"]["photo_processing"]
+    assert any("project-level ZDR" in gate and "story, illustrations, review" in gate
+               for gate in result["required_external_evidence"])
+
+
+@pytest.mark.parametrize("field,provider", [
+    ("TTS_PROVIDER", "google_gemini"), ("IMAGE_PROVIDER", "gemini"), ("LLM_PROVIDER", "gemini"),
+])
+def test_child_facing_release_blocks_google_generative_ai(realtime_free_beta, field, provider):
+    result = preflight.assess({**realtime_free_beta, field: provider})
+    assert result["status"] == "BLOCKED"
+    assert field in result["invalid_configuration"]
 
 
 @pytest.mark.parametrize("field,value", [
@@ -120,22 +167,23 @@ def test_free_beta_accepts_narration_only_without_stt(gemini_free_beta):
     ("DAILY_JOB_LIMIT_PER_USER", "0"),
     ("MAX_PENDING_JOBS_PER_USER", "0"),
     ("MAX_PENDING_JOBS", "0"),
-    ("GOOGLE_GEMINI_TTS_DAILY_REQUEST_LIMIT", "11"),
-    ("GOOGLE_GEMINI_TTS_MONTHLY_REQUEST_LIMIT", "11"),
     ("GENERATION_ACCESS_MODE", "open"),
     ("FREE_PLAN_FIRST_BOOK_TRIAL", "false"),
     ("PURCHASES_ENABLED", "true"),
     ("TTS_PROVIDER", "openai"),
+    ("TTS_PROVIDER", "google_gemini"),
+    ("AUDIO_FEATURE_ENABLED", "false"),
 ])
-def test_free_beta_requires_complete_book_capacity_and_invited_access(gemini_free_beta, field, value):
-    result = preflight.assess({**gemini_free_beta, field: value}, free_beta=True)
+def test_free_beta_requires_complete_book_capacity_and_invited_access(realtime_free_beta, field, value):
+    result = preflight.assess({**realtime_free_beta, field: value}, free_beta=True)
     assert result["status"] == "BLOCKED"
-    assert any(item.startswith(field + " (") for item in result["invalid_configuration"])
+    gate = "TTS_PROVIDER" if field == "AUDIO_FEATURE_ENABLED" else field
+    assert any(item.startswith(gate + " (") for item in result["invalid_configuration"])
 
 
-def test_free_beta_accepts_one_slot_at_each_book_guardrail(gemini_free_beta):
+def test_free_beta_accepts_one_slot_at_each_book_guardrail(realtime_free_beta):
     result = preflight.assess({
-        **gemini_free_beta,
+        **realtime_free_beta,
         "DAILY_JOB_LIMIT_PER_USER": "1",
         "MAX_PENDING_JOBS_PER_USER": "1",
         "MAX_PENDING_JOBS": "1",
@@ -148,8 +196,8 @@ def test_free_beta_accepts_one_slot_at_each_book_guardrail(gemini_free_beta):
     ("PROD_API_URL", "https://api.storybook-beta.net/health"),
     ("PRIVACY_POLICY_URL", "https://storybook.pages.dev/privacy?draft=1"),
 ])
-def test_free_beta_checks_mobile_url_constraints(gemini_free_beta, field, value):
-    result = preflight.assess({**gemini_free_beta, field: value}, free_beta=True)
+def test_free_beta_checks_mobile_url_constraints(realtime_free_beta, field, value):
+    result = preflight.assess({**realtime_free_beta, field: value}, free_beta=True)
     assert result["status"] == "BLOCKED"
     assert any(item.startswith(field + " ") for item in result["invalid_configuration"])
 
@@ -297,22 +345,35 @@ def test_explicit_openai_image_quality_is_valid_configuration(configured, qualit
 @pytest.mark.parametrize("change", [
     {"publication_status": "review"}, {"effective_date": None},
     {"effective_date": "2026-99-99"}, {"operator": ""},
-    {"contact_email": ""}, {"sections": []},
+    {"contact_email": ""}, {"sections": []}, {"title": " "},
+    {"sections": [{"heading": "Fixture", "paragraphs": [" "]}]},
+    {"sections": [{"heading": "Fixture", "paragraphs": "Not an array"}]},
+    {"version_label": "v1"},
+    {"version_label": "시행일 2026-09-06"},
+    {"version_label": "버전 2026-09-07 · 시행일 2026-09-06"},
+    {"version_label": "2026-09-07 검토본 · 시행일은 공개 시 확정"},
+    {"introduction": "현재 공개 전 검토본입니다."},
+    {"effective_date": "2026-09-08", "version_label": "시행일 2026-09-08"},
 ])
 def test_bundled_policy_release_gate_requires_both_complete_documents(tmp_path, change):
     assets = tmp_path / "apps/mobile/assets/legal"
     assets.mkdir(parents=True)
     approved = {"publication_status": "approved", "effective_date": "2026-09-07",
                 "operator": "Fictional operator", "contact_email": "support@storybook-fixture.org",
+                "title": "Test policy", "version_label": "시행일 2026-09-07", "introduction": "Test introduction",
                 "sections": [{"heading": "Fixture", "paragraphs": ["Fixture document."]}]}
     (assets / "privacy.ko.json").write_text(json.dumps(approved))
     (assets / "terms.ko.json").write_text(json.dumps(approved))
-    assert preflight.assess_bundled_policies(tmp_path)["ready"] is True
+    today = date(2026, 9, 7)
+    assert preflight.assess_bundled_policies(tmp_path, today=today)["ready"] is True
     (assets / "terms.ko.json").write_text(json.dumps({**approved, **change}))
-    report = preflight.assess_bundled_policies(tmp_path)
+    report = preflight.assess_bundled_policies(tmp_path, today=today)
     assert report["ready"] is False
     assert report["documents"]["privacy"] == "approved"
     assert report["documents"]["terms"] != "approved"
+    if change.get("effective_date") == "2026-09-08":
+        assert report["documents"]["terms"] == "not_effective"
+        assert preflight.assess_bundled_policies(tmp_path, today=date(2026, 9, 8))["ready"]
 
 
 def test_missing_policy_asset_fails_release_gate(tmp_path):

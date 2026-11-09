@@ -4,12 +4,13 @@ import io
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 import boto3
 from botocore.stub import Stubber
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'scripts'))
-from quarantined_restore_runtime import RestoreRuntimeError, _read_media  # noqa: E402
+from quarantined_restore_runtime import RestoreRuntimeError, _read_media, _require_private_media  # noqa: E402
 
 
 class FakeStorage:
@@ -56,6 +57,24 @@ class QuarantinedInventoryTests(unittest.TestCase):
             with self.subTest(pages=pages), self.assertRaises(RestoreRuntimeError):
                 _read_media(FakeStorage(pages), 'synthetic', [])
 
+    def test_conflicting_listing_metadata_is_rejected_even_when_expected_keys_match(self):
+        body = b'one'
+        objects = [{'key': 'a', 'size': len(body), 'sha256': hashlib.sha256(body).hexdigest()}]
+        page = {'IsTruncated': False, 'Contents': [{'Key': 'a'}], 'Name': 'synthetic',
+                'KeyCount': 1, 'Prefix': '', 'Delimiter': ''}
+        _read_media(FakeStorage([page], {'a': body}), 'synthetic', objects)
+        for conflicting in ({'Name': 'other'}, {'KeyCount': 2}, {'KeyCount': True},
+                            {'Prefix': 'subset/'}, {'Delimiter': '/'},
+                            {'CommonPrefixes': [{'Prefix': 'hidden/'}]},
+                            {'NextContinuationToken': 'more'}):
+            with self.subTest(conflicting=conflicting), self.assertRaises(RestoreRuntimeError):
+                _read_media(FakeStorage([page | conflicting], {'a': body}), 'synthetic', objects)
+
+    def test_unbounded_empty_page_stream_is_rejected(self):
+        pages = [{'IsTruncated': True, 'NextContinuationToken': f'page-{index}'} for index in range(3)]
+        with patch('quarantined_restore_runtime._MAX_MEDIA_LIST_PAGES', 2), self.assertRaises(RestoreRuntimeError):
+            _read_media(FakeStorage(pages), 'synthetic', [])
+
     def test_unexpected_header_rejects_object_and_closes_response(self):
         body = io.BytesIO(b'one')
 
@@ -79,6 +98,27 @@ class QuarantinedInventoryTests(unittest.TestCase):
             stub.add_response('list_objects_v2', {'IsTruncated': True}, {'Bucket': 'synthetic'})
             with self.assertRaises(RestoreRuntimeError):
                 _read_media(client, 'synthetic', [])
+
+    def test_anonymous_media_requires_explicit_access_denied(self):
+        client = boto3.client('s3', endpoint_url='http://127.0.0.1:9',
+                              aws_access_key_id='fixture', aws_secret_access_key='fixture',
+                              region_name='us-east-1')
+        params = {'Bucket': 'synthetic', 'Key': 'a'}
+        objects = [{'key': 'a'}]
+        with Stubber(client) as stub:
+            stub.add_client_error('get_object', 'AccessDenied', http_status_code=403, expected_params=params)
+            _require_private_media(client, 'synthetic', objects)
+            stub.add_client_error('get_object', 'NoSuchKey', http_status_code=404, expected_params=params)
+            with self.assertRaisesRegex(RestoreRuntimeError, 'could not be verified'):
+                _require_private_media(client, 'synthetic', objects)
+
+    def test_public_media_is_rejected_and_response_closed(self):
+        storage = FakeStorage([])
+        body = io.BytesIO(b'public')
+        storage.get_object = lambda **_: {'Body': body}
+        with self.assertRaisesRegex(RestoreRuntimeError, 'accessible without authentication'):
+            _require_private_media(storage, 'synthetic', [{'key': 'a'}])
+        self.assertTrue(body.closed)
 
 
 if __name__ == '__main__':

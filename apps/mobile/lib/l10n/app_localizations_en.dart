@@ -70,15 +70,19 @@ class AppLocalizationsEn extends AppLocalizations {
       'Build a daily reading habit with streaks.';
 
   @override
-  String get onboardingSlide4Title => 'Start for free';
+  String get onboardingSlide4Title => 'Make your first storybook';
 
   @override
   String get onboardingSlide4Subtitle =>
       'Pick a theme and create your first illustrated storybook.';
 
   @override
-  String get onboardingFirstBookTrialSubtitle =>
-      'New accounts get one illustrated storybook free.';
+  String get firstBookTrialOffer =>
+      'Eligible new accounts can make one free storybook with illustrations and narration.';
+
+  @override
+  String get firstBookTrialIllustratedOffer =>
+      'You can make your first illustrated storybook for free.';
 
   @override
   String get creditsFirstBookTrial => 'First storybook free for new accounts';
@@ -168,6 +172,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get homeMakeTodayStory => 'Make today\'s storybook';
+
+  @override
+  String get homeReviewTodayStory => 'Make a story with today\'s topic';
 
   @override
   String get homeStreakLoading => 'Loading streak info...';
@@ -275,16 +282,20 @@ class AppLocalizationsEn extends AppLocalizations {
       'The same scene, with a sample of the style and length';
 
   @override
+  String get createAgePreviewIllustration =>
+      'Haru and Bori discover their kite’s blue tail in the bushes with their teacher';
+
+  @override
   String get createAgePreview3to5 =>
-      'Flutter, flutter! A blue ribbon danced behind the bush. Haru pointed and said, “There’s our kite, Bori! Let’s call our teacher.”';
+      'Flutter, flutter! A blue ribbon danced behind the bush. Haru pointed and Bori’s eyes grew wide. “Look, teacher! That’s our kite!”';
 
   @override
   String get createAgePreview5to7 =>
-      'A blue ribbon peeked out of the bush when the wind blew. Haru recognized it from the kite they had flown that morning. Bori stepped closer, then stopped at the thorns. “Let’s keep an eye on the kite and call our teacher.”';
+      'A blue ribbon peeked out of the bush when the wind blew. Haru recognized it from the kite they had flown that morning. Bori spotted thorns and took a step back. Haru pointed out the bush to their teacher. “Our kite is stuck right there.”';
 
   @override
   String get createAgePreview7to9 =>
-      'Haru noticed that the same blue ribbon appeared between the branches every time the wind blew. Bori thought someone might have dropped a piece of string, but Haru spotted two knots at the end. They had tied those knots together when the kite’s tail came loose that morning. Bori stopped at the thorny branches. “Keep watching the ribbon while I get our teacher.”';
+      'Haru noticed that the same blue ribbon appeared between the branches every time the wind blew. Bori thought someone might have dropped a piece of string, but Haru spotted two knots at the end. They had tied those knots together when the kite’s tail came loose that morning. Bori stopped at the thorny branches. Haru pointed out the ribbon to their teacher. “See the two knots? That’s the kite we tied this morning.”';
 
   @override
   String get createLanguageLabel => 'Story language';
@@ -413,6 +424,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get createMakeButton => 'Make Storybook';
 
   @override
+  String get createFreeFirstBookButton => 'Make My Free First Book';
+
+  @override
+  String get createFirstBookDuration =>
+      'Your book may take a few minutes to finish.';
+
+  @override
   String get createPlanUpgradeTitle => 'A plan upgrade is needed';
 
   @override
@@ -424,6 +442,29 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get libraryTitle => 'My Library';
+
+  @override
+  String get libraryOpenCompletedStory => 'Read your finished story';
+
+  @override
+  String get libraryReviewFailedGeneration =>
+      'Story couldn\'t be made. See what happened';
+
+  @override
+  String libraryActiveGenerations(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Check $count books in progress',
+      one: 'Check 1 book in progress',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String libraryActiveGenerationItem(int number) {
+    return 'Book $number';
+  }
 
   @override
   String get librarySeriesBadge => 'Series';
@@ -621,6 +662,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get loadingTitle => 'Creating your storybook';
 
   @override
+  String get loadingQueuedTitle => 'Getting your storybook ready';
+
+  @override
+  String get loadingInProgressHint =>
+      'We’re still working even if the percentage pauses.';
+
+  @override
+  String get loadingBrowseLibrary => 'Browse the library while you wait';
+
+  @override
   String get loadingIllustrationExample => 'Sample illustration';
 
   @override
@@ -687,7 +738,18 @@ class AppLocalizationsEn extends AppLocalizations {
   String get loadingBackToHomeButton => 'Back to home';
 
   @override
-  String get loadingStepWaiting => 'Waiting...';
+  String get loadingStepCheckingStatus => 'Checking your storybook’s status';
+
+  @override
+  String get loadingStepRecheckingStatus =>
+      'Showing the last confirmed progress.';
+
+  @override
+  String get loadingStepWaitingForStatusRetry =>
+      'We\'ll check this story\'s progress again shortly.';
+
+  @override
+  String get loadingStepWaiting => 'Waiting to start your storybook';
 
   @override
   String get loadingStepPreparing => 'Preparing...';
@@ -834,7 +896,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get loadingTip3 =>
-      'You can revisit finished storybooks anytime in your library';
+      'Your storybook keeps taking shape while you browse. Open it from your library when it’s ready.';
 
   @override
   String get loadingTip4 => 'You can regenerate any page you don\'t like later';
@@ -2498,15 +2560,41 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get viewerRetryIllustration => 'Retry illustration';
+
+  @override
   String viewerPageImageSemantics(Object page) {
     return 'Page $page illustration';
   }
+
+  @override
+  String get viewerShowReadingControls => 'Show reading controls';
+
+  @override
+  String get viewerHideReadingControls => 'Hide reading controls';
 
   @override
   String get viewerLearn => 'Learn';
 
   @override
   String get viewerPlayAudioTooltip => 'Play audio';
+
+  @override
+  String get viewerListenFromStart => 'Listen from start';
+
+  @override
+  String get viewerListenFromHere => 'Listen from this page to the end';
+
+  @override
+  String get viewerNarrationPreparing => 'Getting narration ready';
+
+  @override
+  String get viewerNarrationSpeed => 'Narration speed';
+
+  @override
+  String viewerNarrationSpeedValue(String speed) {
+    return '$speed×';
+  }
 
   @override
   String get viewerPauseAudioTooltip => 'Pause audio';
@@ -3350,6 +3438,17 @@ class AppLocalizationsEn extends AppLocalizations {
       'We could not check available styles. Check your connection and try again.';
 
   @override
+  String get createGenerationInviteRequired =>
+      'This beta requires an invitation to create a new story.';
+
+  @override
+  String get createGenerationPaused =>
+      'New stories are unavailable right now. You can still read saved books.';
+
+  @override
+  String get createOpenBetaInvitation => 'Find your beta invitation ID';
+
+  @override
   String get createSafetyInputHint =>
       'Change the topic to something suitable for children, then try again.';
 
@@ -3654,6 +3753,10 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get settingsNarrationPreviewGoogleHelp =>
       'Hear the same Korean sentence in three styles with your selected AI voice. Expressive storytelling varies the delivery of each line.';
+
+  @override
+  String get settingsNarrationPreviewPending =>
+      'Previews for this AI voice are being prepared. You can still choose a narration style.';
 
   @override
   String settingsNarrationPreview(String style) {

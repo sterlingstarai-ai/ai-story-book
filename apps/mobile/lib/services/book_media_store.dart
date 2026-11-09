@@ -302,25 +302,35 @@ class BookMediaStore {
     return directory;
   }
 
-  /// Writes a file into the book's private directory. [download] must not
-  /// complete until all writes to the supplied temporary file have stopped.
+  /// Writes a file into the book's private directory, or returns an existing
+  /// regular file when [reuseExisting] is set. [download] must not complete
+  /// until all writes to the supplied temporary file have stopped.
   Future<File> write(
     String bookId,
     String mediaIdentity, {
     required String extension,
     required Future<void> Function(File temporary) download,
+    bool reuseExisting = false,
   }) async {
     if (mediaIdentity.isEmpty ||
         !RegExp(r'^[a-z0-9]{1,8}$').hasMatch(extension)) {
       throw ArgumentError('Invalid media identity or extension');
     }
     final token = _bookToken(bookId);
-    final fileKey = '$token/${_digest(mediaIdentity)}.$extension';
-    final started = await _serialized(() async {
+    final fileName = '${_digest(mediaIdentity)}.$extension';
+    final fileKey = '$token/$fileName';
+    final started = await _serialized<(File, int?)>(() async {
       if (_closed || _blocked(token)) {
         throw StateError('Book media is unavailable');
       }
       final directory = await _bookDirectory(token, create: true);
+      if (reuseExisting) {
+        final cached = File('${directory.path}/$fileName');
+        if (await FileSystemEntity.type(cached.path, followLinks: false) ==
+            FileSystemEntityType.file) {
+          return (cached, null);
+        }
+      }
       final random = Random.secure();
       final nonce = List.generate(
         16,
@@ -333,12 +343,14 @@ class BookMediaStore {
       return (file, _fileEpochs[fileKey] ?? 0);
     });
     final temporary = started.$1;
+    final epoch = started.$2;
+    if (epoch == null) return temporary;
     try {
       await download(temporary);
       return await _serialized(() async {
         if (_closed ||
             _blocked(token) ||
-            (_fileEpochs[fileKey] ?? 0) != started.$2) {
+            (_fileEpochs[fileKey] ?? 0) != epoch) {
           throw StateError('Book media is unavailable');
         }
         if (await FileSystemEntity.type(temporary.path, followLinks: false) !=
@@ -346,7 +358,7 @@ class BookMediaStore {
           throw StateError('Book media download is not a regular file');
         }
         final directory = await _bookDirectory(token, create: false);
-        final target = '${directory.path}/${_digest(mediaIdentity)}.$extension';
+        final target = '${directory.path}/$fileName';
         return temporary.rename(target);
       });
     } finally {

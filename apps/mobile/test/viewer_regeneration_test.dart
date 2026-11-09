@@ -5,6 +5,8 @@ import 'package:ai_story_book/models/models.dart';
 import 'package:ai_story_book/providers/providers.dart';
 import 'package:ai_story_book/screens/viewer_screen.dart';
 import 'package:ai_story_book/services/api_client.dart';
+import 'package:ai_story_book/widgets/scoped_book_image.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -12,7 +14,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class _Api extends ApiClient {
   _Api({this.queued, this.errorCode})
-      : super(baseUrl: 'http://127.0.0.1:1', userKey: 'regeneration-test');
+    : super(baseUrl: 'http://127.0.0.1:1', userKey: 'regeneration-test');
 
   final Completer<String>? queued;
   final String? errorCode;
@@ -28,8 +30,7 @@ class _Api extends ApiClient {
     required String bookId,
     int readingTime = 0,
     bool completed = false,
-  }) async =>
-      {};
+  }) async => {};
 
   @override
   Future<String> regeneratePage(
@@ -43,7 +44,10 @@ class _Api extends ApiClient {
   }
 
   @override
-  Future<JobStatus> getBookStatus(String jobId) async {
+  Future<JobStatus> getBookStatus(
+    String jobId, {
+    CancelToken? cancelToken,
+  }) async {
     polls++;
     return JobStatus(
       jobId: jobId,
@@ -60,7 +64,11 @@ Future<void> _settle(WidgetTester tester) async {
   await tester.pump(const Duration(milliseconds: 400));
 }
 
-Future<AppLocalizations> _pump(WidgetTester tester, _Api api) async {
+Future<AppLocalizations> _openReader(
+  WidgetTester tester,
+  _Api api, {
+  Future<BookResult> Function()? readBook,
+}) async {
   SharedPreferences.setMockInitialValues({});
   final prefs = await SharedPreferences.getInstance();
   await tester.pumpWidget(
@@ -69,8 +77,11 @@ Future<AppLocalizations> _pump(WidgetTester tester, _Api api) async {
         sharedPreferencesProvider.overrideWithValue(prefs),
         apiClientProvider.overrideWithValue(api),
         capabilitiesProvider.overrideWith((ref) async => {}),
+        if (readBook != null)
+          bookMediaBlockedProvider('book').overrideWith((ref) => false),
         bookDetailProvider('book').overrideWith((ref) async {
           api.detailReads++;
+          if (readBook != null) return readBook();
           return BookResult(
             bookId: 'book',
             jobId: 'original-job',
@@ -91,7 +102,11 @@ Future<AppLocalizations> _pump(WidgetTester tester, _Api api) async {
     ),
   );
   await _settle(tester);
-  final l = AppLocalizations.of(tester.element(find.byType(ViewerScreen)));
+  return AppLocalizations.of(tester.element(find.byType(ViewerScreen)));
+}
+
+Future<AppLocalizations> _pump(WidgetTester tester, _Api api) async {
+  final l = await _openReader(tester, api);
   await tester.tap(find.byIcon(Icons.chevron_right));
   await _settle(tester);
   await _openOptions(tester, l);
@@ -113,6 +128,92 @@ Future<void> _close(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets(
+    'illustration link renewal can recover twice in one reading session',
+    (tester) async {
+      final api = _Api();
+      final firstRenewal = Completer<BookResult>();
+      BookResult book(String signature) => BookResult(
+        bookId: 'book',
+        jobId: 'original-job',
+        title: 'Reading test',
+        coverImageUrl:
+            'https://fixture.invalid/cover.jpg?X-Amz-Signature=$signature',
+        pages: [
+          PageResult(pageNumber: 1, text: 'Original story', imageUrl: ''),
+        ],
+      );
+      await _openReader(
+        tester,
+        api,
+        readBook: () async => switch (api.detailReads) {
+          1 => book('old'),
+          2 => firstRenewal.future,
+          _ => book('renewed-again'),
+        },
+      );
+      ScopedBookImage illustration() =>
+          tester.widget<ScopedBookImage>(find.byType(ScopedBookImage).first);
+      illustration().onSignedUrlRejected!();
+      illustration().onSignedUrlRejected!();
+      await tester.pump();
+      expect(api.detailReads, 2);
+      firstRenewal.complete(book('renewed'));
+      await _settle(tester);
+      expect(illustration().imageUrl, endsWith('=renewed'));
+      illustration().onSignedUrlRejected!();
+      await tester.pump();
+      expect(api.detailReads, 2);
+      await tester.pump(const Duration(minutes: 1));
+      illustration().onSignedUrlRejected!();
+      await _settle(tester);
+      expect(api.detailReads, 3);
+      await tester.pump();
+      expect(illustration().imageUrl, endsWith('=renewed-again'));
+      await _close(tester);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('an expired distant illustration renews only near its page', (
+    tester,
+  ) async {
+    final api = _Api();
+    const expired =
+        'https://fixture.invalid/page-3.jpg?X-Amz-Date=20200101T000000Z'
+        '&X-Amz-Expires=60&X-Amz-Signature=old';
+    await _openReader(
+      tester,
+      api,
+      readBook: () async => BookResult(
+        bookId: 'book',
+        jobId: 'original-job',
+        title: 'Reading test',
+        coverImageUrl: '',
+        pages: [
+          for (var number = 1; number <= 4; number++)
+            PageResult(
+              pageNumber: number,
+              text: 'Story page $number',
+              imageUrl: number == 3 && api.detailReads == 1 ? expired : '',
+            ),
+        ],
+      ),
+    );
+    await tester.pump(const Duration(minutes: 1));
+    expect(api.detailReads, 1);
+    await tester.tap(find.byIcon(Icons.chevron_right));
+    await _settle(tester);
+    expect(api.detailReads, 1);
+    await tester.tap(find.byIcon(Icons.chevron_right));
+    await _settle(tester);
+    await _settle(tester);
+    expect(api.detailReads, 2);
+    expect(find.text('Story page 2').hitTestable(), findsOneWidget);
+    await _close(tester);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('pending regeneration cannot be submitted a second time', (
     tester,
   ) async {

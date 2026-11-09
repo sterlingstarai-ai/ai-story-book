@@ -1,6 +1,8 @@
 """Official Astra/Sol request shapes and fail-closed OpenAI JSON adapters."""
 
+import asyncio
 from copy import deepcopy
+import json
 from types import SimpleNamespace
 
 import httpx
@@ -8,7 +10,7 @@ import pytest
 
 from src.core.config import settings
 from src.core.errors import ErrorCode, LLMError, is_retryable
-from src.services import llm, openai_contract
+from src.services import llm, openai_contract, orchestrator
 from src.services.openai_contract import (
     MAX_RESPONSE_OUTPUT_TOKENS,
     openai_generation_options,
@@ -33,6 +35,78 @@ def completed_response():
             ]},
         ],
     }
+
+
+@pytest.mark.asyncio
+async def test_book_jobs_share_transport_with_per_request_options_and_close(monkeypatch):
+    clients = []
+    requests = []
+    original_client = httpx.AsyncClient
+
+    def respond(request):
+        requests.append(request)
+        return httpx.Response(200, json=completed_response(), headers={"Set-Cookie": "provider_session=opaque; Path=/"})
+
+    def make_client(**kwargs):
+        client = original_client(transport=httpx.MockTransport(respond), **kwargs)
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr(openai_contract.httpx, "AsyncClient", make_client)
+
+    async def generate(job_id, *_args):
+        async def request(suffix, timeout):
+            return await openai_contract.request_openai_json(
+                model="gpt-5.6-sol", api_key=f"fixture-{suffix}", user_prompt=job_id,
+                max_tokens=50, timeout=timeout,
+            )
+
+        assert await request("story", 3) == '{"name":"별이"}'
+        assert await asyncio.gather(request("review", 12), request("learning", 4)) == ['{"name":"별이"}'] * 2
+
+    monkeypatch.setattr(orchestrator, "_start_bounded_book_generation", generate)
+    for job_id in ("qa-book-one", "qa-book-two"):
+        await orchestrator.start_book_generation(job_id, None, "fixture-owner")
+        assert len(clients) == (1 if job_id == "qa-book-one" else 2)
+        assert clients[-1].is_closed
+
+    assert [request.headers["Authorization"] for request in requests] == [
+        "Bearer fixture-story", "Bearer fixture-review", "Bearer fixture-learning",
+    ] * 2
+    assert [request.extensions["timeout"]["read"] for request in requests] == [3, 12, 4] * 2
+    assert all("Cookie" not in request.headers and json.loads(request.content)["store"] is False for request in requests)
+
+
+@pytest.mark.asyncio
+async def test_cancelled_book_closes_provider_transport(monkeypatch):
+    entered = asyncio.Event()
+    clients = []
+    original_client = httpx.AsyncClient
+
+    async def respond(_request):
+        entered.set()
+        await asyncio.Future()
+
+    def make_client(**kwargs):
+        client = original_client(transport=httpx.MockTransport(respond), **kwargs)
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr(openai_contract.httpx, "AsyncClient", make_client)
+
+    async def generate():
+        async with openai_contract.openai_book_connection_scope():
+            await openai_contract.request_openai_json(
+                model="gpt-5.6-sol", api_key="fixture-key", user_prompt="fictional",
+                max_tokens=50, timeout=3,
+            )
+
+    task = asyncio.create_task(generate())
+    await asyncio.wait_for(entered.wait(), timeout=2)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert len(clients) == 1 and clients[0].is_closed
 
 
 @pytest.mark.parametrize("model", MODERN_MODELS)

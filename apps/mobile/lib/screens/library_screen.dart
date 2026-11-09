@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import '../widgets/age_gate_dialog.dart';
@@ -20,7 +21,9 @@ import '../widgets/common_widgets.dart';
 
 /// 서재 화면
 class LibraryScreen extends ConsumerStatefulWidget {
-  const LibraryScreen({super.key});
+  const LibraryScreen({super.key, this.browsingJobId});
+
+  final String? browsingJobId;
 
   @override
   ConsumerState<LibraryScreen> createState() => _LibraryScreenState();
@@ -37,6 +40,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   String? _seriesAttemptKey;
   String? _seriesAttemptSig;
   bool _checkingDeletions = false;
+  Object? _browsingJobScope;
 
   Future<void> _recheckDeletions() async {
     if (_checkingDeletions) return;
@@ -99,6 +103,29 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   void initState() {
     super.initState();
     _scrollController.addListener(_handleScroll);
+    final jobId = widget.browsingJobId;
+    if (jobId != null) {
+      final api = ref.read(apiClientProvider);
+      _browsingJobScope = api;
+      ref.listenManual(jobPollingProvider(jobId), (_, next) {
+        final status = next.asData?.value;
+        if (status == null || (!status.isComplete && !status.isFailed)) return;
+        // The progress route is disposed while the reader browses the library.
+        // Keep its poll alive here and preserve the library's selected filters.
+        unawaited(
+          Future<void>.microtask(() async {
+            if (!mounted || !identical(api, ref.read(apiClientProvider))) {
+              return;
+            }
+            ref.invalidate(activeBookGenerationsProvider);
+            if (status.isComplete && status.result != null) {
+              ref.invalidate(libraryProvider);
+              await _refreshBrowseAfterGeneration(api);
+            }
+          }),
+        );
+      }, fireImmediately: true);
+    }
   }
 
   @override
@@ -319,6 +346,35 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
     final libraryAsync = ref.watch(libraryBrowseProvider);
+    final jobs = ref.watch(visibleActiveBookGenerationsProvider);
+    final browsingJobId = widget.browsingJobId;
+    final browsingPoll =
+        browsingJobId != null &&
+            identical(ref.watch(apiClientProvider), _browsingJobScope)
+        ? ref.watch(jobPollingProvider(browsingJobId))
+        : null;
+    final browsingStatus = browsingPoll?.asData?.value;
+    final completedBookId = browsingStatus?.isComplete == true
+        ? browsingStatus?.result?.bookId
+        : null;
+    final browsingFailed = browsingStatus?.isFailed == true;
+    final browsingUnavailable =
+        browsingPoll?.hasError == true ||
+        (browsingStatus?.isComplete == true && completedBookId == null);
+    ref.listen(activeBookGenerationsProvider, (previous, next) {
+      // The per-job listener already handles a completion for its own job.
+      final separatelyTracked = browsingUnavailable ? null : browsingJobId;
+      if (activeBookGenerationMayHaveFinished(
+        previous,
+        next,
+        separatelyTrackedJob: separatelyTracked,
+      )) {
+        final api = ref.read(apiClientProvider);
+        unawaited(
+          Future<void>.microtask(() => _refreshBrowseAfterGeneration(api)),
+        );
+      }
+    });
     final pendingDeletions =
         ref.watch(pendingBookDeletionsProvider).valueOrNull ?? const [];
     final mediaStatus = ref.watch(bookMediaStoreProvider);
@@ -342,12 +398,68 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
               color: AppPalette.of(context).textPrimary,
             ),
             tooltip: l.libraryRefresh,
-            onPressed: () => notifier.refresh(),
+            onPressed: _refresh,
           ),
         ],
       ),
       body: Column(
         children: [
+          if (completedBookId != null)
+            TextButton.icon(
+              style: TextButton.styleFrom(minimumSize: const Size(64, 64)),
+              onPressed: () {
+                if (!identical(
+                  ref.read(apiClientProvider),
+                  _browsingJobScope,
+                )) {
+                  return;
+                }
+                Navigator.pushNamed(
+                  context,
+                  '/viewer',
+                  arguments: completedBookId,
+                );
+              },
+              icon: const Icon(Icons.menu_book_outlined),
+              label: Text(l.libraryOpenCompletedStory),
+            ),
+          if (browsingJobId != null && (browsingFailed || browsingUnavailable))
+            TextButton.icon(
+              style: TextButton.styleFrom(minimumSize: const Size(64, 64)),
+              onPressed: () {
+                if (!identical(
+                  ref.read(apiClientProvider),
+                  _browsingJobScope,
+                )) {
+                  return;
+                }
+                if (browsingUnavailable) {
+                  ref.invalidate(jobPollingProvider(browsingJobId));
+                }
+                Navigator.pushNamed(
+                  context,
+                  '/loading',
+                  arguments: browsingJobId,
+                );
+              },
+              icon: const Icon(Icons.info_outline),
+              label: Text(
+                browsingFailed
+                    ? l.libraryReviewFailedGeneration
+                    : l.loadingCheckStatusButton,
+              ),
+            ),
+          if (jobs.isNotEmpty)
+            TextButton.icon(
+              style: TextButton.styleFrom(minimumSize: const Size(64, 64)),
+              onPressed: _openActiveGeneration,
+              icon: const Icon(Icons.auto_stories_outlined),
+              label: Text(
+                jobs.any((job) => job.isRechecking)
+                    ? l.loadingCheckStatusButton
+                    : l.libraryActiveGenerations(jobs.length),
+              ),
+            ),
           if (mediaStatus.hasError &&
               mediaStatus.error is BookMediaScopeConflict)
             Padding(
@@ -431,7 +543,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                       child: hasBooks
                           ? _buildBookContent(
                               state,
-                              notifier.refresh,
+                              _refresh,
                               ageLabels,
                               styleLabels,
                             )
@@ -484,6 +596,66 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _refresh() async {
+    ref.invalidate(activeBookGenerationsProvider);
+    await ref.read(libraryBrowseProvider.notifier).refresh();
+  }
+
+  Future<void> _refreshBrowseAfterGeneration(Object api) async {
+    if (!mounted || !identical(api, ref.read(apiClientProvider))) return;
+    try {
+      await ref.read(libraryBrowseProvider.future);
+    } catch (_) {
+      // The generation may have finished while the first library read failed.
+    }
+    if (!mounted || !identical(api, ref.read(apiClientProvider))) return;
+    await ref.read(libraryBrowseProvider.notifier).refresh();
+  }
+
+  Future<void> _openActiveGeneration() async {
+    final jobs = ref.read(visibleActiveBookGenerationsProvider);
+    if (jobs.isEmpty) return;
+    final api = ref.read(apiClientProvider);
+    final l = AppLocalizations.of(context);
+    final jobId = jobs.length == 1
+        ? jobs.single.jobId
+        : await showModalBottomSheet<String>(
+            context: context,
+            isScrollControlled: true,
+            builder: (context) => AdaptiveModalSheet(
+              title: l.libraryActiveGenerations(jobs.length),
+              child: Column(
+                children: [
+                  for (final (index, job) in jobs.indexed)
+                    ListTile(
+                      minTileHeight: AppSizing.minTouchTarget,
+                      title: Text(l.libraryActiveGenerationItem(index + 1)),
+                      subtitle: Text(
+                        job.isRechecking
+                            ? l.loadingStepRecheckingStatus
+                            : job.status == JobState.queued
+                            ? l.loadingStepWaiting
+                            : '${job.progress}%',
+                      ),
+                      onTap: () => Navigator.pop(context, job.jobId),
+                    ),
+                ],
+              ),
+            ),
+          );
+    if (!mounted ||
+        jobId == null ||
+        !identical(api, ref.read(apiClientProvider))) {
+      return;
+    }
+    if (jobId == widget.browsingJobId) {
+      Navigator.pop(context);
+      return;
+    }
+    await Navigator.pushNamed(context, '/loading', arguments: jobId);
+    if (mounted) ref.invalidate(activeBookGenerationsProvider);
   }
 
   bool _isExpiredAccount(Object error) {
@@ -661,6 +833,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
       if (!mounted) {
         return;
       }
+      ref.invalidate(activeBookGenerationsProvider);
       Navigator.pushNamed(context, '/loading', arguments: response.jobId);
     } catch (error) {
       if (!mounted) {

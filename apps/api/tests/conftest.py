@@ -308,7 +308,8 @@ def _block_real_s3(monkeypatch, request):
     if request.node.get_closest_marker("real_s3"):
         return
     fake = _FakeS3Client()
-    monkeypatch.setattr("src.services.storage.get_s3_client", lambda: fake)
+    monkeypatch.setattr("src.services.storage.get_s3_client", lambda **_: fake)
+    monkeypatch.setattr("src.services.storage._readiness_result", None)
     return fake
 
 

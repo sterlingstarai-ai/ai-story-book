@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 
@@ -36,6 +37,21 @@ final narrationPreviewPlayerFactoryProvider =
       (ref) => _JustAudioNarrationPreviewPlayer.new,
     );
 
+String _realtimePreviewAsset(String voice, String style) =>
+    'assets/audio/narration_preview_realtime_${voice}_$style.wav';
+
+final realtimeNarrationPreviewsProvider = FutureProvider<bool>((ref) async {
+  final manifest = await AssetManifest.loadFromAssetBundle(rootBundle);
+  final assets = manifest.listAssets().toSet();
+  return ['warm', 'deep'].every(
+    (voice) => [
+      'natural',
+      'animated',
+      'bedtime',
+    ].every((style) => assets.contains(_realtimePreviewAsset(voice, style))),
+  );
+});
+
 class NarrationStylePreviews extends ConsumerStatefulWidget {
   const NarrationStylePreviews({super.key, required this.voice});
 
@@ -62,6 +78,10 @@ class _NarrationStylePreviewsState extends ConsumerState<NarrationStylePreviews>
           .valueOrNull?['narration_preview_provider'] ==
       'google_gemini';
 
+  bool _usesRealtime(AsyncValue<Map<String, dynamic>> capabilities) =>
+      capabilities.valueOrNull?['narration_audio_provider'] ==
+      'openai_realtime';
+
   @override
   void dispose() {
     _previewEpoch++;
@@ -71,16 +91,22 @@ class _NarrationStylePreviewsState extends ConsumerState<NarrationStylePreviews>
   }
 
   Future<void> _playStylePreview(String style) {
+    final usesRealtime = _usesRealtime(ref.read(capabilitiesProvider));
+    if (usesRealtime &&
+        ref.read(realtimeNarrationPreviewsProvider).valueOrNull != true) {
+      return Future<void>.value();
+    }
     final epoch = ++_previewEpoch;
     if (_previewFailed) setState(() => _previewFailed = false);
     // Samples must match the configured provider; old OpenAI previews are
     // retained for existing deployments while Google uses its own recordings.
-    final isGoogle = _usesGoogleSamples;
-    final prefix = isGoogle
-        ? (widget.voice == 'deep'
-              ? 'narration_preview_google_male'
-              : 'narration_preview_google')
+    final deep = widget.voice == 'deep';
+    final prefix = _usesGoogleSamples
+        ? (deep ? 'narration_preview_google_male' : 'narration_preview_google')
         : 'narration_preview';
+    final asset = usesRealtime
+        ? _realtimePreviewAsset(deep ? 'deep' : 'warm', style)
+        : 'assets/audio/${prefix}_$style.mp3';
     final operation = _previewQueue.then((_) async {
       if (!mounted || epoch != _previewEpoch) return;
       try {
@@ -89,7 +115,7 @@ class _NarrationStylePreviewsState extends ConsumerState<NarrationStylePreviews>
         )();
         await player.stop();
         if (!mounted || epoch != _previewEpoch) return;
-        await player.setAsset('assets/audio/${prefix}_$style.mp3');
+        await player.setAsset(asset);
         if (!mounted || epoch != _previewEpoch) return;
         unawaited(
           player.play().catchError((Object error) {
@@ -112,6 +138,22 @@ class _NarrationStylePreviewsState extends ConsumerState<NarrationStylePreviews>
   Widget build(BuildContext context) {
     super.build(context);
     final l = AppLocalizations.of(context);
+    final usesRealtime = ref.watch(capabilitiesProvider.select(_usesRealtime));
+    ref.listen(capabilitiesProvider.select(_usesRealtime), (_, next) {
+      if (!next) return;
+      _previewEpoch++;
+      final player = _previewPlayer;
+      if (player != null) {
+        _previewQueue = _previewQueue
+            .then((_) => player.stop())
+            .catchError((_) {});
+      }
+    });
+    if (usesRealtime &&
+        ref.watch(realtimeNarrationPreviewsProvider).valueOrNull != true) {
+      return Text(l.settingsNarrationPreviewPending);
+    }
+
     final usesGoogle = ref.watch(
       capabilitiesProvider.select(
         (caps) =>
@@ -122,7 +164,7 @@ class _NarrationStylePreviewsState extends ConsumerState<NarrationStylePreviews>
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          usesGoogle
+          usesGoogle || usesRealtime
               ? l.settingsNarrationPreviewGoogleHelp
               : l.settingsNarrationPreviewHelp,
         ),

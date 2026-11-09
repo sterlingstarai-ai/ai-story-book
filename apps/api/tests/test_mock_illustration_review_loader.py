@@ -2,11 +2,13 @@
 
 import importlib.util
 from io import BytesIO
+import hashlib
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
+import wave
 
 from PIL import Image
 import pytest
@@ -163,6 +165,40 @@ print(json.dumps(result.model_dump()))
     assert pages == [{"page_number": number, "issues": []} for number in range(5)]
 
 
+@pytest.mark.skipif(os.name != 'posix', reason='local review uses POSIX private files')
+def test_review_invite_file_is_live_and_fail_closed(tmp_path):
+    loader.write_startup_loader(tmp_path)
+    invite_file = tmp_path / 'invitations.txt'
+    invite_file.touch(mode=0o600)
+    code = """import os
+from pathlib import Path
+from src.core.generation_access import generation_access_allowed, generation_identity_hash
+
+path = Path(os.environ['STORYBOOK_LOCAL_REVIEW_INVITATIONS_FILE'])
+owner, other = 'synthetic-review-owner', 'another-synthetic-account'
+assert not generation_access_allowed(owner)
+path.write_text(generation_identity_hash(owner) + '\\n')
+assert generation_access_allowed(owner) and not generation_access_allowed(other)
+path.chmod(0o644)
+assert not generation_access_allowed(owner)
+path.chmod(0o600)
+with path.open('a') as invites:
+    invites.write('invalid\\n')
+assert not generation_access_allowed(owner)
+path.write_text(generation_identity_hash(owner) + '\\n')
+saved = path.with_suffix('.saved')
+path.rename(saved)
+path.symlink_to(saved)
+assert not generation_access_allowed(owner)
+"""
+    result = subprocess.run([sys.executable, '-c', code], cwd=tmp_path,
+                            env=child_env(tmp_path, FREE_PLAN_FIRST_BOOK_TRIAL='true',
+                                          GENERATION_ACCESS_MODE='invite_only',
+                                          **{loader.REVIEW_INVITATIONS_ENV: str(invite_file)}),
+                            capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr
+
+
 def test_sitecustomize_rejection_stops_python_before_application(tmp_path):
     loader.write_startup_loader(tmp_path)
     result = subprocess.run([sys.executable, "-c", "print('APPLICATION_STARTED')"],
@@ -171,3 +207,76 @@ def test_sitecustomize_rejection_stops_python_before_application(tmp_path):
     assert result.returncode != 0
     assert "APPLICATION_STARTED" not in result.stdout
     assert "Mock QA startup rejected its configuration." in result.stderr
+
+
+def test_realtime_review_rejects_any_nonfixture_key(tmp_path):
+    loader.write_startup_loader(tmp_path)
+    (tmp_path / 'replay_review_archive.py').write_bytes((ROOT / 'scripts/replay_review_archive.py').read_bytes())
+    result = subprocess.run(
+        [sys.executable, '-c', "print('APPLICATION_STARTED')"], cwd=tmp_path,
+        env=child_env(tmp_path, STORYBOOK_LOCAL_REVIEW_ARCHIVE=str(tmp_path),
+                      TTS_PROVIDER='openai_realtime', OPENAI_TTS_API_KEY='incorrect-test-value'),
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode != 0
+    assert 'APPLICATION_STARTED' not in result.stdout
+    assert 'Mock QA startup rejected its configuration.' in result.stderr
+
+
+@pytest.mark.parametrize(('provider', 'fault'), [
+    (provider, fault) for provider in ('gemini', 'realtime')
+    for fault in (None, 'child_data', 'text', 'audio')
+] + [('realtime', 'wav_format'), ('realtime', 'wrong_title')])
+def test_review_archive_copies_only_verified_fictional_media(tmp_path, provider, fault):
+    archive_spec = importlib.util.spec_from_file_location(
+        'review_archive_loader', ROOT / 'scripts/replay_review_archive.py',
+    )
+    replay = importlib.util.module_from_spec(archive_spec)
+    archive_spec.loader.exec_module(replay)
+    clips_dir = tmp_path / 'review-audio'
+    clips_dir.mkdir()
+    pages = [{'page_number': page, 'text': f'Synthetic page {page}'} for page in range(1, 13)]
+    if provider == 'realtime':
+        buffer = BytesIO()
+        with wave.open(buffer, 'wb') as audio:
+            audio.setparams((1, 2, 16000 if fault == 'wav_format' else 24000, 0, 'NONE', ''))
+            audio.writeframes(b'\0\0' * 240)
+        clip_bytes = buffer.getvalue()
+        extension = 'wav'
+    else:
+        clip_bytes = b'fictional audio bytes'
+        extension = 'mp3'
+    clips = [{'page': page['page_number'],
+              'input_sha256': hashlib.sha256(page['text'].encode()).hexdigest(),
+              'sha256': hashlib.sha256(clip_bytes).hexdigest()} for page in pages]
+    if fault == 'text':
+        pages[0]['text'] = 'Different text'
+    (tmp_path/'book.json').write_text(json.dumps({'book_id':'fixture','title':'Fixture book', 'language':'ko',
+        'target_age':'7-9','style':'watercolor','pages':pages,'cover_image_url':'do not copy'}))
+    (tmp_path/'result.json').write_text(json.dumps({'book_id':'fixture','status':'passed',
+        'real_child_data':fault == 'child_data','data_scope':{'photos_used':False,'appearance':'fictional_fixture'}}))
+    if provider == 'realtime':
+        (clips_dir/'verification.json').write_text(json.dumps({
+            'status': 'FULL_BOOK_GENERATED_WITH_TARGETED_RECOVERY', 'synthesis_passed': 12, 'failures': [],
+            'title': 'Wrong book' if fault == 'wrong_title' else 'Fixture book', 'age': '7-9',
+            'provider': 'OpenAI Realtime', 'style': 'animated', 'voice': 'coral', 'per_page': clips,
+        }))
+    else:
+        (clips_dir/'result.json').write_text(json.dumps({'status':'passed','fictional':True,
+            'provider':'google_gemini','style':'animated','voice':'Kore','clips':clips}))
+    for page in range(13):
+        (tmp_path/f'page-{page:02d}.png').write_bytes(b'\x89PNG\r\n\x1a\nfixture')
+        if page:
+            (clips_dir/f'page-{page:02d}.{extension}').write_bytes(b'altered' if fault == 'audio' else clip_bytes)
+    destination = tmp_path/'staged'
+    realtime_audio = clips_dir if provider == 'realtime' else None
+    if fault:
+        with pytest.raises(ValueError):
+            replay.stage_review_archive(tmp_path, destination, realtime_audio)
+    else:
+        replay.stage_review_archive(tmp_path, destination, realtime_audio)
+        assert json.loads((destination/'story.json').read_text()) == {
+            'title':'Fixture book', 'texts':[page['text'] for page in pages],
+        }
+        assert len(list(destination.glob('page-*.png'))) == 13
+        assert len(list(destination.glob(f'page-*.{extension}'))) == 12

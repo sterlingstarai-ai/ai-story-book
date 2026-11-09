@@ -6,15 +6,23 @@ independent backup upload, retention, deletion replay and boot recovery. It neve
 considers a completed callback proof of a usable backup.
 """
 
+import errno
 import fcntl
 import json
 import os
 from pathlib import Path
+import re
 import stat
 import subprocess
+import tempfile
+import time
 
 
 class GuardError(RuntimeError):
+    pass
+
+
+class RetryableRecoveryError(GuardError):
     pass
 
 
@@ -22,9 +30,12 @@ class GuardError(RuntimeError):
 _API = 'asb-pilot-api'
 _WORKER = 'asb-pilot-worker'
 _NGINX = 'asb-pilot-nginx'
+_PILOT_HTTPS_IP = '35.209.174.246'
 _MARKER = {'version': 1, 'previously_running': [_WORKER, _API]}
 NARRATION_RECOVERY_MARKER = Path('/var/lib/ai-story-book/narration-deploy/narration-recovery.json')
 PROVIDER_ROTATION_RECOVERY_MARKER = Path('/var/lib/ai-story-book/provider-rotation/recovery.json')
+RECOVERY_RETRY_DELAYS_SECONDS = (5, 5, 15, 25, 30)
+RECOVERY_COMMAND_SECONDS = 150
 
 
 def assert_no_narration_recovery():
@@ -35,7 +46,8 @@ def assert_no_narration_recovery():
     provider marker does not itself implement rotation or guarantee boot
     quarantine: Docker restart policies must separately be disabled first.
     """
-    for marker in (NARRATION_RECOVERY_MARKER, PROVIDER_ROTATION_RECOVERY_MARKER):
+    for marker in (NARRATION_RECOVERY_MARKER, PROVIDER_ROTATION_RECOVERY_MARKER,
+                   PROVIDER_ROTATION_RECOVERY_MARKER.with_name('docker-mutation.json')):
         try:
             marker.lstat()
         except FileNotFoundError:
@@ -46,7 +58,18 @@ def assert_no_narration_recovery():
 
 
 class DockerRuntime:
+    def __init__(self, *, deadline=None):
+        self._deadline = deadline
+
+    def _probe_deadline(self, seconds):
+        deadline = time.monotonic() + seconds
+        return min(deadline, self._deadline) if self._deadline is not None else deadline
+
     def _run(self, command, *, timeout):
+        if self._deadline is not None:
+            timeout = min(timeout, self._deadline - time.monotonic())
+            if timeout <= 0:
+                raise GuardError('Recovery time budget exhausted')
         try:
             return subprocess.run(['docker', *command], check=True, capture_output=True,
                                   text=True, timeout=timeout).stdout.strip()
@@ -71,10 +94,81 @@ class DockerRuntime:
             raise GuardError('Unexpected container')
         self._run(['start', name], timeout=60)
 
+    def verify_recovery(self):
+        """Wait for the API upstream and the exact worker to answer after start."""
+        hostname = self._run(['inspect', '--format', '{{.Config.Hostname}}', _WORKER], timeout=5)
+        if not re.fullmatch(r'[A-Za-z0-9_.-]{1,253}', hostname):
+            raise GuardError('Recovery worker hostname is invalid')
+        deadline = self._probe_deadline(30)
+
+        def probe(command):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise GuardError('Recovery probe timed out')
+            return json.loads(self._run(command, timeout=min(8, remaining)))
+
+        while time.monotonic() < deadline:
+            try:
+                live = probe(['exec', _NGINX, 'wget', '-q', '-T', '3', '-O', '-',
+                              f'http://{_API}:8000/health/live'])
+                if not isinstance(live, dict) or live.get('status') != 'alive':
+                    raise GuardError('API upstream did not report liveness')
+                workers = probe(['exec', _WORKER, 'celery', '-A', 'src.worker', 'inspect',
+                                 'ping', '--timeout', '3', '--json'])
+                if workers == {f'celery@{hostname}': {'ok': 'pong'}}:
+                    return
+            except (GuardError, ValueError):
+                pass
+            time.sleep(min(1, max(0, deadline - time.monotonic())))
+        raise GuardError('API upstream or expected worker did not respond')
+
     def reload_proxy(self):
         if self._run(['inspect', '--format', '{{.State.Running}}', _NGINX], timeout=15) != 'true':
             raise GuardError('Proxy is not running')
+
+        def workers(timeout):
+            value = self._run(['exec', _NGINX, 'pgrep', '-f', r'^nginx: worker process[[:space:]]*$'],
+                              timeout=timeout)
+            pids = set(value.splitlines())
+            if not pids or any(not pid.isascii() or not pid.isdecimal() for pid in pids):
+                raise GuardError('Proxy worker state is unavailable')
+            return pids
+
+        previous = workers(5)
         self._run(['exec', _NGINX, 'nginx', '-s', 'reload'], timeout=30)
+        deadline = self._probe_deadline(10)
+        reloaded = False
+        while (remaining := deadline - time.monotonic()) > 0:
+            try:
+                if not reloaded:
+                    reloaded = not workers(min(5, remaining)).intersection(previous)
+                if reloaded and self._proxy_is_live(deadline - time.monotonic()):
+                    return
+            except GuardError:
+                pass
+            time.sleep(min(0.25, max(0, deadline - time.monotonic())))
+        if reloaded:
+            raise GuardError('Reloaded proxy did not serve API liveness over HTTPS')
+        raise GuardError('Proxy did not start a new worker after reload')
+
+    def _proxy_is_live(self, remaining):
+        if remaining <= 0:
+            return False
+        try:
+            # Hit local nginx with the same TLS identity and route as the app.
+            response = subprocess.run(
+                ['/usr/bin/curl', '-q', '--silent', '--fail', '--noproxy', '*',
+                 '--max-filesize', '65536', '--max-time', '3',
+                 '--connect-to', f'{_PILOT_HTTPS_IP}:443:127.0.0.1:443',
+                 '--write-out', '\n%{http_code}', f'https://{_PILOT_HTTPS_IP}/health/live'],
+                capture_output=True, timeout=min(4, remaining), check=True,
+                env={'PATH': '/usr/bin:/bin'},
+            )
+            body, _, code = response.stdout.rpartition(b'\n')
+            payload = json.loads(body)
+            return code == b'200' and isinstance(payload, dict) and payload.get('status') == 'alive'
+        except (OSError, subprocess.SubprocessError, ValueError):
+            return False
 
 
 class BackupServiceGuard:
@@ -94,9 +188,11 @@ class BackupServiceGuard:
         fd = os.open(self._lock, flags, 0o600)
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
+        except OSError as exc:
             os.close(fd)
-            raise GuardError('Another backup or recovery is running') from None
+            if exc.errno in {errno.EACCES, errno.EAGAIN}:
+                raise RetryableRecoveryError('Another backup or recovery is running') from None
+            raise GuardError('Backup lock could not be verified') from None
         return fd
 
     def _sync_dir(self):
@@ -107,16 +203,24 @@ class BackupServiceGuard:
             os.close(fd)
 
     def _write_marker(self):
-        flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, 'O_NOFOLLOW', 0)
+        staged = None
         try:
-            fd = os.open(self._marker, flags, 0o600)
+            # A crash during serialization must never leave a partial marker at
+            # the recovery path. Publish without replacing an existing marker.
+            with tempfile.NamedTemporaryFile(
+                mode='w', encoding='utf-8', dir=self._dir, prefix='.restart-required-', delete=False,
+            ) as output:
+                staged = Path(output.name)
+                json.dump(_MARKER, output, sort_keys=True)
+                output.write('\n')
+                output.flush()
+                os.fsync(output.fileno())
+            os.link(staged, self._marker, follow_symlinks=False)
         except OSError:
             raise GuardError('A backup recovery marker already exists or is inaccessible') from None
-        with os.fdopen(fd, 'w') as output:
-            json.dump(_MARKER, output, sort_keys=True)
-            output.write('\n')
-            output.flush()
-            os.fsync(output.fileno())
+        finally:
+            if staged is not None:
+                staged.unlink(missing_ok=True)
         self._sync_dir()
 
     def _recover_unlocked(self):
@@ -140,13 +244,17 @@ class BackupServiceGuard:
             except Exception:
                 failures.append(name)
         if failures:
-            raise GuardError('Service restart incomplete; recovery marker retained')
+            raise RetryableRecoveryError('Service restart incomplete; recovery marker retained')
+        try:
+            self._runtime.verify_recovery()
+        except Exception:
+            raise RetryableRecoveryError('Service liveness check failed; recovery marker retained') from None
         try:
             # Docker may assign the restarted API a different address. Nginx
             # must resolve it again before the recovery marker can be removed.
             self._runtime.reload_proxy()
         except Exception:
-            raise GuardError('Proxy reload failed; recovery marker retained') from None
+            raise RetryableRecoveryError('Proxy reload failed; recovery marker retained') from None
         self._marker.unlink()
         self._sync_dir()
         return True
@@ -187,6 +295,21 @@ class BackupServiceGuard:
             self._recover_unlocked()
 
 
+def recover_services(state_dir):
+    """Retry temporary failures inside systemd's 180-second command budget."""
+    deadline = time.monotonic() + RECOVERY_COMMAND_SECONDS
+    guard = BackupServiceGuard(state_dir, DockerRuntime(deadline=deadline))
+    for delay in RECOVERY_RETRY_DELAYS_SECONDS:
+        try:
+            return guard.recover()
+        except RetryableRecoveryError:
+            if time.monotonic() + delay >= deadline:
+                raise
+            # Recover releases the lock before waiting. Every attempt rechecks fences.
+            time.sleep(delay)
+    return guard.recover()
+
+
 def main(argv=None):
     """Only recover a previously interrupted guard; never start a backup."""
     import argparse
@@ -196,7 +319,7 @@ def main(argv=None):
     parser.add_argument('--state-dir', type=Path, required=True)
     args = parser.parse_args(argv)
     try:
-        recovered = BackupServiceGuard(args.state_dir, DockerRuntime()).recover()
+        recovered = recover_services(args.state_dir)
         print(json.dumps({'status': 'RECOVERED' if recovered else 'NO_RECOVERY_NEEDED'}))
         return 0
     except Exception:

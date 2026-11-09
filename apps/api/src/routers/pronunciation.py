@@ -16,7 +16,7 @@ import structlog
 from src.core.audio_feature import require_audio_supported
 from src.core.consent import require_parental_consent
 from src.core.database import get_db
-from src.core.dependencies import get_user_key
+from src.core.dependencies import get_profile_id, get_user_key, validate_profile_ownership
 from src.core.exceptions import ValidationError
 from src.models.db import PronunciationLog
 from src.services.growth import growth_service
@@ -104,12 +104,14 @@ async def evaluate_pronunciation(
     request: PronunciationEvaluateRequest,
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
+    profile_id: Optional[str] = Depends(get_profile_id),
 ):
     await require_parental_consent(db, user_key)
     # R4/IDOR: book_id 소유권 미검증이면 남의 책 id로 로그를 남겨 타인의 성장 지표를
     # 오염시킬 수 있고, 존재하지 않는 id는 운영(PG)에서 FK 위반 500이 된다. 형제 write
     # 경로(streak /read, quiz)가 이미 쓰는 공용 불변식을 여기서도 적용한다.
-    await growth_service.assert_book_not_foreign(db, request.book_id, user_key)
+    profile_id = await validate_profile_ownership(db, user_key, profile_id)
+    await growth_service.assert_book_not_foreign(db, request.book_id, user_key, profile_id=profile_id)
 
     score, feedback = _score_pronunciation(request.transcript, request.expected_text)
 
@@ -149,6 +151,7 @@ async def evaluate_pronunciation_audio(
     language: str = Form(default="ko"),
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
+    profile_id: Optional[str] = Depends(get_profile_id),
 ):
     # H1/G9: STT 비활성 배포에서는 provider 해석 실패 500 대신 명시적 미지원으로 차단.
     require_audio_supported()
@@ -157,7 +160,8 @@ async def evaluate_pronunciation_audio(
     if page_number is not None and not (1 <= page_number <= 12):
         raise ValidationError("page_number는 1~12 범위여야 합니다.")
     # R4/IDOR: 오디오 평가 경로도 동일 불변식(두 벌 규칙 방지).
-    await growth_service.assert_book_not_foreign(db, book_id, user_key)
+    profile_id = await validate_profile_ownership(db, user_key, profile_id)
+    await growth_service.assert_book_not_foreign(db, book_id, user_key, profile_id=profile_id)
     # H3: 발음 평가 언어를 스토리 5개 언어로 확장(ja/zh/es 한국어 오전사·저점 채점 제거).
     from src.services.stt import SUPPORTED_STT_LANGUAGES
 

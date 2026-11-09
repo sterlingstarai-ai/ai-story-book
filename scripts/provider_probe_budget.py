@@ -12,17 +12,29 @@ import sqlite3
 import stat
 import time
 
+_CLAIM_INTERVAL = 18 * 3600
+_WINDOW = 31 * 86400
+_MAX_CLAIMS = 41
+
 
 class ProbeBudgetError(RuntimeError):
     pass
 
 
-def claim(path: Path, *, now: int | None = None) -> bool:
+class ProbeFollowupUnavailable(ProbeBudgetError):
+    """A full refresh can claim now, but a partial refresh risks later expiry."""
+
+
+def claim(path: Path, *, now: int | None = None, require_next_interval: bool = False) -> bool:
     """Consume one of at most 41 claims in 31 days and one per 18 hours.
 
     The operator must provision the ledger separately; a lost ledger never
     resets the budget automatically. The containing directory and ledger
     must be private and owned by the caller.
+
+    A partial refresh can require another claim to be available after the
+    minimum interval, assuming this is the last claim until then.
+    Raise ProbeFollowupUnavailable without consuming a claim if it cannot.
     """
     now = int(time.time()) if now is None else now
     if type(now) is not int or now < 1:
@@ -44,12 +56,18 @@ def claim(path: Path, *, now: int | None = None) -> bool:
                     COUNT(CASE WHEN typeof(claimed_at) != 'integer'
                         OR claimed_at < 1 OR claimed_at > ? THEN 1 END)
                 FROM claims
-            ''', (now - 31 * 86400, now)).fetchone()
+            ''', (now - _WINDOW, now)).fetchone()
             if invalid:
                 raise ProbeBudgetError('ledger clock or data invalid')
-            if (last is not None and now - last < 18 * 3600) or recent >= 41:
+            if (last is not None and now - last < _CLAIM_INTERVAL) or recent >= _MAX_CLAIMS:
                 db.rollback()
                 return False
+            if require_next_interval:
+                (remaining,) = db.execute('SELECT COUNT(*) FROM claims WHERE claimed_at > ?',
+                                          (now + _CLAIM_INTERVAL - _WINDOW,)).fetchone()
+                if remaining + 1 >= _MAX_CLAIMS:
+                    db.rollback()
+                    raise ProbeFollowupUnavailable('next claim would exceed the rolling cap')
             db.execute('INSERT INTO claims (claimed_at) VALUES (?)', (now,))
             db.commit()
             return True

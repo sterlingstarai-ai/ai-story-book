@@ -44,3 +44,18 @@ flutter test integration_test/final_product_flow_test.dart \
 ```
 
 iPad는 `--family ipad-13`과 별도 기기·새 출력 경로를 사용한다. 수신한 Flutter PNG는 저장하지 않고, 해당 시점의 실제 기기 화면을 `simctl` JPEG로 기록한다. 크기·해시·mock 여부가 manifest에 기록되며 승인 상태는 false다. 검증 후 이 작업이 만든 수신기만 종료하고 해당 임시 기기만 shutdown/delete한다. 기존 API·개인 책·다른 기기는 보존한다. OS 평점·알림 요청은 테스트에서 제외하며 실제 스토어 동작 검증으로 표시하지 않는다.
+
+무료 첫 권도 같은 네이티브 여정에서 검증할 수 있다. 저장소 루트에서 아래 첫 명령을 실행하고 `Synthetic preview API ready`가 나온 뒤, 다른 터미널의 `apps/mobile`에서 두 번째 명령을 실행한다. 새 비공개 작업 디렉터리의 절대 경로를 두 명령에 동일하게 사용한다.
+
+```bash
+./apps/api/venv/bin/python scripts/run_runtime_e2e.py \
+  --suite first-book-trial --serve --report-dir <private-report-dir>
+
+flutter test integration_test/final_product_flow_test.dart \
+  -d <temporary-device-id> --no-pub \
+  --dart-define-from-file=<private-report-dir>/mobile-trial-defines.json
+```
+
+서버 검사용 계정과 모바일 검사용 계정은 별개다. 네이티브 시험은 모바일 계정의 무료 안내, 7–9세 12쪽 책, 표지와 본문 삽화 13장의 디코딩, 크레딧 1에서 0으로의 변경을 확인한다. Android 에뮬레이터는 미리보기 API와 MinIO의 호스트 포트를 각각 같은 번호로 `adb -s <temporary-device-id> reverse tcp:<port> tcp:<port>`에 연결한다. 서명된 미디어 URL도 시험 기기에서 로컬로 열기 위해 두 포트가 필요하다. 시험이 끝나면 미리보기 프로세스를 종료한다. 종료 시 계정 설정 파일과 해당 실행의 격리 리소스를 정리한다.
+
+출시 명세와 비교할 때는 `apps/api/requirements.txt`에 맞춘 Python 환경을 사용한다. `python -m pip show fastapi starlette`로 현재 버전을 확인할 수 있다.

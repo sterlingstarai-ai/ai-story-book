@@ -3,14 +3,16 @@ import asyncio
 import json
 import runpy
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import httpx
 import pytest
+from redis.exceptions import ResponseError
 
 from src.core.config import settings
 from src.core.errors import ErrorCode, LLMError, StoryBookError, is_retryable
 from src.services import provider_runtime as runtime, openai_contract, orchestrator, image
+from tests.fake_redis import FakePipeline
 
 
 @pytest.fixture(autouse=True)
@@ -28,6 +30,12 @@ def isolated_observations(monkeypatch):
 def request(kind="llm"):
     return runtime.begin_provider_request("openai", settings.llm_model if kind == "llm" else settings.image_model,
         kind, settings.llm_api_key if kind == "llm" else settings.image_api_key)
+
+
+def _shared_redis(stored, **methods):
+    client = SimpleNamespace(get=AsyncMock(side_effect=stored.get), **methods)
+    client.pipeline = Mock(side_effect=lambda **_: FakePipeline(client))
+    return client
 
 
 @pytest.mark.asyncio
@@ -65,20 +73,60 @@ async def test_true_rate_limit_remains_transient_and_does_not_claim_exhausted_ba
 
 
 @pytest.mark.asyncio
+async def test_delayed_response_cannot_undo_newer_rejection_or_recovery():
+    early_success = request()
+    await runtime.observe_provider_response(request(), httpx.Response(401))
+    await runtime.observe_validated_provider_success(early_success)
+    assert (await runtime.provider_runtime_status())["status"] == "unavailable"
+
+    early_failure, early_invalid, recovery = request(), request(), request()
+    await runtime.observe_validated_provider_success(recovery)
+    await runtime.observe_provider_response(early_failure, httpx.Response(401))
+    await runtime.observe_invalid_provider_response(early_invalid)
+    await runtime.observe_validated_provider_success(request("image"))
+    state = await runtime.provider_runtime_status()
+    assert state["status"] == "healthy"
+    assert all("request_started_at" not in item for item in state["observations"])
+
+
+@pytest.mark.asyncio
 async def test_quota_failure_is_seen_across_workers_without_exposing_credentials(monkeypatch):
     from src.core.rate_limit import rate_limiter
     stored = {}
     async def put(key, value, ex):
         stored[key] = value
-    client = SimpleNamespace(set=put, get=AsyncMock(side_effect=lambda key: stored.get(key)))
+    client = _shared_redis(stored, set=put)
     monkeypatch.setattr(settings, "testing", False)
     monkeypatch.setattr(rate_limiter, "get_redis", AsyncMock(return_value=client))
     await runtime.observe_provider_response(request(), httpx.Response(429, json={"error": {"code": "insufficient_quota"}}))
     runtime._LOCAL_OBSERVATIONS.clear()  # Separate API process must use Redis.
     assert (await runtime.provider_runtime_status())["status"] == "unavailable"
+    client.pipeline.assert_called_once_with(transaction=True)
     assert settings.llm_api_key not in json.dumps(stored)
     assert "insufficient_quota" not in json.dumps(stored)
     assert "quota_exhausted" in json.dumps(stored)
+
+
+@pytest.mark.asyncio
+async def test_bad_marker_does_not_hide_another_providers_permanent_failure(monkeypatch):
+    from src.core.rate_limit import rate_limiter
+
+    llm, picture = request(), request('image')
+    await runtime.observe_validated_provider_success(llm)
+    await runtime.observe_provider_response(picture, httpx.Response(401))
+    stored = {identity: json.dumps(value) for identity, value in runtime._LOCAL_OBSERVATIONS.items()}
+    stored[llm.identity + ':invalid'] = ResponseError('WRONGTYPE')
+    stored[picture.identity + ':invalid'] = b'1'
+    client = _shared_redis(stored)
+    monkeypatch.setattr(settings, 'testing', False)
+    monkeypatch.setattr(rate_limiter, 'get_redis', AsyncMock(return_value=client))
+
+    result = await runtime.provider_runtime_status()
+    assert result['status'] == 'unavailable'
+    assert {item['kind']: item['reason'] for item in result['observations']} == {
+        'llm': 'no_recent_observation', 'image': 'credentials_rejected',
+    }
+    client.pipeline.assert_called_once_with(transaction=True)
 
 
 @pytest.mark.asyncio
@@ -143,7 +191,13 @@ async def test_narration_only_still_checks_configured_stt(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_realtime_observation_matches_readiness_and_requires_valid_audio(monkeypatch):
+@pytest.mark.parametrize('status_code,status,reason', [
+    (None, 'unverified', 'invalid_response'),
+    (401, 'unavailable', 'credentials_rejected'),
+    (403, 'unavailable', 'credentials_rejected'),
+])
+async def test_realtime_observation_matches_readiness_and_requires_valid_audio(monkeypatch, status_code, status, reason):
+    from src.services.realtime_tts import RealtimeSynthesisError
     from src.services.tts import RealtimeTTSProvider
     monkeypatch.setattr(settings, 'audio_feature_enabled', True)
     monkeypatch.setattr(settings, 'audio_narration_only_enabled', True)
@@ -152,13 +206,18 @@ async def test_realtime_observation_matches_readiness_and_requires_valid_audio(m
     monkeypatch.setattr(settings, 'stt_provider', 'mock')
     await runtime.observe_provider_response(request(), httpx.Response(200, json={}))
     await runtime.observe_provider_response(request('image'), httpx.Response(200, json={}))
-    synth = AsyncMock(side_effect=ValueError('invalid audio'))
+    synth = AsyncMock(return_value=b'RIFF-synthetic')
     monkeypatch.setattr('src.services.realtime_tts.synthesize_realtime', synth)
+    assert await RealtimeTTSProvider().synthesize('test') == b'RIFF-synthetic'
+    assert (await runtime.provider_runtime_status(include_audio=True))['status'] == 'healthy'
+    synth.side_effect = RealtimeSynthesisError(status_code)
     with pytest.raises(ValueError):
         await RealtimeTTSProvider().synthesize('test')
-    assert (await runtime.provider_runtime_status(include_audio=True))['status'] == 'unverified'
+    state = await runtime.provider_runtime_status(include_audio=True)
+    assert state['status'] == status
+    assert any(item['provider'] == 'openai_realtime' and item['reason'] == reason
+               for item in state['observations'])
     synth.side_effect = None
-    synth.return_value = b'RIFF-synthetic'
     assert await RealtimeTTSProvider().synthesize('test') == b'RIFF-synthetic'
     state = await runtime.provider_runtime_status(include_audio=True)
     assert state['status'] == 'healthy'
@@ -183,7 +242,7 @@ async def test_readiness_unavailable_without_paid_health_request(client, monkeyp
 @pytest.fixture
 def configured_production_readiness(client, monkeypatch):
     """Healthy infrastructure with real-provider settings and fake HTTP/Redis."""
-    from src.services import storage, image_quality, job_monitor
+    from src.services import image_quality, job_monitor
     from src.core.rate_limit import rate_limiter
 
     monkeypatch.setattr(settings, "testing", False)
@@ -195,28 +254,23 @@ def configured_production_readiness(client, monkeypatch):
     monkeypatch.setattr(settings, "audio_feature_enabled", False)
     monkeypatch.setattr(settings, "pod_ordering_enabled", False)
     monkeypatch.setattr(settings, "daily_generation_budget", 20)
-    monkeypatch.setattr(storage, "ensure_bucket_exists", AsyncMock())
     monkeypatch.setattr(image_quality, "review_provider_configured", lambda: True)
     monkeypatch.setattr(job_monitor, "get_job_metrics", AsyncMock(return_value={}))
     monkeypatch.setattr(rate_limiter, "ping", AsyncMock(return_value=True))
     stored = {}
     async def put(key, value, ex):
         stored[key] = value
-    async def evaluate(script, count, *args):
-        if script == runtime._VALIDATED_SUCCESS_UPDATE and count == 2:
-            key, invalid_key, value, _ttl = args
-            stored[key] = value
+    async def evaluate(script, count, key, invalid_key, value, _ttl, validated):
+        assert script == runtime._ORDERED_OBSERVATION_UPDATE and count == 2
+        incoming = json.loads(value)
+        if incoming['status'] == 'unverified':
+            stored[invalid_key] = value
+            return 1
+        elif validated == '1':
             stored.pop(invalid_key, None)
-            return 1
-        if script == runtime._INVALID_RESPONSE_UPDATE and count == 1:
-            key, value, _ttl = args
-            previous = json.loads(stored.get(key, '{}'))
-            if previous.get('reason') in {'credentials_rejected', 'quota_exhausted'}:
-                return 0
-            stored[key] = value
-            return 1
-        raise AssertionError('unexpected provider observation script')
-    redis = SimpleNamespace(set=put, get=AsyncMock(side_effect=lambda key: stored.get(key)), eval=evaluate)
+        stored[key] = value
+        return 1
+    redis = _shared_redis(stored, set=put, eval=evaluate)
     monkeypatch.setattr(rate_limiter, "get_redis", AsyncMock(return_value=redis))
 
 
@@ -274,6 +328,37 @@ async def test_production_readiness_requires_all_probes_and_recovers_after_quota
     assert response.status_code == 200
     assert response.json()["services"]["provider_access_observed"] is True
     await runtime.ensure_generation_available()
+
+
+@pytest.mark.asyncio
+async def test_readiness_rechecks_storage_after_startup_and_recovers(
+    client, configured_production_readiness, monkeypatch,
+):
+    from botocore.exceptions import ClientError
+    from src.services import storage
+
+    for kind in ("llm", "image"):
+        await runtime.observe_provider_response(request(kind), httpx.Response(200, json={}))
+    # The upload path already verified the bucket. Its state must not stand
+    # in for a recent readiness observation, or enable bucket creation here.
+    monkeypatch.setattr(storage, "_bucket_verified", True)
+    monkeypatch.setattr(settings, "s3_auto_create_bucket", True)
+    now = 100.0
+    monkeypatch.setattr(storage, "monotonic", lambda: now)
+    probe = SimpleNamespace(
+        head_bucket=AsyncMock(side_effect=[{}, ClientError({"Error": {"Code": "404"}}, "HeadBucket"), {}]),
+        create_bucket=AsyncMock(side_effect=AssertionError("readiness cannot create storage")),
+        close=AsyncMock(),
+    )
+    monkeypatch.setattr(storage, "get_s3_client", lambda *, readiness_probe: probe)
+    for expected, state in ((200, "healthy"), (503, "unhealthy"), (200, "healthy")):
+        response = await client.get("/health/ready")
+        assert response.status_code == expected
+        assert response.json()["services"]["storage"] == state
+        assert response.json()["services"]["provider_runtime"] == "healthy"
+        now += storage._READINESS_TTL_SECONDS
+    assert probe.head_bucket.await_count == probe.close.await_count == 3
+    probe.create_bucket.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -376,12 +461,17 @@ async def test_usage_aggregates_concurrency_and_flushes_on_failure_without_child
     logs = []
     monkeypatch.setattr(runtime, "logger", SimpleNamespace(warning=lambda event, **fields: logs.append({"event": event, **fields})))
     with pytest.raises(RuntimeError), runtime.job_provider_usage("qa-usage-job"):
-        await asyncio.gather(success("llm"), success("image"), success("image"))
-        raise RuntimeError("pipeline failed later")
+        with runtime.record_generation_stage("generate_story"):
+            await success("llm")
+        with runtime.record_generation_stage("generate_images"):
+            await asyncio.gather(success("image"), success("image"))
+            raise RuntimeError("pipeline failed later")
     summary = [event for event in logs if event["event"] == "Generation provider usage"][0]
     assert summary["provider_requests"] == 3 and summary["image_requests"] == 2
     assert summary["input_tokens"] == 300 and summary["output_tokens"] == 60
     assert summary["estimated_cost_usd"] == 0.2004
+    assert set(summary["stage_seconds"]) == {"generate_story", "generate_images"}
+    assert all(value >= 0 for value in summary["stage_seconds"].values())
     assert "PRIVATE_CHILD" not in json.dumps(logs)
     assert settings.llm_api_key not in json.dumps(logs)
     assert runtime._SCOPE.get() is None

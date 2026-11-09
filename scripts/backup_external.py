@@ -6,8 +6,11 @@ out of command arguments and output. See docs/BACKUP_RESTORE.md before --execute
 """
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from functools import partial
 import hashlib
+from itertools import islice
 import json
 import os
 from pathlib import Path
@@ -168,16 +171,8 @@ def transaction_snapshot(environment, query):
     return snapshot
 
 
-def create_backup(values, destination, ca_file, *, quiescence_check=None, fence=None):
-    """Only called after CLI authorization; all remote methods here are read-only."""
-    if quiescence_check is None:
-        quiescence_check = assert_quiescent
-    if not ca_file.is_file():
-        raise BackupError('Provider CA file is not readable on this backup host')
-    environment = database_environment(values, ca_file)
-    if fence is not None and fence.environment != environment:
-        raise BackupError('Backup and fence database identities differ')
-    query = ['psql', '-X', '--no-password', '--tuples-only', '--no-align', '--set', 'ON_ERROR_STOP=1', '-c']
+def verify_database_backup_tools(environment, query):
+    """Check the read-only connection and matching libpq tools before capture."""
     version = run_pg(query + ['SHOW server_version_num'], environment).strip()
     if not version.isdigit() or int(version) < 100000:
         raise BackupError('Unsupported or unknown PostgreSQL server version')
@@ -187,6 +182,70 @@ def create_backup(values, destination, ca_file, *, quiescence_check=None, fence=
         match = re.fullmatch(rb'pg_(?:dump|restore) \(PostgreSQL\) (\d+)(?:\.\d+)*(?:[^\r\n]*)?[\r\n]*', output)
         if not match or int(match.group(1)) != server_major:
             raise BackupError('PostgreSQL backup tools must match the server major version')
+
+
+def _download_media_object(client, bucket, objects_dir, entry):
+    key, expected = entry
+    if not expected['ETag'] or not expected['LastModified'] or not expected['Size'].isdigit():
+        raise BackupError('Media inventory is missing object identity metadata')
+    expected_size = int(expected['Size'])
+    filename = hashlib.sha256(key.encode()).hexdigest()
+    path = objects_dir / filename  # Never interpret remote object keys as local paths.
+    obj = client.get_object(Bucket=bucket, Key=key, IfMatch=expected['ETag'])
+    size = 0
+    digest = hashlib.sha256()
+    try:
+        if (obj.get('ETag') != expected['ETag']
+                or _http_last_modified(obj.get('LastModified')) != _http_last_modified(expected['LastModified'])
+                or obj.get('ContentLength') != expected_size):
+            raise BackupError('Media object identity changed before download')
+        with path.open('xb') as output:
+            os.chmod(path, 0o600)
+            for data in iter(lambda: obj['Body'].read(1024 * 1024), b''):
+                size += len(data)
+                if size > expected_size:
+                    raise BackupError('Media object exceeded its listed size')
+                digest.update(data)
+                output.write(data)
+    finally:
+        obj['Body'].close()
+    if size != expected_size:
+        raise BackupError('Media changed or was truncated during backup')
+    return {'key': key, 'file': f'objects/{filename}', 'sha256': digest.hexdigest(),
+            'size': size, 'content_type': obj.get('ContentType', 'application/octet-stream'),
+            'metadata': obj.get('Metadata', {}), 'cache_control': obj.get('CacheControl'),
+            'content_disposition': obj.get('ContentDisposition'), 'content_encoding': obj.get('ContentEncoding')}
+
+
+def _download_media(client, bucket, objects_dir, objects, workers):
+    download = partial(_download_media_object, client, bucket, objects_dir)
+    entries = sorted(objects.items())
+    if workers == 1 or len(entries) < 2:
+        return [download(entry) for entry in entries]
+
+    media = []
+    remaining = iter(entries)
+    # The client was created on the caller's thread. Bound outstanding reads
+    # and wait for them before closing it or removing the partial directory.
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        while batch := list(islice(remaining, workers)):
+            media.extend(pool.map(download, batch))
+    return media
+
+
+def create_backup(values, destination, ca_file, *, quiescence_check=None, fence=None, media_download_workers=1):
+    """Only called after CLI authorization; all remote methods here are read-only."""
+    if quiescence_check is None:
+        quiescence_check = assert_quiescent
+    if type(media_download_workers) is not int or media_download_workers not in (1, 2):
+        raise BackupError('Invalid media download worker count')
+    if not ca_file.is_file():
+        raise BackupError('Provider CA file is not readable on this backup host')
+    environment = database_environment(values, ca_file)
+    if fence is not None and fence.environment != environment:
+        raise BackupError('Backup and fence database identities differ')
+    query = ['psql', '-X', '--no-password', '--tuples-only', '--no-align', '--set', 'ON_ERROR_STOP=1', '-c']
+    verify_database_backup_tools(environment, query)
     quiescence_check(environment, query)
     if fence is None:
         transaction_baseline = transaction_snapshot(environment, query)
@@ -218,39 +277,7 @@ def create_backup(values, destination, ca_file, *, quiescence_check=None, fence=
                 dump_command.extend(['--snapshot', fence.snapshot_id])
             run_pg(dump_command, environment, destination=output)
         run_pg(['pg_restore', '--list', str(dump)], environment)
-        media = []
-        for key, expected in sorted(before.items()):
-            if not expected['ETag'] or not expected['LastModified'] or not expected['Size'].isdigit():
-                raise BackupError('Media inventory is missing object identity metadata')
-            expected_size = int(expected['Size'])
-            filename = hashlib.sha256(key.encode()).hexdigest()
-            path = objects_dir / filename  # Never interpret remote object keys as local paths.
-            obj = client.get_object(Bucket=bucket, Key=key, IfMatch=expected['ETag'])
-            size = 0
-            digest = hashlib.sha256()
-            try:
-                if (obj.get('ETag') != expected['ETag']
-                        or _http_last_modified(obj.get('LastModified')) != _http_last_modified(expected['LastModified'])
-                        or obj.get('ContentLength') != expected_size):
-                    raise BackupError('Media object identity changed before download')
-                with path.open('xb') as output:
-                    os.chmod(path, 0o600)
-                    for data in iter(lambda: obj['Body'].read(1024 * 1024), b''):
-                        size += len(data)
-                        if size > expected_size:
-                            raise BackupError('Media object exceeded its listed size')
-                        digest.update(data)
-                        output.write(data)
-            finally:
-                obj['Body'].close()
-            if size != expected_size:
-                raise BackupError('Media changed or was truncated during backup')
-            media.append({'key': key, 'file': f'objects/{filename}', 'sha256': digest.hexdigest(),
-                          'size': size, 'content_type': obj.get('ContentType', 'application/octet-stream'),
-                          'metadata': obj.get('Metadata', {}),
-                          'cache_control': obj.get('CacheControl'),
-                          'content_disposition': obj.get('ContentDisposition'),
-                          'content_encoding': obj.get('ContentEncoding')})
+        media = _download_media(client, bucket, objects_dir, before, media_download_workers)
         if inventory(client, bucket) != before:
             raise BackupError('Media inventory changed during backup; no complete set will be published')
         quiescence_check(environment, query)

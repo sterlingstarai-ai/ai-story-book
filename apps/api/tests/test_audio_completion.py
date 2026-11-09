@@ -108,12 +108,12 @@ async def test_narration_upload_guard_survives_failed_page_transaction(db_sessio
     upload.assert_awaited_once()
 
 
-async def _narration_book(db, *, text="Current page", consent=True):
+async def _narration_book(db, *, text="Current page", consent=True, user_key="audio-regression-user"):
     from src.models.db import Book, Job, Page, UserConsent
-    db.add(Job(id="audio-regression-job", user_key="audio-regression-user", status="done"))
+    db.add(Job(id="audio-regression-job", user_key=user_key, status="done"))
     await db.flush()
     book = Book(id="audio-regression-book", job_id="audio-regression-job", title="Audio fixture",
-                user_key="audio-regression-user", language="en", target_age="3-5", style="watercolor")
+                user_key=user_key, language="en", target_age="3-5", style="watercolor")
     db.add(book)
     await db.flush()
     page = Page(book_id=book.id, page_number=1, text=text)

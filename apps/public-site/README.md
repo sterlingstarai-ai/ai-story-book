@@ -4,6 +4,8 @@
 
 앱 내 전문의 원본은 `apps/mobile/assets/legal/{privacy,terms}.ko.json`이다. 설정과 최초 동의 화면에서는 공개 URL이나 인터넷 없이 이 원본을 읽는다. `python3 scripts/render_legal_documents.py`로 같은 내용의 한국어 HTML을 생성한 뒤 아래 공개 빌더에 전달한다. 문서의 `publication_status=review`는 공개 승인과 구분하며, 빌더는 승인 플래그와 해시가 있어도 검토본을 거절한다. 실제 문구·운영 계약·시행일을 확정한 후 원본 승인 상태와 생성 HTML의 승인 해시를 함께 갱신한다.
 
+앱 배포 사전 검사는 `effective_date`와 화면에 보이는 `version_label`의 `시행일 YYYY-MM-DD`가 일치해야 통과한다. 시행일이 아직 오지 않았거나 제목 아래 버전 표시와 소개에 검토본 문구가 남아 있으면 빌드를 중단한다.
+
 ## 지금 준비된 범위
 
 - `/`: 보호자 도움말 첫 화면

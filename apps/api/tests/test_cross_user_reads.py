@@ -17,6 +17,7 @@ from unittest.mock import patch
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.db import Book, ChildProfile, Job, Page
@@ -83,6 +84,61 @@ async def test_book_detail_read_blocked_for_other_user(
     assert res.status_code in (403, 404), res.text
     assert SECRET_TITLE not in res.text, "권한 거부 응답에 책 제목이 새어나갔다"
     assert "A의 비밀 본문" not in res.text
+
+
+@pytest.mark.asyncio
+async def test_completed_status_reads_book_and_pages_together(
+    client: AsyncClient, db_session: AsyncSession,
+):
+    await _seed_owner_resources(db_session)
+    statements = []
+    engine = db_session.bind.sync_engine
+
+    def record(_conn, _cursor, statement, _params, _context, _executemany):
+        normalized = " ".join(statement.lower().split())
+        if normalized.startswith("select") and any(
+            f" from {table} " in normalized for table in ("jobs", "books", "pages")
+        ):
+            statements.append(normalized)
+
+    event.listen(engine, "before_cursor_execute", record)
+    try:
+        response = await client.get(f"/v1/books/{JOB_ID}", headers=OWNER)
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
+
+    assert response.status_code == 200, response.text
+    result = response.json()["result"]
+    assert result["title"] == SECRET_TITLE
+    assert result["pages"][0]["text"] == "A의 비밀 본문"
+    assert len(statements) == 2
+    assert " from jobs " in statements[0]
+    assert " from books left outer join pages " in statements[1]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mismatch", ["account", "requested_profile", "job_profile"])
+async def test_completed_status_blocks_inconsistent_book_scope(
+    client: AsyncClient, db_session: AsyncSession, mismatch: str,
+):
+    await _seed_owner_resources(db_session)
+    book = await db_session.get(Book, BOOK_ID)
+    headers = dict(OWNER)
+    if mismatch == "account":
+        book.user_key = ATTACKER["X-User-Key"]
+    else:
+        book.profile_id = "different-profile"
+        if mismatch == "requested_profile":
+            headers["X-Profile-Id"] = PROFILE_ID
+        else:
+            job = await db_session.get(Job, JOB_ID)
+            job.profile_id = PROFILE_ID
+    await db_session.commit()
+
+    response = await client.get(f"/v1/books/{JOB_ID}", headers=headers)
+    assert response.status_code == 403, response.text
+    assert SECRET_TITLE not in response.text
+    assert "A의 비밀 본문" not in response.text
 
 
 @pytest.mark.asyncio

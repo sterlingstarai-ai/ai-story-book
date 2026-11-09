@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import stat
 import subprocess
 import syslog
@@ -47,6 +48,31 @@ from update_privacy_purge_monitor import _validate_installed_release
 
 class PilotAdapterError(RuntimeError):
     pass
+
+
+def _verify_backup_witness_argument():
+    """Reject a loaded backup unit that would ignore the staged witness."""
+    try:
+        state = subprocess.run(
+            ['/usr/bin/systemctl', 'show', 'asb-backup.service',
+             '--property=ExecStart,NeedDaemonReload'],
+            capture_output=True, text=True, timeout=15, check=True,
+        )
+        properties = dict(line.split('=', 1) for line in state.stdout.splitlines() if '=' in line)
+        commands = re.findall(r'argv\[\]=([^;]+)\s*;', properties.get('ExecStart', ''))
+        if properties.get('NeedDaemonReload') != 'no' or len(commands) != 1:
+            raise ValueError()
+        argv = shlex.split(commands[0])
+        option = '--journal-witness-bucket'
+        if (len(argv) < 3 or not re.fullmatch(r'python(?:3(?:\.\d+)?)?', Path(argv[0]).name)
+                or Path(argv[1]).name != 'run_scheduled_backup.py'
+                or argv[2] != '--execute' or argv.count(option) != 1):
+            raise ValueError()
+        witness_index = argv.index(option) + 1
+        if argv[witness_index:witness_index + 1] != ['${ASB_JOURNAL_WITNESS_BUCKET}']:
+            raise ValueError()
+    except (OSError, ValueError, subprocess.SubprocessError):
+        raise PilotAdapterError('Loaded backup service does not bind the staged journal witness') from None
 
 
 MEDIA_STAGE_PATH = Path('/etc/ai-story-book/pilot/private/media-gcs-stage.env')
@@ -993,6 +1019,8 @@ class NarrationPilotAdapter:
                  'S3_ADDRESSING_STYLE', 'S3_AUTO_CREATE_BUCKET')
         if any(before.get(key) != after.get(key) for key in (*media, 'PRIVACY_JOURNAL_WITNESS_BUCKET')):
             raise PilotAdapterError('Candidate service configuration differs')
+        if before.get('PRIVACY_JOURNAL_WITNESS_BUCKET'):
+            _verify_backup_witness_argument()
         updates = {
             'pilot.env': {**{key: before[key] for key in media}, 'API_IMAGE': 'local-image@' + api['Image'],
                           'WORKER_IMAGE': 'local-image@' + worker['Image']},

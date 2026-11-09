@@ -4,6 +4,9 @@ from pathlib import Path
 import subprocess
 
 import pytest
+from pydantic import ValidationError
+
+from src.core.config import Settings
 
 ROOT = Path(__file__).resolve().parents[3]
 WITNESS = {'PRIVACY_JOURNAL_WITNESS_S3_ENDPOINT': 'https://witness.test',
@@ -20,6 +23,8 @@ WITNESS = {'PRIVACY_JOURNAL_WITNESS_S3_ENDPOINT': 'https://witness.test',
     ({"OPENAI_IMAGE_QUALITY": "high"}, True),
     ({"OPENAI_IMAGE_QUALITY": "auto"}, True),
     ({"OPENAI_IMAGE_QUALITY": "hd"}, False),
+    ({"IMAGE_MAX_CONCURRENT": "4"}, True),
+    ({"IMAGE_MAX_CONCURRENT": "0"}, False),
     ({"LLM_PROVIDER": "gemini", "LLM_MODEL": "gemini-test"}, False),
     ({"ILLUSTRATION_QUALITY_ENABLED": "false"}, False),
     ({"ILLUSTRATION_QUALITY_ENABLED": "invalid"}, False),
@@ -59,3 +64,8 @@ def test_production_env_validation(tmp_path, overrides, passes):
     )
     assert (result.returncode == 0) is passes, result.stdout + result.stderr
     assert 'test-key' not in result.stdout
+
+
+def test_image_concurrency_cannot_start_a_worker_without_slots():
+    with pytest.raises(ValidationError, match="image_max_concurrent"):
+        Settings(_env_file=None, image_max_concurrent=0)

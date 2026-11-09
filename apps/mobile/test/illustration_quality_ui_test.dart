@@ -105,7 +105,7 @@ class _QueuedThenDoneApi extends ApiClient {
   }
 
   @override
-  Future<JobStatus> getBookStatus(String jobId) async {
+  Future<JobStatus> getBookStatus(String jobId, {CancelToken? cancelToken}) async {
     statusPolls++;
     return JobStatus(
       jobId: jobId,

@@ -60,6 +60,7 @@ LOCAL_OPTIONAL_VARS=(
   "LLM_API_KEY_FILE"
   "IMAGE_API_KEY"
   "IMAGE_API_KEY_FILE"
+  "OPENAI_TTS_API_KEY_FILE"
   "AUDIO_FEATURE_ENABLED"
   "TTS_PROVIDER"
   "STT_PROVIDER"
@@ -75,6 +76,7 @@ PRODUCTION_OPTIONAL_VARS=(
   "LLM_API_KEY_FILE"
   "IMAGE_API_KEY"
   "IMAGE_API_KEY_FILE"
+  "OPENAI_TTS_API_KEY_FILE"
   "AUDIO_FEATURE_ENABLED"
   "TTS_PROVIDER"
   "STT_PROVIDER"
@@ -224,6 +226,11 @@ run_runtime_checks() {
   local rate_writes="${RATE_LIMIT_REQUESTS:-10}"
   local rate_reads="${RATE_LIMIT_READ_REQUESTS:-120}"
   local rate_window="${RATE_LIMIT_WINDOW:-60}"
+  local image_concurrency="${IMAGE_MAX_CONCURRENT-3}"
+  if [[ ! "$image_concurrency" =~ ^[1-9][0-9]*$ ]]; then
+    log_fail "IMAGE_MAX_CONCURRENT must be a positive integer"
+    has_errors=true
+  fi
   if [[ ! "$rate_writes" =~ ^[1-9][0-9]*$ ]] || [[ ! "$rate_reads" =~ ^[1-9][0-9]*$ ]] || [[ ! "$rate_window" =~ ^[1-9][0-9]*$ ]]; then
     log_fail "Rate limits and window must be positive integers"
     has_errors=true
@@ -345,7 +352,7 @@ validate_provider_settings() {
     for var_name in LLM_MODEL IMAGE_MODEL; do
       check_var "$var_name" true || failed=true
     done
-    for var_name in LLM_API_KEY IMAGE_API_KEY; do
+    for var_name in LLM_API_KEY IMAGE_API_KEY OPENAI_TTS_API_KEY; do
       local file_name="${var_name}_FILE"
       local file_path="${!file_name:-}" raw_key="${!var_name:-}"
       if [ -n "$raw_key" ] && [ -n "$file_path" ]; then
@@ -356,7 +363,9 @@ validate_provider_settings() {
           /*) log_ok "$file_name is configured (container mount and permissions unverified)" ;;
           *) log_fail "$file_name requires an absolute container path"; failed=true ;;
         esac
-      else
+      elif [ "$var_name" != OPENAI_TTS_API_KEY ] ||
+           { flag_enabled "${AUDIO_FEATURE_ENABLED:-false}" &&
+             { [ "${TTS_PROVIDER:-}" = openai ] || [ "${TTS_PROVIDER:-}" = openai_realtime ]; }; }; then
         check_var "$var_name" true || failed=true
       fi
     done

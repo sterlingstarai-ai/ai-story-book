@@ -23,6 +23,8 @@ class _Api extends ApiClient {
   List<BookStyle> styles = [BookStyle.watercolor, BookStyle.cartoon];
   Completer<GenerationOptions>? pending;
   bool fail = false;
+  bool generationAllowed = true;
+  bool inviteOnly = false;
   int optionReads = 0;
   int creditReads = 0;
   BookSpec? created;
@@ -32,7 +34,10 @@ class _Api extends ApiClient {
     optionReads++;
     if (pending != null) return pending!.future;
     if (fail) throw StateError('private options failure');
-    return GenerationOptions(styles);
+    return GenerationOptions(
+      styles,
+      generationAccessAllowed: generationAllowed,
+    );
   }
 
   @override
@@ -42,8 +47,10 @@ class _Api extends ApiClient {
   }
 
   @override
-  Future<CreateBookResponse> createBook(BookSpec spec,
-      {String? idempotencyKey}) async {
+  Future<CreateBookResponse> createBook(
+    BookSpec spec, {
+    String? idempotencyKey,
+  }) async {
     created = spec;
     return CreateBookResponse(jobId: 'synthetic-job', status: 'queued');
   }
@@ -58,38 +65,54 @@ Future<void> _pump(WidgetTester tester, _Api api) async {
   addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
   SharedPreferences.setMockInitialValues({});
   final prefs = await SharedPreferences.getInstance();
-  await tester.pumpWidget(ProviderScope(
-    overrides: [
-      sharedPreferencesProvider.overrideWithValue(prefs),
-      apiClientProvider.overrideWithValue(api),
-      charactersProvider.overrideWith(_Characters.new),
-    ],
-    child: MaterialApp(
-      locale: const Locale('ko'),
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
-      supportedLocales: AppLocalizations.supportedLocales,
-      home: const CreateScreen(),
-      onGenerateRoute: (settings) => MaterialPageRoute<void>(
-        builder: (_) => const Scaffold(body: Text('loading-route')),
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(prefs),
+        apiClientProvider.overrideWithValue(api),
+        capabilitiesProvider.overrideWith(
+          (ref) async => {'generation_invitation_supported': api.inviteOnly},
+        ),
+        charactersProvider.overrideWith(_Characters.new),
+      ],
+      child: MaterialApp(
+        locale: const Locale('ko'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: const CreateScreen(),
+        onGenerateRoute: (settings) => MaterialPageRoute<void>(
+          builder: (_) => Scaffold(
+            body: Text(
+              settings.name == '/settings' ? 'settings-route' : 'loading-route',
+            ),
+          ),
+        ),
       ),
     ),
-  ));
+  );
   await tester.pumpAndSettle();
 }
 
-Future<void> _show(WidgetTester tester, Finder target,
-    {double delta = 160}) async {
+Future<void> _show(
+  WidgetTester tester,
+  Finder target, {
+  double delta = 160,
+}) async {
   // The form now stays mounted off screen. Dismiss the input focus just as a
   // user drag does, so the keyboard does not scroll the topic back into view.
   FocusManager.instance.primaryFocus?.unfocus();
   await tester.pumpAndSettle();
-  await tester.scrollUntilVisible(target, delta,
-      maxScrolls: 60,
-      scrollable: find
-          .descendant(
-              of: find.byType(ListView).first,
-              matching: find.byType(Scrollable))
-          .first);
+  await tester.scrollUntilVisible(
+    target,
+    delta,
+    maxScrolls: 60,
+    scrollable: find
+        .descendant(
+          of: find.byType(ListView).first,
+          matching: find.byType(Scrollable),
+        )
+        .first,
+  );
   await tester.pumpAndSettle();
   await Scrollable.ensureVisible(tester.element(target), alignment: 0.5);
   await tester.pumpAndSettle();
@@ -101,23 +124,49 @@ PrimaryButton _submit(WidgetTester tester) =>
 void main() {
   test('parsing accepts only server-authorized known styles', () {
     final options = GenerationOptions.fromJson({
-      'allowed_styles': ['cartoon', 'future_style']
+      'allowed_styles': ['cartoon', 'future_style'],
     });
     expect(options.allowedStyles, [BookStyle.cartoon]);
+    expect(options.firstBookTrialAvailable, isFalse);
+    expect(options.generationAccessAllowed, isTrue);
+    expect(
+      GenerationOptions.fromJson({
+        'allowed_styles': ['cartoon'],
+        'generation_access_allowed': false,
+      }).generationAccessAllowed,
+      isFalse,
+    );
+    expect(
+      GenerationOptions.fromJson({
+        'allowed_styles': ['cartoon'],
+        'first_book_trial_available': true,
+      }).firstBookTrialAvailable,
+      isTrue,
+    );
+    expect(
+      GenerationOptions.fromJson({
+        'allowed_styles': ['cartoon'],
+        'first_book_trial_available': 'true',
+      }).firstBookTrialAvailable,
+      isFalse,
+    );
     for (final invalid in [
       null,
       [],
       ['future_style'],
       [4],
-      'watercolor'
+      'watercolor',
     ]) {
-      expect(() => GenerationOptions.fromJson({'allowed_styles': invalid}),
-          throwsFormatException);
+      expect(
+        () => GenerationOptions.fromJson({'allowed_styles': invalid}),
+        throwsFormatException,
+      );
     }
   });
 
-  testWidgets('free choices and sent style come from the server',
-      (tester) async {
+  testWidgets('free choices and sent style come from the server', (
+    tester,
+  ) async {
     final api = _Api();
     await _pump(tester, api);
     await _show(tester, find.byType(TextFormField));
@@ -138,41 +187,45 @@ void main() {
   });
 
   testWidgets(
-      'paid choices remain available and failed refresh disables generation',
-      (tester) async {
-    final api = _Api()..styles = BookStyle.values;
-    await _pump(tester, api);
-    await _show(tester, find.text('3D'));
-    expect(find.widgetWithText(ChoiceChip, '3D'), findsOneWidget);
-    final threeD = find.widgetWithText(ChoiceChip, '3D');
-    expect(threeD.hitTestable(), findsOneWidget);
-    await tester.tap(threeD);
-    await tester.pumpAndSettle();
-    api.fail = true;
-    final container =
-        ProviderScope.containerOf(tester.element(find.byType(CreateScreen)));
-    container.invalidate(generationOptionsProvider);
-    await tester.pumpAndSettle();
-    expect(_submit(tester).onPressed, isNull);
-    expect(find.textContaining('private options failure'), findsNothing);
-    expect(api.creditReads, 0);
-    api.fail = false;
-    api.styles = [BookStyle.watercolor];
-    await tester.tap(find.text('다시 시도'));
-    await tester.pumpAndSettle();
-    await _show(tester, find.text('수채화'), delta: -160);
-    expect(
+    'paid choices remain available and failed refresh disables generation',
+    (tester) async {
+      final api = _Api()..styles = BookStyle.values;
+      await _pump(tester, api);
+      await _show(tester, find.text('3D'));
+      expect(find.widgetWithText(ChoiceChip, '3D'), findsOneWidget);
+      final threeD = find.widgetWithText(ChoiceChip, '3D');
+      expect(threeD.hitTestable(), findsOneWidget);
+      await tester.tap(threeD);
+      await tester.pumpAndSettle();
+      api.fail = true;
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(CreateScreen)),
+      );
+      container.invalidate(generationOptionsProvider);
+      await tester.pumpAndSettle();
+      expect(_submit(tester).onPressed, isNull);
+      expect(find.textContaining('private options failure'), findsNothing);
+      expect(api.creditReads, 0);
+      api.fail = false;
+      api.styles = [BookStyle.watercolor];
+      await tester.tap(find.text('다시 시도'));
+      await tester.pumpAndSettle();
+      await _show(tester, find.text('수채화'), delta: -160);
+      expect(
         tester
             .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, '수채화'))
             .selected,
-        isTrue);
-    expect(find.widgetWithText(ChoiceChip, '3D'), findsNothing);
-    expect(_submit(tester).onPressed, isNotNull);
-    expect(tester.takeException(), isNull);
-  });
+        isTrue,
+      );
+      expect(find.widgetWithText(ChoiceChip, '3D'), findsNothing);
+      expect(_submit(tester).onPressed, isNotNull);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
-  testWidgets('unresolved entitlement lookup never enables creation',
-      (tester) async {
+  testWidgets('unresolved entitlement lookup never enables creation', (
+    tester,
+  ) async {
     final api = _Api()..pending = Completer<GenerationOptions>();
     await _pump(tester, api);
     expect(_submit(tester).onPressed, isNull);
@@ -184,8 +237,43 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('quick templates have a real 64px tappable surface',
-      (tester) async {
+  testWidgets(
+    'uninvited accounts open settings and can refresh after admission',
+    (tester) async {
+      final api = _Api()
+        ..generationAllowed = false
+        ..inviteOnly = true;
+      await _pump(tester, api);
+      expect(find.text('동화책 만들기'), findsNothing);
+      expect(find.text('새 동화는 초대된 계정에서 만들 수 있어요.'), findsOneWidget);
+      final invitation = find.text('베타 참여 ID 확인');
+      expect(invitation.hitTestable(), findsOneWidget);
+      await tester.tap(invitation);
+      await tester.pumpAndSettle();
+      expect(find.text('settings-route'), findsOneWidget);
+      expect(api.created, isNull);
+      api.generationAllowed = true;
+      Navigator.of(tester.element(find.text('settings-route'))).pop();
+      await tester.pumpAndSettle();
+      expect(_submit(tester).onPressed, isNotNull);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('paused creation keeps the submit button disabled', (
+    tester,
+  ) async {
+    final api = _Api()..generationAllowed = false;
+    await _pump(tester, api);
+    expect(_submit(tester).onPressed, isNull);
+    expect(find.text('베타 참여 ID 확인'), findsNothing);
+    expect(find.textContaining('저장한 동화는 계속 읽을 수 있어요.'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('quick templates have a real 64px tappable surface', (
+    tester,
+  ) async {
     await _pump(tester, _Api());
     final chip = find.widgetWithText(ActionChip, '동물 친구');
     await _show(tester, chip);
@@ -194,29 +282,40 @@ void main() {
     await tester.pumpAndSettle();
     await _show(tester, find.byType(TextFormField));
     expect(
-        tester
-            .widget<TextFormField>(find.byType(TextFormField))
-            .controller!
-            .text,
-        '용감한 아기 동물이 숲에서 새 친구를 사귀는 이야기');
+      tester.widget<TextFormField>(find.byType(TextFormField)).controller!.text,
+      '용감한 아기 동물이 숲에서 새 친구를 사귀는 이야기',
+    );
     expect(tester.takeException(), isNull);
   });
 
-  test('known creation errors give distinct safe next steps in every locale',
-      () async {
-    for (final language in ['ko', 'en', 'ja']) {
-      final l = await AppLocalizations.delegate.load(Locale(language));
-      ApiError error(String code) =>
-          ApiError(code: code, message: 'private raw detail', statusCode: 400);
-      expect(createFailureMessage(l, error('SAFETY_INPUT')),
-          l.createSafetyInputHint);
-      expect(createFailureMessage(l, error('DAILY_LIMIT_EXCEEDED')),
-          l.createDailyLimitHint);
-      expect(createFailureMessage(l, error('CONNECTION_ERROR')),
-          l.errorConnection);
-      expect(createFailureMessage(l, error('UNKNOWN')), l.createFailedSnack);
-      expect(createFailureMessage(l, error('SAFETY_OUTPUT')),
-          isNot(contains('private')));
-    }
-  });
+  test(
+    'known creation errors give distinct safe next steps in every locale',
+    () async {
+      for (final language in ['ko', 'en', 'ja']) {
+        final l = await AppLocalizations.delegate.load(Locale(language));
+        ApiError error(String code) => ApiError(
+          code: code,
+          message: 'private raw detail',
+          statusCode: 400,
+        );
+        expect(
+          createFailureMessage(l, error('SAFETY_INPUT')),
+          l.createSafetyInputHint,
+        );
+        expect(
+          createFailureMessage(l, error('DAILY_LIMIT_EXCEEDED')),
+          l.createDailyLimitHint,
+        );
+        expect(
+          createFailureMessage(l, error('CONNECTION_ERROR')),
+          l.errorConnection,
+        );
+        expect(createFailureMessage(l, error('UNKNOWN')), l.createFailedSnack);
+        expect(
+          createFailureMessage(l, error('SAFETY_OUTPUT')),
+          isNot(contains('private')),
+        );
+      }
+    },
+  );
 }

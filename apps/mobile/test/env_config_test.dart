@@ -10,6 +10,7 @@ void main() {
         '',
         'http://policies.org/privacy',
         'https://example.com/privacy',
+        'https://example.com./privacy',
         'https://localhost/privacy',
         'https://user:secret@policies.org/privacy',
         '/privacy',
@@ -55,8 +56,11 @@ void main() {
     'https://10.0.2.2',
     'https://[::1]',
     'https://service.local',
+    'https://service.lan',
+    'https://service.home',
     'https://service.test',
     'https://example.org',
+    'https://api.example.org.',
     'https://api.aistorybook.app/v1',
     'https://api.aistorybook.app?secret=value',
     'https://user:password@api.aistorybook.app',
@@ -88,12 +92,23 @@ void main() {
       expect(
         EnvConfig.resolveApiBaseUrl(
           isDebug: false,
-          overrideUrl: 'https://api.aistorybook.app/',
+          productionUrl: 'https://api.aistorybook.app/',
         ),
         'https://api.aistorybook.app',
       );
     },
   );
+
+  test('release rejects a public debug override even with a valid origin', () {
+    expect(
+      () => EnvConfig.resolveApiBaseUrl(
+        isDebug: false,
+        overrideUrl: 'https://staging.aistorybook.app',
+        productionUrl: 'https://api.aistorybook.app',
+      ),
+      throwsStateError,
+    );
+  });
 
   test('디버그/테스트 모드에서는 localhost로 안전하게 해석(throw 없음)', () {
     // 테스트는 debug 모드 → prod 가드 경로에 닿지 않고 localhost 계열 반환

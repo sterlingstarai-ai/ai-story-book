@@ -25,6 +25,9 @@ class JobStatus {
   final String? errorMessage;
   final String? creditRefundStatus;
   final BookResult? result;
+  // Client-only: the displayed snapshot predates a temporary read failure.
+  final bool isRechecking;
+  final bool hasConfirmedProgress;
 
   JobStatus({
     required this.jobId,
@@ -35,7 +38,19 @@ class JobStatus {
     this.errorMessage,
     this.creditRefundStatus,
     this.result,
-  });
+  }) : isRechecking = false,
+       hasConfirmedProgress = true;
+
+  JobStatus.rechecking(this.jobId, JobStatus? previous)
+    : status = previous?.status ?? JobState.queued,
+      progress = previous?.progress ?? 0,
+      currentStep = previous?.currentStep,
+      errorCode = previous?.errorCode,
+      errorMessage = previous?.errorMessage,
+      creditRefundStatus = previous?.creditRefundStatus,
+      result = previous?.result,
+      isRechecking = true,
+      hasConfirmedProgress = previous != null;
 
   factory JobStatus.fromJson(Map<String, dynamic> json) {
     final resultJson = JsonParsing.asNullableMap(

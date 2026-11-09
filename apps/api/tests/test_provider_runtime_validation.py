@@ -11,6 +11,7 @@ from src.core.errors import LLMError
 from src.models.dto import ImagePrompt
 from src.services import image, openai_contract
 from src.services import provider_runtime as runtime
+from tests.fake_redis import FakePipeline, FakeRedis
 
 
 @pytest.fixture(autouse=True)
@@ -43,7 +44,7 @@ async def test_missing_shared_observation_does_not_revive_process_cache(monkeypa
     await runtime.observe_validated_provider_success(attempt('llm'))
     await runtime.observe_validated_provider_success(attempt('image'))
     monkeypatch.setattr(settings, 'testing', False)
-    monkeypatch.setattr(rate_limiter, 'get_redis', AsyncMock(return_value=SimpleNamespace(get=AsyncMock(return_value=None))))
+    monkeypatch.setattr(rate_limiter, 'get_redis', AsyncMock(return_value=FakeRedis()))
     assert (await runtime.provider_runtime_status())['status'] == 'unverified'
 
 
@@ -146,7 +147,8 @@ async def test_simultaneous_invalid_and_permanent_failure_remains_unavailable():
 
 
 @pytest.mark.asyncio
-async def test_invalid_marker_survives_failed_lua_and_validated_success_clears_it(monkeypatch):
+@pytest.mark.parametrize('reason', ['invalid_response', 'credentials_unavailable'])
+async def test_invalid_marker_survives_failed_lua_and_validated_success_clears_it(monkeypatch, reason):
     import json
     from src.core.rate_limit import rate_limiter
 
@@ -161,36 +163,46 @@ async def test_invalid_marker_survives_failed_lua_and_validated_success_clears_i
         async def get(self, key):
             return self.values.get(key)
 
-        async def eval(self, script, count, *args):
-            if script == runtime._INVALID_RESPONSE_UPDATE:
+        def pipeline(self, *, transaction):
+            assert transaction
+            return FakePipeline(self)
+
+        async def eval(self, script, count, key, marker, value, _ttl, validated):
+            assert script == runtime._ORDERED_OBSERVATION_UPDATE and count == 2
+            if json.loads(value)['status'] == 'unverified':
                 if self.fail_invalid:
                     raise RuntimeError('synthetic Lua denial')
-                key, value, _ttl = args
-                previous = json.loads(self.values[key]) if key in self.values else {}
-                if previous.get('reason') in {'credentials_rejected', 'quota_exhausted'}:
-                    return 0
-                self.values[key] = value
+                self.values[marker] = value
                 return 1
-            assert script == runtime._VALIDATED_SUCCESS_UPDATE and count == 2
-            key, marker, value, _ttl = args
+            elif validated == '1':
+                self.values.pop(marker, None)
             self.values[key] = value
-            self.values.pop(marker, None)
             return 1
 
     shared = SharedRedis()
     monkeypatch.setattr(settings, 'testing', False)
     monkeypatch.setattr(rate_limiter, 'get_redis', AsyncMock(return_value=shared))
+    async def mark_unverified():
+        if reason == 'invalid_response':
+            await runtime.observe_invalid_provider_response(attempt('llm'))
+        else:
+            await runtime.observe_provider_credentials_unavailable(
+                settings.llm_provider, settings.llm_model, 'llm', settings.llm_api_key,
+            )
+
     await runtime.observe_provider_response(attempt('llm'), httpx.Response(200, json={}))
     await runtime.observe_provider_response(attempt('image'), httpx.Response(200, json={}))
     assert (await runtime.provider_runtime_status())['status'] == 'healthy'
-    await runtime.observe_invalid_provider_response(attempt('llm'))
+    await mark_unverified()
     runtime._LOCAL_OBSERVATIONS.clear()  # Simulate a different process.
-    assert (await runtime.provider_runtime_status())['status'] == 'unverified'
+    state = await runtime.provider_runtime_status()
+    assert state['status'] == 'unverified'
+    assert next(item['reason'] for item in state['observations'] if item['kind'] == 'llm') == reason
     await runtime.observe_validated_provider_success(attempt('llm'))
     runtime._LOCAL_OBSERVATIONS.clear()
     assert (await runtime.provider_runtime_status())['status'] == 'healthy'
     await runtime.observe_provider_response(attempt('llm'), httpx.Response(401, json={}))
     shared.fail_invalid = False
-    await runtime.observe_invalid_provider_response(attempt('llm'))
+    await mark_unverified()
     runtime._LOCAL_OBSERVATIONS.clear()
     assert (await runtime.provider_runtime_status())['status'] == 'unavailable'

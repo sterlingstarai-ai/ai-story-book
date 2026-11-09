@@ -76,7 +76,10 @@ def _context(title, page_texts, image_prompts):
 
 def wrap_review(original, directory, repository_root, *, expected_images=13):
     """No retries, response substitutions, relaxed deadlines or publication changes."""
+    from src.services.illustration_policy import max_repair_pages
+
     require(expected_images in (5, 13), "FICTIONAL_CAPTURE_IMAGE_COUNT_INVALID")
+    review_limit = 1 + max_repair_pages(expected_images - 1)
     root_fd = private_directory(directory, repository_root)
     os.close(root_fd)
 
@@ -89,7 +92,7 @@ def wrap_review(original, directory, repository_root, *, expected_images=13):
         context = _context(title, page_texts, image_prompts)
         root_fd = private_directory(directory, repository_root)
         try:
-            for attempt in (1, 2):
+            for attempt in range(1, review_limit + 1):
                 name = f"review-{attempt:02d}"
                 try:
                     os.mkdir(name, mode=0o700, dir_fd=root_fd)

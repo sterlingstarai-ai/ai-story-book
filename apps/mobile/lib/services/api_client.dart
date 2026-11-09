@@ -236,11 +236,26 @@ class ApiClient {
     );
   }
 
+  Future<List<JobStatus>> getActiveBookGenerations() async {
+    const path = '/v1/books/active-generations';
+    final response = await _dio.get(
+      '/v1/books/active-generations',
+      options: Options(headers: _headers),
+    );
+    return _asJsonList(response.data, context: path)
+        .map((item) => JobStatus.fromJson(_asJsonMap(item, context: path)))
+        .toList(growable: false);
+  }
+
   /// 책 생성 상태 조회
-  Future<JobStatus> getBookStatus(String jobId) async {
+  Future<JobStatus> getBookStatus(
+    String jobId, {
+    CancelToken? cancelToken,
+  }) async {
     final response = await _dio.get(
       '/v1/books/$jobId',
       options: Options(headers: _headers),
+      cancelToken: cancelToken,
     );
 
     return JobStatus.fromJson(
@@ -844,6 +859,28 @@ class ApiClient {
       context: '/v1/books/$bookId/pages/$pageNumber/audio response',
     );
     return _asString(data['audio_url'], field: 'audio_url');
+  }
+
+  /// Look up an existing recording. This path never starts audio synthesis.
+  Future<String?> getCachedPageAudioUrl(
+    String bookId,
+    int pageNumber, {
+    required String language,
+    required String voice,
+    required String style,
+  }) async {
+    final path = '/v1/books/$bookId/pages/$pageNumber/audio/cached';
+    final response = await _dio.get(
+      path,
+      queryParameters: {'language': language, 'voice': voice, 'style': style},
+      options: Options(
+        headers: _headers,
+        receiveTimeout: const Duration(seconds: 5),
+      ),
+    );
+    final data = _asJsonMap(response.data, context: '$path response');
+    final url = data['audio_url'];
+    return url == null ? null : _asString(url, field: 'audio_url');
   }
 
   /// 사용자 데이터 전체 삭제

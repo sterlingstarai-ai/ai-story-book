@@ -20,6 +20,15 @@ const _oldKey = '11111111-2222-4333-8444-555555555555';
 final _code = 'ASB-R1-${List.filled(43, 'A').join()}';
 final _replacement = 'ASB-R1-${List.filled(43, 'B').join()}';
 
+Future<void> _dismissTestKeyboard(WidgetTester tester) async {
+  if (tester.testTextInput.isRegistered) {
+    tester.testTextInput.hide();
+  } else {
+    await SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+  }
+  await tester.pumpAndSettle();
+}
+
 class _Secure extends FlutterSecureStorage {
   final store = <String, String>{'user_key': _oldKey};
   String? failWriteKey;
@@ -546,9 +555,11 @@ void main() {
       await tester.tap(find.byType(CheckboxListTile));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), 'BBBBBB');
-      await tester.pumpAndSettle();
+      await _dismissTestKeyboard(tester);
       await tester.ensureVisible(confirm);
+      await tester.pumpAndSettle();
       expect(tester.widget<FilledButton>(confirm).onPressed, isNotNull);
+      expect(confirm.hitTestable(), findsOneWidget);
       await tester.tap(confirm);
       await tester.pumpAndSettle();
       expect(find.text(_replacement), findsNothing);
@@ -622,12 +633,7 @@ void main() {
       find.byKey(const ValueKey('recovery-code-input')),
       _code,
     );
-    if (tester.testTextInput.isRegistered) {
-      tester.testTextInput.hide();
-    } else {
-      await SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
-    }
-    await tester.pumpAndSettle();
+    await _dismissTestKeyboard(tester);
     await tester.tap(find.text('Restore this account'));
     await tester.pumpAndSettle();
     expect(api.calls, 1);
@@ -661,12 +667,7 @@ void main() {
       expect(input.enableIMEPersonalizedLearning, false);
       await tester.enterText(find.byType(TextField), 'wrong');
       // Android Back dismisses the keyboard before the first submit tap.
-      if (tester.testTextInput.isRegistered) {
-        tester.testTextInput.hide();
-      } else {
-        await SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
-      }
-      await tester.pumpAndSettle();
+      await _dismissTestKeyboard(tester);
       await tester.tap(find.text('Restore this account'));
       await tester.pumpAndSettle();
       expect(api.calls, 0);

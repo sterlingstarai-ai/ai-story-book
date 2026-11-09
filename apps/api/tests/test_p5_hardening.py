@@ -1,10 +1,13 @@
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
+from sqlalchemy import delete, event
 
 import src.main as main_module
 from src.core.config import API_ENV_FILE, Settings
 from src.models.db import Book, Job, Page
+from src.routers import books
 from src.services.iap_verifier import iap_verifier
 
 
@@ -50,6 +53,7 @@ async def test_book_status_and_detail_include_degraded_asset_metadata(
     client,
     db_session,
     headers: dict,
+    monkeypatch,
 ):
     user_key = headers['X-User-Key']
     job = Job(
@@ -88,7 +92,7 @@ async def test_book_status_and_detail_include_degraded_asset_metadata(
     ]
     db_session.add(job)
     db_session.add(book)
-    db_session.add_all(pages)
+    db_session.add_all(reversed(pages))
     await db_session.commit()
 
     status_response = await client.get(f'/v1/books/{job.id}', headers=headers)
@@ -115,11 +119,42 @@ async def test_book_status_and_detail_include_degraded_asset_metadata(
     assert result['pages'][1]['asset_status']['image']['state'] == 'generated'
     assert result['pages'][1]['asset_status']['audio']['state'] == 'available'
 
-    detail_response = await client.get(f'/v1/books/{book.id}/detail', headers=headers)
+    book.learning_assets = {'source_language': 'ko', 'target_language': 'en'}
+    await db_session.commit()
+    media_url = Mock(wraps=books.media_url)
+    monkeypatch.setattr(books, 'media_url', media_url)
+    reads = []
+
+    def observe(_conn, _cursor, statement, _params, _context, _executemany):
+        sql = ' '.join(statement.lower().split())
+        if ' from books ' in sql or ' from pages ' in sql:
+            reads.append(sql)
+
+    engine = db_session.bind.sync_engine
+    event.listen(engine, 'before_cursor_execute', observe)
+    try:
+        detail_response = await client.get(f'/v1/books/{book.id}/detail', headers=headers)
+    finally:
+        event.remove(engine, 'before_cursor_execute', observe)
     assert detail_response.status_code == 200
     detail_body = detail_response.json()
+    assert len(reads) == 1 and 'left outer join pages' in reads[0]
+    assert [page['page_number'] for page in detail_body['pages']] == [1, 2]
+    assert detail_body['learning_assets'] == book.learning_assets
     assert detail_body['generation_warnings'] == result['generation_warnings']
     assert detail_body['pages'][0]['asset_status'] == result['pages'][0]['asset_status']
+    for page in detail_body['pages']:
+        assert page['asset_status']['image']['url'] == page['image_url']
+    assert detail_body['pages'][1]['asset_status']['audio']['url'] == detail_body['pages'][1]['audio_url_ko']
+    signed_inputs = [call.args[0] for call in media_url.call_args_list if call.args[0]]
+    assert len(signed_inputs) == len(set(signed_inputs)) == 4
+
+    await db_session.execute(delete(Page).where(Page.book_id == book.id))
+    await db_session.commit()
+    empty = await client.get(f'/v1/books/{book.id}/detail', headers=headers)
+    assert empty.status_code == 200 and empty.json()['pages'] == []
+    assert empty.json()['learning_assets'] == book.learning_assets
+    assert (await client.get('/v1/books/unknown-book/detail', headers=headers)).status_code == 404
 
 
 def test_settings_are_scoped_to_apps_api_env_and_ignore_extra_input():

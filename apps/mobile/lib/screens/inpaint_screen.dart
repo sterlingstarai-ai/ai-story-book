@@ -10,7 +10,6 @@ import 'package:path_provider/path_provider.dart';
 import '../l10n/app_localizations.dart';
 import '../providers/providers.dart';
 import '../services/api_client.dart';
-import '../services/book_scoped_cache_manager.dart';
 import '../utils/constants.dart';
 import '../widgets/common_widgets.dart';
 
@@ -267,10 +266,11 @@ class _InpaintScreenState extends ConsumerState<InpaintScreen> {
     return CachedNetworkImage(
       key: ValueKey(_imageAttempt),
       imageUrl: widget.imageUrl,
-      cacheManager: BookScopedCacheManager(
-        store: media.store,
-        bookId: widget.bookId,
-        fileExtension: 'img',
+      cacheManager: ref.watch(
+        bookIllustrationCacheProvider((
+          store: media.store,
+          bookId: widget.bookId,
+        )),
       ),
       fit: BoxFit.cover,
       imageBuilder: (context, provider) {

@@ -55,7 +55,7 @@ void main() {
         expect(find.textContaining('support@aistorybook.com'), findsNothing);
         expect(find.textContaining('출시 전 검토본입니다.'), findsOneWidget);
         final lastHeading = find.text(
-          document == LegalDocument.privacy ? '8. 문의·변경 안내' : '7. 약관 변경과 문의',
+          document == LegalDocument.privacy ? '6. 보호 조치와 변경' : '6. 변경과 문의',
         );
         await tester.scrollUntilVisible(
           lastHeading,

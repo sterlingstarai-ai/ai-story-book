@@ -5,6 +5,7 @@ import sqlite3
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -41,6 +42,17 @@ def test_monthly_cap_and_expiration(ledger):
         assert budget.claim(ledger, now=1_000_000 + slot * 18 * 3600)
     assert not budget.claim(ledger, now=1_000_000 + 41 * 18 * 3600)
     assert budget.claim(ledger, now=1_000_000 + 31 * 86400)
+
+
+def test_partial_refresh_does_not_consume_the_last_claim(ledger):
+    start = 1_000_000
+    interval = 18 * 3600
+    for slot in range(40):
+        assert budget.claim(ledger, now=start + slot * interval)
+    with pytest.raises(budget.ProbeFollowupUnavailable):
+        budget.claim(ledger, now=start + 40 * interval, require_next_interval=True)
+    assert budget.claim(ledger, now=start + 40 * interval)
+    assert not budget.claim(ledger, now=start + 41 * interval)
 
 
 def test_concurrent_claims_cannot_exceed_limit(ledger):
@@ -81,13 +93,115 @@ def test_refresh_can_recover_quota_before_observation_expires(monkeypatch, capsy
     assert capsys.readouterr().out.strip() == expected
 
 
-def test_candidate_bootstrap_spends_only_its_narration_claim(monkeypatch, tmp_path):
+@pytest.mark.parametrize(('openai_age', 'expected'), [
+    (5 * 3600, 'REQUIRED_TTS'),
+    (5 * 3600 + 1, 'REQUIRED_TTS_WITH_OPENAI'),
+])
+@pytest.mark.parametrize(('tts_reason', 'tts_status'), [
+    ('no_recent_observation', 'unverified'),
+    ('credentials_unavailable', 'unverified'),
+    ('credentials_rejected', 'unavailable'),
+])
+@pytest.mark.parametrize('tts_provider', ['google_gemini', 'openai_realtime'])
+def test_refresh_tts_only_requires_runway_until_next_claim(monkeypatch, capsys, openai_age, expected,
+                                                          tts_reason, tts_status, tts_provider):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[3] / 'scripts'))
+    runner = importlib.import_module('run_pilot_provider_refresh')
+    now = 1_000_000
+    monkeypatch.setattr(time, 'time', lambda: now)
+    settings = SimpleNamespace(
+        testing=False, provider_observation_ttl_seconds=86400,
+        llm_provider='openai', llm_model='gpt-5.6-sol', image_provider='openai',
+        image_model='gpt-image-2', audio_feature_enabled=True,
+        tts_provider=tts_provider, audio_narration_only_enabled=True,
+    )
+    observations = [
+        {'kind': 'llm', 'status': 'healthy', 'observed_at': now},
+        {'kind': 'image', 'status': 'healthy', 'observed_at': now - openai_age},
+        {'kind': 'tts', 'status': tts_status, 'reason': tts_reason},
+    ]
+    monkeypatch.setitem(sys.modules, 'src.core.config', SimpleNamespace(settings=settings))
+    monkeypatch.setitem(sys.modules, 'src.core.rate_limit', SimpleNamespace(
+        rate_limiter=SimpleNamespace(close=AsyncMock())))
+    monkeypatch.setitem(sys.modules, 'src.services.provider_runtime', SimpleNamespace(
+        provider_runtime_status=AsyncMock(return_value={'observations': observations})))
+    exec(runner._CHECK, {})
+    if tts_provider == 'openai_realtime' and tts_reason == 'credentials_rejected':
+        expected = 'UNAVAILABLE'
+    assert capsys.readouterr().out.strip() == expected
+
+
+@pytest.mark.parametrize('tts_provider', ['google_gemini', 'openai_realtime', 'openai'])
+def test_refresh_synthesizes_only_with_an_eligible_configured_adapter(monkeypatch, capsys, tts_provider):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[3] / 'scripts'))
+    runner = importlib.import_module('run_pilot_provider_refresh')
+    settings = SimpleNamespace(audio_feature_enabled=True, audio_narration_only_enabled=True,
+                               tts_provider=tts_provider)
+    synthesize = AsyncMock(return_value=b'synthetic audio')
+    provider = SimpleNamespace(synthesize=synthesize)
+    close = AsyncMock()
+    monkeypatch.setitem(sys.modules, 'src.core.config', SimpleNamespace(settings=settings))
+    monkeypatch.setitem(sys.modules, 'src.core.rate_limit', SimpleNamespace(rate_limiter=SimpleNamespace(close=close)))
+    monkeypatch.setitem(sys.modules, 'src.services.tts', SimpleNamespace(tts_service=SimpleNamespace(provider=provider)))
+    monkeypatch.setitem(sys.modules, 'src.services.provider_runtime', SimpleNamespace(
+        provider_runtime_status=AsyncMock(return_value={'observations': [{'kind': 'tts', 'status': 'healthy'}]})))
+    exec(runner._TTS_PROBE, {})
+    if tts_provider == 'openai':
+        assert capsys.readouterr().out.strip() == 'TTS_FAILED'
+        synthesize.assert_not_awaited()
+    else:
+        assert capsys.readouterr().out.strip() == 'TTS_VERIFIED'
+        synthesize.assert_awaited_once_with('작은 별이 반짝였어요.', language='ko', style='natural')
+        close.assert_awaited_once()
+
+
+@pytest.mark.parametrize(('openai_older', 'refresh_now', 'monthly_tight'), [
+    (False, False, False), (True, False, False), (False, True, False), (False, False, True),
+])
+def test_narration_refresh_preserves_budget_and_verifies_result(monkeypatch, ledger, openai_older, refresh_now,
+                                                               monthly_tight):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[3] / 'scripts'))
+    runner = importlib.import_module('run_pilot_provider_refresh')
+    identifier, image = 'a' * 64, 'sha256:' + 'b' * 64
+    inspect = json.dumps({'Id': identifier, 'Image': image, 'Name': '/asb-pilot-api', 'Running': True}).encode()
+    status = b'REQUIRED_TTS_WITH_OPENAI\n' if openai_older else b'REQUIRED_TTS\n'
+    if monthly_tight:
+        start = 1_000_000
+        interval = 18 * 3600
+        for slot in range(40):
+            assert budget.claim(ledger, now=start + slot * interval)
+        monkeypatch.setattr(time, 'time', lambda: start + 40 * interval)
+    refresh_openai = openai_older or refresh_now or monthly_tight
+    responses = [inspect, status]
+    if refresh_openai:
+        responses.append(b'PROVIDER_PROBE_OK\n')
+    responses += [b'TTS_VERIFIED\n', b'FRESH_AUDIO\n', inspect, status]
+    docker = Mock(side_effect=responses)
+    source = Mock(return_value=b'pinned OpenAI probe')
+    monkeypatch.setattr(runner, 'docker', docker)
+    monkeypatch.setattr(runner, '_source', source)
+    monkeypatch.setattr(runner, 'assert_no_narration_recovery', lambda: None)
+
+    assert runner.refresh(image, ledger, ledger.parent, execute=True, refresh_now=refresh_now) == 'PROBE_VERIFIED'
+    assert runner.refresh(image, ledger, ledger.parent, execute=True,
+                          refresh_now=refresh_now) == 'PROBE_REQUIRED_BUDGET_DEFERRED'
+    payloads = [call.kwargs['data'] for call in docker.call_args_list if 'data' in call.kwargs]
+    assert payloads == [runner._CHECK] + ([b'pinned OpenAI probe'] if refresh_openai else []) + [
+        runner._TTS_PROBE, runner._CHECK, runner._CHECK,
+    ]
+    assert source.call_count == (2 if openai_older or refresh_now else int(monthly_tight))
+    with sqlite3.connect(ledger) as db:
+        assert db.execute('SELECT COUNT(*) FROM claims').fetchone() == (41 if monthly_tight else 1,)
+
+
+@pytest.mark.parametrize('status', [b'REQUIRED_TTS\n', b'REQUIRED_TTS_WITH_OPENAI\n'])
+def test_candidate_bootstrap_spends_only_its_narration_claim(monkeypatch, tmp_path, status):
     monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[3] / 'scripts'))
     runner = importlib.import_module('run_pilot_provider_refresh')
     identifier, image = 'a' * 64, 'sha256:' + 'b' * 64
     inspect = json.dumps({'Id': identifier, 'Image': image, 'Name': '/asb-narration-next-api',
                           'Running': True, 'Restart': 'no'}).encode()
-    docker = Mock(side_effect=[inspect, b'REQUIRED_TTS\n', b'TTS_VERIFIED\n', b'FRESH_AUDIO\n'])
+    docker = Mock(side_effect=[inspect, status, b'TTS_VERIFIED\n', b'FRESH_AUDIO\n'])
     claim = Mock(return_value=True)
     monkeypatch.setattr(runner, 'docker', docker)
     monkeypatch.setattr(runner, 'claim', claim)

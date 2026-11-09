@@ -4,11 +4,17 @@ Storage Service: S3/Minio 파일 업로드
 
 import asyncio
 import inspect
+from contextlib import asynccontextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 from functools import lru_cache, partial
+import re
+from time import monotonic
 from typing import Optional
 
 import boto3
-from anyio import to_thread
+from anyio import CancelScope, to_thread
+from botocore.client import BaseClient
 from botocore.config import Config
 from botocore.exceptions import ClientError
 import httpx
@@ -25,8 +31,34 @@ logger = structlog.get_logger()
 # Cache for bucket existence check (protected by lock)
 _bucket_verified = False
 _bucket_lock = asyncio.Lock()
+_READINESS_TTL_SECONDS = 15
+_readiness_lock = asyncio.Lock()
+_readiness_result: tuple[float, bool] | None = None
 _MAX_OBJECT_BYTES = 20 * 1024 * 1024
 _MAX_PURGE_LIST_PAGES = 10000
+
+
+@dataclass(frozen=True)
+class _ObjectSnapshot:
+    etag: str
+    data: bytes
+    content_type: str
+
+
+ObjectReadCache = dict[str, _ObjectSnapshot]
+_object_read_scope: ContextVar[tuple[BaseClient, ObjectReadCache | None] | None] = ContextVar(
+    "object_read_scope", default=None,
+)
+_STRONG_S3_ETAG = re.compile(r'"[a-fA-F0-9]{32}(?:-[1-9][0-9]{0,4})?"')
+
+
+@dataclass
+class _UploadBatch:
+    client: BaseClient | None = None
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+
+
+_object_upload_batch: ContextVar[_UploadBatch | None] = ContextVar("object_upload_batch", default=None)
 
 # Allowed domains for image fetching (SSRF protection)
 ALLOWED_IMAGE_DOMAINS = {
@@ -79,8 +111,15 @@ def _is_url_allowed(url: str) -> bool:
         return False
 
 
-def get_s3_client(*, bounded_upload=False):
+def get_s3_client(*, bounded_upload=False, readiness_probe=False):
     """Get S3 client configured for Minio or AWS S3"""
+    limits = {}
+    if readiness_probe:
+        limits = {'connect_timeout': 2, 'read_timeout': 2,
+                  'retries': {'mode': 'standard', 'total_max_attempts': 1}}
+    elif bounded_upload:
+        limits = {'connect_timeout': 5, 'read_timeout': 30,
+                  'retries': {'mode': 'standard', 'total_max_attempts': 2}}
     return boto3.client(
         "s3",
         endpoint_url=settings.s3_endpoint,
@@ -88,9 +127,7 @@ def get_s3_client(*, bounded_upload=False):
         aws_secret_access_key=settings.s3_secret_key,
         region_name=settings.s3_region,
         config=Config(signature_version="s3v4", s3={"addressing_style": settings.s3_addressing_style},
-                      **({'connect_timeout': 5, 'read_timeout': 30,
-                          'retries': {'mode': 'standard', 'total_max_attempts': 2}}
-                         if bounded_upload else {})),
+                      **limits),
     )
 
 
@@ -115,7 +152,31 @@ async def _write_s3(method, *args, **kwargs):
         return await _call_s3(method, *args, **kwargs)
 
 
-async def ensure_bucket_exists():
+async def storage_is_ready() -> bool:
+    """Share a short-lived, read-only bucket check across health requests."""
+    global _readiness_result
+    async with _readiness_lock:
+        if _readiness_result is not None and monotonic() < _readiness_result[0]:
+            return _readiness_result[1]
+        ready = False
+        if settings.s3_access_key and settings.s3_secret_key:
+            try:
+                client = await _call_s3(get_s3_client, readiness_probe=True)
+                try:
+                    await _call_s3(client.head_bucket, Bucket=settings.s3_bucket)
+                finally:
+                    close = getattr(client, "close", None)
+                    if close is not None:
+                        await _call_s3(close)
+                ready = True
+            except Exception:
+                # Keep credentials and endpoint details out of the public result.
+                pass
+        _readiness_result = (monotonic() + _READINESS_TTL_SECONDS, ready)
+        return ready
+
+
+async def ensure_bucket_exists(*, bounded=False):
     """Ensure the bucket exists, create if not. Thread-safe with asyncio.Lock."""
     global _bucket_verified
 
@@ -127,7 +188,7 @@ async def ensure_bucket_exists():
         if _bucket_verified:
             return
 
-        client = get_s3_client()
+        client = await _call_s3(get_s3_client, readiness_probe=True) if bounded else get_s3_client()
         try:
             await _call_s3(client.head_bucket, Bucket=settings.s3_bucket)
             _bucket_verified = True
@@ -243,20 +304,77 @@ def media_url(url: Optional[str], *, expires_in: Optional[int] = None) -> Option
     )
 
 
-async def get_object_bytes(key: str) -> tuple[bytes, str]:
-    """S3 객체를 키로 읽어 (bytes, content_type) 반환 — 공유 이미지 토큰 프록시용."""
+@asynccontextmanager
+async def object_read_connection_scope(*, revalidate: ObjectReadCache | None = None):
+    """Share a transport and optionally revalidate snapshots within one review."""
     client = await _call_s3(get_s3_client)
-    resp = await _call_s3(client.get_object, Bucket=settings.s3_bucket, Key=key)
+    token = _object_read_scope.set((client, revalidate))
+    try:
+        yield
+    finally:
+        _object_read_scope.reset(token)
+        close = getattr(client, "close", None)
+        if close is not None:
+            await _call_s3(close)
+
+
+@asynccontextmanager
+async def object_upload_connection_scope():
+    """Share the transport for a book's uploads, with a separate guard per object."""
+    batch = _UploadBatch()
+    token = _object_upload_batch.set(batch)
+    try:
+        yield
+    finally:
+        _object_upload_batch.reset(token)
+        close = getattr(batch.client, "close", None)
+        if close is not None:
+            await _call_s3(close)
+
+
+async def get_object_bytes(key: str, *, max_bytes: int | None = None) -> tuple[bytes, str]:
+    """Read a stored object, optionally under a stricter caller size limit."""
+    limit = _MAX_OBJECT_BYTES if max_bytes is None else min(_MAX_OBJECT_BYTES, max_bytes)
+    if limit <= 0:
+        raise StorageError("Media download size limit must be positive")
+    scope = _object_read_scope.get()
+    if scope is None:
+        client, cache = await _call_s3(get_s3_client), None
+    else:
+        client, cache = scope
+    previous = cache.pop(key, None) if cache is not None else None
+    arguments = {"Bucket": settings.s3_bucket, "Key": key}
+    if previous is not None:
+        try:
+            resp = await _call_s3(client.get_object, **arguments, IfNoneMatch=previous.etag)
+        except ClientError as exc:
+            metadata = exc.response.get("ResponseMetadata", {})
+            if metadata.get("HTTPStatusCode") != 304:
+                raise
+            headers = metadata.get("HTTPHeaders", {})
+            if headers.get("etag") == previous.etag and "x-amz-delete-marker" not in headers:
+                if len(previous.data) > limit:
+                    raise StorageError("Media object exceeds download size limit")
+                cache[key] = previous
+                return previous.data, previous.content_type
+            # An ambiguous conditional reply cannot establish reuse.
+            resp = await _call_s3(client.get_object, **arguments)
+        previous = None
+    else:
+        resp = await _call_s3(client.get_object, **arguments)
     body = resp["Body"]
     try:
-        if resp.get("ContentLength", 0) > _MAX_OBJECT_BYTES:
+        if resp.get("ContentLength", 0) > limit:
             raise StorageError("Media object exceeds download size limit")
-        data = await _call_s3(body.read, _MAX_OBJECT_BYTES + 1)
-        if len(data) > _MAX_OBJECT_BYTES:
+        data = await _call_s3(body.read, limit + 1)
+        if len(data) > limit:
             raise StorageError("Media object exceeds download size limit")
     finally:
         await _call_s3(body.close)
     content_type = resp.get("ContentType") or "application/octet-stream"
+    etag = resp.get("ETag")
+    if cache is not None and isinstance(etag, str) and _STRONG_S3_ETAG.fullmatch(etag):
+        cache[key] = _ObjectSnapshot(etag, data, content_type)
     return data, content_type
 
 
@@ -556,14 +674,34 @@ class StorageService:
         await ensure_bucket_exists()
 
         try:
-            s3_client = get_s3_client(bounded_upload=True) if bounded_upload else get_s3_client()
-            await _write_s3(
-                s3_client.put_object,
-                Bucket=settings.s3_bucket,
-                Key=key,
-                Body=data,
-                ContentType=content_type,
+            batch = None if bounded_upload else _object_upload_batch.get()
+            if batch is None:
+                s3_client = get_s3_client(bounded_upload=True) if bounded_upload else get_s3_client()
+            else:
+                async with batch.lock:
+                    if batch.client is None:
+                        batch.client = await _call_s3(get_s3_client)
+                s3_client = batch.client
+            write = _write_s3(
+                s3_client.put_object, Bucket=settings.s3_bucket, Key=key, Body=data, ContentType=content_type,
             )
+            if batch is None:
+                await write
+            else:
+                # A page timeout must not close the shared client or release
+                # the write guard while its blocking upload is still running.
+                task = asyncio.create_task(write)
+                try:
+                    await asyncio.shield(task)
+                except asyncio.CancelledError:
+                    settled = asyncio.gather(task, return_exceptions=True)
+                    with CancelScope(shield=True):
+                        while not settled.done():
+                            try:
+                                await asyncio.shield(settled)
+                            except asyncio.CancelledError:
+                                continue
+                    raise
         except ClientError:
             # Provider exceptions can contain object keys or credentials.
             logger.error("Failed to upload to S3")

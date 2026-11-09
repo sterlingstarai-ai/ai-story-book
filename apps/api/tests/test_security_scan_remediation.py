@@ -247,6 +247,90 @@ async def test_async_storage_adapter_and_body_remain_supported(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("declared_length", [6, None])
+async def test_object_download_applies_stricter_limit_and_closes_body(monkeypatch, declared_length):
+    from src.core.errors import StorageError
+    from src.services import storage
+
+    body, client = AsyncMock(), AsyncMock()
+    body.read.return_value = b"123456"
+    response = {"Body": body, "ContentType": "image/png"}
+    if declared_length is not None:
+        response["ContentLength"] = declared_length
+    client.get_object.return_value = response
+    monkeypatch.setattr(storage, "get_s3_client", lambda: client)
+
+    with pytest.raises(StorageError, match="size limit"):
+        await storage.get_object_bytes("books/cover.png", max_bytes=5)
+    if declared_length is None:
+        body.read.assert_awaited_once_with(6)
+    else:
+        body.read.assert_not_awaited()
+    body.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [304, 403, 404])
+async def test_review_object_cache_requires_a_successful_revalidation(monkeypatch, status):
+    from botocore.exceptions import ClientError
+    from src.core.errors import StorageError
+    from src.services import storage
+
+    key = "jobs/fixture/cover.png"
+    tag = '"' + 'a' * 32 + '"'
+    body, client = AsyncMock(), AsyncMock()
+    body.read.return_value = b"synthetic-image"
+    response = {"Body": body, "ContentType": "image/png", "ETag": tag}
+    error = ClientError({
+        "Error": {"Code": str(status)},
+        "ResponseMetadata": {"HTTPStatusCode": status, "HTTPHeaders": {"etag": tag}},
+    }, "GetObject")
+    client.get_object.side_effect = [response, error, error]
+    monkeypatch.setattr(storage, "get_s3_client", lambda: client)
+    cache = {}
+    async with storage.object_read_connection_scope(revalidate=cache):
+        expected = (b"synthetic-image", "image/png")
+        assert await storage.get_object_bytes(key) == expected
+        if status == 304:
+            assert await storage.get_object_bytes(key) == expected
+            with pytest.raises(StorageError, match="size limit"):
+                await storage.get_object_bytes(key, max_bytes=1)
+        else:
+            with pytest.raises(ClientError):
+                await storage.get_object_bytes(key)
+    assert client.get_object.await_args_list[0].kwargs["Key"] == key
+    assert client.get_object.await_args_list[1].kwargs["IfNoneMatch"] == tag
+    assert key not in cache
+    body.read.assert_awaited_once()
+    body.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_conditional_reply_reads_current_object(monkeypatch):
+    from botocore.exceptions import ClientError
+    from src.services import storage
+
+    key = "jobs/fixture/cover.png"
+    original, replacement, client = AsyncMock(), AsyncMock(), AsyncMock()
+    original.read.return_value = b"original"
+    replacement.read.return_value = b"replacement"
+    client.get_object.side_effect = [
+        {"Body": original, "ETag": '"' + 'a' * 32 + '"'},
+        ClientError({"Error": {"Code": "304"}, "ResponseMetadata": {"HTTPStatusCode": 304}}, "GetObject"),
+        {"Body": replacement, "ETag": 'W/"weak"'},
+        {"Body": replacement, "ETag": 'W/"weak"'},
+    ]
+    monkeypatch.setattr(storage, "get_s3_client", lambda: client)
+    async with storage.object_read_connection_scope(revalidate={}):
+        assert (await storage.get_object_bytes(key))[0] == b"original"
+        assert (await storage.get_object_bytes(key))[0] == b"replacement"
+        assert (await storage.get_object_bytes(key))[0] == b"replacement"
+    assert [
+        call.kwargs.get("IfNoneMatch") for call in client.get_object.await_args_list
+    ] == [None, '"' + 'a' * 32 + '"', None, None]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("suffix", ["", "/img/cover", "/img/page/1"])
 async def test_share_limit_cannot_be_rotated_with_headers(client, monkeypatch, suffix):
     from src.core.rate_limit import rate_limiter

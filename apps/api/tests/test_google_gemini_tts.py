@@ -1,10 +1,13 @@
 """Gemini TTS provider boundaries, without credentials or provider calls."""
 
+import asyncio
 import base64
+from datetime import datetime, timedelta, timezone
 import json
 from unittest.mock import AsyncMock
 
 import google.auth
+from google.auth.credentials import Credentials
 import httpx
 import pytest
 
@@ -21,6 +24,35 @@ class _Credential:
 
     def refresh(self, _request):
         pass
+
+
+def _utc_now():
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+class _ExpiringCredential(Credentials):
+    def __init__(self, number):
+        super().__init__()
+        self.number = number
+        self.refreshes = 0
+
+    def refresh(self, _request):
+        self.refreshes += 1
+        self.token = f"fixture-token-{self.number}"
+        self.expiry = _utc_now() + timedelta(hours=1)
+
+
+@pytest.fixture
+def expiring_adc(monkeypatch):
+    credentials = []
+
+    def discover(**_):
+        credential = _ExpiringCredential(len(credentials) + 1)
+        credentials.append(credential)
+        return credential, None
+
+    monkeypatch.setattr(google.auth, "default", discover)
+    return credentials
 
 
 @pytest.fixture
@@ -51,6 +83,124 @@ async def test_gemini_styles_and_voices_preserve_text(gemini, monkeypatch):
     assert [p["voice"]["name"] for p in payloads] == ["Kore", "Puck", "Kore"]
     assert all(p["voice"]["modelName"] == "gemini-2.5-flash-tts" for p in payloads)
     assert all(r.headers["x-goog-user-project"] == "test-project-123" for r in requests)
+
+
+@pytest.mark.asyncio
+async def test_gemini_shares_adc_refresh_across_pages_and_renews_on_context_change(gemini, expiring_adc, monkeypatch):
+    headers = []
+
+    def handler(request):
+        headers.append((request.headers["Authorization"], request.headers["x-goog-user-project"]))
+        return httpx.Response(200, json={"audioContent": base64.b64encode(_NORMAL_AUDIO).decode()})
+
+    original = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: original(transport=httpx.MockTransport(handler), **kw))
+    provider = GeminiCloudTTSProvider()
+    audio = await asyncio.gather(*(provider.synthesize("작은 별이 반짝였어요.") for _ in range(12)))
+
+    assert audio == [_NORMAL_AUDIO] * 12
+    assert headers == [("Bearer fixture-token-1", "test-project-123")] * 12
+    assert [credential.refreshes for credential in expiring_adc] == [1]
+    assert gemini.await_count == 12
+
+    expiring_adc[0].expiry = _utc_now() + timedelta(seconds=30)
+    assert await provider.synthesize("작은 별이 반짝였어요.") == _NORMAL_AUDIO
+    assert headers[-1] == ("Bearer fixture-token-2", "test-project-123")
+
+    monkeypatch.setattr(settings, "google_gemini_tts_project", "new-project-456")
+    assert await provider.synthesize("작은 별이 반짝였어요.") == _NORMAL_AUDIO
+    assert headers[-1] == ("Bearer fixture-token-3", "new-project-456")
+
+    monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", "/fictional/new-adc.json")
+    assert await provider.synthesize("작은 별이 반짝였어요.") == _NORMAL_AUDIO
+    assert headers[-1] == ("Bearer fixture-token-4", "new-project-456")
+    assert [credential.refreshes for credential in expiring_adc] == [1, 1, 1, 1]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("denial", [401, 403])
+async def test_gemini_rejection_evicts_token_without_retrying_synthesis(gemini, expiring_adc, monkeypatch, denial):
+    tokens = []
+
+    def handler(request):
+        tokens.append(request.headers["Authorization"])
+        if len(tokens) == 1:
+            return httpx.Response(denial, json={})
+        return httpx.Response(200, json={"audioContent": base64.b64encode(_NORMAL_AUDIO).decode()})
+
+    original = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: original(transport=httpx.MockTransport(handler), **kw))
+    provider = GeminiCloudTTSProvider()
+    with pytest.raises(ValueError, match=str(denial)):
+        await provider.synthesize("테스트")
+    assert tokens == ["Bearer fixture-token-1"]
+    assert gemini.await_count == 1
+    assert await provider.synthesize("테스트") == _NORMAL_AUDIO
+    assert tokens == ["Bearer fixture-token-1", "Bearer fixture-token-2"]
+    assert len(expiring_adc) == gemini.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_gemini_auth_discovery_and_refresh_share_one_deadline(gemini, monkeypatch):
+    from src.services import tts
+
+    clock = 100
+    timeouts = []
+
+    def http_request(*_args, timeout, **_kwargs):
+        nonlocal clock
+        timeouts.append(timeout)
+        clock += 16
+
+    def discover(*, request, **_kwargs):
+        request("https://fixture.invalid", timeout=5)
+        return credential, None
+
+    class SlowCredential:
+        def refresh(self, request):
+            request("https://fixture.invalid", timeout=120)
+            request("https://fixture.invalid", timeout=120)
+
+    credential = SlowCredential()
+    monkeypatch.setattr(tts, "monotonic", lambda: clock)
+    monkeypatch.setattr(google.auth, "default", discover)
+    monkeypatch.setattr("google.auth.transport.requests.Request", lambda: http_request)
+
+    with pytest.raises(ValueError, match="credentials unavailable"):
+        await GeminiCloudTTSProvider().synthesize("작은 별이 반짝였어요.")
+    assert timeouts == [5, 4]
+    gemini.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_gemini_old_rejection_cannot_evict_replacement_token(gemini, expiring_adc, monkeypatch):
+    first_request = asyncio.Event()
+    first_response = asyncio.Event()
+    tokens = []
+
+    async def handler(request):
+        tokens.append(request.headers["Authorization"])
+        if len(tokens) == 1:
+            first_request.set()
+            await first_response.wait()
+            return httpx.Response(401, json={})
+        return httpx.Response(200, json={"audioContent": base64.b64encode(_NORMAL_AUDIO).decode()})
+
+    original = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: original(transport=httpx.MockTransport(handler), **kw))
+    provider = GeminiCloudTTSProvider()
+    pending = asyncio.create_task(provider.synthesize("테스트"))
+    try:
+        await asyncio.wait_for(first_request.wait(), timeout=5)
+        expiring_adc[0].expiry = _utc_now() - timedelta(seconds=1)
+        assert await provider.synthesize("테스트") == _NORMAL_AUDIO
+    finally:
+        first_response.set()
+        with pytest.raises(ValueError, match="401"):
+            await pending
+    assert await provider.synthesize("테스트") == _NORMAL_AUDIO
+    assert tokens == ["Bearer fixture-token-1", "Bearer fixture-token-2", "Bearer fixture-token-2"]
+    assert len(expiring_adc) == 2 and gemini.await_count == 3
 
 
 @pytest.mark.asyncio
@@ -93,6 +243,44 @@ async def test_gemini_rejects_unknown_voice_oversize_and_credentials(gemini, mon
     with pytest.raises(ValueError, match="credentials unavailable") as error:
         await GeminiCloudTTSProvider().synthesize("hello")
     assert "sensitive" not in str(error.value)
+
+
+@pytest.mark.asyncio
+async def test_gemini_adc_failure_invalidates_old_success_without_spending_budget(gemini, monkeypatch):
+    from src.services import provider_runtime as runtime
+
+    monkeypatch.setattr(settings, 'tts_provider', 'google_gemini')
+    monkeypatch.setattr(settings, 'audio_feature_enabled', True)
+    monkeypatch.setattr(settings, 'audio_narration_only_enabled', True)
+    monkeypatch.setattr(settings, 'stt_provider', 'mock')
+    monkeypatch.setattr(runtime, '_LOCAL_OBSERVATIONS', {})
+    original = httpx.AsyncClient
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, json={'audioContent': base64.b64encode(_NORMAL_AUDIO).decode()})
+
+    monkeypatch.setattr(httpx, 'AsyncClient', lambda **kw: original(transport=httpx.MockTransport(handler), **kw))
+    provider = GeminiCloudTTSProvider()
+    assert await provider.synthesize('토리가 웃었어요.') == _NORMAL_AUDIO
+    assert (await runtime.provider_runtime_status(include_audio=True))['status'] == 'healthy'
+
+    with monkeypatch.context() as failure:
+        def unavailable(**_):
+            raise RuntimeError('sensitive fixture error')
+
+        failure.setattr(google.auth, 'default', unavailable)
+        with pytest.raises(ValueError, match='credentials unavailable'):
+            await provider.synthesize('토리가 웃었어요.')
+    state = await runtime.provider_runtime_status(include_audio=True)
+    assert state['status'] == 'unverified'
+    assert state['observations'][0]['reason'] == 'credentials_unavailable'
+    assert gemini.await_count == len(requests) == 1
+
+    assert await provider.synthesize('토리가 웃었어요.') == _NORMAL_AUDIO
+    assert (await runtime.provider_runtime_status(include_audio=True))['status'] == 'healthy'
+    assert gemini.await_count == len(requests) == 2
 
 
 def test_gemini_capabilities_require_explicit_project(monkeypatch):

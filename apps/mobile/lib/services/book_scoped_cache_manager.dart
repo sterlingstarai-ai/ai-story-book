@@ -6,6 +6,7 @@ import 'package:file/file.dart' as platform_file;
 import 'package:file/local.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 
+import '../core/media_urls.dart';
 import 'book_media_store.dart';
 
 typedef BookMediaDownload =
@@ -24,7 +25,11 @@ class BookScopedCacheManager implements BaseCacheManager {
     required this.fileExtension,
     BookMediaDownload? download,
     this.legacyReadOnly,
-  }) : _download = download ?? _downloadToFile {
+    bool reuseConnections = false,
+    Duration? connectionIdleTimeout,
+  }) : _download = download,
+       _connectionIdleTimeout = connectionIdleTimeout,
+       _idleClients = reuseConnections ? [] : null {
     if (!RegExp(r'^[a-z0-9]{1,8}$').hasMatch(fileExtension)) {
       throw ArgumentError('Invalid media extension');
     }
@@ -33,12 +38,18 @@ class BookScopedCacheManager implements BaseCacheManager {
   final BookMediaStore store;
   final String bookId;
   final String fileExtension;
-  final BookMediaDownload _download;
+  final BookMediaDownload? _download;
+  final Duration? _connectionIdleTimeout;
+
   /// Existing shared-cache files can be read, but new writes never use it.
   final BaseCacheManager? legacyReadOnly;
-  final Map<String, Future<FileInfo>> _inFlight = {};
+  final Map<String, ({String url, Future<FileInfo> file})> _inFlight = {};
+  final List<io.HttpClient>? _idleClients;
+  final Set<io.HttpClient> _leasedClients = {};
+  bool _disposed = false;
   static const _fileSystem = LocalFileSystem();
   static const _maxBytes = 32 * 1024 * 1024;
+  static const _maxIdleClients = 2;
 
   FileInfo _info(io.File file, FileSource source, String url) => FileInfo(
     _fileSystem.file(file.path),
@@ -60,18 +71,31 @@ class BookScopedCacheManager implements BaseCacheManager {
     return await store.canRead(bookId) ? cached : null;
   }
 
+  String _diskIdentity(String key) =>
+      fileExtension == 'img' ? illustrationCacheIdentity(key) : key;
+
+  Future<io.File?> _scopedFile(String key) async {
+    final identity = _diskIdentity(key);
+    final cached = await store.lookup(
+      bookId,
+      identity,
+      extension: fileExtension,
+    );
+    if (cached != null || identity == key) return cached;
+    // Keep illustrations downloaded by older versions readable offline.
+    return store.lookup(bookId, key, extension: fileExtension);
+  }
+
   Future<FileInfo> _load(
     String url, {
     required String identity,
     Map<String, String>? headers,
     bool force = false,
+    bool retryRenewedSignature = true,
   }) async {
+    if (_disposed) throw StateError('Book media cache is unavailable');
     if (!force) {
-      final cached = await store.lookup(
-        bookId,
-        identity,
-        extension: fileExtension,
-      );
+      final cached = await _scopedFile(identity);
       if (cached != null) return _info(cached, FileSource.Cache, url);
       final legacy = await _legacyFile(identity);
       if (legacy != null) return legacy;
@@ -83,23 +107,65 @@ class BookScopedCacheManager implements BaseCacheManager {
         uri.userInfo.isNotEmpty) {
       throw ArgumentError('Invalid media URL');
     }
-    final active = _inFlight[identity];
-    if (active != null) return active;
+    final diskIdentity = _diskIdentity(identity);
+    final active = _inFlight[diskIdentity];
+    if (active != null) {
+      try {
+        final file = await active.file;
+        if (!await store.canRead(bookId) || _disposed) {
+          throw StateError('Book media is unavailable');
+        }
+        if (force && file.source == FileSource.Cache) {
+          return _load(
+            url,
+            identity: identity,
+            headers: headers,
+            force: true,
+            retryRenewedSignature: retryRenewedSignature,
+          );
+        }
+        return file;
+      } on HttpExceptionWithStatus catch (error) {
+        // A refreshed URL can arrive while the previous signature is still in
+        // flight. Use it once if the old signature was rejected.
+        final renewedIdentity = _diskIdentity(url);
+        if (!retryRenewedSignature ||
+            active.url == url ||
+            renewedIdentity == url ||
+            _diskIdentity(active.url) != renewedIdentity ||
+            !const {401, 403, 404}.contains(error.statusCode)) {
+          rethrow;
+        }
+        return _load(
+          url,
+          identity: identity,
+          headers: headers,
+          force: force,
+          retryRenewedSignature: false,
+        );
+      }
+    }
+    final download = _download ?? _downloadToFile;
+    var source = FileSource.Cache;
     final operation = store
         .write(
           bookId,
-          identity,
+          diskIdentity,
           extension: fileExtension,
-          download: (temporary) =>
-              _download(uri, temporary, headers ?? const {}),
+          // Another read may have missed disk before the previous flight
+          // finished. Reuse its file under the store's deletion barrier.
+          reuseExisting: !force,
+          download: (temporary) {
+            source = FileSource.Online;
+            return download(uri, temporary, headers ?? const {});
+          },
         )
-        .then((file) => _info(file, FileSource.Online, url));
-    _inFlight[identity] = operation;
-    try {
-      return await operation;
-    } finally {
-      if (identical(_inFlight[identity], operation)) _inFlight.remove(identity);
-    }
+        .then((file) => _info(file, source, url))
+        .whenComplete(() {
+          _inFlight.remove(diskIdentity);
+        });
+    _inFlight[diskIdentity] = (url: url, file: operation);
+    return operation;
   }
 
   @override
@@ -141,7 +207,7 @@ class BookScopedCacheManager implements BaseCacheManager {
     String key, {
     bool ignoreMemCache = false,
   }) async {
-    final cached = await store.lookup(bookId, key, extension: fileExtension);
+    final cached = await _scopedFile(key);
     if (cached != null) return _info(cached, FileSource.Cache, '');
     return await _legacyFile(key);
   }
@@ -170,7 +236,7 @@ class BookScopedCacheManager implements BaseCacheManager {
   }) async {
     final file = await store.write(
       bookId,
-      key ?? url,
+      _diskIdentity(key ?? url),
       extension: this.fileExtension,
       download: (temporary) => _writeStream(temporary, source),
     );
@@ -178,15 +244,28 @@ class BookScopedCacheManager implements BaseCacheManager {
   }
 
   @override
-  Future<void> removeFile(String key) =>
-      store.remove(bookId, key, extension: fileExtension);
+  Future<void> removeFile(String key) async {
+    final identity = _diskIdentity(key);
+    await store.remove(bookId, identity, extension: fileExtension);
+    if (identity != key) {
+      await store.remove(bookId, key, extension: fileExtension);
+    }
+  }
 
   @override
   Future<void> emptyCache() async =>
       throw UnsupportedError('Whole-cache deletion is not supported');
 
   @override
-  Future<void> dispose() async {}
+  Future<void> dispose() async {
+    if (_disposed) return;
+    _disposed = true;
+    for (final client in [...?_idleClients, ..._leasedClients]) {
+      client.close(force: true);
+    }
+    _idleClients?.clear();
+    _leasedClients.clear();
+  }
 
   static Future<void> _writeStream(
     io.File destination,
@@ -206,14 +285,25 @@ class BookScopedCacheManager implements BaseCacheManager {
     }
   }
 
-  static Future<void> _downloadToFile(
+  Future<void> _downloadToFile(
     Uri uri,
     io.File destination,
     Map<String, String> headers,
   ) async {
-    final client = io.HttpClient()
-      ..connectionTimeout = const Duration(seconds: 15);
-    final deadline = Timer(const Duration(minutes: 2), () => client.close(force: true));
+    if (_disposed) throw StateError('Book media cache is unavailable');
+    final idle = _idleClients;
+    final client = idle != null && idle.isNotEmpty
+        ? idle.removeLast()
+        : (io.HttpClient()..connectionTimeout = const Duration(seconds: 15));
+    if (_connectionIdleTimeout case final timeout?) {
+      client.idleTimeout = timeout;
+    }
+    if (idle != null) _leasedClients.add(client);
+    var completed = false;
+    final deadline = Timer(
+      const Duration(minutes: 2),
+      () => client.close(force: true),
+    );
     try {
       final request = await client
           .getUrl(uri)
@@ -233,9 +323,20 @@ class BookScopedCacheManager implements BaseCacheManager {
         throw StateError('Media is too large');
       }
       await _writeStream(destination, response);
+      completed = true;
     } finally {
       deadline.cancel();
-      client.close(force: true);
+      _leasedClients.remove(client);
+      // A client is leased to one download at a time, so a timeout or an
+      // aborted response never closes a sibling download's connection.
+      if (completed &&
+          !_disposed &&
+          idle != null &&
+          idle.length < _maxIdleClients) {
+        idle.add(client);
+      } else {
+        client.close(force: true);
+      }
     }
   }
 }

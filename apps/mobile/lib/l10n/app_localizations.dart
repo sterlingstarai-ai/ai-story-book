@@ -217,7 +217,7 @@ abstract class AppLocalizations {
   /// No description provided for @onboardingSlide4Title.
   ///
   /// In en, this message translates to:
-  /// **'Start for free'**
+  /// **'Make your first storybook'**
   String get onboardingSlide4Title;
 
   /// No description provided for @onboardingSlide4Subtitle.
@@ -226,11 +226,17 @@ abstract class AppLocalizations {
   /// **'Pick a theme and create your first illustrated storybook.'**
   String get onboardingSlide4Subtitle;
 
-  /// No description provided for @onboardingFirstBookTrialSubtitle.
+  /// No description provided for @firstBookTrialOffer.
   ///
   /// In en, this message translates to:
-  /// **'New accounts get one illustrated storybook free.'**
-  String get onboardingFirstBookTrialSubtitle;
+  /// **'Eligible new accounts can make one free storybook with illustrations and narration.'**
+  String get firstBookTrialOffer;
+
+  /// No description provided for @firstBookTrialIllustratedOffer.
+  ///
+  /// In en, this message translates to:
+  /// **'You can make your first illustrated storybook for free.'**
+  String get firstBookTrialIllustratedOffer;
 
   /// No description provided for @creditsFirstBookTrial.
   ///
@@ -387,6 +393,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Make today\'s storybook'**
   String get homeMakeTodayStory;
+
+  /// No description provided for @homeReviewTodayStory.
+  ///
+  /// In en, this message translates to:
+  /// **'Make a story with today\'s topic'**
+  String get homeReviewTodayStory;
 
   /// No description provided for @homeStreakLoading.
   ///
@@ -580,22 +592,28 @@ abstract class AppLocalizations {
   /// **'The same scene, with a sample of the style and length'**
   String get createAgePreviewCaption;
 
+  /// No description provided for @createAgePreviewIllustration.
+  ///
+  /// In en, this message translates to:
+  /// **'Haru and Bori discover their kite’s blue tail in the bushes with their teacher'**
+  String get createAgePreviewIllustration;
+
   /// No description provided for @createAgePreview3to5.
   ///
   /// In en, this message translates to:
-  /// **'Flutter, flutter! A blue ribbon danced behind the bush. Haru pointed and said, “There’s our kite, Bori! Let’s call our teacher.”'**
+  /// **'Flutter, flutter! A blue ribbon danced behind the bush. Haru pointed and Bori’s eyes grew wide. “Look, teacher! That’s our kite!”'**
   String get createAgePreview3to5;
 
   /// No description provided for @createAgePreview5to7.
   ///
   /// In en, this message translates to:
-  /// **'A blue ribbon peeked out of the bush when the wind blew. Haru recognized it from the kite they had flown that morning. Bori stepped closer, then stopped at the thorns. “Let’s keep an eye on the kite and call our teacher.”'**
+  /// **'A blue ribbon peeked out of the bush when the wind blew. Haru recognized it from the kite they had flown that morning. Bori spotted thorns and took a step back. Haru pointed out the bush to their teacher. “Our kite is stuck right there.”'**
   String get createAgePreview5to7;
 
   /// No description provided for @createAgePreview7to9.
   ///
   /// In en, this message translates to:
-  /// **'Haru noticed that the same blue ribbon appeared between the branches every time the wind blew. Bori thought someone might have dropped a piece of string, but Haru spotted two knots at the end. They had tied those knots together when the kite’s tail came loose that morning. Bori stopped at the thorny branches. “Keep watching the ribbon while I get our teacher.”'**
+  /// **'Haru noticed that the same blue ribbon appeared between the branches every time the wind blew. Bori thought someone might have dropped a piece of string, but Haru spotted two knots at the end. They had tied those knots together when the kite’s tail came loose that morning. Bori stopped at the thorny branches. Haru pointed out the ribbon to their teacher. “See the two knots? That’s the kite we tied this morning.”'**
   String get createAgePreview7to9;
 
   /// No description provided for @createLanguageLabel.
@@ -826,6 +844,18 @@ abstract class AppLocalizations {
   /// **'Make Storybook'**
   String get createMakeButton;
 
+  /// No description provided for @createFreeFirstBookButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Make My Free First Book'**
+  String get createFreeFirstBookButton;
+
+  /// No description provided for @createFirstBookDuration.
+  ///
+  /// In en, this message translates to:
+  /// **'Your book may take a few minutes to finish.'**
+  String get createFirstBookDuration;
+
   /// No description provided for @createPlanUpgradeTitle.
   ///
   /// In en, this message translates to:
@@ -849,6 +879,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'My Library'**
   String get libraryTitle;
+
+  /// No description provided for @libraryOpenCompletedStory.
+  ///
+  /// In en, this message translates to:
+  /// **'Read your finished story'**
+  String get libraryOpenCompletedStory;
+
+  /// No description provided for @libraryReviewFailedGeneration.
+  ///
+  /// In en, this message translates to:
+  /// **'Story couldn\'t be made. See what happened'**
+  String get libraryReviewFailedGeneration;
+
+  /// No description provided for @libraryActiveGenerations.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one {Check 1 book in progress} other {Check {count} books in progress}}'**
+  String libraryActiveGenerations(int count);
+
+  /// No description provided for @libraryActiveGenerationItem.
+  ///
+  /// In en, this message translates to:
+  /// **'Book {number}'**
+  String libraryActiveGenerationItem(int number);
 
   /// No description provided for @librarySeriesBadge.
   ///
@@ -1204,6 +1258,24 @@ abstract class AppLocalizations {
   /// **'Creating your storybook'**
   String get loadingTitle;
 
+  /// No description provided for @loadingQueuedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Getting your storybook ready'**
+  String get loadingQueuedTitle;
+
+  /// No description provided for @loadingInProgressHint.
+  ///
+  /// In en, this message translates to:
+  /// **'We’re still working even if the percentage pauses.'**
+  String get loadingInProgressHint;
+
+  /// No description provided for @loadingBrowseLibrary.
+  ///
+  /// In en, this message translates to:
+  /// **'Browse the library while you wait'**
+  String get loadingBrowseLibrary;
+
   /// No description provided for @loadingIllustrationExample.
   ///
   /// In en, this message translates to:
@@ -1324,10 +1396,28 @@ abstract class AppLocalizations {
   /// **'Back to home'**
   String get loadingBackToHomeButton;
 
+  /// No description provided for @loadingStepCheckingStatus.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking your storybook’s status'**
+  String get loadingStepCheckingStatus;
+
+  /// No description provided for @loadingStepRecheckingStatus.
+  ///
+  /// In en, this message translates to:
+  /// **'Showing the last confirmed progress.'**
+  String get loadingStepRecheckingStatus;
+
+  /// No description provided for @loadingStepWaitingForStatusRetry.
+  ///
+  /// In en, this message translates to:
+  /// **'We\'ll check this story\'s progress again shortly.'**
+  String get loadingStepWaitingForStatusRetry;
+
   /// No description provided for @loadingStepWaiting.
   ///
   /// In en, this message translates to:
-  /// **'Waiting...'**
+  /// **'Waiting to start your storybook'**
   String get loadingStepWaiting;
 
   /// No description provided for @loadingStepPreparing.
@@ -1615,7 +1705,7 @@ abstract class AppLocalizations {
   /// No description provided for @loadingTip3.
   ///
   /// In en, this message translates to:
-  /// **'You can revisit finished storybooks anytime in your library'**
+  /// **'Your storybook keeps taking shape while you browse. Open it from your library when it’s ready.'**
   String get loadingTip3;
 
   /// No description provided for @loadingTip4.
@@ -4526,11 +4616,29 @@ abstract class AppLocalizations {
   /// **'Storybook cover: {title}'**
   String viewerCoverImageSemantics(Object title);
 
+  /// No description provided for @viewerRetryIllustration.
+  ///
+  /// In en, this message translates to:
+  /// **'Retry illustration'**
+  String get viewerRetryIllustration;
+
   /// No description provided for @viewerPageImageSemantics.
   ///
   /// In en, this message translates to:
   /// **'Page {page} illustration'**
   String viewerPageImageSemantics(Object page);
+
+  /// No description provided for @viewerShowReadingControls.
+  ///
+  /// In en, this message translates to:
+  /// **'Show reading controls'**
+  String get viewerShowReadingControls;
+
+  /// No description provided for @viewerHideReadingControls.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide reading controls'**
+  String get viewerHideReadingControls;
 
   /// No description provided for @viewerLearn.
   ///
@@ -4543,6 +4651,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Play audio'**
   String get viewerPlayAudioTooltip;
+
+  /// No description provided for @viewerListenFromStart.
+  ///
+  /// In en, this message translates to:
+  /// **'Listen from start'**
+  String get viewerListenFromStart;
+
+  /// No description provided for @viewerListenFromHere.
+  ///
+  /// In en, this message translates to:
+  /// **'Listen from this page to the end'**
+  String get viewerListenFromHere;
+
+  /// No description provided for @viewerNarrationPreparing.
+  ///
+  /// In en, this message translates to:
+  /// **'Getting narration ready'**
+  String get viewerNarrationPreparing;
+
+  /// No description provided for @viewerNarrationSpeed.
+  ///
+  /// In en, this message translates to:
+  /// **'Narration speed'**
+  String get viewerNarrationSpeed;
+
+  /// No description provided for @viewerNarrationSpeedValue.
+  ///
+  /// In en, this message translates to:
+  /// **'{speed}×'**
+  String viewerNarrationSpeedValue(String speed);
 
   /// No description provided for @viewerPauseAudioTooltip.
   ///
@@ -5972,6 +6110,24 @@ abstract class AppLocalizations {
   /// **'We could not check available styles. Check your connection and try again.'**
   String get createOptionsFailed;
 
+  /// No description provided for @createGenerationInviteRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'This beta requires an invitation to create a new story.'**
+  String get createGenerationInviteRequired;
+
+  /// No description provided for @createGenerationPaused.
+  ///
+  /// In en, this message translates to:
+  /// **'New stories are unavailable right now. You can still read saved books.'**
+  String get createGenerationPaused;
+
+  /// No description provided for @createOpenBetaInvitation.
+  ///
+  /// In en, this message translates to:
+  /// **'Find your beta invitation ID'**
+  String get createOpenBetaInvitation;
+
   /// No description provided for @createSafetyInputHint.
   ///
   /// In en, this message translates to:
@@ -6481,6 +6637,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Hear the same Korean sentence in three styles with your selected AI voice. Expressive storytelling varies the delivery of each line.'**
   String get settingsNarrationPreviewGoogleHelp;
+
+  /// No description provided for @settingsNarrationPreviewPending.
+  ///
+  /// In en, this message translates to:
+  /// **'Previews for this AI voice are being prepared. You can still choose a narration style.'**
+  String get settingsNarrationPreviewPending;
 
   /// No description provided for @settingsNarrationPreview.
   ///

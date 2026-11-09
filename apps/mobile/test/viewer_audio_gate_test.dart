@@ -3,6 +3,7 @@
 // 감사 확정 #2: 서버 플래그가 readiness에만 배선돼 낭독 UI가 그대로 살아있고 탭마다
 // 에러가 났다. 서버는 capabilities.audio_supported를 내려주고, 뷰어는 그 값으로 낭독
 // 버튼·발음 메뉴를 숨긴다. 이 테스트는 위젯 트리에서 버튼 존재/부재를 직접 확인한다.
+import 'dart:async';
 import 'dart:io';
 
 import 'package:ai_story_book/l10n/app_localizations.dart';
@@ -11,6 +12,8 @@ import 'package:ai_story_book/providers/providers.dart';
 import 'package:ai_story_book/services/api_client.dart';
 import 'package:ai_story_book/services/book_media_store.dart';
 import 'package:ai_story_book/services/parental_control_service.dart';
+import 'package:ai_story_book/services/scoped_reading_progress.dart';
+import 'package:ai_story_book/services/user_service.dart';
 import 'package:ai_story_book/screens/viewer_screen.dart';
 import 'package:ai_story_book/utils/constants.dart';
 import 'package:flutter/material.dart';
@@ -25,6 +28,8 @@ class _StubApiClient extends ApiClient {
   _StubApiClient() : super(baseUrl: 'http://127.0.0.1:1', userKey: 'test-user');
   int pdfRequests = 0;
   int narrationRequests = 0;
+  int? lastNarratedPage;
+  Future<String>? pendingNarration;
 
   @override
   Future<String> getPageAudioUrl(
@@ -35,6 +40,8 @@ class _StubApiClient extends ApiClient {
     String style = 'legacy',
   }) async {
     narrationRequests++;
+    lastNarratedPage = page;
+    if (pendingNarration case final pending?) return pending;
     throw StateError('synthetic narration boundary');
   }
 
@@ -71,8 +78,28 @@ class _EmptyMediaStore extends BookMediaStore {
   ) => operation();
 
   @override
-  Future<File?> lookup(String bookId, String key, {required String extension}) async =>
-      null;
+  Future<File?> lookup(
+    String bookId,
+    String key, {
+    required String extension,
+  }) async => null;
+}
+
+class _ViewerUser extends UserService {
+  _ViewerUser(super.preferences);
+
+  @override
+  String getUserKey() => 'test-user';
+}
+
+class _DeferredReadingProgress extends ScopedReadingProgress {
+  _DeferredReadingProgress(SharedPreferences prefs, this.savedPage)
+    : super(prefs, _EmptyMediaStore(prefs), 'book-1', () => true);
+
+  final Future<int?> savedPage;
+
+  @override
+  Future<int?> page() => savedPage;
 }
 
 BookResult _book() => BookResult(
@@ -89,6 +116,8 @@ Future<void> _pumpViewer(
   bool? narrationSupported,
   bool podSupported = false,
   bool stubMedia = false,
+  bool startOnCover = false,
+  Future<int?>? savedPage,
   BookResult? book,
   _StubApiClient? api,
   ParentalControlService? parental,
@@ -100,6 +129,12 @@ Future<void> _pumpViewer(
     ProviderScope(
       overrides: [
         sharedPreferencesProvider.overrideWithValue(prefs),
+        if (stubMedia)
+          userServiceProvider.overrideWithValue(_ViewerUser(prefs)),
+        if (savedPage != null)
+          readingProgressProvider('book-1').overrideWith(
+            (ref) async => _DeferredReadingProgress(prefs, savedPage),
+          ),
         apiClientProvider.overrideWithValue(api ?? _StubApiClient()),
         if (stubMedia)
           bookMediaStoreProvider.overrideWith(
@@ -149,7 +184,8 @@ Future<void> _pumpViewer(
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 300));
 
-  // 표지(page 0)에서는 낭독 버튼이 원래 없다 — 본문 페이지로 넘긴다.
+  if (startOnCover) return;
+  // 기존 쪽별 재생 검사는 본문부터 시작한다.
   final next = find.byIcon(Icons.chevron_right);
   if (next.evaluate().isNotEmpty) {
     await tester.tap(next.first);
@@ -167,16 +203,40 @@ Future<void> _teardownViewer(WidgetTester tester) async {
 
 void main() {
   testWidgets(
-    'tapping the story requests narration and leaves controls visible',
+    'a pending narration request stays visible and ignores repeated story taps',
     (tester) async {
-      final api = _StubApiClient();
-      await _pumpViewer(tester, audioSupported: true, api: api, stubMedia: true);
+      final pending = Completer<String>();
+      final api = _StubApiClient()..pendingNarration = pending.future;
+      tester.view.physicalSize = const Size(320, 480);
+      tester.view.devicePixelRatio = 1;
+      tester.platformDispatcher.textScaleFactorTestValue = 1.4;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      await _pumpViewer(
+        tester,
+        audioSupported: true,
+        api: api,
+        stubMedia: true,
+      );
       final story = find.text('토끼가 숲으로 갔어요.');
       expect(story.hitTestable(), findsOneWidget);
       await tester.tap(story);
       await tester.pump(const Duration(milliseconds: 350));
       expect(api.narrationRequests, 1);
       expect(find.byKey(const Key('viewer_bottom_controls')), findsOneWidget);
+      final l = AppLocalizations.of(tester.element(find.byType(ViewerScreen)));
+      expect(find.text(l.viewerNarrationPreparing), findsOneWidget);
+      await tester.tap(story);
+      await tester.pump();
+      expect(api.narrationRequests, 1);
+      await tester.tap(find.byIcon(Icons.chevron_left));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(find.text(l.viewerNarrationPreparing), findsNothing);
+      pending.completeError(StateError('obsolete narration request'));
+      await tester.pump();
+      expect(find.text(l.viewerAudioPlayFailed), findsNothing);
       await _teardownViewer(tester);
     },
   );
@@ -377,11 +437,18 @@ void main() {
       expect(tester.takeException(), isNull);
       final finish = find.byKey(const Key('viewer-finish-reading'));
       final bodyScroll = find.byKey(const ValueKey('reader-content-1'));
+      final scrollbar = tester.widget<RawScrollbar>(
+        find.ancestor(of: bodyScroll, matching: find.byType(RawScrollbar)),
+      );
+      expect(scrollbar.thumbVisibility, isTrue);
+      expect(scrollbar.interactive, isFalse);
+      expect(scrollbar.controller!.position.maxScrollExtent, greaterThan(0));
       for (var i = 0; i < 12 && finish.hitTestable().evaluate().isEmpty; i++) {
         await tester.drag(bodyScroll, const Offset(0, -220));
         await tester.pump(const Duration(milliseconds: 300));
       }
       await tester.pump(const Duration(milliseconds: 300));
+      expect(scrollbar.controller!.offset, greaterThan(0));
       expect(finish.hitTestable(), findsOneWidget);
       expect(
         tester.getRect(finish).bottom,
@@ -410,6 +477,13 @@ void main() {
     expect(find.byTooltip('닫기'), findsNothing);
     expect(tester.getRect(illustration).top, greaterThanOrEqualTo(62));
     expect(tester.getRect(illustration).top, lessThan(70));
+    final scrollbar = tester.widget<RawScrollbar>(
+      find.ancestor(
+        of: find.byKey(const ValueKey('reader-content-1')),
+        matching: find.byType(RawScrollbar),
+      ),
+    );
+    expect(scrollbar.controller!.position.maxScrollExtent, 0);
     expect(tester.takeException(), isNull);
     await _teardownViewer(tester);
   });
@@ -439,6 +513,28 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.byIcon(Icons.hearing), findsNothing);
     expect(find.byIcon(Icons.bedtime), findsNothing);
+    expect(find.byIcon(Icons.speed_outlined), findsNothing);
+    await _teardownViewer(tester);
+  });
+
+  testWidgets('narration speed is remembered without requesting new audio', (
+    tester,
+  ) async {
+    final api = _StubApiClient();
+    await _pumpViewer(tester, audioSupported: true, api: api);
+    final l = AppLocalizations.of(tester.element(find.byType(ViewerScreen)));
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l.viewerNarrationSpeed));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l.viewerNarrationSpeedValue('1.15')));
+    await tester.pumpAndSettle();
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getDouble('narration_playback_speed_v1'), 1.15);
+    expect(api.narrationRequests, 0);
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    expect(find.text(l.viewerNarrationSpeedValue('1.15')), findsOneWidget);
     await _teardownViewer(tester);
   });
 
@@ -447,6 +543,51 @@ void main() {
     expect(find.byIcon(Icons.volume_up), findsOneWidget);
     final l = AppLocalizations.of(tester.element(find.byType(ViewerScreen)));
     expect(find.byTooltip(l.viewerPlayAudioTooltip), findsOneWidget);
+    await _teardownViewer(tester);
+  });
+
+  testWidgets('cover starts book narration on page one without a sleep timer', (
+    tester,
+  ) async {
+    final api = _StubApiClient();
+    final savedPage = Completer<int?>();
+    tester.view.physicalSize = const Size(320, 480);
+    tester.view.devicePixelRatio = 1;
+    tester.platformDispatcher.textScaleFactorTestValue = 1.4;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    await _pumpViewer(
+      tester,
+      audioSupported: true,
+      startOnCover: true,
+      stubMedia: true,
+      api: api,
+      savedPage: savedPage.future,
+      book: BookResult(
+        bookId: 'book-1',
+        jobId: 'job-1',
+        title: '테스트 동화',
+        coverImageUrl: '',
+        pages: [
+          ..._book().pages,
+          PageResult(pageNumber: 2, text: '친구를 만났어요.', imageUrl: ''),
+        ],
+      ),
+    );
+    final l = AppLocalizations.of(tester.element(find.byType(ViewerScreen)));
+    final listen = find.text(l.viewerListenFromStart);
+    expect(listen.hitTestable(), findsOneWidget);
+    expect(api.narrationRequests, 0);
+    await tester.tap(listen);
+    savedPage.complete(2);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump();
+    expect(find.text(l.viewerPageIndicator(1, 2)), findsOneWidget);
+    expect(find.byKey(const Key('viewer_sleep_countdown')), findsNothing);
+    expect(api.narrationRequests, 1);
+    expect(api.lastNarratedPage, 1);
     await _teardownViewer(tester);
   });
 

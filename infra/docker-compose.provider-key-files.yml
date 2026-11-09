@@ -1,5 +1,5 @@
 # Optional override. Supply an existing private host directory owned by the
-# container's appuser and set LLM_API_KEY_FILE / IMAGE_API_KEY_FILE to files
+# container's appuser and set LLM_API_KEY_FILE, IMAGE_API_KEY_FILE or OPENAI_TTS_API_KEY_FILE
 # inside /run/asb-provider-keys. Leave the corresponding raw key values empty.
 # This mount alone does not transfer a key or authorize an operational rollout.
 services:

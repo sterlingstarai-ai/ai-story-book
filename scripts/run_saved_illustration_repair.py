@@ -130,8 +130,9 @@ async def run_repair(inputs, manifest, output, config):
     def save():
         save_json(output / "result.json", report)
 
-    async def get_bytes(key):
+    async def get_bytes(key, *, max_bytes=None):
         require(key in objects, "REPAIR_UNKNOWN_STORAGE_KEY")
+        require(max_bytes is None or len(objects[key][0]) <= max_bytes, "REPAIR_STORAGE_OBJECT_TOO_LARGE")
         return objects[key]
 
     active_page = None

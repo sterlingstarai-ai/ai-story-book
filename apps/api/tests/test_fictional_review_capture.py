@@ -94,17 +94,20 @@ async def test_all_thirteen_inputs_are_saved_before_request_and_survive_review_f
 
 
 @pytest.mark.asyncio
-async def test_first_and_second_review_remain_independent_without_extra_calls(capture):
+@pytest.mark.parametrize("image_count,review_limit", [(5, 3), (13, 4)])
+async def test_capture_covers_each_allowed_review_without_extra_calls(capture, image_count, review_limit):
     module, root, directory = capture
-    provider = AsyncMock(return_value=review())
-    wrapped = module.wrap_review(provider, directory, root)
-    await wrapped(**inputs())
-    await wrapped(**inputs())
+    source = inputs()
+    for key in ("page_texts", "image_prompts", "images"):
+        source[key] = {n: value for n, value in source[key].items() if n < image_count}
+    provider = AsyncMock(return_value=BookIllustrationReview(pages=review().pages[:image_count]))
+    wrapped = module.wrap_review(provider, directory, root, expected_images=image_count)
+    for attempt in range(1, review_limit + 1):
+        await wrapped(**source)
+        assert (directory / f"review-{attempt:02d}/input.json").is_file()
     with pytest.raises(module.CaptureError, match="REVIEW_LIMIT"):
-        await wrapped(**inputs())
-    assert provider.await_count == 2
-    assert (directory / "review-01/input.json").is_file()
-    assert (directory / "review-02/input.json").is_file()
+        await wrapped(**source)
+    assert provider.await_count == review_limit
 
 
 @pytest.mark.parametrize("classification,opt_in", [("real_child", "true"), ("fictional_image", "false"), ("", "true")])

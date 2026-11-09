@@ -169,6 +169,13 @@ async def lifespan(app: FastAPI):
         configured_journal()  # Fail startup if an explicitly enabled key/bucket is invalid.
 
     if not settings.testing:
+        if settings.s3_auto_create_bucket and settings.s3_access_key and settings.s3_secret_key:
+            from src.services.storage import ensure_bucket_exists
+
+            try:
+                await ensure_bucket_exists(bounded=True)
+            except Exception:
+                logger.warning("Configured storage initialization did not complete")
         await job_monitor.start()
         await periodic_credits.start()
 
@@ -484,11 +491,9 @@ async def _build_readiness_payload(
     keys_status = "healthy"
     missing_keys: list[str] = []
     if not settings.testing:
-        try:
-            from src.services.storage import ensure_bucket_exists
+        from src.services.storage import storage_is_ready
 
-            await ensure_bucket_exists()
-        except Exception:
+        if not await storage_is_ready():
             storage_status = "unhealthy"
 
         if settings.llm_provider not in {"openai", "anthropic", "gemini"}:

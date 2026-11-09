@@ -30,7 +30,8 @@ def test_marker_access_error_fails_unit(guard, monkeypatch, tmp_path):
 
 def test_untrusted_state_directory_fails_unit(guard, tmp_path):
     directory = tmp_path / 'world-readable'
-    directory.mkdir(mode=0o755)
+    directory.mkdir()
+    directory.chmod(0o755)
     assert guard.exit_code(directory / 'narration-recovery.json') == 255
     link = tmp_path / 'state-link'
     link.symlink_to(tmp_path, target_is_directory=True)
@@ -52,5 +53,6 @@ def test_untrusted_provider_marker_parent_fails_even_if_other_marker_present(gua
     narration = tmp_path / 'narration.json'
     narration.write_text('armed')
     untrusted = tmp_path / 'untrusted'
-    untrusted.mkdir(mode=0o755)
+    untrusted.mkdir()
+    untrusted.chmod(0o755)
     assert guard.combined_exit_code(narration, untrusted / 'rotation.json') == 255

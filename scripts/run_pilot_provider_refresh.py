@@ -8,7 +8,7 @@ import subprocess
 
 from backup_service_guard import BackupServiceGuard, assert_no_narration_recovery
 from provider_cutover_probe_runner import _source
-from provider_probe_budget import claim
+from provider_probe_budget import ProbeFollowupUnavailable, claim
 
 
 _CHECK = b"""
@@ -24,25 +24,33 @@ async def check():
         return 'UNSUPPORTED'
     import time
     audio = settings.audio_feature_enabled
-    if audio and (settings.tts_provider != 'google_gemini' or not settings.audio_narration_only_enabled):
+    tts = settings.tts_provider if audio else None
+    if audio and (tts not in {'google_gemini', 'openai_realtime'} or not settings.audio_narration_only_enabled):
         return 'UNSUPPORTED'
     try:
         state = await provider_runtime_status(include_photo=False, include_audio=audio)
     finally:
         await rate_limiter.close()
-    # A rejected key needs operator intervention. A quota failure can clear
-    # before its observation expires, so let the bounded probe recheck it.
-    if any(item.get('reason') == 'credentials_rejected' for item in state['observations']):
+    # OpenAI uses static keys. Gemini uses refreshed workload tokens and may
+    # recover without a configuration change, under the same bounded budget.
+    static_key_kinds = {'llm', 'image', 'tts'} if tts == 'openai_realtime' else {'llm', 'image'}
+    if any(item['kind'] in static_key_kinds and item.get('reason') == 'credentials_rejected'
+           for item in state['observations']):
         return 'UNAVAILABLE'
     kinds = {item['kind'] for item in state['observations']}
     if kinds != ({'llm', 'image', 'tts'} if audio else {'llm', 'image'}):
         return 'UNSUPPORTED'
     unhealthy = {item['kind'] for item in state['observations'] if item['status'] != 'healthy'}
+    now = time.time()
     if unhealthy == {'tts'}:
-        return 'REQUIRED_TTS'
+        # The 18-hour claim interval leaves an hour for the timer and delays.
+        openai_has_runway = all(
+            settings.provider_observation_ttl_seconds - (now - item['observed_at']) >= 19 * 3600
+            for item in state['observations'] if item['kind'] != 'tts'
+        )
+        return 'REQUIRED_TTS' if openai_has_runway else 'REQUIRED_TTS_WITH_OPENAI'
     if unhealthy:
         return 'REQUIRED_ALL' if audio else 'REQUIRED'
-    now = time.time()
     due = any(now - item['observed_at'] >= 20 * 3600 for item in state['observations'])
     # A shared claim covers one refresh window. Refresh the active providers
     # together so a later-expiring observation cannot outlive the next claim.
@@ -55,11 +63,15 @@ _TTS_PROBE = """
 import asyncio, os
 from contextlib import redirect_stdout, redirect_stderr
 async def run():
+    from src.core.config import settings
     from src.core.rate_limit import rate_limiter
-    from src.services.tts import GeminiCloudTTSProvider
+    from src.services.tts import tts_service
     from src.services.provider_runtime import provider_runtime_status
+    if (not settings.audio_feature_enabled or not settings.audio_narration_only_enabled
+            or settings.tts_provider not in {'google_gemini', 'openai_realtime'}):
+        return False
     try:
-        await GeminiCloudTTSProvider().synthesize('작은 별이 반짝였어요.', language='ko', style='natural')
+        await tts_service.provider.synthesize('작은 별이 반짝였어요.', language='ko', style='natural')
         state = await provider_runtime_status(include_photo=False, include_audio=True)
         return any(item['kind'] == 'tts' and item['status'] == 'healthy' for item in state['observations'])
     finally:
@@ -71,6 +83,7 @@ print('TTS_VERIFIED' if ok else 'TTS_FAILED')
 _DOCKER = ['/usr/bin/docker', '--host', 'unix:///var/run/docker.sock']
 _ENV = {'PATH': '/usr/bin:/bin', 'HOME': '/root'}
 _API = 'asb-pilot-api'
+_TTS_REQUIRED = {b'REQUIRED_TTS\n', b'REQUIRED_TTS_WITH_OPENAI\n'}
 
 
 def docker(*args, data=None, timeout=20):
@@ -102,20 +115,28 @@ def refresh(image_id, ledger, state_dir, *, execute, refresh_now=False):
             if not refresh_now:
                 return 'OBSERVATIONS_FRESH'
             status = b'DUE_ALL\n' if status == b'FRESH_AUDIO\n' else b'DUE\n'
-        required = status in {b'REQUIRED\n', b'REQUIRED_ALL\n', b'REQUIRED_TTS\n'}
+        tts_only = status == b'REQUIRED_TTS\n' and not refresh_now
+        required = status in {b'REQUIRED\n', b'REQUIRED_ALL\n'} or status in _TTS_REQUIRED
         if status not in {b'DUE\n', b'DUE_ALL\n'} and not required:
             raise RuntimeError('provider refresh is not eligible')
-        source = _source()
+        source = None if tts_only else _source()
         if not execute:
             return 'OBSERVATIONS_DUE'
-        if not claim(ledger):
-            return 'PROBE_REQUIRED_BUDGET_DEFERRED' if required else 'PROBE_BUDGET_DEFERRED'
-        audio = status in {b'DUE_ALL\n', b'REQUIRED_ALL\n', b'REQUIRED_TTS\n'}
-        text_and_image_ok = False
         try:
-            text_and_image_ok = docker(
-                'exec', '-i', identifier, 'python', '-', '--inside-pinned-candidate',
-                data=source, timeout=300) == b'PROVIDER_PROBE_OK\n'
+            claimed = claim(ledger, require_next_interval=True) if tts_only else claim(ledger)
+        except ProbeFollowupUnavailable:
+            source = _source()
+            tts_only = False
+            claimed = claim(ledger)
+        if not claimed:
+            return 'PROBE_REQUIRED_BUDGET_DEFERRED' if required else 'PROBE_BUDGET_DEFERRED'
+        audio = status in {b'DUE_ALL\n', b'REQUIRED_ALL\n'} or status in _TTS_REQUIRED
+        text_and_image_ok = tts_only
+        try:
+            if source is not None:
+                text_and_image_ok = docker(
+                    'exec', '-i', identifier, 'python', '-', '--inside-pinned-candidate',
+                    data=source, timeout=300) == b'PROVIDER_PROBE_OK\n'
         finally:
             # Refresh narration independently even if the OpenAI probe fails.
             if audio and docker('exec', '-i', identifier, 'python', '-',
@@ -144,7 +165,7 @@ def bootstrap_isolated_narration(identifier, image_id, ledger):
     status = docker('exec', '-i', identifier, 'python', '-', data=_CHECK)
     if status in {b'FRESH_AUDIO\n', b'DUE_ALL\n'}:
         return
-    if status != b'REQUIRED_TTS\n' or not claim(ledger):
+    if status not in _TTS_REQUIRED or not claim(ledger):
         raise RuntimeError('candidate narration probe is not eligible')
     if docker('exec', '-i', identifier, 'python', '-', data=_TTS_PROBE, timeout=105) != b'TTS_VERIFIED\n':
         raise RuntimeError('candidate narration probe failed')

@@ -14,6 +14,7 @@ import socket
 import subprocess
 import struct
 import sys
+import tempfile
 import time
 import uuid
 
@@ -74,83 +75,141 @@ def wait_http(url):
     raise RuntimeError('Synthetic object store did not become ready')
 
 
-def exercise_quarantined_replay(target_env, endpoint):
-    """Exercise the real isolated replay command with one post-backup erasure."""
+def exercise_quarantined_replay(target_env, endpoint, source_s3):
+    """Round-trip a backup checkpoint and reapply later API erasures."""
     import boto3
-    from botocore.exceptions import ClientError
+    import httpx
+    from backup_external import _download_media, inventory
+    from run_backup_restore_rehearsal import rehearse_remote_import
 
-    token = uuid.uuid4().hex
-    archive = ROOT / ('ingest-' + token)
-    (archive / 'objects').mkdir(parents=True, mode=0o700)
+    staged_backup = ROOT / ('capture-' + uuid.uuid4().hex)
+    (staged_backup / 'objects').mkdir(parents=True, mode=0o700)
     pg = dict(os.environ, PGHOST='127.0.0.1', PGPORT='15433', PGUSER='runtime_test', PGPASSWORD=PASSWORD)
     subject = '00000000-0000-4000-8000-000000000019'
-    media_key = f'voice-samples/{subject}/quarantine.wav'
+    voice_key = f'voice-samples/{subject}/quarantine.wav'
+    book_key = 'books/quarantine-book/cover.png'
+    retained_key = 'books/unrelated-book/keep.png'
     original_base = f'{endpoint}/{BUCKET}'
-    sample = b'isolated replay synthetic sample'
+    objects = {voice_key: (b'isolated replay synthetic sample', 'audio/wav'),
+               book_key: (b'isolated replay synthetic cover', 'image/png'),
+               retained_key: (b'isolated replay unrelated media', 'image/png')}
+    for key, (body, content_type) in objects.items():
+        source_s3.put_object(Bucket=BUCKET, Key=key, Body=body, ContentType=content_type)
     run(['psql', '-X', '-v', 'ON_ERROR_STOP=1', '-d', 'runtime_test', '-c',
          "INSERT INTO voice_profiles (id,user_key,label,sample_audio_url,consented,active) "
-         f"VALUES ('quarantine-voice','{subject}','Synthetic','{original_base}/{media_key}',true,true)"], env=pg)
-    dump = archive / 'database.dump'
+         f"VALUES ('quarantine-voice','{subject}','Synthetic','{original_base}/{voice_key}',true,true); "
+         f"INSERT INTO jobs (id,status,user_key) VALUES ('quarantine-job','done','{subject}'); "
+         "INSERT INTO books (id,job_id,title,language,target_age,style,user_key,cover_image_url) "
+         "VALUES ('quarantine-book','quarantine-job','Synthetic','ko','7-9','watercolor',"
+         f"'{subject}','{original_base}/{book_key}');"], env=pg)
+    dump = staged_backup / 'database.dump'
     with dump.open('wb') as output:
         run(['pg_dump', '--format=custom', '--schema=public', '--no-owner', '--no-privileges', 'runtime_test'],
             env=pg, stdout=output)
-    filename = 'objects/' + hashlib.sha256(media_key.encode()).hexdigest()
-    (archive / filename).write_bytes(sample)
+    descriptors = _download_media(source_s3, BUCKET, staged_backup / 'objects',
+                                  inventory(source_s3, BUCKET), workers=2)
     revision = run(['psql', '-X', '-At', '-d', 'runtime_test', '-c',
                     'SELECT version_num FROM public.alembic_version'], env=pg).decode().strip()
     manifest = {'format_version': 1, 'database_scope': 'public', 'alembic_revision': revision,
                 'requires_latest_deletion_and_identity_revocations': True,
                 'database': {'file': 'database.dump', 'size': dump.stat().st_size,
                              'sha256': hashlib.sha256(dump.read_bytes()).hexdigest()},
-                'objects': [{'key': media_key, 'file': filename, 'size': len(sample),
-                             'sha256': hashlib.sha256(sample).hexdigest(), 'content_type': 'audio/wav'}]}
-    manifest_bytes = json.dumps(manifest).encode()
-    (archive / 'manifest.json').write_bytes(manifest_bytes)
+                'objects': descriptors}
+    (staged_backup / 'manifest.json').write_text(json.dumps(manifest))
     program = """
-import json, sys
+import asyncio, json, sys
+from contextlib import redirect_stdout
 sys.path.insert(0, '/offline/scripts')
 from fixture_journal_store import load_fixture_journal
 from replay_privacy_journal import encode_replay_transfer
-from src.services.privacy_journal_verify import fingerprint_entries
+from src.core.database import AsyncSessionLocal
+from src.routers.library import delete_book
+from src.routers.voice_profiles import delete_voice_profile
+from src.services.privacy_journal_verify import verify_current_outbox
 journal = load_fixture_journal()
-backup = journal.scan()
-event = journal.begin('voice_delete', sys.argv[1], revision=1, resource_id='quarantine-voice')
-journal.commit(event)
-scan = journal.scan()
-print(json.dumps({'count': len(backup.committed), 'digest': fingerprint_entries(backup.committed),
-    'transfer': encode_replay_transfer(scan, fingerprint_entries(scan.committed), sys.argv[2]).decode()}))
+async def capture_and_delete():
+    async with AsyncSessionLocal() as db:
+        checkpoint = await verify_current_outbox(db, journal.scan())
+    async with AsyncSessionLocal() as db:
+        db.info['privacy_journal'] = journal
+        voice = await delete_voice_profile('quarantine-voice', db=db, user_key=sys.argv[1])
+    async with AsyncSessionLocal() as db:
+        db.info['privacy_journal'] = journal
+        book = await delete_book('quarantine-book', db=db, user_key=sys.argv[1], profile_id=None,
+                                 x_deletion_request_id='a' * 32)
+    if voice['status'] != 'success' or book['status'] != 'success' or not book['deletion_committed']:
+        raise RuntimeError('Synthetic source erasures did not complete')
+    scan = journal.scan()
+    async with AsyncSessionLocal() as db:
+        latest = await verify_current_outbox(db, scan)
+    if latest['event_count'] != checkpoint['event_count'] + 2:
+        raise RuntimeError('Synthetic source erasures were not journaled')
+    return {'checkpoint': checkpoint,
+            'transfer': json.loads(encode_replay_transfer(scan, latest['journal_sha256'], sys.argv[2]))}
+with redirect_stdout(sys.stderr):
+    result = asyncio.run(capture_and_delete())
+print(json.dumps(result))
 """
     data = json.loads(run(['/opt/venv/bin/python', '-c', program, subject, original_base], env=target_env))
-    (archive / 'quarantined.json').write_text(json.dumps({
-        'status': 'BACKUP_IMPORTED_QUARANTINED', 'restore_authorized': False}))
-    (archive / 'verified.json').write_text(json.dumps({
-        'version': 1, 'manifest_sha256': hashlib.sha256(manifest_bytes).hexdigest(),
-        'journal_event_count': data['count'], 'journal_sha256': data['digest'], 'restore_authorized': False}))
+    if set(inventory(source_s3, BUCKET)) != {retained_key}:
+        raise RuntimeError('Synthetic source erasures did not remove only their media')
+    checkpoint = data['checkpoint']
+    with tempfile.TemporaryDirectory(dir=ROOT) as temporary:
+        received = rehearse_remote_import(staged_backup, Path(temporary) / 'receiver', revision,
+                                          journal_checkpoint=checkpoint)
+        token = received.name.removeprefix('ingest-')
+        received.rename(ROOT / received.name)
     isolated = dict(os.environ, ASB_QUARANTINE_RESTORE='1')
     restored = json.loads(run(['/opt/venv/bin/python', str(SCRIPTS / 'quarantined_restore_runtime.py'), token], env=isolated))
     if restored['status'] != 'DATABASE_AND_MEDIA_RESTORED_QUARANTINED':
         raise RuntimeError('Synthetic operational restore failed')
+    binding = json.loads(run(['/opt/venv/bin/python', str(SCRIPTS / 'quarantined_outbox_binding.py'), token], env=isolated))
+    if (binding['status'] != 'BACKUP_OUTBOX_CHECKPOINT_MATCHES'
+            or len(binding['event_ids']) != checkpoint['event_count']
+            or binding['journal_sha256'] != checkpoint['journal_sha256']
+            or binding['restore_authorized'] is not False):
+        raise RuntimeError('Synthetic restored outbox does not match the published checkpoint')
     runtime = json.loads((ROOT / ('runtime-' + token) / 'runtime.json').read_bytes())
     media = boto3.client('s3', endpoint_url=runtime['storage_endpoint'], region_name='us-east-1',
                          aws_access_key_id=runtime['storage_user'], aws_secret_access_key=runtime['storage_password'])
     try:
-        with media.get_object(Bucket=runtime['bucket'], Key=media_key)['Body'] as body:
-            if body.read() != sample:
-                raise RuntimeError('Synthetic quarantined sample differs from its backup')
-        with (archive / 'transfer.fixture').open('w+b') as source:
-            source.write(data['transfer'].encode())
+        signed_urls = {}
+        for key, (body, _) in objects.items():
+            unsigned_url = f"{runtime['storage_endpoint']}/{runtime['bucket']}/{key}"
+            signed_urls[key] = media.generate_presigned_url('get_object',
+                Params={'Bucket': runtime['bucket'], 'Key': key}, ExpiresIn=120)
+            if httpx.get(unsigned_url, timeout=5, trust_env=False).status_code != 403:
+                raise RuntimeError('Synthetic quarantined media does not deny anonymous access')
+            response = httpx.get(signed_urls[key], timeout=5, trust_env=False)
+            if response.status_code != 200 or response.content != body:
+                raise RuntimeError('Synthetic signed quarantined media differs from its backup')
+        replay_command = ['/opt/venv/bin/python', str(SCRIPTS / 'quarantined_replay_preflight.py'), '--apply', token]
+        truncated = {**data['transfer'], 'events': data['transfer']['events'][:-1]}
+        rejected = subprocess.run(replay_command, cwd=API, env=isolated, timeout=120,
+                                  input=json.dumps(truncated).encode(), capture_output=True)
+        if rejected.returncode != 1 or json.loads(rejected.stdout) != {
+                'status': 'RESTORED_TARGET_NOT_VERIFIED', 'restore_authorized': False}:
+            raise RuntimeError('Synthetic truncated journal was not rejected')
+        if any(httpx.get(url, timeout=5, trust_env=False).status_code != 200 for url in signed_urls.values()):
+            raise RuntimeError('Synthetic rejected transfer modified restored media')
+        with tempfile.TemporaryFile(dir=ROOT) as source:
+            source.write(json.dumps(data['transfer']).encode())
             source.seek(0)
-            result = json.loads(run(['/opt/venv/bin/python', str(SCRIPTS / 'quarantined_replay_preflight.py'),
-                                     '--apply', token], env=isolated, stdin=source))
-        if result != {'status': 'REPLAYED_STILL_QUARANTINED', 'applied_count': 1, 'restore_authorized': False}:
-            raise RuntimeError('Synthetic quarantined replay did not apply exactly one event')
-        try:
-            media.head_object(Bucket=runtime['bucket'], Key=media_key)
-        except ClientError as exc:
-            if exc.response['ResponseMetadata']['HTTPStatusCode'] != 404:
-                raise
-        else:
-            raise RuntimeError('Synthetic quarantined sample remains after erasure')
+            result = json.loads(run(replay_command, env=isolated, stdin=source))
+        if result != {'status': 'REPLAYED_STILL_QUARANTINED', 'applied_count': 2, 'restore_authorized': False}:
+            raise RuntimeError('Synthetic quarantined replay did not apply both erasures')
+        if any(httpx.get(signed_urls[key], timeout=5, trust_env=False).status_code != 404
+               for key in (voice_key, book_key)):
+            raise RuntimeError('Synthetic erased media remains available through its old signed URL')
+        retained = httpx.get(signed_urls[retained_key], timeout=5, trust_env=False)
+        if retained.status_code != 200 or retained.content != objects[retained_key][0]:
+            raise RuntimeError('Synthetic unrelated media was changed by replay')
+        restored_pg = dict(os.environ, PGHOST='127.0.0.1', PGPORT='54321', PGUSER='sandbox')
+        receipt = run(['psql', '-X', '-At', '-v', 'ON_ERROR_STOP=1', '-d', 'restored', '-c',
+            "SELECT count(*) FROM book_deletion_receipts WHERE book_id='quarantine-book' "
+            f"AND user_key='{subject}' AND request_id='{'a' * 32}' AND profile_id IS NULL"], env=restored_pg)
+        if receipt.strip() != b'1':
+            raise RuntimeError('Synthetic book deletion receipt did not survive replay')
     finally:
         media.close()
 
@@ -159,7 +218,9 @@ def main():
     require_synthetic_sandbox()
     os.umask(0o077)
     sys.path.insert(0, str(SCRIPTS))
-    from run_backup_restore_rehearsal import (copy_media, database_snapshot, finish_fixture_pending_task,
+    from backup_external import _download_media, inventory
+    from quarantined_restore_runtime import _restore_media
+    from run_backup_restore_rehearsal import (database_snapshot, finish_fixture_pending_task,
         mark_disposable_restore_target, object_inventory, seed_database, storage,
         verify_regranted_consent_preserved, verify_synthetic_account_replayed, verify_synthetic_consent_replayed)
     import httpx
@@ -232,8 +293,10 @@ def main():
             run(['pg_restore', '-h', '127.0.0.1', '-p', '15433', '-U', 'runtime_test', '--dbname=runtime_test',
                  '--no-owner', '--no-privileges', '--exit-on-error', '--single-transaction'], env=pg_env, stdin=data)
         folder = workspace / 'media'
-        folder.mkdir(mode=0o700)
-        manifest = copy_media(source_s3, target_s3, folder)
+        (folder / 'objects').mkdir(parents=True, mode=0o700)
+        manifest = object_inventory(source_s3)
+        objects = _download_media(source_s3, BUCKET, folder / 'objects', inventory(source_s3, BUCKET), workers=2)
+        _restore_media(target_s3, BUCKET, folder, objects)
         if source_snapshot != asyncio.run(database_snapshot(15433)) or manifest != object_inventory(target_s3):
             raise RuntimeError('Synthetic restored backup differs')
         env['ASB_REPLAY_SCENARIO'] = 'account'
@@ -270,11 +333,16 @@ def main():
         if object_inventory(target_s3) or any(httpx.get(url, timeout=5, trust_env=False).status_code not in (403, 404)
                                               for url in (consent_url, voice_url)):
             raise RuntimeError('Synthetic revoked media remains accessible')
-        exercise_quarantined_replay(target_env, endpoints[1])
+        exercise_quarantined_replay(target_env, endpoints[1], target_s3)
         print(json.dumps({'status':'OFFLINE_SYNTHETIC_REPLAY_PASSED','network':'none','tmpfs':True,
             'account_delete':True,'consent_revoke':True,'credential_rotation':True,'old_media_denied':True,
             'voice_erasure':True,
             'quarantined_replay_command':True,
+            'published_checkpoint_matches_restored_outbox':True,
+            'truncated_journal_blocked_before_media_erasure':True,
+            'book_delete_receipt_replayed':True,
+            'unrelated_signed_media_preserved':True,
+            'quarantined_media_access_checked':True,
             'idempotent':True,'witness_prefix_tested':True,'anchored_head_tested':True,'witness_watch_tested':True,
             'fence_witness_concurrency': boundary,
             'purge_health_tested':True,

@@ -9,12 +9,15 @@ import importlib.abc
 import importlib.machinery
 import os
 from pathlib import Path
+import re
 import shutil
+import stat
 import sys
 
 
 MARKER_NAME = "STORYBOOK_MOCK_QA"
 MARKER_VALUE = "illustration-review-v1"
+REVIEW_INVITATIONS_ENV = "STORYBOOK_LOCAL_REVIEW_INVITATIONS_FILE"
 MODULE_NAME = "src.services.image_quality"
 STARTUP_SOURCE = """import sys
 try:
@@ -32,6 +35,40 @@ def _authorized_environment() -> bool:
         and os.environ.get("LLM_PROVIDER") == "mock"
         and os.environ.get("IMAGE_PROVIDER") == "mock"
     )
+
+
+def _review_invitation_ids(path: Path) -> frozenset[str]:
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0))
+        with os.fdopen(descriptor, "rb") as file:
+            info = os.fstat(file.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077 or info.st_uid != os.geteuid():
+                return frozenset()
+            data = file.read(4097)
+        if len(data) > 4096:
+            return frozenset()
+        entries = data.decode("ascii").split()
+    except (OSError, UnicodeError):
+        return frozenset()
+    return frozenset(entries) if all(re.fullmatch(r"[0-9a-f]{64}", item) for item in entries) else frozenset()
+
+
+def _install_review_invites(path: Path) -> None:
+    if (os.name != "posix" or not _authorized_environment()
+            or os.environ.get("TESTING", "").lower() != "false" or not path.is_absolute()):
+        raise RuntimeError("MOCK_QA_INVITATIONS_CONFIGURATION_REQUIRED")
+    from src.core import generation_access
+
+    original = generation_access.generation_access_allowed
+
+    def allowed(user_key):
+        if original(user_key):
+            return True
+        if not user_key or not generation_access.generation_invitation_supported():
+            return False
+        return generation_access.generation_identity_hash(user_key) in _review_invitation_ids(path)
+
+    generation_access.generation_access_allowed = allowed
 
 
 def _patch(module) -> None:
@@ -104,10 +141,21 @@ def install() -> None:
     # restore the stricter gate before settings loads. No production gate is disabled.
     if os.environ.get("TESTING", "").lower() == "false":
         os.environ["ILLUSTRATION_QUALITY_ENABLED"] = "true"
+    if review_file := os.environ.get(REVIEW_INVITATIONS_ENV):
+        _install_review_invites(Path(review_file))
     if MODULE_NAME in sys.modules:
         _patch(sys.modules[MODULE_NAME])
     elif not any(isinstance(finder, _ReviewFinder) for finder in sys.meta_path):
         sys.meta_path.insert(0, _ReviewFinder())
+    if archive := os.environ.get("STORYBOOK_LOCAL_REVIEW_ARCHIVE"):
+        provider = os.environ.get("TTS_PROVIDER")
+        if os.environ.get("TESTING", "").lower() != "false" or provider not in {"google_gemini", "openai_realtime"}:
+            raise RuntimeError("MOCK_QA_ARCHIVE_CONFIGURATION_REQUIRED")
+        from replay_review_archive import REVIEW_REALTIME_KEY, install_archive_replay
+
+        if provider == "openai_realtime" and os.environ.get("OPENAI_TTS_API_KEY") != REVIEW_REALTIME_KEY:
+            raise RuntimeError("MOCK_QA_ARCHIVE_CONFIGURATION_REQUIRED")
+        install_archive_replay(Path(archive), provider)
 
 
 def write_startup_loader(directory: Path) -> None:

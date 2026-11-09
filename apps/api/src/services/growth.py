@@ -197,9 +197,14 @@ class GrowthService:
     """읽기 성장 측정 서비스."""
 
     async def assert_book_not_foreign(
-        self, db: AsyncSession, book_id: Optional[str], user_key: str
+        self,
+        db: AsyncSession,
+        book_id: Optional[str],
+        user_key: str,
+        *,
+        profile_id: Optional[str] = None,
     ) -> None:
-        """기록 대상 book_id가 존재하고 내 책인지 검증한다.
+        """기록 대상 책이 계정과 활성 자녀 프로필의 범위에 속하는지 검증한다.
 
         - 다른 유저의 책 → 차단(IDOR·점수 부풀리기 방지).
         - 존재하지 않는 책 → 404. ReadingLog/QuizAnswer.book_id 는 NOT NULL FK이므로
@@ -209,13 +214,17 @@ class GrowthService:
         """
         if not book_id:
             return
-        owner = (
-            await db.execute(select(Book.user_key).where(Book.id == book_id))
-        ).scalar_one_or_none()
-        if owner is None:
+        row = (
+            await db.execute(select(Book.user_key, Book.profile_id).where(Book.id == book_id))
+        ).one_or_none()
+        if row is None:
             raise NotFoundError("Book", book_id)
+        owner, book_profile = row
         if owner != user_key:
             raise AuthorizationError()
+        # Legacy unassigned books remain available to every profile on the account.
+        if profile_id is not None and book_profile is not None and book_profile != profile_id:
+            raise AuthorizationError("선택한 프로필의 책이 아닙니다.")
 
     async def record_answer(
         self,

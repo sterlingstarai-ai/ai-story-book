@@ -42,6 +42,7 @@ async def main():
     from src.services import privacy_journal_gcs
     from automatic_backup import run_guarded_backup
     from backup_service_guard import BackupServiceGuard
+    from publish_backup_gcs import BackupPublishError
     from run_scheduled_backup import build_backup_journal
 
     class Runtime:
@@ -55,6 +56,8 @@ async def main():
             self.states[name] = True
         def reload_proxy(self):
             pass
+        def verify_recovery(self):
+            assert all(self.states.values())
 
     class Store:
         def __init__(self):
@@ -250,13 +253,42 @@ async def main():
                             raise RuntimeError('Synthetic backup failure did not restart safely')
                     await asyncio.to_thread(failure_cycle)
                     stores[1].delegate.create(commit_name, saved)
+
+                    class LosesWitnessDuringUpload(Store):
+                        def put_verified(self, name, path, **kwargs):
+                            super().put_verified(name, path, **kwargs)
+                            if name.endswith('/manifest.json'):
+                                clients[1].delete_object(Bucket=bucket, Key=commit_name)
+
+                    def publication_failure_cycle():
+                        interrupted = LosesWitnessDuringUpload()
+                        try:
+                            run_guarded_backup(guard=guard, verify_idle=lambda: None, verify_journal=verify,
+                                take_backup=lambda: {'status': 'BACKUP_CREATED_NOT_RESTORE_VERIFIED',
+                                                     'backup_set': folder.name},
+                                output_dir=output, store=interrupted, run_id='c' * 32)
+                        except BackupPublishError:
+                            pass
+                        else:
+                            raise RuntimeError('Synthetic witness loss during upload allowed completion')
+                        if (interrupted.marker is not None or not interrupted.writes[-1].endswith('/manifest.json')
+                                or not all(runtime.states.values())):
+                            raise RuntimeError('Synthetic upload failure did not recover without publishing a marker')
+
+                    await asyncio.to_thread(publication_failure_cycle)
+                    stores[1].delegate.create(commit_name, saved)
                     def success_cycle():
+                        timings = {}
                         result = run_guarded_backup(guard=guard, verify_idle=lambda: None, verify_journal=verify,
                             take_backup=lambda: {'status': 'BACKUP_CREATED_NOT_RESTORE_VERIFIED',
                                                  'backup_set': folder.name},
-                            output_dir=output, store=remote, run_id='b' * 32)
+                            output_dir=output, store=remote, run_id='b' * 32, timings_ms=timings)
                         if result['restore_authorized'] is not False or remote.marker is None:
                             raise RuntimeError('Synthetic verified backup was not quarantined')
+                        if (set(timings) != {'guarded_cycle', 'guarded_idle', 'privacy_checkpoint', 'capture', 'publication'}
+                                or timings['guarded_cycle'] < max(timings.values())):
+                            raise RuntimeError('Synthetic guarded backup phase timings were incomplete')
+                        print(json.dumps({'backup_timings_ms': timings}, sort_keys=True))
                     await asyncio.to_thread(success_cycle)
             finally:
                 if backup_store is not None:

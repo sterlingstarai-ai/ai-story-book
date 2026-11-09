@@ -18,7 +18,7 @@ async def test_ssrf_rejection_omits_private_reference_url_without_fetching(monke
         pytest.fail("The real SSRF guard must reject before opening an HTTP client")
 
     monkeypatch.setattr(image.httpx, "AsyncClient", forbidden_client)
-    assert await image._fetch_image_as_base64(url) is None
+    assert await image._fetch_image_bytes(url) is None
     logger.warning.assert_called_once_with("reference image URL blocked by SSRF protection")
     recorded = str(logger.mock_calls)
     assert "private-child-path" not in recorded
@@ -48,7 +48,7 @@ async def test_fetch_failure_logs_only_exception_type_and_preserves_timeout(
         return real_client(timeout=timeout, transport=httpx.MockTransport(fail_fetch))
 
     monkeypatch.setattr(image.httpx, "AsyncClient", client)
-    assert await image._fetch_image_as_base64(url) is None
+    assert await image._fetch_image_bytes(url) is None
     assert len(requests) == 1
     assert str(requests[0].url) == url
     logger.warning.assert_called_once_with(

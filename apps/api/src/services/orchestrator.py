@@ -13,15 +13,18 @@ H. 패키징 (BookResult 생성, 업로드, 저장)
 """
 
 import asyncio
+from contextlib import nullcontext
 import re
 import time
 from typing import Optional, Callable, Awaitable, TypeVar
+import unicodedata
 import uuid
 import structlog
 
 from src.core.config import settings
 from src.core.book_assets import build_generation_warnings, build_page_asset_status
-from src.services.provider_runtime import record_job_provider_usage
+from src.services.provider_runtime import record_generation_stage, record_job_provider_usage
+from src.services.story_integrity import requires_long_korean_story
 
 from src.core.errors import (
     StoryBookError,
@@ -70,7 +73,7 @@ PLACEHOLDER_IMAGE_URL = "https://placeholder.invalid/image-unavailable.png"
 async def run_step(
     job_id: str,
     step_name: str,
-    progress: int,
+    progress: int | None,
     fn: Callable[[], Awaitable[T]],
     retries: int = 0,
     timeout_sec: int = 30,
@@ -82,7 +85,7 @@ async def run_step(
     Args:
         job_id: 잡 ID
         step_name: 단계 이름 (로깅/상태 업데이트용)
-        progress: 현재 진행률
+        progress: 현재 진행률. 병행 작업은 None으로 화면 단계를 유지한다.
         fn: 실행할 비동기 함수
         retries: 재시도 횟수
         timeout_sec: 타임아웃 (초)
@@ -96,7 +99,8 @@ async def run_step(
     """
     backoff = backoff or [2, 5, 12]
 
-    await update_job_status(job_id, step_name, progress)
+    if progress is not None:
+        await update_job_status(job_id, step_name, progress)
 
     last_exc: Exception | None = None
 
@@ -125,7 +129,7 @@ async def run_step(
                 job_id=job_id,
                 step=step_name,
                 attempt=attempt + 1,
-                error=str(e),
+                error_type=type(e).__name__,
             )
 
         except StoryBookError as e:
@@ -151,7 +155,7 @@ async def run_step(
                 job_id=job_id,
                 step=step_name,
                 attempt=attempt + 1,
-                error=str(e),
+                error_type=type(e).__name__,
             )
 
         # 재시도 대기
@@ -213,7 +217,7 @@ async def mark_job_failed(job_id: str, error_code: ErrorCode, message: str):
             .values(
                 status="failed",
                 error_code=error_code.value,
-                # A1-R: 저장 메시지도 위생 처리(원문은 아래 로그로만).
+                # Persist only a client-safe message; logs carry the error code.
                 error_message=client_safe_message(error_code, message)[:300],
                 updated_at=utcnow(),
             )
@@ -252,7 +256,7 @@ async def mark_job_failed(job_id: str, error_code: ErrorCode, message: str):
                 )
             except Exception as refund_exc:  # noqa: BLE001
                 logger.warning(
-                    "failed-job refund error", job_id=job_id, error=str(refund_exc)
+                    "failed-job refund error", job_id=job_id, error_type=type(refund_exc).__name__,
                 )
 
             # M12/R3-5: 실패한 잡이 이미 S3에 올려둔 이미지는 책 행이 없어 어떤 파기 경로도
@@ -274,10 +278,10 @@ async def mark_job_failed(job_id: str, error_code: ErrorCode, message: str):
                 logger.warning(
                     "failed-job image purge enqueue error",
                     job_id=job_id,
-                    error=str(purge_exc),
+                    error_type=type(purge_exc).__name__,
                 )
 
-    logger.error("Job failed", job_id=job_id, error_code=error_code, message=message)
+    logger.error("Job failed", job_id=job_id, error_code=error_code)
 
 
 async def mark_job_done(job_id: str):
@@ -348,10 +352,12 @@ async def start_book_generation(
     series_index: Optional[int] = None,
 ):
     """Run one generation with a shared, non-resettable image request budget."""
+    from src.services.openai_contract import openai_book_connection_scope
     from src.services.provider_runtime import job_provider_usage
 
     with job_provider_usage(job_id):
-        return await _start_bounded_book_generation(job_id, spec, user_key, series_id, series_index)
+        async with openai_book_connection_scope():
+            return await _start_bounded_book_generation(job_id, spec, user_key, series_id, series_index)
 
 
 async def _start_bounded_book_generation(job_id, spec, user_key, series_id, series_index):
@@ -396,6 +402,7 @@ async def _start_book_generation(
         series_id: 시리즈 ID (옵션)
         series_index: 시리즈 내 순서 (옵션)
     """
+    learning_task: asyncio.Task[LearningAssets | None] | None = None
     try:
         logger.info(
             "Starting book generation",
@@ -455,10 +462,12 @@ async def _start_book_generation(
                 progress=PROGRESS_STORY,
                 fn=lambda: generate_story(normalized_spec),
                 retries=2,
-                timeout_sec=settings.llm_timeout,
+                timeout_sec=settings.llm_timeout * (2 if requires_long_korean_story(normalized_spec) else 1),
                 backoff=[2, 5],
             )
-            if await moderate_output(story_draft, {}):
+            with record_generation_stage("moderate_output"):
+                output_is_safe = await moderate_output(story_draft, {})
+            if output_is_safe:
                 break
             logger.warning(
                 "Output text failed moderation, regenerating story",
@@ -505,18 +514,43 @@ async def _start_book_generation(
 
         # F. 이미지 생성 (cover + pages)
         total_images = len(image_prompts.pages) + 1  # +1 for cover
-        image_urls = await generate_all_images(
-            job_id=job_id,
-            image_prompts=image_prompts,
-            total_images=total_images,
-            reference_image_url=face_reference_url,
-        )
-
-        if quality_deadline is not None:
-            from src.services.illustration_quality_pipeline import (
-                seconds_remaining, verify_and_repair_illustrations, queue_discarded_images,
+        with record_generation_stage("generate_images"):
+            image_urls = await generate_all_images(
+                job_id=job_id,
+                image_prompts=image_prompts,
+                total_images=total_images,
+                reference_image_url=face_reference_url,
+                require_complete=quality_deadline is not None,
             )
 
+        from src.services.illustration_quality_pipeline import (
+            COMMIT_RESERVE_SECONDS, queue_discarded_images, seconds_remaining, verify_and_repair_illustrations,
+        )
+
+        def learning_timeout() -> int:
+            timeout = settings.llm_timeout + 5
+            if quality_deadline is not None:
+                timeout = min(
+                    timeout, int(quality_deadline - time.monotonic() - COMMIT_RESERVE_SECONDS),
+                )
+            return timeout
+
+        async def build_optional_learning_assets(timeout: int, progress: int | None) -> LearningAssets | None:
+            try:
+                return await run_step(
+                    job_id=job_id,
+                    step_name="learning_assets",
+                    progress=progress,
+                    fn=lambda: generate_learning_assets(story_draft),
+                    timeout_sec=timeout,
+                )
+            except StoryBookError as exc:
+                logger.warning(
+                    "Optional learning assets skipped", job_id=job_id, error_code=exc.code.value,
+                )
+                return None
+
+        if quality_deadline is not None:
             async def repair(page_number, prompt, current_urls):
                 reference = face_reference_url
                 from src.services.image import supports_image_reference
@@ -527,6 +561,16 @@ async def _start_book_generation(
                     reference_image_url=reference, max_attempts=1,
                 )
 
+            async def illustration_progress(step, progress):
+                nonlocal learning_task
+                await update_job_status(job_id, step, progress)
+                # The first review has accepted a bounded repair round. Safe
+                # story text can now be processed while illustrations finish.
+                if step == "repair_illustrations" and learning_task is None:
+                    timeout = learning_timeout()
+                    if timeout > 0:
+                        learning_task = asyncio.create_task(build_optional_learning_assets(timeout, None))
+
             verified = await run_step(
                 job_id=job_id, step_name="verify_illustrations", progress=86,
                 fn=lambda: verify_and_repair_illustrations(
@@ -534,7 +578,9 @@ async def _start_book_generation(
                     page_texts={0: story_draft.title, **{p.page: p.text for p in story_draft.pages}},
                     image_prompts={0: image_prompts.cover, **{p.page: p for p in image_prompts.pages}},
                     image_urls=image_urls, deadline=quality_deadline, regenerate=repair,
-                    on_progress=lambda step, progress: update_job_status(job_id, step, progress),
+                    on_progress=illustration_progress,
+                    repair_concurrency=settings.image_max_concurrent,
+                    use_prompt_action_focus=True,
                 ),
                 retries=0, timeout_sec=max(1, int(seconds_remaining(quality_deadline))),
             )
@@ -549,15 +595,15 @@ async def _start_book_generation(
             await update_job_status(job_id, "moderate_output", 86)
 
         # G-2. 학습 자산 생성 (번역 + 어휘 + 질문)
-        learning_assets = await run_step(
-            job_id=job_id,
-            step_name="learning_assets",
-            progress=PROGRESS_LEARNING_ASSETS,
-            fn=lambda: generate_learning_assets(story_draft),
-            retries=1,
-            timeout_sec=settings.llm_timeout * 2,  # 더 긴 타임아웃
-            backoff=[3, 8],
-        )
+        learning_assets = None
+        if learning_task is not None:
+            if not learning_task.done():
+                await update_job_status(job_id, "learning_assets", PROGRESS_LEARNING_ASSETS)
+            learning_assets = await learning_task
+        else:
+            timeout = learning_timeout()
+            if timeout > 0:
+                learning_assets = await build_optional_learning_assets(timeout, PROGRESS_LEARNING_ASSETS)
 
         # H. 패키징 및 저장
         book_result = await run_step(
@@ -599,6 +645,11 @@ async def _start_book_generation(
         else:
             logger.error("Unexpected error in book generation", job_id=job_id, error_type=type(e).__name__)
             await mark_job_failed(job_id, ErrorCode.UNKNOWN, "동화 생성 중 오류가 발생했습니다.")
+    finally:
+        if learning_task is not None:
+            if not learning_task.done():
+                learning_task.cancel()
+            await asyncio.gather(learning_task, return_exceptions=True)
 
 
 # ==================== Pipeline Steps (Stubs) ====================
@@ -672,15 +723,15 @@ async def generate_image_prompts(
 
 
 def _is_gradeable_quiz(quiz_item) -> bool:
-    """퀴즈가 채점 가능한지 — 정답 인덱스가 보기 범위 내·보기 중복 없음·정답 보기 비어있지 않음."""
+    """Require one visible, distinct label for every selectable option."""
     options = quiz_item.options or []
     if not (0 <= quiz_item.answer_index < len(options)):
         return False
-    if len(set(options)) < len(options):  # 중복 보기 → 정답 모호
-        return False
-    if not (options[quiz_item.answer_index] or "").strip():  # 빈 정답 보기
-        return False
-    return True
+    labels = [
+        " ".join(unicodedata.normalize("NFKC", option).casefold().split())
+        for option in options
+    ]
+    return all(labels) and len(set(labels)) == len(labels)
 
 
 def _grounding_corpus(assets: LearningAssets, story_text: str) -> str:
@@ -777,27 +828,29 @@ async def generate_learning_assets(story: StoryDraft) -> Optional[LearningAssets
     except Exception as e:
         logger.warning(
             "Failed to generate learning assets, continuing without",
-            error=str(e),
+            error_type=type(e).__name__,
         )
         return None
 
     if assets is None:
         return None
 
+    story_pages = sorted(page.page for page in story.pages)
+    if (assets.source_language != source_lang or assets.target_language != target_lang
+            or sorted(page.page for page in assets.pages) != story_pages):
+        logger.warning("Learning assets do not match story pages or languages")
+        return None
+
     story_text = " ".join((p.text or "") for p in (story.pages or []))
     issues = _assess_and_clean_learning_quality(assets, story_text)
     if issues:
-        logger.warning(
-            "Learning assets quality gate", issues=issues, title=story.title
-        )
+        logger.warning("Learning assets quality gate", issues=issues)
 
     # 어휘·퀴즈가 모두 비면 '교육 증거'로 노출하지 않는다(무자산이 오히려 안전).
     has_vocab = any((p.vocab or []) for p in (assets.pages or []))
     has_quiz = any((p.quiz or []) for p in (assets.pages or []))
     if not has_vocab and not has_quiz:
-        logger.warning(
-            "Learning assets empty after quality gate; dropping", title=story.title
-        )
+        logger.warning("Learning assets empty after quality gate; dropping")
         return None
 
     return assets
@@ -816,6 +869,8 @@ async def generate_all_images(
     image_prompts: ImagePrompts,
     total_images: int,
     reference_image_url: Optional[str] = None,
+    *,
+    require_complete: bool = False,
 ) -> dict[int, str]:
     """
     F. 이미지 생성 (cover + pages)
@@ -829,57 +884,133 @@ async def generate_all_images(
 
     image_urls = {}
 
-    from src.services.image import image_book_reference_scope, supports_image_reference
-
-    # Cover (page 0)
-    progress_per_image = (PROGRESS_IMAGES_END - PROGRESS_IMAGES_START) / total_images
-    current_progress = PROGRESS_IMAGES_START
-
-    # Generate cover
-    await update_job_status(job_id, "generate_images", int(current_progress))
-    # A new cover must never inherit a prior book's visual anchor. Its explicit
-    # approved-character reference remains authoritative when present.
-    with image_book_reference_scope(None):
-        cover_url = await generate_image_with_retry(
-            image_prompts.cover, job_id, 0, reference_image_url=reference_image_url
-        )
-    image_urls[0] = cover_url
-    current_progress += progress_per_image
-
-    # The completed cover is an owned, durable visual anchor for text characters
-    # too. Keep an explicit photo/drawing reference authoritative when supplied.
-    page_reference = reference_image_url
-    book_reference = (
-        cover_url if supports_image_reference() and cover_url and not _is_placeholder_image_url(cover_url)
-        else None
+    from src.services.image import (
+        book_image_connection_scope, generated_cover_download_scope, image_book_reference_scope,
+        supports_image_reference,
     )
-    if (page_reference is None and supports_image_reference()
-            and cover_url and not _is_placeholder_image_url(cover_url)):
-        page_reference = cover_url
+    from src.services.illustration_quality_pipeline import quality_failure
+    from src.services.storage import (
+        key_from_public_url, object_read_connection_scope, object_upload_connection_scope,
+    )
+
+    def complete_asset(url):
+        if not isinstance(url, str) or _is_placeholder_image_url(url):
+            return False
+        try:
+            return bool(key_from_public_url(url))
+        except ValueError:
+            return False
+
+    image_progress_span = PROGRESS_IMAGES_END - PROGRESS_IMAGES_START
 
     # Generate pages (with concurrency limit)
     semaphore = asyncio.Semaphore(settings.image_max_concurrent)
+    stop_retries = asyncio.Event()
+    finished_images = 0
+    reporting_progress = False
+    first_failure: StoryBookError | None = None
+
+    async def report_finished_image():
+        nonlocal finished_images, reporting_progress
+        finished_images += 1
+        if reporting_progress:
+            return
+        # While the DB write is in flight, completions accumulate. Its owner
+        # flushes the newest count before gather can advance to the next stage.
+        reporting_progress = True
+        reported = 0
+        try:
+            while reported < finished_images:
+                reported = finished_images
+                try:
+                    await update_job_status(
+                        job_id, "generate_images",
+                        PROGRESS_IMAGES_START + reported * image_progress_span // total_images,
+                    )
+                except Exception:
+                    logger.warning("Image progress update unavailable", job_id=job_id)
+        finally:
+            reporting_progress = False
 
     async def generate_with_semaphore(prompt, page_num):
-        async with semaphore:
-            # M32: 안정 키로 통일(페이지 카운트는 progress 필드가 표현). 클라이언트가 l10n 매핑.
-            await update_job_status(
-                job_id,
-                "generate_images",
-                int(current_progress + (page_num * progress_per_image)),
-            )
-            # This URL comes from this job's cover generation, never user input.
-            # The adapter validates owned storage and deduplicates cover-only
-            # references; an approved avatar stays first when supplied.
-            with image_book_reference_scope(book_reference):
-                return await generate_image_with_retry(
-                    prompt, job_id, page_num, reference_image_url=page_reference
-                )
+        nonlocal first_failure
+        await semaphore.acquire()
+        holds_slot = True
 
-    tasks = [
-        generate_with_semaphore(prompt, prompt.page) for prompt in image_prompts.pages
-    ]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+        async def wait_before_retry(delay: float, allow_other_pages: bool) -> bool:
+            nonlocal holds_slot
+            if allow_other_pages:
+                semaphore.release()
+                holds_slot = False
+            try:
+                await asyncio.wait_for(stop_retries.wait(), timeout=delay)
+            except asyncio.TimeoutError:
+                pass
+            if stop_retries.is_set():
+                return False
+            if not holds_slot:
+                await semaphore.acquire()
+                holds_slot = True
+            return not stop_retries.is_set()
+
+        try:
+            if first_failure is not None:
+                return None
+            try:
+                # The owned cover comes from this job, never user input.
+                with image_book_reference_scope(book_reference):
+                    result = await generate_image_with_retry(
+                        prompt, job_id, page_num, reference_image_url=page_reference,
+                        wait_before_retry=wait_before_retry,
+                    )
+            except Exception as error:
+                result = error
+            if require_complete and first_failure is None and not complete_asset(result):
+                # The quality gate cannot review an incomplete book. Close
+                # admission before releasing a slot, then drain active calls
+                # so any images already saved remain reachable by cleanup.
+                first_failure = result if isinstance(result, StoryBookError) else quality_failure("asset_invalid")
+                stop_retries.set()
+        finally:
+            if holds_slot:
+                semaphore.release()
+        await report_finished_image()
+        return result
+
+    await update_job_status(job_id, "generate_images", PROGRESS_IMAGES_START)
+    # Approved character references are read again for every request so a
+    # deleted or replaced object is never reused from memory.
+    reference_reads = (
+        object_read_connection_scope()
+        if reference_image_url and supports_image_reference() and key_from_public_url(reference_image_url)
+        else nullcontext()
+    )
+    async with object_upload_connection_scope(), book_image_connection_scope(), reference_reads:
+        # A new cover cannot inherit an outer visual reference or cached bytes.
+        with image_book_reference_scope(None), generated_cover_download_scope(None):
+            cover_url = await generate_image_with_retry(
+                image_prompts.cover, job_id, 0, reference_image_url=reference_image_url,
+            )
+        image_urls[0] = cover_url
+        if require_complete and not complete_asset(cover_url):
+            raise quality_failure("asset_invalid")
+        await report_finished_image()
+
+        # Keep an approved photo/drawing authoritative. Only cache the bytes of
+        # an owned cover generated without an approved photo/drawing reference.
+        book_reference = (
+            cover_url if supports_image_reference() and cover_url and not _is_placeholder_image_url(cover_url)
+            else None
+        )
+        page_reference = reference_image_url if reference_image_url is not None else book_reference
+        reusable_cover = book_reference if reference_image_url is None and complete_asset(book_reference) else None
+        with generated_cover_download_scope(reusable_cover):
+            results = await asyncio.gather(*(
+                generate_with_semaphore(prompt, prompt.page) for prompt in image_prompts.pages
+            ), return_exceptions=True)
+
+    if first_failure is not None:
+        raise first_failure
 
     failed_pages = []
     for prompt, result in zip(image_prompts.pages, results):
@@ -887,7 +1018,7 @@ async def generate_all_images(
             logger.error(
                 "Failed to generate image for page",
                 page=prompt.page,
-                error=str(result),
+                error_type=type(result).__name__,
             )
             failed_pages.append(prompt.page)
             image_urls[prompt.page] = ""
@@ -895,7 +1026,6 @@ async def generate_all_images(
             logger.warning(
                 "Image generation fell back to placeholder",
                 page=prompt.page,
-                url=result,
             )
             failed_pages.append(prompt.page)
             image_urls[prompt.page] = result
@@ -949,7 +1079,7 @@ async def record_job_image_keys(job_id: str, image_urls: list) -> None:
         logger.warning(
             "failed to record job image keys (orphan tracking degraded)",
             job_id=job_id,
-            error=str(exc),
+            error_type=type(exc).__name__,
         )
 
 
@@ -968,6 +1098,7 @@ def _is_placeholder_image_url(url: str) -> bool:
 async def generate_image_with_retry(
     prompt, job_id: str, page: int, reference_image_url: Optional[str] = None,
     *, max_attempts: Optional[int] = None,
+    wait_before_retry: Callable[[float, bool], Awaitable[bool]] | None = None,
 ) -> str:
     """이미지 생성 (재시도 포함)"""
     max_retries = max(1, int(settings.image_max_retries if max_attempts is None else max_attempts))
@@ -989,26 +1120,40 @@ async def generate_image_with_retry(
 
         except asyncio.TimeoutError as e:
             last_error = e
+            retry_code = ErrorCode.IMAGE_TIMEOUT
             logger.warning(
                 "Image generation timeout",
                 page=page,
                 attempt=attempt + 1,
             )
-            if attempt < max_retries - 1:
-                await asyncio.sleep(get_backoff(ErrorCode.IMAGE_TIMEOUT, attempt))
-
         except Exception as e:
             if isinstance(e, StoryBookError) and not is_retryable(e):
                 raise
             last_error = e
+            retry_code = (
+                ErrorCode.IMAGE_RATE_LIMIT
+                if isinstance(e, StoryBookError) and e.code == ErrorCode.IMAGE_RATE_LIMIT
+                else ErrorCode.IMAGE_FAILED
+            )
             logger.warning(
                 "Image generation failed",
                 page=page,
-                error=str(e),
+                error_type=type(e).__name__,
                 attempt=attempt + 1,
             )
-            if attempt < max_retries - 1:
-                await asyncio.sleep(get_backoff(ErrorCode.IMAGE_FAILED, attempt))
+        if attempt < max_retries - 1:
+            delay = get_backoff(retry_code, attempt)
+            rate_limited = retry_code == ErrorCode.IMAGE_RATE_LIMIT
+            if rate_limited and isinstance(last_error, StoryBookError):
+                from src.services.image_request_budget import image_retry_fits
+
+                delay = max(delay, last_error.details.get("retry_after", 0))
+                if delay >= settings.image_timeout or not image_retry_fits(delay):
+                    break
+            if wait_before_retry is None:
+                await asyncio.sleep(delay)
+            elif not await wait_before_retry(delay, not rate_limited):
+                break
 
     # 모든 재시도 실패: 서비스 레벨 ImageError는 placeholder로 강등
     if isinstance(last_error, StoryBookError):
@@ -1105,7 +1250,6 @@ async def moderate_text_localized(text: str, language) -> bool:
         logger.warning(
             "Moderation failed (LLM fallback)",
             language=lang.value,
-            reasons=result.reasons,
         )
     return result.is_safe
 
@@ -1131,7 +1275,7 @@ async def moderate_output(story: StoryDraft, image_urls: dict) -> bool:
         text += " " + page.text
 
     if not _moderate_text(text):
-        logger.warning("Output moderation failed (keyword)", title=story.title)
+        logger.warning("Output moderation failed (keyword)", language=story.language.value)
         return False
 
     # H24: 키워드망 밖 언어는 fail-open 대신 LLM 출력 모더레이션 폴백.
@@ -1143,8 +1287,6 @@ async def moderate_output(story: StoryDraft, image_urls: dict) -> bool:
             logger.warning(
                 "Output moderation failed (LLM fallback)",
                 language=story.language.value,
-                reasons=result.reasons,
-                title=story.title,
             )
             return False
 

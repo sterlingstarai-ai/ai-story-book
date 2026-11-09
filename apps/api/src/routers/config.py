@@ -24,6 +24,7 @@ async def get_capabilities() -> dict:
         # 클라이언트는 이 값으로 낭독 버튼/발음 메뉴를 숨긴다(비활성 구성 500 방지).
         "audio_supported": audio_supported(),
         "narration_supported": narration_supported(),
+        "narration_cached_lookup_supported": narration_supported(),
         "narration_voice_selection_supported": narration_voice_selection_supported(),
         "narration_style_selection_supported": narration_style_selection_supported(),
         # A stable, non-secret cache namespace; changing providers must not

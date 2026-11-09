@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -49,7 +50,10 @@ void main() {
     'book-1',
   );
 
-  Future<(ProviderContainer, SharedPreferences)> setup(_BookApi api) async {
+  Future<(ProviderContainer, SharedPreferences)> setup(
+    _BookApi api, {
+    Future<BookMediaContext> Function(BookMediaStore)? initialize,
+  }) async {
     SharedPreferences.setMockInitialValues({
       cacheKey: jsonEncode(_book('cached').toJson()),
     });
@@ -66,7 +70,9 @@ void main() {
         apiClientProvider.overrideWithValue(api),
         userServiceProvider.overrideWithValue(_User(prefs)),
         bookMediaStoreProvider.overrideWith(
-          (ref) async => BookMediaContext(store, serverVerified: false),
+          (ref) async =>
+              await initialize?.call(store) ??
+              BookMediaContext(store, serverVerified: false),
         ),
       ],
     );
@@ -74,6 +80,107 @@ void main() {
     addTearDown(() async => directory.delete(recursive: true));
     return (container, prefs);
   }
+
+  test(
+    'detail fetch overlaps media setup without exposing an early book',
+    () async {
+      final mediaReady = Completer<void>();
+      final detailStarted = Completer<void>();
+      final (container, prefs) = await setup(
+        _BookApi(() async {
+          detailStarted.complete();
+          return _book('fresh');
+        }),
+        initialize: (store) async {
+          await mediaReady.future;
+          return BookMediaContext(store, serverVerified: true);
+        },
+      );
+      addTearDown(() {
+        if (!mediaReady.isCompleted) mediaReady.complete();
+      });
+      final provider = bookDetailProvider('book-1');
+      final result = container.read(provider.future);
+      await detailStarted.future.timeout(const Duration(seconds: 2));
+      expect(container.read(provider).isLoading, isTrue);
+      expect(jsonDecode(prefs.getString(cacheKey)!)['title'], 'cached');
+      mediaReady.complete();
+      expect((await result).title, 'fresh');
+      expect(jsonDecode(prefs.getString(cacheKey)!)['title'], 'fresh');
+    },
+  );
+
+  test(
+    'media authorization failure discards an early detail response',
+    () async {
+      final denied = StateError('Account media access is not authorized');
+      final mediaReady = Completer<BookMediaContext>();
+      final detailStarted = Completer<void>();
+      final (container, prefs) = await setup(
+        _BookApi(() async {
+          detailStarted.complete();
+          return _book('must not be displayed');
+        }),
+        initialize: (_) => mediaReady.future,
+      );
+      addTearDown(() {
+        if (!mediaReady.isCompleted) mediaReady.completeError(denied);
+      });
+      final result = container.read(bookDetailProvider('book-1').future);
+      final check = expectLater(result, throwsA(same(denied)));
+      await detailStarted.future.timeout(const Duration(seconds: 2));
+      mediaReady.completeError(denied);
+      await check;
+      expect(jsonDecode(prefs.getString(cacheKey)!)['title'], 'cached');
+    },
+  );
+
+  test('deletion during media setup blocks an early detail response', () async {
+    final mediaReady = Completer<void>();
+    final mediaStore = Completer<BookMediaStore>();
+    final detailStarted = Completer<void>();
+    final (container, prefs) = await setup(
+      _BookApi(() async {
+        detailStarted.complete();
+        return _book('must not be displayed');
+      }),
+      initialize: (store) async {
+        mediaStore.complete(store);
+        await mediaReady.future;
+        return BookMediaContext(store, serverVerified: true);
+      },
+    );
+    addTearDown(() {
+      if (!mediaReady.isCompleted) mediaReady.complete();
+    });
+    final result = container.read(bookDetailProvider('book-1').future);
+    final check = expectLater(result, throwsStateError);
+    await detailStarted.future.timeout(const Duration(seconds: 2));
+    final store = await mediaStore.future;
+    await store.beginDeletion(
+      'book-1',
+      profileDigest: bookMediaProfileDigest(null),
+    );
+    mediaReady.complete();
+    await check;
+    expect(jsonDecode(prefs.getString(cacheKey)!)['title'], 'cached');
+  });
+
+  test('pending account cleanup skips the detail request', () async {
+    var requests = 0;
+    final (container, prefs) = await setup(
+      _BookApi(() async {
+        requests++;
+        return _book('must not be requested');
+      }),
+    );
+    await prefs.setBool(localMediaCleanupPendingKey, true);
+    await expectLater(
+      container.read(bookDetailProvider('book-1').future),
+      throwsStateError,
+    );
+    expect(requests, 0);
+  });
 
   test(
     'reopening a book obtains fresh media URLs instead of returning cache',
@@ -100,6 +207,38 @@ void main() {
     final result = await container.read(bookDetailProvider('book-1').future);
     expect(result.title, 'cached');
   });
+
+  for (final (status, code) in [
+    (502, 'BAD_GATEWAY'),
+    (503, 'SERVICE_UNAVAILABLE'),
+    (504, 'GATEWAY_TIMEOUT'),
+  ]) {
+    test(
+      'HTTP $status keeps the scoped copy until a fresh lookup succeeds',
+      () async {
+        var unavailable = true;
+        final (container, prefs) = await setup(
+          _BookApi(() async {
+            if (unavailable) {
+              throw ApiError(
+                code: code,
+                message: 'Temporary outage',
+                statusCode: status,
+              );
+            }
+            return _book('fresh');
+          }),
+        );
+        final provider = bookDetailProvider('book-1');
+        expect((await container.read(provider.future)).title, 'cached');
+        expect(prefs.containsKey(cacheKey), isTrue);
+        unavailable = false;
+        container.invalidate(provider);
+        expect((await container.read(provider.future)).title, 'fresh');
+        expect(jsonDecode(prefs.getString(cacheKey)!)['title'], 'fresh');
+      },
+    );
+  }
 
   test(
     'another account cannot read the same book id from offline cache',
@@ -201,12 +340,17 @@ void main() {
     expect(prefs.getString(cacheKey), isNotNull);
   });
 
-  for (final status in [401, 403, 404]) {
+  for (final (status, code) in [
+    (401, 'UNAUTHORIZED'),
+    (403, 'NETWORK_ERROR'),
+    (404, 'NOT_FOUND'),
+    (503, 'PRIVACY_RECORD_UNAVAILABLE'),
+  ]) {
     test(
       'HTTP $status does not bypass server denial with a cached book',
       () async {
         final denial = ApiError(
-          code: 'HTTP_$status',
+          code: code,
           message: 'Unavailable',
           statusCode: status,
         );

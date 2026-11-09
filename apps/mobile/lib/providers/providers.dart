@@ -18,6 +18,7 @@ import '../services/local_media_cleanup.dart';
 import '../services/book_media_registry.dart';
 import '../services/book_cleanup_plan_journal.dart';
 import '../services/book_media_store.dart';
+import '../services/book_scoped_cache_manager.dart';
 import '../services/scoped_reading_progress.dart';
 import '../services/iap_service.dart';
 import '../services/iap_purchase_recovery.dart';
@@ -156,6 +157,21 @@ final bookMediaRegistryProvider = Provider<BookMediaRegistry>((ref) {
   ref.onDispose(() => unawaited(registry.close().catchError((Object _) {})));
   return registry;
 });
+
+final bookIllustrationCacheProvider = Provider.autoDispose
+    .family<BookScopedCacheManager, ({BookMediaStore store, String bookId})>((
+      ref,
+      scope,
+    ) {
+      final manager = BookScopedCacheManager(
+        store: scope.store,
+        bookId: scope.bookId,
+        fileExtension: 'img',
+        reuseConnections: true,
+      );
+      ref.onDispose(() => unawaited(manager.dispose()));
+      return manager;
+    });
 
 /// Older/offline servers use a local credential-bound scope, never a shared
 /// cache for new writes; only a verified server scope enables receipt handling.
@@ -319,21 +335,25 @@ bookMediaStoreProvider = FutureProvider<BookMediaContext>((ref) async {
   );
 });
 
-final readingProgressProvider = FutureProvider.family<ScopedReadingProgress, String>((ref, bookId) async {
-  final api = ref.watch(apiClientProvider);
-  final prefs = ref.watch(sharedPreferencesProvider);
-  var active = true;
-  ref.onDispose(() => active = false);
-  final media = await ref.watch(bookMediaStoreProvider.future);
-  if (!active) throw StateError('Reading scope changed');
-  return ScopedReadingProgress(prefs, media.store, bookId, () {
-    if (!active) return false;
-    return identical(ref.read(apiClientProvider), api) &&
-        !ref.read(bookMediaBlockedProvider(bookId));
-  });
-});
+final readingProgressProvider =
+    FutureProvider.family<ScopedReadingProgress, String>((ref, bookId) async {
+      final api = ref.watch(apiClientProvider);
+      final prefs = ref.watch(sharedPreferencesProvider);
+      var active = true;
+      ref.onDispose(() => active = false);
+      final media = await ref.watch(bookMediaStoreProvider.future);
+      if (!active) throw StateError('Reading scope changed');
+      return ScopedReadingProgress(prefs, media.store, bookId, () {
+        if (!active) return false;
+        return identical(ref.read(apiClientProvider), api) &&
+            !ref.read(bookMediaBlockedProvider(bookId));
+      });
+    });
 
-final homeReadingProgressProvider = FutureProvider.family<int, String>((ref, bookId) async {
+final homeReadingProgressProvider = FutureProvider.family<int, String>((
+  ref,
+  bookId,
+) async {
   try {
     final progress = await ref.watch(readingProgressProvider(bookId).future);
     return await progress.page() ?? 0;
@@ -1662,33 +1682,166 @@ const Duration kJobPollingHardTimeout = Duration(minutes: 10);
 bool jobPollingBudgetExceeded(Duration elapsed) =>
     elapsed > kJobPollingHardTimeout;
 
-/// Job 상태 폴링 Provider
-final jobPollingProvider = StreamProvider.family<JobStatus, String>((
-  ref,
-  jobId,
-) {
-  final api = ref.read(apiClientProvider);
-  var disposed = false;
-  Timer? timer;
-  Completer<void>? waiting;
-  ref.onDispose(() {
-    disposed = true;
-    timer?.cancel();
-    if (waiting?.isCompleted == false) waiting!.complete();
-  });
-  return pollBookJob(
-    fetch: () => api.getBookStatus(jobId),
-    cancelled: () => disposed,
-    wait: (delay) {
-      if (disposed) return Future<void>.value();
-      final completion = Completer<void>();
-      waiting = completion;
-      timer = Timer(delay, completion.complete);
-      return completion.future;
-    },
-    timeout: kJobPollingHardTimeout,
+class _ActiveGenerationSnapshot {
+  List<JobStatus> jobs = const [];
+}
+
+final _activeGenerationSnapshotProvider =
+    Provider.autoDispose<_ActiveGenerationSnapshot>((ref) {
+      ref.watch(apiClientProvider);
+      return _ActiveGenerationSnapshot();
+    });
+
+final activeBookGenerationsProvider =
+    FutureProvider.autoDispose<List<JobStatus>>((ref) async {
+      final api = ref.watch(apiClientProvider);
+      final snapshot = ref.watch(_activeGenerationSnapshotProvider);
+      Timer? nextCheck;
+      var disposed = false;
+      ref.onDispose(() {
+        disposed = true;
+        nextCheck?.cancel();
+      });
+      try {
+        final jobs = await api.getActiveBookGenerations();
+        // Home and library can outlive the progress route.
+        if (!disposed) {
+          snapshot.jobs = jobs;
+          if (jobs.isNotEmpty) {
+            nextCheck = Timer(const Duration(seconds: 15), ref.invalidateSelf);
+          }
+        }
+        return jobs;
+      } catch (error) {
+        final transientError = retryableJobReadError(error);
+        if (!disposed && transientError == null) snapshot.jobs = const [];
+        if (!disposed && transientError != null) {
+          const retryInterval = Duration(seconds: 30);
+          final retryAfter = transientError.retryAfter ?? Duration.zero;
+          nextCheck = Timer(
+            retryAfter > retryInterval ? retryAfter : retryInterval,
+            ref.invalidateSelf,
+          );
+        }
+        rethrow;
+      }
+    });
+
+/// Keep the last verified list usable while its own account/profile retries.
+/// A dependency change creates a new snapshot before any old result is shown.
+final visibleActiveBookGenerationsProvider =
+    Provider.autoDispose<List<JobStatus>>((ref) {
+      final result = ref.watch(activeBookGenerationsProvider);
+      if (!result.isLoading && !result.hasError) {
+        return result.asData?.value ?? const [];
+      }
+      if (result.hasError && retryableJobReadError(result.error!) == null) {
+        return const [];
+      }
+      try {
+        final snapshot = ref.watch(_activeGenerationSnapshotProvider);
+        return [
+          for (final job in snapshot.jobs) JobStatus.rechecking(job.jobId, job),
+        ];
+      } on UserKeyUnavailable {
+        return const [];
+      }
+    });
+
+bool activeBookGenerationMayHaveFinished(
+  AsyncValue<List<JobStatus>>? previous,
+  AsyncValue<List<JobStatus>> next, {
+  String? separatelyTrackedJob,
+}) {
+  final after = next.isLoading ? null : next.asData?.value;
+  if (after == null) return false;
+  final before = previous?.valueOrNull;
+  if (before == null || before.isEmpty) {
+    // A job may have finished during an outage before we saw its first status.
+    final error = previous?.error;
+    return error != null && retryableJobReadError(error) != null;
+  }
+  final activeIds = after.map((job) => job.jobId).toSet();
+  return before.any(
+    (job) =>
+        job.jobId != separatelyTrackedJob && !activeIds.contains(job.jobId),
   );
-});
+}
+
+/// Ordinary status waits can pause when the app leaves the foreground.
+final generationInBackgroundProvider = StateProvider<bool>((ref) => false);
+
+/// Poll only while the generation status has a listener.
+final jobPollingProvider = StreamProvider.autoDispose.family<JobStatus, String>(
+  (ref, jobId) {
+    final api = ref.watch(apiClientProvider);
+    final cancellation = CancelToken();
+    Timer? timer;
+    Completer<bool>? waiting;
+    var canWake = false;
+    void finishWaiting({bool resumed = false}) {
+      timer?.cancel();
+      timer = null;
+      final completion = waiting;
+      waiting = null;
+      canWake = false;
+      completion?.complete(resumed);
+    }
+
+    Future<bool> wait(Duration delay, {bool wakeOnForeground = false}) {
+      if (cancellation.isCancelled) return Future<bool>.value(false);
+      final completion = Completer<bool>();
+      waiting = completion;
+      canWake = wakeOnForeground;
+      timer = Timer(delay, () {
+        timer = null;
+        if (!ref.read(generationInBackgroundProvider)) {
+          finishWaiting();
+        }
+      });
+      return completion.future;
+    }
+
+    ref.listen(generationInBackgroundProvider, (previous, background) {
+      // A server backoff can elapse in the background, but only an ordinary
+      // status wait may be interrupted before its timer expires.
+      if (previous == true &&
+          !background &&
+          waiting != null &&
+          (canWake || timer == null)) {
+        finishWaiting(resumed: canWake);
+      }
+    });
+    ref.onDispose(() {
+      cancellation.cancel();
+      finishWaiting();
+    });
+    return pollBookJob(
+      jobId: jobId,
+      fetch: () async {
+        final status = await api.getBookStatus(
+          jobId,
+          cancelToken: cancellation,
+        );
+        if (!cancellation.isCancelled && status.isFailed) {
+          ref.invalidate(activeBookGenerationsProvider);
+        }
+        if (!cancellation.isCancelled &&
+            status.creditRefundStatus == 'refunded') {
+          ref.invalidate(generationOptionsProvider);
+        }
+        return status;
+      },
+      cancelled: () => cancellation.isCancelled,
+      cancelFetch: () => cancellation.cancel(),
+      wait: (delay) async {
+        await wait(delay);
+      },
+      waitBetweenReads: (delay) => wait(delay, wakeOnForeground: true),
+      timeout: kJobPollingHardTimeout,
+    );
+  },
+);
 
 /// 책 생성 Notifier
 final bookCreationProvider = AsyncNotifierProvider<BookCreationNotifier, void>(
@@ -1728,6 +1881,8 @@ class BookCreationNotifier extends AsyncNotifier<void> {
 
     try {
       final response = await api.createBook(spec, idempotencyKey: _attemptKey);
+      ref.invalidate(generationOptionsProvider);
+      ref.invalidate(activeBookGenerationsProvider);
 
       // 성공 → 다음 생성은 새 키.
       _attemptKey = null;
@@ -1753,96 +1908,124 @@ class BookCreationNotifier extends AsyncNotifier<void> {
 // ==================== Book Viewer Provider ====================
 
 /// 책 상세 조회 Provider
-final AutoDisposeFutureProviderFamily<BookResult, String> bookDetailProvider =
-    FutureProvider.autoDispose.family<BookResult, String>((ref, bookId) async {
-      final api = ref.watch(apiClientProvider);
-      final prefs = ref.read(sharedPreferencesProvider);
-      final user = ref.read(userServiceProvider);
-      final profile = bookMediaProfileDigest(user.getActiveProfileId());
-      var active = true;
-      ref.onDispose(() => active = false);
-      if (prefs.getBool(localMediaCleanupPendingKey) == true) {
-        throw StateError('Local media cleanup is pending');
-      }
-      var mediaScopeConflict = false;
-      BookMediaContext? media;
-      try {
-        media = await ref.watch(bookMediaStoreProvider.future);
-      } on BookMediaScopeConflict {
-        // A missing or changed scope restricts the new media feature, not the
-        // existing authenticated book text and reading flow.
-        mediaScopeConflict = true;
-      }
-      if (!active) throw StateError('Profile changed during book lookup');
-      final baseUrl = ref.read(apiBaseUrlProvider);
-      final credential = user.getUserKey();
-      final serverScope = prefs.getString(
-        _bookMediaBinding(baseUrl, credential),
-      );
-      final scope =
-          media?.store.scopeDigest ??
-          (serverScope == null
-              ? _localBookMediaScope(baseUrl, credential)
-              : prefs.getString(_bookMediaAlias(baseUrl, serverScope)) ??
-                    _localBookMediaScope(baseUrl, credential));
-      bool blocked() =>
-          BookMediaStore.isBookBlocked(prefs, scope, bookId) ||
-          BookMediaStore.isLegacyBookBlockedForProfile(
-            prefs,
-            _localBookMediaScope(baseUrl, credential),
-            bookId,
-            profile,
-          ) ||
-          (serverScope != null &&
-              BookMediaStore.isLegacyBookBlockedForProfile(
-                prefs,
-                prefs.getString(_bookMediaAlias(baseUrl, serverScope)) ??
-                    _localBookMediaScope(baseUrl, credential),
-                bookId,
-                profile,
-              ));
-      if (blocked()) throw StateError('Book deletion requires confirmation');
-      final cacheKey = scopedBookCacheKey(scope, profile, bookId);
+final AutoDisposeFutureProviderFamily<BookResult, String>
+bookDetailProvider = FutureProvider.autoDispose.family<BookResult, String>((
+  ref,
+  bookId,
+) async {
+  final api = ref.watch(apiClientProvider);
+  final prefs = ref.read(sharedPreferencesProvider);
+  final user = ref.read(userServiceProvider);
+  final profileId = user.getActiveProfileId();
+  final profile = bookMediaProfileDigest(profileId);
+  final baseUrl = ref.watch(apiBaseUrlProvider);
+  final credential = user.getUserKey();
+  final localScope = _localBookMediaScope(baseUrl, credential);
+  final binding = _bookMediaBinding(baseUrl, credential);
+  var active = true;
+  ref.onDispose(() => active = false);
 
+  bool cleanupPending() =>
+      prefs.getBool(localMediaCleanupPendingKey) == true ||
+      prefs.getBool(UserService.deletionRequestedKey) == true ||
+      prefs.getBool(UserService.deletionCommittedKey) == true;
+  String accountScope() {
+    final serverScope = prefs.getString(binding);
+    if (serverScope == null) return localScope;
+    return prefs.getString(_bookMediaAlias(baseUrl, serverScope)) ?? localScope;
+  }
+
+  void requireReadable([String? verifiedScope]) {
+    if (!active) throw StateError('Profile changed during book lookup');
+    if (cleanupPending()) throw StateError('Local media cleanup is pending');
+    if (user.getActiveProfileId() != profileId ||
+        user.getUserKey() != credential) {
+      throw StateError('Account or profile changed during book lookup');
+    }
+    final account = accountScope();
+    final scope = _profileMediaScope(account, profile);
+    if (BookMediaStore.isBookBlocked(prefs, scope, bookId) ||
+        (verifiedScope != null &&
+            verifiedScope != scope &&
+            BookMediaStore.isBookBlocked(prefs, verifiedScope, bookId)) ||
+        BookMediaStore.isLegacyBookBlockedForProfile(
+          prefs,
+          localScope,
+          bookId,
+          profile,
+        ) ||
+        (account != localScope &&
+            BookMediaStore.isLegacyBookBlockedForProfile(
+              prefs,
+              account,
+              bookId,
+              profile,
+            ))) {
+      throw StateError('Book deletion requires confirmation');
+    }
+  }
+
+  requireReadable();
+  final mediaSetup = ref.watch(bookMediaStoreProvider.future);
+  // Fetch authenticated detail while media scope initializes. Hold both
+  // success and error until local access and cache scope are established.
+  final detail = AsyncValue.guard(() => api.getBook(bookId));
+  var mediaScopeConflict = false;
+  BookMediaContext? media;
+  try {
+    media = await mediaSetup;
+  } on BookMediaScopeConflict {
+    // A missing or changed scope restricts the new media feature, not the
+    // existing authenticated book text and reading flow.
+    mediaScopeConflict = true;
+  }
+  final scope = media?.store.scopeDigest ?? accountScope();
+  requireReadable(scope);
+  final cacheKey = scopedBookCacheKey(scope, profile, bookId);
+
+  try {
+    final book = (await detail).requireValue;
+    requireReadable(scope);
+    if (!mediaScopeConflict) {
+      await prefs.setString(cacheKey, jsonEncode(book.toJson()));
+    }
+    requireReadable(scope);
+    return book;
+  } catch (error) {
+    requireReadable(scope);
+    final apiError = error is ApiError
+        ? error
+        : error is DioException
+        ? ApiError.fromDioException(error)
+        : null;
+    // Keep the scoped copy during outages. A 503 with a domain error
+    // (for example PRIVACY_RECORD_UNAVAILABLE) must still fail closed.
+    final temporaryFailure = switch ((apiError?.statusCode, apiError?.code)) {
+      (0, 'CONNECTION_ERROR' || 'NETWORK_ERROR' || 'TIMEOUT') ||
+      (502, 'BAD_GATEWAY') ||
+      (503, 'SERVICE_UNAVAILABLE') ||
+      (504, 'GATEWAY_TIMEOUT') => true,
+      _ => false,
+    };
+    if (!temporaryFailure) {
+      await prefs.remove(cacheKey);
+      rethrow;
+    }
+    if (mediaScopeConflict) rethrow;
+    final cached = prefs.getString(cacheKey);
+    if (cached != null && cached.isNotEmpty) {
       try {
-        final book = await api.getBook(bookId);
-        if (blocked()) throw StateError('Book deletion requires confirmation');
-        if (active && !mediaScopeConflict) {
-          await prefs.setString(cacheKey, jsonEncode(book.toJson()));
+        final decoded = jsonDecode(cached);
+        if (decoded is Map<String, dynamic>) {
+          return BookResult.fromJson(decoded);
         }
-        return book;
-      } catch (error) {
-        if (!active) rethrow;
-        if (blocked()) rethrow;
-        final apiError = error is ApiError
-            ? error
-            : error is DioException
-            ? ApiError.fromDioException(error)
-            : null;
-        if (apiError == null ||
-            !{
-              'CONNECTION_ERROR',
-              'NETWORK_ERROR',
-              'TIMEOUT',
-            }.contains(apiError.code)) {
-          await prefs.remove(cacheKey);
-          rethrow;
-        }
-        if (mediaScopeConflict) rethrow;
-        final cached = prefs.getString(cacheKey);
-        if (cached != null && cached.isNotEmpty) {
-          try {
-            final decoded = jsonDecode(cached);
-            if (decoded is Map<String, dynamic>) {
-              return BookResult.fromJson(decoded);
-            }
-          } catch (_) {
-            // 캐시 파싱 실패 시 원래 에러를 그대로 전파한다.
-          }
-        }
-        rethrow;
+      } catch (_) {
+        // 캐시 파싱 실패 시 원래 에러를 그대로 전파한다.
       }
-    });
+    }
+    rethrow;
+  }
+});
 
 /// 현재 보고 있는 페이지 인덱스
 final currentPageIndexProvider = StateProvider<int>((ref) => 0);

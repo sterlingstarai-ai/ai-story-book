@@ -14,6 +14,9 @@ COPY --from=miniodeps /usr/local/bin/minio /usr/local/bin/minio
 RUN ldconfig && ln -sf python3.11 /usr/local/bin/python3 && ln -sf python3 /usr/local/bin/python
 COPY apps /offline/apps
 COPY scripts /offline/scripts
+# The host can stage files under a private umask. Keep the image sources
+# root-owned while allowing the non-root fixture to read and traverse them.
+RUN chmod -R a+rX /offline
 ENV PATH="/opt/venv/bin:/usr/lib/postgresql/16/bin:/usr/local/bin:/usr/bin:/bin" \
     PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 HOME=/tmp
 WORKDIR /offline/apps/api

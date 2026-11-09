@@ -4,9 +4,17 @@ import 'release_policy_gate.dart';
 
 /// Environment configuration. Both release URL defines share the same gate.
 class EnvConfig {
+  static const _apiOverride = String.fromEnvironment('API_BASE_URL');
+  static const _productionApi = String.fromEnvironment('PROD_API_URL');
+
   static void validateReleaseConfiguration() {
     // Referencing the constant also enforces missing values at build time.
     if (releasePolicyGate.release || !_isDebugMode) {
+      resolveApiBaseUrl(
+        isDebug: false,
+        overrideUrl: _apiOverride,
+        productionUrl: _productionApi,
+      );
       validatePublicDocumentUrl(releasePolicyGate.privacy);
       validatePublicDocumentUrl(releasePolicyGate.terms);
     }
@@ -27,8 +35,8 @@ class EnvConfig {
   static String get apiBaseUrl => resolveApiBaseUrl(
     isDebug: _isDebugMode,
     isAndroid: !kIsWeb && Platform.isAndroid,
-    overrideUrl: const String.fromEnvironment('API_BASE_URL'),
-    productionUrl: const String.fromEnvironment('PROD_API_URL'),
+    overrideUrl: _apiOverride,
+    productionUrl: _productionApi,
   );
 
   static String resolveApiBaseUrl({
@@ -37,11 +45,12 @@ class EnvConfig {
     String overrideUrl = '',
     String productionUrl = '',
   }) {
-    if (overrideUrl.isNotEmpty) {
-      return isDebug ? overrideUrl : validateProdUrl(overrideUrl);
-    }
     if (isDebug) {
+      if (overrideUrl.isNotEmpty) return overrideUrl;
       return isAndroid ? 'http://10.0.2.2:8000' : 'http://localhost:8000';
+    }
+    if (overrideUrl.isNotEmpty) {
+      throw StateError('API_BASE_URL is available only in debug builds.');
     }
     return validateProdUrl(productionUrl);
   }
@@ -50,7 +59,7 @@ class EnvConfig {
   /// public HTTPS origin. Error text never echoes a possibly sensitive URL.
   static String validateProdUrl(String url) {
     final uri = Uri.tryParse(url);
-    final host = uri?.host.toLowerCase() ?? '';
+    final host = uri?.host.toLowerCase().replaceFirst(RegExp(r'\.$'), '') ?? '';
     final reserved =
         host == 'localhost' ||
         !host.contains('.') ||
@@ -59,6 +68,8 @@ class EnvConfig {
           '.localhost',
           '.local',
           '.internal',
+          '.lan',
+          '.home',
           '.test',
           '.invalid',
           '.example',

@@ -5,7 +5,9 @@ deletion. Callers must separately establish quiescence, journal completeness,
 private bucket policy and least-privilege credentials.
 """
 
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import hashlib
+from itertools import chain, islice
 import json
 from pathlib import Path
 import re
@@ -14,6 +16,8 @@ from urllib.parse import quote
 import httpx
 
 from verify_backup_set import verify
+
+_PUBLISH_PERMISSIONS = ('storage.objects.create', 'storage.objects.get')
 
 
 class BackupPublishError(RuntimeError):
@@ -48,6 +52,24 @@ class GCSBackupStore:
         if not isinstance(token, str) or not token or '\n' in token or '\r' in token:
             raise BackupPublishError('Backup credentials are unavailable')
         return {'Authorization': 'Bearer ' + token}
+
+    def verify_publish_access(self):
+        """Check the dedicated bucket's grants without uploading a probe object."""
+        try:
+            response = self._client.get(
+                f'https://storage.googleapis.com/storage/v1/b/{self._bucket}/iam/testPermissions',
+                params=[('permissions', name) for name in _PUBLISH_PERMISSIONS],
+                headers=self._headers(),
+                timeout=15,
+            )
+            if response.status_code != 200:
+                raise ValueError('IAM check failed')
+            payload = response.json()
+            granted = payload.get('permissions') if isinstance(payload, dict) else None
+            if not isinstance(granted, list) or not all(name in granted for name in _PUBLISH_PERMISSIONS):
+                raise ValueError('Publish permissions missing')
+        except Exception:
+            raise BackupPublishError('Backup destination permissions could not be verified') from None
 
     def _check_remote(self, name, expected_size, expected_hash):
         encoded = quote(name, safe='')
@@ -162,7 +184,26 @@ class GCSBackupStore:
         self._check_remote(name, size, actual_hash)
 
 
-def publish_verified_backup(folder, run_id, store, *, journal_checkpoint=None, verify_before_marker=None):
+def _upload_files(upload, descriptors, workers):
+    if workers == 1:
+        for descriptor in descriptors:
+            upload(descriptor)
+        return
+    # Keep the number of queued objects bounded as well as the number of
+    # running requests. On failure the executor drains active work before
+    # the caller can release its snapshot and restart services.
+    remaining = iter(descriptors)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        pending = {pool.submit(upload, item) for item in islice(remaining, workers)}
+        while pending:
+            completed, pending = wait(pending, return_when=FIRST_COMPLETED)
+            for future in completed:
+                future.result()
+            pending.update(pool.submit(upload, item) for item in islice(remaining, len(completed)))
+
+
+def publish_verified_backup(folder, run_id, store, *, journal_checkpoint=None, verify_before_marker=None,
+                            media_upload_workers=1):
     """Upload data, verify every remote byte, and publish the marker last."""
     import tempfile
 
@@ -170,6 +211,8 @@ def publish_verified_backup(folder, run_id, store, *, journal_checkpoint=None, v
         raise BackupPublishError('Invalid backup run identifier')
     if journal_checkpoint is not None and not _valid_checkpoint(journal_checkpoint):
         raise BackupPublishError('Invalid journal checkpoint')
+    if type(media_upload_workers) is not int or media_upload_workers not in (1, 2):
+        raise BackupPublishError('Invalid media upload worker count')
     try:
         folder = Path(folder)
         manifest_path = folder / 'manifest.json'
@@ -179,11 +222,15 @@ def publish_verified_backup(folder, run_id, store, *, journal_checkpoint=None, v
             raise BackupPublishError('Backup manifest changed during validation')
         manifest = json.loads(manifest_bytes)
         prefix = f'backups/v1/{run_id}/'
-        descriptors = [manifest['database'], *manifest['objects']]
-        for descriptor in descriptors:
+        def upload(descriptor):
             relative = descriptor['file']
             store.put_verified(prefix + relative, folder / relative,
                                expected_size=descriptor['size'], expected_hash=descriptor['sha256'])
+
+        # The dump and media are already captured under the same fence.
+        # Share the two upload slots without waiting for the dump first.
+        payloads = chain((manifest['database'],), manifest['objects'])
+        _upload_files(upload, payloads, media_upload_workers if manifest['objects'] else 1)
         manifest_hash = hashlib.sha256(manifest_bytes).hexdigest()
         store.put_verified(prefix + 'manifest.json', manifest_path,
                            expected_size=len(manifest_bytes), expected_hash=manifest_hash)
@@ -197,7 +244,8 @@ def publish_verified_backup(folder, run_id, store, *, journal_checkpoint=None, v
             marker_path.write_bytes(marker)
             if verify_before_marker is not None:
                 verify_before_marker()
-            store.put_verified(prefix + 'verified.json', marker_path)
+            store.put_verified(prefix + 'verified.json', marker_path,
+                               expected_size=len(marker), expected_hash=hashlib.sha256(marker).hexdigest())
         return {'status': 'REMOTE_CHECKSUMS_VERIFIED_NOT_RESTORED', 'object_count': local['object_count'],
                 'restore_authorized': False}
     except BackupPublishError:

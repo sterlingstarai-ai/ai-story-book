@@ -75,7 +75,6 @@ class _RecoveryApi extends ApiClient {
   bool settingsFail = false;
   int settingsReads = 0;
   int settingsWrites = 0;
-  int creditReads = 0;
   int creates = 0;
   BookSpec? lastBookSpec;
   int revocations = 0;
@@ -83,7 +82,7 @@ class _RecoveryApi extends ApiClient {
   bool purgePending = false;
   int accountDeletions = 0;
   Completer<void>? deletionGate;
-  Completer<int>? credits;
+  Completer<void>? creationGate;
   List<Map<String, dynamic>> voiceProfiles = [];
 
   @override
@@ -105,19 +104,13 @@ class _RecoveryApi extends ApiClient {
   };
 
   @override
-  Future<int> getCreditsBalance() async {
-    creditReads++;
-    if (credits == null) return 3;
-    return credits!.future;
-  }
-
-  @override
   Future<CreateBookResponse> createBook(
     BookSpec spec, {
     String? idempotencyKey,
   }) async {
     creates++;
     lastBookSpec = spec;
+    await creationGate?.future;
     return CreateBookResponse(jobId: 'one-job', status: 'queued');
   }
 
@@ -329,10 +322,10 @@ void main() {
     });
   }
 
-  testWidgets('generation locks before credit lookup and submits once', (
+  testWidgets('generation submits once while the server response is pending', (
     tester,
   ) async {
-    final api = _RecoveryApi()..credits = Completer<int>();
+    final api = _RecoveryApi()..creationGate = Completer<void>();
     await _pump(tester, const CreateScreen(), api);
     await tester.enterText(find.byType(TextFormField).first, '우주를 여행하는 토끼');
     await tester.ensureVisible(find.byType(PrimaryButton));
@@ -341,27 +334,12 @@ void main() {
     button.onPressed!();
     button.onPressed!();
     await tester.pump();
-    expect(api.creditReads, 1);
-    expect(api.creates, 0);
-    api.credits!.complete(3);
+    expect(api.creates, 1);
+    api.creationGate!.complete();
     await tester.pumpAndSettle();
     expect(api.creates, 1);
     expect(api.lastBookSpec?.pageCount, 12);
     expect(find.text('route:/loading'), findsOneWidget);
-  });
-
-  testWidgets('leaving during credit lookup does not create a hidden book', (
-    tester,
-  ) async {
-    final api = _RecoveryApi()..credits = Completer<int>();
-    await _pump(tester, const CreateScreen(), api);
-    await tester.enterText(find.byType(TextFormField).first, '우주를 여행하는 토끼');
-    tester.widget<PrimaryButton>(find.byType(PrimaryButton)).onPressed!();
-    await tester.pumpWidget(const SizedBox());
-    api.credits!.complete(3);
-    await tester.pump();
-    expect(api.creates, 0);
-    expect(tester.takeException(), isNull);
   });
 
   for (final locale in const [Locale('ko'), Locale('en'), Locale('ja')]) {

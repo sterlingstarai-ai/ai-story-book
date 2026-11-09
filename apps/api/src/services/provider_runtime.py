@@ -26,23 +26,40 @@ _LOCAL_OBSERVATIONS: dict[str, dict] = {}
 _SCOPE: ContextVar[dict | None] = ContextVar("provider_usage", default=None)
 _QUOTA_CODES = {"insufficient_quota", "credit_balance_exhausted", "billing_hard_limit_reached", "billing_not_active", "organization_usage_limit_exceeded",
                 "organization_spend_limit_exceeded", "project_spend_limit_exceeded"}
-_REASONS = {"quota_exhausted", "credentials_rejected", "request_succeeded", "invalid_response"}
 _PERMANENT_FAILURES = {"quota_exhausted", "credentials_rejected"}
+_UNVERIFIED_REASONS = {"invalid_response", "credentials_unavailable"}
 _REASON_STATUS = {"request_succeeded": "healthy", "invalid_response": "unverified",
-                  "quota_exhausted": "unavailable", "credentials_rejected": "unavailable"}
-_INVALID_RESPONSE_UPDATE = """
-local current = redis.call('GET', KEYS[1])
-if current then
-  local ok, decoded = pcall(cjson.decode, current)
-  if not ok or type(decoded) ~= 'table' then return -1 end
-  if decoded.reason == 'credentials_rejected' or decoded.reason == 'quota_exhausted' then return 0 end
+                  "credentials_unavailable": "unverified", "quota_exhausted": "unavailable",
+                  "credentials_rejected": "unavailable"}
+_ORDERED_OBSERVATION_UPDATE = """
+local function decode(raw)
+  if not raw then return {} end
+  local ok, value = pcall(cjson.decode, raw)
+  if ok and type(value) == 'table' then return value end
+  return {}
+end
+local function started(value)
+  local stamp = value.request_started_at or value.observed_at
+  if type(stamp) == 'number' then return stamp end
+  return 0
+end
+local incoming = cjson.decode(ARGV[1])
+local prior = decode(redis.call('GET', KEYS[1]))
+local invalid = decode(redis.call('GET', KEYS[2]))
+local order = started(incoming)
+if started(prior) > order then return 0 end
+if incoming.status == 'unverified' then
+  -- Inconclusive responses must not erase the last definitive outcome.
+  if started(invalid) > order then return 0 end
+  redis.call('SET', KEYS[2], ARGV[1], 'EX', ARGV[2])
+  return 1
+end
+if incoming.status == 'healthy' then
+  if (started(prior) == order and prior.status ~= 'healthy')
+     or started(invalid) >= order then return 0 end
 end
 redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
-return 1
-"""
-_VALIDATED_SUCCESS_UPDATE = """
-redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
-redis.call('DEL', KEYS[2])
+if ARGV[3] == '1' then redis.call('DEL', KEYS[2]) end
 return 1
 """
 
@@ -62,7 +79,7 @@ def job_provider_usage(job_id: str):
     if _SCOPE.get() is not None:
         yield
         return
-    usage = {"job_id": job_id, "started": time.monotonic(), "requests": []}
+    usage = {"job_id": job_id, "started": time.monotonic(), "requests": [], "stage_seconds": {}}
     token = _SCOPE.set(usage)
     try:
         yield
@@ -72,6 +89,7 @@ def job_provider_usage(job_id: str):
         logger.warning(
             "Generation provider usage", job_id=job_id,
             duration_seconds=round(time.monotonic() - usage["started"], 3),
+            stage_seconds={name: round(elapsed, 3) for name, elapsed in usage["stage_seconds"].items()},
             provider_requests=len(requests),
             image_requests=sum(item["kind"] == "image" for item in requests),
             input_tokens=sum(item["input_tokens"] for item in requests),
@@ -83,13 +101,28 @@ def job_provider_usage(job_id: str):
         _SCOPE.reset(token)
 
 
+@contextmanager
+def record_generation_stage(stage: str | None):
+    """Measure internal stages, including retries. Parallel stages can overlap."""
+    scope = _SCOPE.get()
+    if scope is None or stage is None:
+        yield
+        return
+    started = time.monotonic()
+    try:
+        yield
+    finally:
+        timings = scope["stage_seconds"]
+        timings[stage] = timings.get(stage, 0.0) + (time.monotonic() - started)
+
+
 def record_job_provider_usage(fn):
     """Cover ancillary job steps too; nested book work shares its outer scope."""
     call_signature = signature(fn)
     @wraps(fn)
     async def wrapped(*args, **kwargs):
-        job_id = call_signature.bind(*args, **kwargs).arguments["job_id"]
-        with job_provider_usage(job_id):
+        arguments = call_signature.bind(*args, **kwargs).arguments
+        with job_provider_usage(arguments["job_id"]), record_generation_stage(arguments.get("step_name")):
             return await fn(*args, **kwargs)
     return wrapped
 
@@ -101,6 +134,7 @@ class ProviderRequest:
     kind: str
     identity: str
     metrics: dict = field(default_factory=dict)
+    started_at: float = field(default_factory=lambda: time.time())
 
 
 def begin_provider_request(provider: str, model: str, kind: str, api_key: str | None) -> ProviderRequest:
@@ -131,34 +165,47 @@ def _estimated_cost(request: ProviderRequest, usage: dict) -> float | None:
 
 
 async def _record_observation(request: ProviderRequest, reason: str, *, validated: bool = False) -> None:
-    assert reason in _REASONS
-    status = "healthy" if reason == "request_succeeded" else "unverified" if reason == "invalid_response" else "unavailable"
-    value = {"status": status,
-             "reason": reason, "observed_at": time.time()}
-    current = _LOCAL_OBSERVATIONS.get(request.identity, {})
-    if reason != "invalid_response" or current.get("reason") not in _PERMANENT_FAILURES:
-        _LOCAL_OBSERVATIONS[request.identity] = value
+    value = {"status": _REASON_STATUS[reason],
+             "reason": reason, "observed_at": time.time(),
+             "request_started_at": request.started_at}
+    invalid_key = request.identity + ':invalid'
     if settings.testing:
+        current = _LOCAL_OBSERVATIONS.get(request.identity, {})
+        invalid = _LOCAL_OBSERVATIONS.get(invalid_key, {})
+        prior_start = current.get("request_started_at", current.get("observed_at", 0))
+        marker_start = invalid.get("request_started_at", 0)
+        if request.started_at < prior_start:
+            return
+        if reason in _UNVERIFIED_REASONS:
+            if request.started_at >= marker_start:
+                _LOCAL_OBSERVATIONS[invalid_key] = value
+            return
+        if reason == "request_succeeded":
+            if (request.started_at <= marker_start
+                    or request.started_at == prior_start and current.get("status") != "healthy"):
+                return
+            if validated:
+                _LOCAL_OBSERVATIONS.pop(invalid_key, None)
+        _LOCAL_OBSERVATIONS[request.identity] = value
         return
     try:
         from src.core.rate_limit import rate_limiter
         client = await rate_limiter.get_redis()
-        invalid_key = request.identity + ':invalid'
-        if reason == "invalid_response":
-            # Publish the conservative marker first: if Lua is denied or
-            # interrupted, other workers must not keep an old healthy result.
-            await client.set(invalid_key, '1', ex=settings.provider_observation_ttl_seconds)
-            result = await client.eval(_INVALID_RESPONSE_UPDATE, 1, request.identity,
-                                       json.dumps(value), settings.provider_observation_ttl_seconds)
+        encoded = json.dumps(value)
+        ttl = settings.provider_observation_ttl_seconds
+        try:
+            result = await client.eval(_ORDERED_OBSERVATION_UPDATE, 2, request.identity,
+                                       invalid_key, encoded, ttl, '1' if validated else '0')
             if result not in (0, 1):
                 raise ValueError("Observation state is invalid")
-        elif reason == "request_succeeded" and validated:
-            result = await client.eval(_VALIDATED_SUCCESS_UPDATE, 2, request.identity, invalid_key,
-                                       json.dumps(value), settings.provider_observation_ttl_seconds)
-            if result != 1:
-                raise ValueError("Observation state is invalid")
-        else:
-            await client.set(request.identity, json.dumps(value), ex=settings.provider_observation_ttl_seconds)
+        except Exception:
+            # If atomic writes fail, retain the conservative failure signal.
+            # A success must never use the non-atomic fallback to clear it.
+            if reason in _UNVERIFIED_REASONS:
+                await client.set(invalid_key, reason, ex=ttl)
+            elif reason in _PERMANENT_FAILURES:
+                await client.set(request.identity, encoded, ex=ttl)
+            raise
     except Exception:
         # Infrastructure readiness already fails when Redis is unavailable.
         logger.warning("Provider availability observation storage unavailable")
@@ -174,6 +221,12 @@ async def observe_invalid_provider_response(request: ProviderRequest) -> None:
     """Replace stale success with unknown without clearing a permanent failure."""
     request.metrics['status'] = 'failed'
     await _record_observation(request, 'invalid_response')
+
+
+async def observe_provider_credentials_unavailable(provider: str, model: str, kind: str, credential_scope: str) -> None:
+    """Invalidate readiness on local authentication failure without counting an AI request."""
+    identity = _identity(provider, model, kind, credential_scope)
+    await _record_observation(ProviderRequest(provider, model, kind, identity), 'credentials_unavailable')
 
 
 async def observe_json_output(request: ProviderRequest, text: object) -> None:
@@ -198,12 +251,26 @@ async def observe_json_output(request: ProviderRequest, text: object) -> None:
 
 async def observe_provider_response(request: ProviderRequest, response, *, defer_success: bool = False) -> ErrorCode | None:
     """Classify permanent failures before general 429 retry handling."""
+    _, error = await read_provider_response(request, response, defer_success=defer_success)
+    return error
+
+
+async def read_provider_response(
+    request: ProviderRequest, response, *, defer_success: bool = False,
+) -> tuple[object, ErrorCode | None]:
+    """Return the decoded JSON alongside the availability result for adapters that need both."""
     try:
         payload = response.json()
     except (ValueError, TypeError):
-        payload = {}
+        payload = None
+    error = await _observe_provider_payload(request, response.status_code, payload, defer_success=defer_success)
+    return payload, error
+
+
+async def _observe_provider_payload(
+    request: ProviderRequest, status: int, payload: object, *, defer_success: bool,
+) -> ErrorCode | None:
     payload = payload if isinstance(payload, dict) else {}
-    status = response.status_code
     success = 200 <= status < 300 and not payload.get("error")
     request.metrics["status"] = ("incomplete" if defer_success else "succeeded") if success else "failed"
     usage = payload.get("usage", payload.get("usageMetadata", {}))
@@ -269,41 +336,68 @@ def _configured_providers(*, include_photo: bool, include_audio: bool = False) -
     return list(dict.fromkeys(item for item in providers if item[0] != "mock"))
 
 
+async def _read_shared_observations(identities: list[str]):
+    from src.core.rate_limit import rate_limiter
+
+    try:
+        client = await rate_limiter.get_redis()
+        # Read values and invalid markers at the same point in Redis. GET
+        # preserves wrong-type errors instead of treating a marker as missing.
+        pipe = client.pipeline(transaction=True)
+        for identity in identities:
+            pipe.get(identity)
+            pipe.get(identity + ':invalid')
+        values = await pipe.execute(raise_on_error=False)
+        pairs = zip(values[::2], values[1::2], strict=True)
+        return dict(zip(identities, pairs, strict=True))
+    except Exception:
+        # Production must never revive an older local success after a read failure.
+        return {}
+
+
+def _decode_shared_observation(raw, invalid, now):
+    if isinstance(raw, Exception) or isinstance(invalid, Exception):
+        return None
+    try:
+        value = raw if isinstance(raw, dict) else json.loads(raw) if raw is not None else None
+    except (ValueError, TypeError, RecursionError):
+        return None
+    reason = value.get('reason') if isinstance(value, dict) else None
+    if invalid is not None and (not isinstance(reason, str) or reason not in _PERMANENT_FAILURES):
+        try:
+            marker = invalid if isinstance(invalid, dict) else json.loads(invalid)
+        except (ValueError, TypeError, RecursionError):
+            marker = None
+        if isinstance(marker, dict) and marker.get('reason') in ('credentials_unavailable', 'invalid_response'):
+            return marker
+        marker_reason = ('credentials_unavailable' if invalid in ('credentials_unavailable', b'credentials_unavailable')
+                         else 'invalid_response')
+        return {"status": "unverified", "reason": marker_reason, "observed_at": now}
+    return value
+
+
 async def provider_runtime_status(*, include_photo: bool = True, include_audio: bool = False) -> dict:
     observations = []
     configured = _configured_providers(include_photo=include_photo, include_audio=include_audio)
-    client = None
-    if not settings.testing and configured:
-        try:
-            from src.core.rate_limit import rate_limiter
-            client = await rate_limiter.get_redis()
-        except Exception:
-            pass
-    for provider, model, kind, api_key in configured:
-        identity = _identity(provider, model, kind, api_key)
-        # Production health is shared across processes. A missing Redis entry
-        # must not revive a success cached in this particular process.
-        value = _LOCAL_OBSERVATIONS.get(identity) if settings.testing else None
-        if client is not None:
-            try:
-                raw = await client.get(identity)
-                if raw is not None:
-                    value = json.loads(raw)
-                invalid = await client.get(identity + ':invalid')
-                if invalid is not None and (not isinstance(value, dict) or not isinstance(value.get('reason'), str)
-                                            or value.get('reason') not in _PERMANENT_FAILURES):
-                    value = {"status": "unverified", "reason": "invalid_response", "observed_at": time.time()}
-            except Exception:
-                # A failed observation read cannot prove provider health,
-                # even if this process has an older local success.
-                value = {"status": "unverified", "reason": "no_recent_observation", "observed_at": time.time()}
+    identities = [_identity(*provider) for provider in configured]
+    shared = await _read_shared_observations(identities) if identities and not settings.testing else {}
+    now = time.time()
+    for (provider, _model, kind, _api_key), identity in zip(configured, identities, strict=True):
+        if settings.testing:
+            value = _decode_shared_observation(_LOCAL_OBSERVATIONS.get(identity),
+                                               _LOCAL_OBSERVATIONS.get(identity + ':invalid'), now)
+        else:
+            raw, invalid = shared.get(identity, (None, None))
+            value = _decode_shared_observation(raw, invalid, now)
         if (not isinstance(value, dict) or not isinstance(value.get("reason"), str)
-                or value.get("reason") not in _REASONS
+                or value.get("reason") not in _REASON_STATUS
                 or value.get("status") != _REASON_STATUS.get(value.get("reason"))
                 or type(value.get("observed_at")) not in {int, float}
-                or not 0 <= time.time() - value["observed_at"] < settings.provider_observation_ttl_seconds):
+                or not 0 <= now - value["observed_at"] < settings.provider_observation_ttl_seconds):
             value = {"status": "unverified", "reason": "no_recent_observation"}
-        observations.append({"provider": provider, "kind": kind, **value})
+        observations.append({"provider": provider, "kind": kind,
+                             "status": value["status"], "reason": value["reason"],
+                             **({"observed_at": value["observed_at"]} if "observed_at" in value else {})})
     states = {item["status"] for item in observations}
     status = "unavailable" if "unavailable" in states else "unverified" if "unverified" in states else "healthy"
     return {"status": status, "observations": observations}

@@ -1,3 +1,5 @@
+import 'dart:ui' show SemanticsAction;
+
 import 'package:ai_story_book/l10n/app_localizations.dart';
 import 'package:ai_story_book/models/models.dart';
 import 'package:ai_story_book/providers/providers.dart';
@@ -174,6 +176,46 @@ Future<void> _bodyAction(WidgetTester tester, Finder action) async {
 
 void main() {
   setUpAll(loadDesignFonts);
+
+  for (final cover in [true, false]) {
+    testWidgets(
+      'illustration action restores the reading controls (cover=$cover)',
+      (tester) async {
+        final semantics = tester.ensureSemantics();
+        try {
+          await _pump(tester, cover: cover);
+          final l = AppLocalizations.of(
+            tester.element(find.byType(ViewerScreen)),
+          );
+          final label = cover
+              ? l.viewerCoverImageSemantics('The garden of friends')
+              : l.viewerPageImageSemantics(1);
+          final image = find.bySemanticsLabel(label);
+          final controls = find.byKey(const Key('viewer_bottom_controls'));
+          var node = tester.getSemantics(image);
+          expect(node.hint, l.viewerHideReadingControls);
+          expect(
+            node.getSemanticsData().hasAction(SemanticsAction.tap),
+            isTrue,
+          );
+          expect(controls, findsOneWidget);
+          node.owner!.performAction(node.id, SemanticsAction.tap);
+          await _settle(tester);
+          expect(controls, findsNothing);
+
+          node = tester.getSemantics(image);
+          expect(node.hint, l.viewerShowReadingControls);
+          node.owner!.performAction(node.id, SemanticsAction.tap);
+          await _settle(tester);
+          expect(controls, findsOneWidget);
+          expect(tester.getSemantics(image).hint, l.viewerHideReadingControls);
+          await _dispose(tester);
+        } finally {
+          semantics.dispose();
+        }
+      },
+    );
+  }
 
   testWidgets(
     'long cover titles stay above navigation at accessibility scale',

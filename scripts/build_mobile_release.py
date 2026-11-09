@@ -58,7 +58,7 @@ def main(argv=None):
         values = release_configuration(json.loads(args.config.read_text()))
         policies = assess_bundled_policies(ROOT)
         if args.execute and not policies['ready']:
-            raise ValueError('Bundled privacy and terms documents require approval and an effective date before building.')
+            raise ValueError('Bundled privacy and terms documents must be complete, approved and already effective before building.')
         if args.execute and args.support_site_config is None:
             raise ValueError('Pass --support-site-config to verify the published policy site before building.')
         if not shutil.which('flutter'):

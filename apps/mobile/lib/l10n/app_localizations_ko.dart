@@ -66,14 +66,18 @@ class AppLocalizationsKo extends AppLocalizations {
   String get onboardingSlide3Subtitle => '스트릭으로 매일 독서 습관을 만들어요.';
 
   @override
-  String get onboardingSlide4Title => '첫 책 무료 시작';
+  String get onboardingSlide4Title => '첫 동화책 만들기';
 
   @override
   String get onboardingSlide4Subtitle => '주제를 골라 그림이 있는 첫 동화책을 만들어 보세요.';
 
   @override
-  String get onboardingFirstBookTrialSubtitle =>
-      '새 계정은 그림이 있는 첫 동화책 한 권을 무료로 만들 수 있어요.';
+  String get firstBookTrialOffer =>
+      '체험 대상인 새 계정은 그림과 낭독이 포함된 첫 동화책 한 권을 무료로 만들 수 있어요.';
+
+  @override
+  String get firstBookTrialIllustratedOffer =>
+      '그림이 담긴 첫 동화책 한 권을 무료로 만들 수 있어요.';
 
   @override
   String get creditsFirstBookTrial => '새 계정 첫 동화 한 권 무료';
@@ -160,6 +164,9 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get homeMakeTodayStory => '오늘 동화 만들기';
+
+  @override
+  String get homeReviewTodayStory => '오늘 주제로 동화 만들기';
 
   @override
   String get homeStreakLoading => '스트릭 정보를 불러오는 중...';
@@ -251,25 +258,29 @@ class AppLocalizationsKo extends AppLocalizations {
   String get createNarrationDefaultStyle => '이 기기의 기본 낭독 스타일';
 
   @override
-  String get createAgePreviewTitle => '연령별 본문 예시';
+  String get createAgePreviewTitle => '연령별 동화 예시 보기';
 
   @override
-  String get createAgePreviewHide => '본문 예시 접기';
+  String get createAgePreviewHide => '동화 예시 접기';
 
   @override
   String get createAgePreviewCaption => '같은 장면의 문체와 분량 예시';
 
   @override
+  String get createAgePreviewIllustration =>
+      '하루와 보리가 선생님과 함께 덤불에 걸린 연의 파란 꼬리를 발견하는 삽화';
+
+  @override
   String get createAgePreview3to5 =>
-      '팔랑팔랑, 덤불 뒤에서 파란 리본이 흔들렸어요. 하루가 손가락으로 가리키자 보리도 눈을 크게 떴어요. “저기 우리 연이 있으니 선생님을 부르자!”';
+      '팔랑팔랑, 덤불 뒤에서 파란 리본이 흔들렸어요. 하루가 손가락으로 가리키자 보리도 눈을 크게 떴어요. “선생님, 저기 우리 연이 보여요!”';
 
   @override
   String get createAgePreview5to7 =>
-      '바람이 불자 덤불 사이로 파란 리본이 고개를 내밀었어요. 하루는 아침에 연에 묶었던 리본인 걸 알아봤어요. 보리가 한 걸음 다가가다가 가시를 보고 멈췄어요. “여기서 연을 지켜보며 선생님을 부르자.”';
+      '바람이 불자 덤불 사이로 파란 리본이 고개를 내밀었어요. 하루는 아침에 연에 묶었던 리본인 걸 알아봤어요. 보리가 가시를 보고 한 걸음 물러났어요. 하루는 곁에 선 선생님에게 덤불을 가리켰어요. “저기 저희 연이 걸렸어요.”';
 
   @override
   String get createAgePreview7to9 =>
-      '하루는 바람이 불 때마다 덤불 틈에서 같은 파란 리본이 나타나는 걸 지켜봤어요. 보리는 누군가 흘린 끈이라고 생각했지만, 하루는 리본 끝에 매듭이 두 개 있는 걸 알아봤어요. 아침에 연 꼬리가 풀려서 둘이 함께 묶은 매듭이었거든요. 보리가 가시 돋친 가지 앞에서 멈췄어요. “네가 리본을 보고 있으면 내가 선생님을 불러올게.”';
+      '하루는 바람이 불 때마다 덤불 틈에서 같은 파란 리본이 나타나는 걸 지켜봤어요. 보리는 누군가 흘린 끈이라고 생각했지만, 하루는 리본 끝에 매듭이 두 개 있는 걸 알아봤어요. 아침에 연 꼬리가 풀려서 둘이 함께 묶은 매듭이었거든요. 보리가 가시 돋친 가지 앞에서 멈추자 하루는 곁에 선 선생님에게 손가락으로 리본을 가리켰어요. “매듭이 두 개예요. 우리가 아침에 묶은 연이 맞아요.”';
 
   @override
   String get createLanguageLabel => '이야기 언어';
@@ -388,6 +399,12 @@ class AppLocalizationsKo extends AppLocalizations {
   String get createMakeButton => '동화책 만들기';
 
   @override
+  String get createFreeFirstBookButton => '무료 첫 동화 만들기';
+
+  @override
+  String get createFirstBookDuration => '완성까지 몇 분 걸릴 수 있어요.';
+
+  @override
   String get createPlanUpgradeTitle => '플랜 업그레이드가 필요해요';
 
   @override
@@ -398,6 +415,22 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get libraryTitle => '내 서재';
+
+  @override
+  String get libraryOpenCompletedStory => '완성된 동화 열기';
+
+  @override
+  String get libraryReviewFailedGeneration => '동화를 만들지 못했어요. 상태 확인';
+
+  @override
+  String libraryActiveGenerations(int count) {
+    return '생성 중인 동화 $count권 확인';
+  }
+
+  @override
+  String libraryActiveGenerationItem(int number) {
+    return '동화 $number';
+  }
 
   @override
   String get librarySeriesBadge => '시리즈';
@@ -587,6 +620,15 @@ class AppLocalizationsKo extends AppLocalizations {
   String get loadingTitle => '동화책을 만들고 있어요';
 
   @override
+  String get loadingQueuedTitle => '동화책을 만들 준비 중이에요';
+
+  @override
+  String get loadingInProgressHint => '진행률이 잠시 그대로여도 계속 만들고 있어요.';
+
+  @override
+  String get loadingBrowseLibrary => '서재를 둘러보며 기다리기';
+
+  @override
   String get loadingIllustrationExample => '예시 삽화';
 
   @override
@@ -648,7 +690,16 @@ class AppLocalizationsKo extends AppLocalizations {
   String get loadingBackToHomeButton => '홈으로 돌아가기';
 
   @override
-  String get loadingStepWaiting => '대기 중...';
+  String get loadingStepCheckingStatus => '만들기 상태를 확인하고 있어요';
+
+  @override
+  String get loadingStepRecheckingStatus => '마지막으로 확인한 진행률을 표시하고 있어요.';
+
+  @override
+  String get loadingStepWaitingForStatusRetry => '잠시 후 같은 동화의 진행 상황을 다시 확인해요.';
+
+  @override
+  String get loadingStepWaiting => '만들기 시작을 기다리고 있어요';
 
   @override
   String get loadingStepPreparing => '준비 중...';
@@ -792,7 +843,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get loadingTip2 => '캐릭터가 일관되게 그려지도록 AI가 신경 쓰고 있어요';
 
   @override
-  String get loadingTip3 => '완성된 책은 서재에서 언제든지 다시 볼 수 있어요';
+  String get loadingTip3 => '서재를 보는 동안에도 만들기는 계속돼요. 완성된 책은 서재에서 열 수 있어요.';
 
   @override
   String get loadingTip4 => '마음에 들지 않는 페이지는 나중에 다시 생성할 수 있어요';
@@ -2374,15 +2425,41 @@ class AppLocalizationsKo extends AppLocalizations {
   }
 
   @override
+  String get viewerRetryIllustration => '그림 다시 불러오기';
+
+  @override
   String viewerPageImageSemantics(Object page) {
     return '$page페이지 삽화';
   }
+
+  @override
+  String get viewerShowReadingControls => '읽기 버튼 표시';
+
+  @override
+  String get viewerHideReadingControls => '읽기 버튼 숨기기';
 
   @override
   String get viewerLearn => '학습하기';
 
   @override
   String get viewerPlayAudioTooltip => '오디오 재생';
+
+  @override
+  String get viewerListenFromStart => '처음부터 듣기';
+
+  @override
+  String get viewerListenFromHere => '이 쪽부터 끝까지 듣기';
+
+  @override
+  String get viewerNarrationPreparing => '낭독을 준비하고 있어요';
+
+  @override
+  String get viewerNarrationSpeed => '낭독 속도';
+
+  @override
+  String viewerNarrationSpeedValue(String speed) {
+    return '$speed배';
+  }
 
   @override
   String get viewerPauseAudioTooltip => '오디오 일시정지';
@@ -3188,6 +3265,16 @@ class AppLocalizationsKo extends AppLocalizations {
   String get createOptionsFailed => '그림체를 확인하지 못했어요. 연결을 확인하고 다시 시도해 주세요.';
 
   @override
+  String get createGenerationInviteRequired => '새 동화는 초대된 계정에서 만들 수 있어요.';
+
+  @override
+  String get createGenerationPaused =>
+      '지금은 새 동화를 만들 수 없어요. 저장한 동화는 계속 읽을 수 있어요.';
+
+  @override
+  String get createOpenBetaInvitation => '베타 참여 ID 확인';
+
+  @override
   String get createSafetyInputHint => '아이에게 알맞은 내용으로 주제를 바꾼 뒤 다시 만들어 주세요.';
 
   @override
@@ -3472,6 +3559,10 @@ class AppLocalizationsKo extends AppLocalizations {
   @override
   String get settingsNarrationPreviewGoogleHelp =>
       '선택한 목소리로 같은 문장을 세 가지 스타일로 들어보세요. 구연동화는 한 목소리로 대사마다 억양을 달리해요.';
+
+  @override
+  String get settingsNarrationPreviewPending =>
+      '이 AI 목소리의 미리 듣기를 준비 중이에요. 낭독 스타일은 선택할 수 있어요.';
 
   @override
   String settingsNarrationPreview(String style) {

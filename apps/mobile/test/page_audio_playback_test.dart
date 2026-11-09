@@ -9,6 +9,7 @@ import 'package:ai_story_book/services/page_audio_playback.dart';
 
 class _Player implements PageAudioPlayer {
   final loaded = <String>[];
+  final loadPositions = <Duration>[];
   final seeks = <Duration>[];
   int plays = 0;
   int pauses = 0;
@@ -17,8 +18,12 @@ class _Player implements PageAudioPlayer {
   @override
   bool completed = false;
   @override
-  Future<void> loadFile(String path) async {
+  Future<void> loadFile(
+    String path, {
+    required Duration initialPosition,
+  }) async {
     loaded.add(path);
+    loadPositions.add(initialPosition);
   }
 
   @override
@@ -94,9 +99,10 @@ class _DelayedCache implements BaseCacheManager {
 }
 
 class _RejectedUrlCache implements BaseCacheManager {
-  _RejectedUrlCache(this.file, this.status);
+  _RejectedUrlCache(this.file, this.status, {this.rejectRenewed = false});
   final cache_fs.File file;
   final int status;
+  final bool rejectRenewed;
   final calls = <String>[];
   @override
   Future<FileInfo?> getFileFromCache(
@@ -110,7 +116,9 @@ class _RejectedUrlCache implements BaseCacheManager {
     Map<String, String>? headers,
   }) async {
     calls.add(url);
-    if (calls.length == 1) throw HttpExceptionWithStatus(status, 'rejected');
+    if (calls.length == 1 || rejectRenewed) {
+      throw HttpExceptionWithStatus(status, 'rejected');
+    }
     return file;
   }
 
@@ -155,7 +163,8 @@ void main() {
       'key',
       () async => 'old',
       cache: cache,
-      refreshRejectedUrl: () async {
+      refreshRejectedUrl: (rejectedUrl) async {
+        expect(rejectedUrl, 'old');
         refreshes++;
         return 'fresh';
       },
@@ -177,7 +186,7 @@ void main() {
           'key',
           () async => 'old',
           cache: cache,
-          refreshRejectedUrl: () async => throw StateError('access denied'),
+          refreshRejectedUrl: (_) async => throw StateError('access denied'),
         ),
         throwsStateError,
       );
@@ -193,7 +202,7 @@ void main() {
           () async => 'old',
           cache: other,
           isCurrent: () => current,
-          refreshRejectedUrl: () async {
+          refreshRejectedUrl: (_) async {
             current = false;
             return 'fresh';
           },
@@ -203,6 +212,29 @@ void main() {
       expect(other.calls, ['old']);
     },
   );
+
+  test('a rejected renewal stops after one retry', () async {
+    final cache = _RejectedUrlCache(
+      const LocalFileSystem().file('/unused.mp3'),
+      403,
+      rejectRenewed: true,
+    );
+    var refreshes = 0;
+    await expectLater(
+      cachedPageAudio(
+        'key',
+        () async => 'old',
+        cache: cache,
+        refreshRejectedUrl: (_) async {
+          refreshes++;
+          return 'renewed';
+        },
+      ),
+      throwsA(isA<HttpExceptionWithStatus>()),
+    );
+    expect(refreshes, 1);
+    expect(cache.calls, ['old', 'renewed']);
+  });
 
   test('server errors do not refresh or retry audio', () async {
     final cache = _RejectedUrlCache(
@@ -215,7 +247,7 @@ void main() {
         'key',
         () async => 'old',
         cache: cache,
-        refreshRejectedUrl: () async {
+        refreshRejectedUrl: (_) async {
           refreshes++;
           return 'fresh';
         },
@@ -376,7 +408,8 @@ void main() {
     await audio.pause();
     await audio.play('page1', () async => throw StateError('refetched'));
     expect(player.loaded, ['/page1.mp3']);
-    expect(player.seeks, [Duration.zero]);
+    expect(player.loadPositions, [Duration.zero]);
+    expect(player.seeks, isEmpty);
     expect(player.plays, 2);
     audio.dispose();
   });
@@ -396,7 +429,8 @@ void main() {
       );
       player.completed = true;
       await audio.play('page1', () async => '/page1.mp3');
-      expect(player.seeks, [const Duration(seconds: 8), Duration.zero]);
+      expect(player.loadPositions, [const Duration(seconds: 8)]);
+      expect(player.seeks, [Duration.zero]);
       audio.dispose();
     },
   );
@@ -431,6 +465,48 @@ void main() {
     await first;
     expect(player.plays, 1);
     audio.dispose();
+  });
+
+  test('audio resolution starts while the saved position is pending', () async {
+    final player = _Player();
+    final audio = PageAudioPlayback(player, onError: (_) => fail('unexpected'));
+    addTearDown(audio.dispose);
+    final saved = Completer<Duration>();
+    var requests = 0;
+    final play = audio.play('page1', () async {
+      requests++;
+      return '/page1.mp3';
+    }, initialPosition: saved.future);
+    expect(audio.loading, isTrue);
+    expect(requests, 1);
+    expect(player.plays, 0);
+    saved.complete(const Duration(seconds: 4));
+    await play;
+    expect(player.loadPositions, [const Duration(seconds: 4)]);
+    expect(player.seeks, isEmpty);
+    expect(player.plays, 1);
+    expect(audio.loading, isFalse);
+  });
+
+  test('a changed reading scope cannot start already resolved audio', () async {
+    final player = _Player();
+    final audio = PageAudioPlayback(player, onError: (_) => fail('unexpected'));
+    addTearDown(audio.dispose);
+    final saved = Completer<Duration>();
+    var currentScope = true;
+    final play = audio.play(
+      'page1',
+      () async => '/page1.mp3',
+      initialPosition: saved.future,
+      isCurrent: () => currentScope,
+    );
+    await Future<void>.delayed(Duration.zero);
+    currentScope = false;
+    saved.complete(const Duration(seconds: 4));
+    await play;
+    expect(player.loaded, isEmpty);
+    expect(player.plays, 0);
+    expect(audio.loading, isFalse);
   });
 
   test(

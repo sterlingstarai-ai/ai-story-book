@@ -76,7 +76,7 @@ async def test_openai_reference_edit_sends_bytes_and_persists_result(monkeypatch
     live_configuration(monkeypatch)
     monkeypatch.setattr(settings, "openai_image_quality", quality)
     data = png()
-    monkeypatch.setattr(image, "_fetch_image_as_base64", AsyncMock(return_value=(base64.b64encode(data).decode(), "image/png")))
+    monkeypatch.setattr(image, "_fetch_image_bytes", AsyncMock(return_value=(data, "image/png")))
     requests = []
 
     def respond(request):
@@ -105,7 +105,7 @@ async def test_reference_failure_never_makes_unreferenced_request(monkeypatch, p
     monkeypatch.setattr(settings, "image_provider", provider)
     monkeypatch.setattr(settings, "image_model", model)
     monkeypatch.setattr(settings, "image_api_key", "test-key")
-    monkeypatch.setattr(image, "_fetch_image_as_base64", AsyncMock(return_value=None))
+    monkeypatch.setattr(image, "_fetch_image_bytes", AsyncMock(return_value=None))
     post = AsyncMock(side_effect=AssertionError("Provider must not be contacted without required reference"))
     monkeypatch.setattr(httpx.AsyncClient, "post", post)
     with pytest.raises(ImageError):
@@ -167,7 +167,7 @@ async def test_only_trusted_portrait_scope_changes_outbound_reference_rules(monk
     monkeypatch.setattr(settings, "image_api_key", "test-key")
     data = png()
     encoded = base64.b64encode(data).decode()
-    monkeypatch.setattr(image, "_fetch_image_as_base64", AsyncMock(return_value=(encoded, "image/png")))
+    monkeypatch.setattr(image, "_fetch_image_bytes", AsyncMock(return_value=(data, "image/png")))
     monkeypatch.setattr(image, "_persist_image_bytes", AsyncMock(return_value="https://owned.example/portrait.png"))
     prompts = []
 

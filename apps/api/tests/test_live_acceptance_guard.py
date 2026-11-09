@@ -154,6 +154,19 @@ def acceptance_scripts(monkeypatch):
     return run_live_book_acceptance, run_live_quality_matrix
 
 
+@pytest.mark.parametrize("page_count,reader_profile_file", [(8, None), (12, "private.json")])
+def test_paid_first_book_trial_requires_a_fictional_twelve_page_run(
+    acceptance_scripts, page_count, reader_profile_file,
+):
+    book, _ = acceptance_scripts
+    args = SimpleNamespace(
+        page_count=page_count, first_book_trial=True,
+        reader_profile_file=Path(reader_profile_file) if reader_profile_file else None,
+    )
+    with pytest.raises(book.GateFailure, match="TRIAL_REQUIRES_FICTIONAL_TWELVE_PAGE_RUN"):
+        book.run_acceptance(args)
+
+
 def test_explicit_llm_file_is_separate_and_does_not_modify_base_env(tmp_path, acceptance_scripts):
     book, _ = acceptance_scripts
     base = tmp_path / "synthetic.env"

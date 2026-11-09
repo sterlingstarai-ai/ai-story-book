@@ -18,6 +18,7 @@ class _SettingsApi extends ApiClient {
     this.supported, {
     this.styleSupported = false,
     this.previewProvider,
+    this.audioProvider,
     this.narrationSupported,
     this.audioSupported = true,
     this.betaInvitationSupported = false,
@@ -25,6 +26,7 @@ class _SettingsApi extends ApiClient {
   final bool supported;
   final bool styleSupported;
   final String? previewProvider;
+  final String? audioProvider;
   final bool? narrationSupported;
   final bool audioSupported;
   final bool betaInvitationSupported;
@@ -41,6 +43,7 @@ class _SettingsApi extends ApiClient {
     'narration_voice_selection_supported': supported,
     'narration_style_selection_supported': styleSupported,
     if (previewProvider != null) 'narration_preview_provider': previewProvider,
+    if (audioProvider != null) 'narration_audio_provider': audioProvider,
     'generation_invitation_supported': betaInvitationSupported,
   };
 
@@ -339,6 +342,99 @@ void main() {
     expect(a, isNot(b));
     expect(narrationStyleOrDefault('unknown'), 'legacy');
   });
+
+  testWidgets('Realtime offers three styles without older audio previews', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sharedPreferencesProvider.overrideWithValue(prefs),
+          apiClientProvider.overrideWithValue(
+            _SettingsApi(
+              true,
+              styleSupported: true,
+              audioProvider: 'openai_realtime',
+            ),
+          ),
+          realtimeNarrationPreviewsProvider.overrideWith((ref) async => false),
+          narrationPreviewPlayerFactoryProvider.overrideWithValue(
+            () => throw StateError('Older audio must not play for Realtime'),
+          ),
+        ],
+        child: const MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: Locale('ko'),
+          home: SettingsScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final pending = find.textContaining('미리 듣기를 준비 중이에요');
+    await tester.scrollUntilVisible(
+      pending,
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(pending, findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('narration-preview-animated')),
+      findsNothing,
+    );
+
+    final dropdown = find.byType(DropdownButtonFormField<String>).last;
+    await Scrollable.ensureVisible(tester.element(dropdown), alignment: .5);
+    await tester.pumpAndSettle();
+    await tester.tap(dropdown);
+    await tester.pumpAndSettle();
+    for (final label in ['이야기 성우', '구연동화', '잠자리']) {
+      expect(find.text(label), findsWidgets);
+    }
+    await tester.tap(find.text('구연동화').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('저장').first);
+    await tester.pumpAndSettle();
+    expect(prefs.getString(narrationStylePreferenceKey), 'animated');
+  });
+
+  for (final voice in ['warm', 'deep']) {
+    testWidgets('Realtime loads the three $voice preview assets', (
+      tester,
+    ) async {
+      final player = _PreviewPlayer();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            capabilitiesProvider.overrideWith(
+              (ref) async => {'narration_audio_provider': 'openai_realtime'},
+            ),
+            narrationPreviewPlayerFactoryProvider.overrideWithValue(
+              () => player,
+            ),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('ko'),
+            home: Scaffold(body: NarrationStylePreviews(voice: voice)),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      const styles = ['natural', 'animated', 'bedtime'];
+      for (final style in styles) {
+        await tester.tap(find.byKey(ValueKey('narration-preview-$style')));
+        await tester.pumpAndSettle();
+      }
+      expect(player.assets, [
+        for (final style in styles)
+          'assets/audio/narration_preview_realtime_${voice}_$style.wav',
+      ]);
+    });
+  }
 
   testWidgets('all three preview buttons call the offline player', (
     tester,

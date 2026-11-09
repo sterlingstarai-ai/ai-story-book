@@ -116,8 +116,13 @@ class _AIStoryBookAppState extends ConsumerState<AIStoryBookApp>
     if (state == AppLifecycleState.resumed) {
       ref.read(iapPurchaseRecoveryProvider).retryPending();
       ref.invalidate(bookMediaStoreProvider);
+      ref.invalidate(activeBookGenerationsProvider);
+      ref.read(generationInBackgroundProvider.notifier).state = false;
       _screenTimeNotifier.onAppResumed();
       return;
+    }
+    if (state == AppLifecycleState.hidden || state == AppLifecycleState.paused) {
+      ref.read(generationInBackgroundProvider.notifier).state = true;
     }
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused ||
@@ -207,7 +212,10 @@ Route<dynamic> buildAppRoute(RouteSettings settings) {
       if (jobId == null) {
         return _homeRoute();
       }
-      return MaterialPageRoute(builder: (_) => LoadingScreen(jobId: jobId));
+      return MaterialPageRoute(
+        maintainState: false,
+        builder: (_) => LoadingScreen(jobId: jobId),
+      );
 
     case '/viewer':
       final bookId = _readRouteStringArg(settings.arguments);
@@ -220,7 +228,10 @@ Route<dynamic> buildAppRoute(RouteSettings settings) {
       );
 
     case '/library':
-      return MaterialPageRoute(builder: (_) => const LibraryScreen());
+      final browsingJobId = _readRouteStringArg(settings.arguments);
+      return MaterialPageRoute(
+        builder: (_) => LibraryScreen(browsingJobId: browsingJobId),
+      );
 
     case '/characters':
       return MaterialPageRoute(builder: (_) => const CharactersScreen());
