@@ -6,6 +6,7 @@
 - 실제 OpenAI Realtime에서 동일한 가상 대본으로 두 음색의 세 스타일을 새로 합성했다. 여섯 응답 모두 원문과 일치했고, 앱의 비교 샘플을 그 파일로 교체했다. 자연스러운 발음의 최종 청취 판정과 이 후보로 새로 생성하는 운영 동화 검증은 별도로 기록한다. [샘플 비교](acceptance/2026-11-09-korean-style-candidate/index.html)
 - API 낭독 검사 48개, Flutter 설정·뷰어 검사 34개를 통과했다. Linux amd64 API와 워커를 로컬에서 빌드하고 두 이미지의 낭독 소스를 커밋과 대조했다. PostgreSQL·Redis·Celery·MinIO를 연결한 격리 첫 권 검사도 통과했다. [격리 결과](acceptance/2026-11-09-korean-candidate-runtime/result.json)
 - 기존 운영 파일럿의 TLS와 준비 상태가 정상이고 낭독 제공자가 Gemini임을 HTTPS로 확인했다. Google Cloud에서 임시 SSH 작업 330건의 완료와 해당 키의 부재를 확인했다. 새로 연결한 관리자 세션도 임시 키 제거와 종료를 검증했다.
+- 같은 운영 API에서 가상 계정의 동의 저장까지 진행했다. 캐릭터 생성이 `SERVICE_UNAVAILABLE`(HTTP 503)로 거부돼 책 작업은 접수되지 않았다. 해당 시점 준비 상태는 HTTP 200이고 글·그림 제공자 관측도 정상이었다. 운영 환경은 `invite_only`와 일일 생성 예산 1을 사용한다. 승인된 정책과 배포 주소가 준비되면 검수 계정 한 개로 새 후보의 운영 첫 권과 마지막 쪽 낭독을 검증한다. [운영 요청 결과](acceptance/2026-11-09-production-7to9-book/result.json)
 - 공개 배포 검사에는 최종 승인·시행된 정책과 공개 API·정책 주소가 필요하다. 이 Mac에는 Android 업로드 서명 설정과 Apple Distribution 인증서가 있고, 현 앱 식별자에 맞는 유효한 App Store 프로비저닝 프로파일은 확인되지 않았다.
 
 ## 2026-11-09 개인정보처리방침·이용약관 개정 검토본
