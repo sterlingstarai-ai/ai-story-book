@@ -7,6 +7,9 @@
 - API 낭독 검사 48개, Flutter 설정·뷰어 검사 34개를 통과했다. Linux amd64 API와 워커를 로컬에서 빌드하고 두 이미지의 낭독 소스를 커밋과 대조했다. PostgreSQL·Redis·Celery·MinIO를 연결한 격리 첫 권 검사도 통과했다. [격리 결과](acceptance/2026-11-09-korean-candidate-runtime/result.json)
 - 기존 운영 파일럿의 TLS와 준비 상태가 정상이고 낭독 제공자가 Gemini임을 HTTPS로 확인했다. Google Cloud에서 임시 SSH 작업 330건의 완료와 해당 키의 부재를 확인했다. 새로 연결한 관리자 세션도 임시 키 제거와 종료를 검증했다.
 - 같은 운영 API에서 가상 계정의 동의 저장까지 진행했다. 캐릭터 생성이 `SERVICE_UNAVAILABLE`(HTTP 503)로 거부돼 책 작업은 접수되지 않았다. 해당 시점 준비 상태는 HTTP 200이고 글·그림 제공자 관측도 정상이었다. 운영 환경은 `invite_only`와 일일 생성 예산 1을 사용한다. 승인된 정책과 배포 주소가 준비되면 검수 계정 한 개로 새 후보의 운영 첫 권과 마지막 쪽 낭독을 검증한다. [운영 요청 결과](acceptance/2026-11-09-production-7to9-book/result.json)
+- 최신 후보의 격리 초대 계정으로 OpenAI 글·그림을 사용해 7–9세 첫 권을 시험했다. 자동 보완 뒤 그림 검수에서 8·9·12쪽의 행동 또는 인물 일치 문제가 남아 `IMAGE_QUALITY_FAILED`로 종료됐다. 글 요청 10회·그림 요청 16회가 기록됐고 격리 자원을 정리했다. 완성 책이 없으므로 이 요청에서는 12쪽 낭독을 시작하지 않았다. [격리 실제 생성 결과](acceptance/2026-11-09-live-candidate-7to9-final-narration/result.json)
+- 별도로 이전에 완성한 가상 7–9세 동화의 마지막 55어절을 최신 구연동화 지시로 실제 합성했다. 첫 요청에서 원문과 전사가 일치했고 30.1초 WAV를 확인했다. 새 동화의 운영 낭독이나 발음 청취 승인과는 별도 결과다. [마지막 쪽 음원](acceptance/2026-11-09-korean-archived-final-page/page-12.wav)
+- `run_live_book_acceptance.py`에 격리 7–9세 첫 권 전용 `--verify-final-narration`을 추가했다. 책이 완료되면 마지막 쪽 미합성 확인, 새 음원 요청, 저장소 다운로드 및 캐시 바이트 대조를 수행한다. 관련 자동 검사 133개를 통과했다. 별도 Android 컴파일은 Flutter `impellerc`가 출력 전에 멈춰 종료했으며, 도구를 단독 실행했을 때도 같은 현상을 확인했다.
 - 공개 배포 검사에는 최종 승인·시행된 정책과 공개 API·정책 주소가 필요하다. 이 Mac에는 Android 업로드 서명 설정과 Apple Distribution 인증서가 있고, 현 앱 식별자에 맞는 유효한 App Store 프로비저닝 프로파일은 확인되지 않았다.
 
 ## 2026-11-09 개인정보처리방침·이용약관 개정 검토본

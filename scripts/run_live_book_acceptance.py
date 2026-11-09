@@ -12,6 +12,8 @@ protagonist name and optionally gender/age. Appearance stays fictional; no photo
 
 import argparse
 from datetime import datetime, timezone
+from hashlib import sha256
+import io
 import json
 import os
 from pathlib import Path
@@ -25,6 +27,7 @@ import time
 from types import SimpleNamespace
 import uuid
 import unicodedata
+import wave
 
 from dotenv import dotenv_values
 import httpx
@@ -356,6 +359,36 @@ def journey(base, directory, age, report, case=1, page_count=8, reader_profile=N
                                                      "book_id": book_id, "job_id": job_id})
 
 
+def verify_final_narration(base, directory, report):
+    """Synthesize the last page through the real invite-only audio route."""
+    fixture = json.loads((directory / 'private-fixture.json').read_text())
+    headers = {'X-User-Key': fixture['user_key']}
+    route = f"/v1/books/{fixture['book_id']}/pages/12/audio"
+    params = {'language': 'ko', 'voice': 'warm', 'style': 'animated'}
+    with httpx.Client(base_url=base, timeout=125, trust_env=False) as client:
+        cached = client.get(f'{route}/cached', headers=headers, params=params)
+        require(cached.status_code == 200 and cached.json() == {'audio_url': None}, 'FINAL_AUDIO_NOT_FRESH')
+        generated = client.get(route, headers=headers, params=params)
+        require(generated.status_code == 200, f'FINAL_AUDIO_HTTP_{generated.status_code}')
+        audio_url = generated.json()['audio_url']
+        cached = client.get(f'{route}/cached', headers=headers, params=params)
+        require(cached.status_code == 200 and cached.json().get('audio_url'), 'FINAL_AUDIO_NOT_CACHED')
+        first = client.get(audio_url)
+        second = client.get(cached.json()['audio_url'])
+        require(first.status_code == second.status_code == 200 and first.content == second.content,
+                'FINAL_AUDIO_STORAGE_MISMATCH')
+    with wave.open(io.BytesIO(first.content), 'rb') as audio:
+        require((audio.getnchannels(), audio.getsampwidth(), audio.getframerate()) == (1, 2, 24000),
+                'FINAL_AUDIO_INVALID_FORMAT')
+        duration = audio.getnframes() / audio.getframerate()
+        require(duration >= 1 and len(audio.readframes(audio.getnframes())) == audio.getnframes() * 2,
+                'FINAL_AUDIO_INCOMPLETE')
+    (directory / 'page-12-narration.wav').write_bytes(first.content)
+    report['final_narration'] = {'page': 12, 'voice': params['voice'], 'style': params['style'],
+                                 'duration_seconds': duration, 'sha256': sha256(first.content).hexdigest(),
+                                 'fresh_synthesis': True, 'cached_download_matches': True}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--live", action="store_true", required=True)
@@ -378,6 +411,8 @@ def main():
                         help="Compare parallel image requests in the disposable stack")
     parser.add_argument("--first-book-trial", action="store_true",
                         help="Use the invite-only free first-book policy for a fictional 12-page run")
+    parser.add_argument("--verify-final-narration", action="store_true",
+                        help="Also synthesize page 12 via OpenAI Realtime (up to three requests)")
     parser.add_argument("--hold-seconds", type=int, default=0, choices=range(0, 14401), metavar="0..14400")
     args = parser.parse_args()
     # Also covers child-process logs and dependency logs from the shared runner.
@@ -397,6 +432,9 @@ def run_acceptance(args, *, profile=None):
     require(type(image_concurrency) is int and image_concurrency in (3, 4)
             and (profile is None or image_concurrency == 3), "INVALID_IMAGE_CONCURRENCY")
     first_book_trial = getattr(args, "first_book_trial", False)
+    final_narration = getattr(args, "verify_final_narration", False)
+    require(not final_narration or (first_book_trial and args.age == "7-9"),
+            "FINAL_NARRATION_REQUIRES_7_TO_9_FIRST_BOOK_TRIAL")
     require(not first_book_trial or (profile is None and args.reader_profile_file is None and args.page_count == 12),
             "TRIAL_REQUIRES_FICTIONAL_TWELVE_PAGE_RUN")
     require(profile is not None or args.page_count != 12 or args.reader_profile_file is None,
@@ -415,6 +453,9 @@ def run_acceptance(args, *, profile=None):
     require(not text_capture or (profile is None and reader_profile is None and args.page_count in (4, 12)),
             "REAL_CHILD_REVIEW_CAPTURE_FORBIDDEN")
     config = profile.config if profile is not None else load_runtime_config(args)
+    require(not final_narration or config.llm_provider == "openai", "FINAL_NARRATION_REQUIRES_OPENAI_KEY")
+    if final_narration:
+        require_ignored_path(directory / 'page-12-narration.wav')
     quality_environment = profile.environment if profile is not None else quality_gate_environment(args.page_count, config)
     directory.mkdir(parents=True, mode=0o700)
     capture_fictional = text_capture or bool(profile is not None and getattr(profile, "retain_fictional_review_evidence", False))
@@ -504,6 +545,10 @@ def run_acceptance(args, *, profile=None):
                 OBJC_DISABLE_INITIALIZE_FORK_SAFETY="YES")
             runtime.update(quality_environment)
             runtime.update(trial_environment)
+            if final_narration:
+                runtime.update(TTS_PROVIDER="openai_realtime", AUDIO_FEATURE_ENABLED="true",
+                               AUDIO_NARRATION_ONLY_ENABLED="true", OPENAI_TTS_API_KEY=config.llm_api_key,
+                               DAILY_GENERATION_BUDGET="5")
             runtime.update({key.upper(): str(value) for key, value in vars(config).items()
                             if key not in {"llm_timeout", "image_timeout"}})
             run([sys.executable, str(entry), "alembic", "upgrade", "head"], env=runtime,
@@ -530,6 +575,8 @@ def run_acceptance(args, *, profile=None):
             if profile is None:
                 journey(base, directory, args.age, report, args.case, args.page_count, reader_profile,
                         trial_owner=trial_owner)
+                if final_narration:
+                    verify_final_narration(base, directory, report)
             else:
                 profile.journey(base, directory, report, runtime)
             report["status"] = "passed"
