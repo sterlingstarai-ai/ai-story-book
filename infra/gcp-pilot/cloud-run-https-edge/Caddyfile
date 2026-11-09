@@ -1,0 +1,27 @@
+{
+  admin off
+  auto_https off
+  log {
+    output discard
+  }
+}
+
+:8080 {
+  @app path /health /health/live /health/ready /v1/* /share/*
+  handle @app {
+    request_body {
+      max_size 17MB
+    }
+    reverse_proxy https://10.128.0.2:443 {
+      header_up Host 35.209.174.246
+      transport http {
+        tls_server_name 35.209.174.246
+        dial_timeout 5s
+        response_header_timeout 125s
+      }
+    }
+  }
+  handle {
+    respond 404
+  }
+}
