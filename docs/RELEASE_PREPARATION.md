@@ -10,6 +10,8 @@
 - 최신 후보의 격리 초대 계정으로 OpenAI 글·그림을 사용해 7–9세 첫 권을 시험했다. 자동 보완 뒤 그림 검수에서 8·9·12쪽의 행동 또는 인물 일치 문제가 남아 `IMAGE_QUALITY_FAILED`로 종료됐다. 글 요청 10회·그림 요청 16회가 기록됐고 격리 자원을 정리했다. 완성 책이 없으므로 이 요청에서는 12쪽 낭독을 시작하지 않았다. [격리 실제 생성 결과](acceptance/2026-11-09-live-candidate-7to9-final-narration/result.json)
 - 별도로 이전에 완성한 가상 7–9세 동화의 마지막 55어절을 최신 구연동화 지시로 실제 합성했다. 첫 요청에서 원문과 전사가 일치했고 30.1초 WAV를 확인했다. 새 동화의 운영 낭독이나 발음 청취 승인과는 별도 결과다. [마지막 쪽 음원](acceptance/2026-11-09-korean-archived-final-page/page-12.wav)
 - `run_live_book_acceptance.py`에 격리 7–9세 첫 권 전용 `--verify-final-narration`을 추가했다. 책이 완료되면 마지막 쪽 미합성 확인, 새 음원 요청, 저장소 다운로드 및 캐시 바이트 대조를 수행한다. 관련 자동 검사 133개를 통과했다. 별도 Android 컴파일은 Flutter `impellerc`가 출력 전에 멈춰 종료했으며, 도구를 단독 실행했을 때도 같은 현상을 확인했다.
+- 후속 후보는 같은 쪽의 새 그림 검수 문제가 발견돼도 이전 보완 지시를 유지한다. 검수 범위·비용 제한을 유지했으며 관련 검사 157개를 통과했다. 새 Linux API·워커 이미지의 해당 소스도 대조했다. [이미지 검증](acceptance/2026-11-09-repair-candidate-linux-images/verification.json)
+- 이전 실기기 검수 패키지를 바탕으로 최신 미리듣기 여섯 개를 넣은 QA 패키지를 만들었다. Android는 같은 디버그 서명과 16KiB 정렬, iOS는 같은 개발 서명과 권한을 검증했다. Flutter 실행 코드는 기존 검수본과 바이트가 일치하며, 두 기기에서 새 패키지를 다시 실행하는 단계가 남아 있다. [Android 검증](acceptance/2026-11-09-android-qa-new-korean-audio/verification.json) · [iPhone 검증](acceptance/2026-11-09-ios-qa-new-korean-audio/verification.json)
 - 공개 배포 검사에는 최종 승인·시행된 정책과 공개 API·정책 주소가 필요하다. 이 Mac에는 Android 업로드 서명 설정과 Apple Distribution 인증서가 있고, 현 앱 식별자에 맞는 유효한 App Store 프로비저닝 프로파일은 확인되지 않았다.
 
 ## 2026-11-09 개인정보처리방침·이용약관 개정 검토본
