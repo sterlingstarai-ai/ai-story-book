@@ -1,5 +1,11 @@
 # 제한 베타 배포 준비
 
+## 2026-11-09 공개 정책과 고객지원
+
+- 운영자가 개인정보처리방침·이용약관과 검토본의 지원 이메일 사용을 승인했다. 한국 시간 실제 공개일인 2026-11-09를 두 정책의 시행일로 반영하고, 앱 내 JSON과 웹 HTML을 같은 원본에서 생성했다.
+- Vercel 기본 주소에 정책·고객지원·계정 삭제 안내를 공개했다. 별도 로그인 없이 7개 파일의 HTTPS 응답, 형식과 바이트 일치를 확인했다. [공개 도움말](https://ai-story-book-support.vercel.app/) · [개인정보처리방침](https://ai-story-book-support.vercel.app/privacy/) · [이용약관](https://ai-story-book-support.vercel.app/terms/)
+- 승인 정책을 넣은 Android·iOS 공동 검수 패키지를 만들고 기존 검수용 서명 및 정책 파일을 검증했다. 검수용 실행 코드와 한국어 미리듣기는 기존 후보와 일치한다. [패키지 대조](acceptance/2026-11-09-policy-approved-qa/verification.json)
+
 ## 2026-11-09 운영 검증 재개 점검
 
 - VM은 실행 중이었다. 외부 HTTPS 접속이 시간 초과된 상태에서 방화벽이 제한된 출발지 주소만 허용하는 것을 확인했다. 소유자 IAP 경로로 조회한 API 컨테이너와 내부 `/health/ready`, AI 제공자 상태는 정상이었고 임시 접속 키 정리도 확인했다.
