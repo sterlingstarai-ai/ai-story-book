@@ -52,7 +52,9 @@ async def test_realtime_audio_is_wav_and_exact_transcript(monkeypatch):
         assert audio.readframes(2) == b'\0\0\x01\0'
     assert conn.sent[0]['session']['audio']['output']['voice'] == 'cedar'
     assert conn.sent[1]['response']['input'][0]['content'][0]['text'] == '안녕하세요.'
-    assert '해설과 대사의 억양' in conn.sent[1]['response']['instructions']
+    assert '억양과 강약을 생생하게' in conn.sent[1]['response']['instructions']
+    assert '표현은 목소리의 변화로만' in conn.sent[1]['response']['instructions']
+    assert '역할 이름, 웃음이나 효과음, 뒷이야기를 덧붙이지 마세요' in conn.sent[1]['response']['instructions']
     assert '원문의 말과 순서' in conn.sent[1]['response']['instructions']
     assert '표준 한국어 발음' in conn.sent[1]['response']['instructions']
 
@@ -77,9 +79,15 @@ async def test_realtime_failure_never_returns_audio(monkeypatch, server_events):
 
 
 @pytest.mark.asyncio
-async def test_completed_realtime_response_reports_changed_words(monkeypatch):
+@pytest.mark.parametrize('transcript', [
+    '다른 이야기를 읽었어요.',
+    '해설: 안녕하세요.',
+    '안녕하세요. (웃음)',
+    '안녕하세요. 두 친구는 행복했어요.',
+])
+async def test_completed_realtime_response_reports_changed_words(monkeypatch, transcript):
     monkeypatch.setattr(settings, 'openai_tts_api_key', 'fake-key')
-    connection = Connection(events(text='다른 이야기를 읽었어요.'))
+    connection = Connection(events(text=transcript))
     monkeypatch.setattr('src.services.realtime_tts.websockets.connect', lambda *a, **kw: connection)
     with pytest.raises(RealtimeTranscriptMismatch):
         await synthesize_realtime('안녕하세요.')
