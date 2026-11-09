@@ -6,7 +6,10 @@
 - Vercel 기본 주소에 정책·고객지원·계정 삭제 안내를 공개했다. 별도 로그인 없이 7개 파일의 HTTPS 응답, 형식과 바이트 일치를 확인했다. [공개 도움말](https://ai-story-book-support.vercel.app/) · [개인정보처리방침](https://ai-story-book-support.vercel.app/privacy/) · [이용약관](https://ai-story-book-support.vercel.app/terms/)
 - 승인 정책을 넣은 Android·iOS 공동 검수 패키지를 만들고 기존 검수용 서명 및 정책 파일을 검증했다. 검수용 실행 코드와 한국어 미리듣기는 기존 후보와 일치한다. [패키지 대조](acceptance/2026-11-09-policy-approved-qa/verification.json)
 - 운영 VM에서 가상 검수 계정 한 개와 별도 생성 카운터를 쓰는 임시 API 프로세스를 실행했다. 운영 PostgreSQL·저장소·OpenAI를 사용해 《하루와 모모의 반반 책 시간》이 자동으로 완성됐다. 12쪽이 모두 43–49어절이고, 표지와 본문 삽화 13장을 서명 URL로 내려받아 파일과 화면을 확인했다. 기존 공개 API·워커는 교체하지 않았다.
-- 같은 책 마지막 쪽의 운영 낭독 API는 HTTP 500을 반환해 저장·캐시 확인이 남았다. 같은 48어절 원문을 로컬 검증에서 새 구연동화 음성으로 한 번 합성해 원문과 전사가 일치하는 25.05초 WAV를 확인했다. 다음 검증은 새 책을 만들지 않고 이미 완성된 책의 운영 낭독 경로를 대상으로 한다. [운영 동화 검토본](acceptance/2026-11-09-operating-owner-one-book/review.html)
+- 같은 책의 12쪽에서 HTTP 500을 재현했다. OpenAI Realtime이 원문에 없는 말과 효과를 덧붙이는 경우 전체 합성과 분할 재시도 모두 전사 검증에 실패했다. 한국어 지시문을 수정해 구연의 표현을 억양과 강약으로 제한했다. 원문·전사 일치 검사는 유지했다. 완료된 응답의 전사 불일치에서는 Redis 잠금을 해제하고, 완료 여부가 불확실한 실패에는 기존 보호 기간을 적용한다.
+- 수정본 `dccfe34`를 운영 VM의 별도 FastAPI 프로세스에서 실행해 기존 책 12쪽만 확인했다. 낭독 요청은 HTTP 200, 서명 WAV 부분 요청은 206을 반환했다. 운영 저장소와 DB에 등록된 캐시에서 같은 25.15초 음원을 받았고, Mac에서 그 파일의 자연 종료까지 확인했다. 새 책 생성 요청은 0건이다. [운영 낭독 결과](acceptance/2026-11-09-operating-owner-one-book/last-page/result.json) · [재생 결과](acceptance/2026-11-09-operating-owner-one-book/last-page/playback.json) · [동화 검토본](acceptance/2026-11-09-operating-owner-one-book/review.html)
+- Linux amd64 API·워커 후보 이미지를 만들고 변경 파일의 해시와 이미지에서 생성한 OpenAPI 계약을 대조했다. 제한 운영 API의 HTTPS 준비 상태는 200을 반환했고 공개 정책·지원 파일 7개가 원본과 일치했다. 운영 API·워커 교체와 공개 HTTPS API 호스트명 설정, 그 주소를 사용하는 빌드의 최종 실기기 확인은 배포 단계에 남아 있다. [이미지 검증](acceptance/2026-11-09-operating-owner-one-book/last-page/linux-images.json) · [공개 주소 사전 점검](acceptance/2026-11-09-operating-owner-one-book/last-page/public-release-gates.json)
+- 고정 FastAPI·Starlette 버전으로 API 검사 3,326개, Flutter 검사 809개가 통과했다. 각각 29개와 2개는 건너뛰었다. Flutter 정적 분석과 UI 사전 검사도 통과했다. 오프라인 정책 화면 검사는 승인된 문서와 시행일을 확인하도록 갱신했다.
 
 ## 2026-11-09 운영 검증 재개 점검
 
