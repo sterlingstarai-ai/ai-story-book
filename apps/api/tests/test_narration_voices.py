@@ -231,6 +231,23 @@ async def test_singleflight_releases_lock_when_local_budget_denies_synthesis(mon
 
 
 @pytest.mark.asyncio
+async def test_singleflight_releases_lock_after_completed_transcript_mismatch(monkeypatch):
+    from src.core.rate_limit import rate_limiter
+    from src.services.audio_assets import variant_singleflight
+    from src.services.realtime_tts import RealtimeTranscriptMismatch
+
+    redis = _LockRedis()
+    monkeypatch.setattr(rate_limiter, 'get_redis', AsyncMock(return_value=redis))
+    args = ('user', 'book', 1, 'ko', 'warm', 'animated', 'openai_realtime')
+    with pytest.raises(RealtimeTranscriptMismatch):
+        async with variant_singleflight(*args):
+            raise RealtimeTranscriptMismatch()
+    assert not redis.entries
+    async with variant_singleflight(*args):
+        assert len(redis.entries) == 1
+
+
+@pytest.mark.asyncio
 async def test_singleflight_redis_failure_blocks_generation(monkeypatch):
     from src.core.exceptions import APIError
     from src.core.rate_limit import rate_limiter

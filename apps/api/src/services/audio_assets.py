@@ -13,6 +13,7 @@ from src.core.rate_limit import rate_limiter
 from src.models.db import Book, NarrationVariant, Page
 from src.services.audio_text import audio_texts
 from src.services.purge_queue import cancel_purge_task, enqueue_purge_keys
+from src.services.realtime_tts import RealtimeTranscriptMismatch
 from src.services.storage import storage_service
 
 _LOCK_TTL_SECONDS = 600
@@ -43,9 +44,11 @@ async def variant_singleflight(user_key, book_id, page_number, language, voice, 
     try:
         yield
     except BaseException as error:
-        # Both local budget guards reject before sending a synthesis request.
+        # The provider confirmed completion for a transcript mismatch. A local
+        # budget rejection also leaves no outstanding synthesis request.
         release_lock = (
-            isinstance(error, APIError) and error.error_code == 'SERVICE_BUDGET_EXCEEDED'
+            isinstance(error, RealtimeTranscriptMismatch)
+            or (isinstance(error, APIError) and error.error_code == 'SERVICE_BUDGET_EXCEEDED')
         )
         raise
     finally:
