@@ -180,6 +180,31 @@ async def test_action_repair_keeps_the_supporting_cast_details_without_the_old_s
 
 
 @pytest.mark.asyncio
+async def test_second_repair_preserves_action_when_review_finds_identity_swap(monkeypatch, review_bytes):
+    from src.services.image_correction import provider_prompt_with_correction
+
+    inputs = _inputs()
+    reviewer = AsyncMock(side_effect=[_review(failures={3: ["action_mismatch"]}),
+                                      _review(failures={3: ["identity_swap"]}), _review()])
+    monkeypatch.setattr(image_quality, "review_book_illustrations", reviewer)
+    corrections = []
+
+    async def repair(page, prompt, _urls):
+        assert page == 3
+        corrections.append(provider_prompt_with_correction(prompt))
+        return canonical_media_url(f"jobs/q/new-{page}-{len(corrections)}.png")
+
+    result = await pipeline.verify_and_repair_illustrations(**inputs, regenerate=repair)
+
+    assert result.repaired_pages == [3]
+    assert reviewer.await_count == 3
+    assert "Follow the narrative" in corrections[0].positive_prompt
+    assert "Follow the narrative" in corrections[1].positive_prompt
+    assert "Restore each character's own" in corrections[1].positive_prompt
+    assert corrections[0].negative_prompt == corrections[1].negative_prompt
+
+
+@pytest.mark.asyncio
 async def test_full_recheck_reads_current_bytes_using_one_storage_client_per_round(monkeypatch):
     from src.services import storage
 

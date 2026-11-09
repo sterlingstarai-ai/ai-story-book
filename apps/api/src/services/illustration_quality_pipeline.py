@@ -202,7 +202,8 @@ async def verify_and_repair_illustrations(
     from src.services.image_quality import review_book_illustrations
 
     urls = dict(image_urls)
-    prompts = dict(image_prompts)
+    original_prompts = dict(image_prompts)
+    prompts = dict(original_prompts)
     expected = set(page_texts)
     repair_limit = max_repair_pages(len(expected) - 1)
     if expected != set(prompts) or expected != set(urls):
@@ -242,7 +243,7 @@ async def verify_and_repair_illustrations(
         return findings
 
     async def repair(page, issues, timeout, cover_passed_review):
-        prompt = corrected_prompt(prompts[page], page_texts[page], issues)
+        prompt = corrected_prompt(original_prompts[page], page_texts[page], issues)
         reference_urls = dict(urls)
         if page == 0 or not cover_passed_review:
             reference_urls.pop(0, None)
@@ -278,6 +279,7 @@ async def verify_and_repair_illustrations(
         repair_reserve = REVIEW_TIMEOUT + COMMIT_RESERVE_SECONDS
         attempts_used = 0
         repaired_pages: set[int] = set()
+        repair_issues: dict[int, list[str]] = {}
         while findings:
             # The allowance counts attempts, not distinct pages. A page that
             # still fails may use the remaining allowance; neither retries nor
@@ -289,6 +291,9 @@ async def verify_and_repair_illustrations(
                 raise quality_failure("blocking_issue")
             if repairable_pages is not None and not set(findings).issubset(repairable_pages):
                 raise quality_failure("repair_scope_invalid")
+            # A new defect on a repaired page must not undo an earlier fix.
+            for page, issues in findings.items():
+                repair_issues[page] = list(dict.fromkeys([*repair_issues.get(page, ()), *issues]))
             cover_passed_review = 0 not in findings
             # Only parallelize when the existing cover is approved. A rejected
             # cover must never become a sibling repair's reference mid-round.
@@ -315,7 +320,7 @@ async def verify_and_repair_illustrations(
                         timeout = timeout_for(len(pages) - index)
                         queued = pages[index:index + slots - len(active)]
                         for page in queued:
-                            task = asyncio.create_task(repair(page, findings[page], timeout, cover_passed_review))
+                            task = asyncio.create_task(repair(page, repair_issues[page], timeout, cover_passed_review))
                             active[task] = page
                         index += len(queued)
                         attempts_used += len(queued)

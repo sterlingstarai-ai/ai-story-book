@@ -412,7 +412,7 @@ def main():
     parser.add_argument("--first-book-trial", action="store_true",
                         help="Use the invite-only free first-book policy for a fictional 12-page run")
     parser.add_argument("--verify-final-narration", action="store_true",
-                        help="Also synthesize page 12 via OpenAI Realtime (up to three requests)")
+                        help="Save private fictional illustration evidence and synthesize page 12 via OpenAI Realtime (up to three requests)")
     parser.add_argument("--hold-seconds", type=int, default=0, choices=range(0, 14401), metavar="0..14400")
     args = parser.parse_args()
     # Also covers child-process logs and dependency logs from the shared runner.
@@ -449,7 +449,7 @@ def run_acceptance(args, *, profile=None):
                      "migrations.log", "cleanup.log", *(f"page-{index:02d}.png" for index in range(args.page_count + 1))):
         require_ignored_path(directory / filename)
     reader_profile = load_reader_profile(args.reader_profile_file, args.age)
-    text_capture = bool(getattr(args, "retain_fictional_review_evidence", False))
+    text_capture = final_narration or bool(getattr(args, "retain_fictional_review_evidence", False))
     require(not text_capture or (profile is None and reader_profile is None and args.page_count in (4, 12)),
             "REAL_CHILD_REVIEW_CAPTURE_FORBIDDEN")
     config = profile.config if profile is not None else load_runtime_config(args)
