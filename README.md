@@ -25,6 +25,8 @@ The pilot uses Flare for initial illustrations and Sunburst only for flagged-pag
 - Quality gate: repository-root `./scripts/phase-gate.sh`
 - Public-only mobile release build preparation: `scripts/build_mobile_release.py` ([deployment guide](docs/DEPLOYMENT.md)); validation by default, no store upload.
 - iOS release output is checked for device-only native platforms. Use a clean isolated source directory for store archives and check the exported IPA with `scripts/validate_ios_native_platforms.py --ipa /path/app.ipa` before upload; simulator arm64 binaries are rejected.
+- The same iOS check requires a valid SDK-owned privacy manifest whenever `share_plus.framework` is included. An app-root manifest or another SDK's manifest cannot satisfy that check; full Apple policy validation remains separate.
+- Guardian SMTP setup uses `scripts/connect_guardian_smtp.py` in a private terminal. Gmail requires a 16-letter app password; errors distinguish authentication, TLS and network failure without provider payloads or secrets. [Current mail status](docs/appstore/guardian-email-release.md).
 - Health contract:
   - `/health/live`
   - `/health/ready`

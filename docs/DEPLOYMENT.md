@@ -23,9 +23,13 @@ For mobile release compilation, copy `infra/mobile-release.example.json` to a pr
 
 The iOS release builder also checks every native binary in the resulting `.app` with Apple's installed `lipo` and `vtool`. Only device arm64/arm64e with IOS platform metadata (including genuine legacy iPhoneOS metadata) passes. A successful compile or arm64 architecture alone does not prove a device artifact. Build store archives in a clean isolated source directory without simulator build/Pods/native-asset caches, preserving the original checkout. Inspect the archive app with `python3 scripts/validate_ios_native_platforms.py --app /path/Runner.xcarchive/Products/Applications/Runner.app`, then inspect the signed export with `--ipa /path/app.ipa` before upload. The checker is read-only, does not sign/upload, and returns nonzero on an unproven or simulator platform. Signing, export and store processing remain separate checks.
 
+When the `share_plus` native framework is present, this gate also requires its own `PrivacyInfo.xcprivacy` in the framework root or the explicitly named SDK resource bundle. It rejects substitution by an app-root or unrelated SDK file, malformed plist fields and oversized manifests. `required_sdk_privacy_manifests` identifies the files checked. This is a structural gate, not a complete Apple category/reason or policy validator. Verify the selected SDK's official source and the exported IPA; the former 7.2.2 package has no iOS privacy manifest and is not an acceptable substitute for the pinned 10.1.4 package.
+
 The optional `phase-gate.sh --with-ios-build` and acceptance bundle now compile **debug/no-codesign** iOS as a local compatibility check. They are not substitutes for the explicit release configuration above. Existing SDK/JDK installations are discovered within script processes, without global configuration changes.
 
 ## Source of truth
+
+Guardian mail credentials are connected separately with `scripts/connect_guardian_smtp.py --execute --account your-sender@example.com` in a private terminal. The script validates TLS authentication but does not send mail or activate production. For Gmail, use a Google app password, with Unicode grouping whitespace accepted; a regular account password is not accepted. The JSON failure result exposes fixed reasons, safe guidance and a validated numeric SMTP code only. Existing private settings are never overwritten. See [mail activation and declaration obligations](appstore/guardian-email-release.md).
 
 Production is deployed from version-tagged container images.
 

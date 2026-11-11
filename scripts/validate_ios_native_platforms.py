@@ -6,10 +6,12 @@ or changes an artifact. IPA members are inspected in flat temporary files.
 import argparse
 import json
 from pathlib import Path
+import plistlib
 import re
 import stat
 import subprocess
 import tempfile
+from xml.parsers.expat import ExpatError
 import zipfile
 
 _MACHO = {bytes.fromhex(value) for value in (
@@ -17,6 +19,75 @@ _MACHO = {bytes.fromhex(value) for value in (
     'cafebabe', 'bebafeca', 'cafebabf', 'bfbafeca',
 )}
 _MAX_BINARY = 256 * 1024 * 1024
+_MAX_MANIFEST = 1024 * 1024
+# SDK-specific names prevent an unrelated app/SDK manifest hiding this omission.
+_REQUIRED_SDK_BUNDLES = {
+    'share_plus': ('share_plus_privacy.bundle', 'share_plus_share_plus.bundle'),
+}
+
+
+def _validate_privacy_manifest(data, name):
+    """Check plist structure, not Apple's full API/reason policy or approval."""
+    if len(data) > _MAX_MANIFEST:
+        raise ValueError(f'SDK privacy manifest exceeds the size bound: {name}.')
+    try:
+        manifest = plistlib.loads(data)
+    except (plistlib.InvalidFileException, ValueError, TypeError, OverflowError, ExpatError):
+        raise ValueError(f'Invalid SDK privacy manifest plist: {name}.') from None
+    known = {'NSPrivacyTracking', 'NSPrivacyTrackingDomains',
+             'NSPrivacyCollectedDataTypes', 'NSPrivacyAccessedAPITypes'}
+    valid = isinstance(manifest, dict) and bool(manifest) and set(manifest).issubset(known)
+    if valid:
+        if 'NSPrivacyTracking' in manifest:
+            valid = type(manifest['NSPrivacyTracking']) is bool
+        domains = manifest.get('NSPrivacyTrackingDomains', [])
+        valid = valid and isinstance(domains, list) and all(isinstance(v, str) and v for v in domains)
+        if manifest.get('NSPrivacyTracking') is True:
+            valid = valid and bool(domains)
+        for key, category, values in (
+            ('NSPrivacyAccessedAPITypes', 'NSPrivacyAccessedAPIType', 'NSPrivacyAccessedAPITypeReasons'),
+            ('NSPrivacyCollectedDataTypes', 'NSPrivacyCollectedDataType', 'NSPrivacyCollectedDataTypePurposes'),
+        ):
+            entries = manifest.get(key, [])
+            valid = valid and isinstance(entries, list)
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
+                valid = valid and isinstance(entry, dict)
+                if not isinstance(entry, dict):
+                    continue
+                valid = valid and isinstance(entry.get(category), str) and bool(entry[category])
+                reasons = entry.get(values)
+                valid = valid and isinstance(reasons, list) and bool(reasons)
+                valid = valid and isinstance(reasons, list) and all(isinstance(v, str) and v for v in reasons)
+                if key == 'NSPrivacyCollectedDataTypes':
+                    valid = valid and all(type(entry.get(k)) is bool for k in (
+                        'NSPrivacyCollectedDataTypeLinked', 'NSPrivacyCollectedDataTypeTracking',
+                    ))
+    if not valid:
+        raise ValueError(f'Invalid SDK privacy manifest fields: {name}.')
+
+
+def _validate_sdk_privacy_manifests(binaries, exists, read):
+    checked = []
+    for binary in binaries:
+        path = Path(binary['file'])
+        sdk = path.name
+        if sdk not in _REQUIRED_SDK_BUNDLES or path.parent.name != f'{sdk}.framework':
+            continue
+        framework = path.parent
+        container = framework.parent.parent
+        candidates = [framework / 'PrivacyInfo.xcprivacy']
+        for bundle in _REQUIRED_SDK_BUNDLES[sdk]:
+            candidates.extend((framework / bundle / 'PrivacyInfo.xcprivacy',
+                               container / bundle / 'PrivacyInfo.xcprivacy'))
+        present = [str(candidate) for candidate in candidates if exists(str(candidate))]
+        if not present:
+            raise ValueError(f'Missing SDK privacy manifest for {sdk}: {framework}.')
+        for name in present:
+            _validate_privacy_manifest(read(name), name)
+        checked.append({'sdk': sdk, 'framework': str(framework), 'manifests': present})
+    return checked
 
 
 def validate_tool_output(architectures, build_versions):
@@ -65,7 +136,14 @@ def validate_app(app):
             binaries.append(_inspect(path, str(path.relative_to(app))))
     if not binaries:
         raise ValueError('No native iOS binaries were found.')
-    return {'status': 'DEVICE_NATIVE_PLATFORMS_VERIFIED', 'binaries': binaries}
+    def read_manifest(name):
+        with (app / name).open('rb') as source:
+            return source.read(_MAX_MANIFEST + 1)
+    manifests = _validate_sdk_privacy_manifests(
+        binaries, lambda name: (app / name).is_file(), read_manifest,
+    )
+    return {'status': 'DEVICE_NATIVE_PLATFORMS_VERIFIED', 'binaries': binaries,
+            'required_sdk_privacy_manifests': manifests}
 
 
 def validate_ipa(ipa):
@@ -93,9 +171,16 @@ def validate_ipa(ipa):
                 if path.stat().st_size != member.file_size:
                     raise ValueError('Native binary length does not match the IPA entry.')
                 binaries.append(_inspect(path, name))
+            def read_manifest(name):
+                with archive.open(name) as source:
+                    return source.read(_MAX_MANIFEST + 1)
+            manifests = _validate_sdk_privacy_manifests(
+                binaries, lambda name: name in archive.namelist(), read_manifest,
+            )
     if not binaries:
         raise ValueError('No native iOS binaries were found.')
-    return {'status': 'DEVICE_NATIVE_PLATFORMS_VERIFIED', 'binaries': binaries}
+    return {'status': 'DEVICE_NATIVE_PLATFORMS_VERIFIED', 'binaries': binaries,
+            'required_sdk_privacy_manifests': manifests}
 
 
 def main(argv=None):

@@ -1,5 +1,28 @@
 # 제한 베타 배포 준비
 
+## 2026-11-12 iOS 필수 SDK 파일 누락 수정과 재제출
+
+- 빌드 5의 Apple `ITMS-91061`을 실제 IPA와 SDK 소스로 재현했다. `share_plus 7.2.2`는 SDK 매니페스트 자체가 없었고 기존 감사는 다른 SDK의 16개 파일만 파싱했다. 정식 SDK `10.1.4`로 고정하고 빌드를 6으로 올렸다. 공유 UI·기능·정책 문구·Podfile은 바꾸지 않았다. [원인·공식 근거](appstore/ios-sdk-manifest-fix-2026-11-12.md)
+- 새 게이트는 SDK 바이너리가 있는 경우 해당 framework 또는 명시한 SDK 전용 리소스 번들의 유효한 plist를 요구한다. 앱 루트·다른 SDK 파일로 누락을 가리지 못하며 실제 빌드 5도 차단됐다. 구조 검사이며 Apple의 전체 정책·사유 코드 검증을 대신하지 않는다. 관련 Python **61개**, 공유 보호자/리더 Flutter 집중 회귀 **14개**, 정적 분석이 통과했다.
+- 깨끗한 소스 사본 395개로 만든 빌드 6은 네이티브 25개 기기 플랫폼, 매니페스트 17개, 엄격한 중첩 배포 서명을 통과했다. `share_plus.framework/share_plus_privacy.bundle/PrivacyInfo.xcprivacy`는 공식 SDK 원본과 바이트가 일치한다. 포함된 Apple 필수 목록의 framework 12개도 개별 경로와 해시로 확인해 명백한 누락은 없었다. FFI로 전환된 `path_provider` 계열에는 독립 framework가 없으며 별도 Pod 누락으로 단정하지 않았다. [IPA 검증](acceptance/2026-11-12-ios-build6/verification.json) · [SDK별 인벤토리](acceptance/2026-11-12-ios-build6/sdk-manifest-inventory.json)
+- 같은 SDK의 Android 로컬 서명 AAB도 공개 정책 파일 7개 대조 뒤 빌드에 성공했다. 이 Android 빌드 6은 업로드하지 않았으며 Play Alpha 빌드 5 심사를 유지했다. [호환 빌드](acceptance/2026-11-12-ios-build6/android-sdk-compatibility.log)
+- Apple 업로드·처리 완료, 기존 수출 분류 저장과 TestFlight 내부 그룹 배정을 확인했다. 오류가 있는 빌드 5의 심사 연결을 철회하고 본 심사 후보를 6으로 교체했다. 03:55 KST 새 제출 ID `5f7eb2dd-47e9-48ab-b634-c502988fd18a`의 **빌드 1.0.0(6)·심사 대기 중**을 접수 상세 페이지에서 확인했다. 승인 후 수동 출시를 유지했다. [TestFlight 내부 배정](acceptance/2026-11-12-ios-build6/testflight-build6-internal.png) · [심사 접수 화면](acceptance/2026-11-12-ios-build6/review-build6-status.png)
+- SDK 교체 후 최종 Flutter 전체 **830개 통과·2개 건너뜀**, 네이티브·출시 준비·SMTP Python **89개 통과**와 양쪽 종료 코드 0을 확인했다. 변경한 Pub 패키지 두 버전의 OSV 조회에 반환된 권고는 없었으며 전체 보안 승인으로 확대하지 않는다. [Flutter](acceptance/2026-11-12-ios-build6/flutter-full-after-sdk.log) · [Python](acceptance/2026-11-12-ios-build6/python-final.log) · [SDK 권고 조회](acceptance/2026-11-12-ios-build6/new-sdk-advisories.json)
+
+수정·아티팩트 검증·재제출은 완료했지만 Apple 최종 승인·일반 공개나 빌드 6 실기기 재생을 대신하지 않는다. 보호자 실제 SMTP 인증과 보류한 기기·백업 중단 개선은 아래 기록대로 별도 미완료다.
+
+## 2026-11-12 스토어 심사 접수와 기존 책 전권 음원
+
+- **Google Play:** 이름·이메일·사용자 ID·기타 개인정보·구매 내역·진단·앱 상호작용·사용자 생성 콘텐츠·기기 ID 9종을 수집·비일시 처리로 저장했다. 현재 비활성인 보호자 메일과 선택 문의에 맞춰 이메일을 선택으로, 동화 핵심 입력을 필수로 수정했다. 서비스 제공자 예외·전송 암호화·삭제 URL을 대조했다. Alpha `1.0.0(5)`와 변경 14건의 제출 요청이 접수됐으며 사전 검사가 끝난 뒤 콘솔의 실제 `검토 중인 변경사항`을 확인했다. 승인·테스터 배포 완료로 표시하지 않는다. [저장·제출 증거](acceptance/2026-11-12-data-safety/verification.json) · [심사 진행 화면](acceptance/2026-11-12-data-safety/play-in-review.png)
+- **Apple:** 사용자에게 최종 게시 동의를 받은 뒤 개인정보 신고 11종을 게시했다. 추가 기기 ID·구입 내역·성능·기타 진단은 앱 기능·사용자 연결·추적 없음이며, 성능 범위는 실제 API 처리 시간으로 한정한다. 사용자에게 받은 실제 연락처와 기존 심사 패스·복구 화면 안내를 저장했다. Play 콘솔의 기존 패스와 운영 해시는 읽기 전용 상수시간 비교에서 일치했으며, 원문·해시를 기록하지 않고 일회성 비교 파일을 제거했다. 최종 연락처는 추적 문서에 넣지 않았다. [분류 근거](appstore/data-safety-2026-11-12.md) · [개인정보 게시](acceptance/2026-11-12-data-safety/apple-privacy-published.png) · [패스 일치](acceptance/2026-11-12-data-safety/review-pass-match.json)
+- Apple 본 심사 후보를 빌드 4에서 **`1.0.0(5)`**로 바꾸고 저장했다. 재로딩 후 저장된 연락처·패스 필드의 존재와 접근 메모를 확인했다(비공개 값은 도구에서 가려짐). 기존 제출 초안에 빌드 5를 추가해 전송했고 `심사 대기 중`·`1개의 항목 제출됨`·제출 초안 0개를 관측했다. **승인 후 수동 출시**를 유지했다. 접수 후 최종 화면은 도구의 접근성 상태로 확인했으며 별도 최종 심사 접수 스크린샷은 저장하지 않았다. [접수 상태 기록](acceptance/2026-11-12-data-safety/verification.json)
+- **기존 운영 책:** 새 책·그림·자격을 만들지 않고 저장되지 않은 5–12쪽만 공개 HTTPS의 정규 기본 낭독 경로로 순차 합성했다. 사용 직전 미등록 레거시 자격 경로·활성 동의·초대 권한을 확인했고, 기존 식별자는 원격 메모리에서만 유지했다. 다른 호스트에 인증 헤더를 전달하지 않았으며 자격·서명 URL은 저장하지 않았다. 서버의 기존 비용·동의·소유 검사를 우회하지 않았다. [실행 결과](acceptance/2026-11-12-existing-book-narration/result.json)
+- 전체 12쪽은 24kHz·모노·16비트 WAV이며 완전 프레임·다운로드 해시·캐시 재다운로드 바이트가 일치했다. 기존 1–4쪽은 어제 파일과도 일치했다. 전권 합계 **339.25초**, 마지막 쪽 **30.55초**다. 새 합성 HTTP 요청은 8회, 공용 예산은 한도 14를 유지한 채 사용 0→12였다. 차이 4회의 원인을 전사 복구로 단정하지 않는다. 9쪽 요청은 61.328초에 정상 응답했으며 중복 합성하지 않았다. 잔액·누적 이용권 사용·구매 값·책·작업 수는 전후 같았다. [로컬 파일 확인](acceptance/2026-11-12-existing-book-narration/local-verification.json) · [기존 파일 대조](acceptance/2026-11-12-existing-book-narration/previous-audio-integrity.json) · [마지막 준비 상태 200](acceptance/2026-11-12-existing-book-narration/final-readiness.json)
+- 위 결과는 `ko/default/legacy`의 서버 합성·저장 증거다. 독립 전사·다른 프리셋·양쪽 최신 빌드 실기기·iPhone 자체 스피커나 전권 재생을 대신하지 않는다. 기기 검사는 사용자 요청대로 다음 연결 때 이어가며 새 책을 만들 필요가 없다.
+- **SMTP 오류 처리:** Gmail의 16자리 영문 앱 비밀번호 검증은 유지하고 복사된 Unicode 공백도 정리한다. 일반 계정 비밀번호와의 차이·2단계 인증 조건을 안내하고, 인증 거절·TLS·연결 실패를 고정된 설명으로 구분한다. 공급자 오류 본문·임의 예외 문자열·비밀번호는 출력하지 않고 검증된 숫자 SMTP 코드만 남긴다. API CI 경로의 회귀 28개와 Ruff가 통과했다. 실제 인증 시도·메일 발송·새 비밀 생성은 없었으며 사용자가 겪은 오류의 정확한 원인은 미확정이다. 비공개 파일 부재와 운영 기능 비활성을 유지했다. [절차](appstore/guardian-email-release.md) · [Google 앱 비밀번호 안내](https://support.google.com/accounts/answer/185833?hl=ko)
+
+스토어 승인을 기다리는 동안 보호자 실제 메일, 보류한 최종 기기 재생과 예약 백업의 서비스 중단 개선은 남아 있다. 공개 정책 원문·운영 API·워커 이미지·비용 한도는 이번 작업에서 변경하지 않았다. ZDR는 사용자의 별도 검토 항목이다.
+
 ## 2026-11-11 운영 첫 권과 모바일 빌드 5
 
 ### 운영·기기에서 직접 확인한 범위

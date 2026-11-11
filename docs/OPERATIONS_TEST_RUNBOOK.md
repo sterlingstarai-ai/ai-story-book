@@ -98,7 +98,11 @@ python3 scripts/validate_ios_native_platforms.py --ipa /path/app.ipa
 
 Require exit 0 and `DEVICE_NATIVE_PLATFORMS_VERIFIED`, then verify signing and store processing separately. Platform fixture tests and real artifact inspection do not establish physical playback. The focused Python gate is `cd apps/api && ./venv/bin/python -m pytest tests/test_ios_native_platforms.py tests/test_mobile_release_preparation.py -q`.
 
+For `ITMS-91061`, inspect the SDK named in Apple's notice inside the actual IPA. `required_sdk_privacy_manifests` now requires the SDK-owned manifest for `share_plus.framework`, not merely a total count or the app's own privacy file. Use the official SDK's resource bundle and compare its manifest with the exported bytes. Do not copy SDK disclosures into the app-root manifest to mask the omission. This check validates file ownership/location and basic plist structure; Apple's complete schema and review remain independent.
+
 ## 4. Runtime health checks
+
+For guardian SMTP setup failures, retain only the connector's fixed reason and numeric `smtp_code`; never collect the password or raw provider response in an incident report. `GOOGLE_APP_PASSWORD_REQUIRED` indicates format requirements, while `SMTP_AUTHENTICATION_REJECTED`, `SMTP_TLS_CONNECTION_FAILED` and `SMTP_CONNECTION_FAILED` distinguish failure stages without proving a root cause. Authentication success alone is not delivery or consent evidence. The focused, non-network gate is `cd apps/api && ./venv/bin/python -m pytest tests/test_guardian_smtp_connection.py -q`. [Mail activation status](appstore/guardian-email-release.md)
 
 Against a live API host:
 

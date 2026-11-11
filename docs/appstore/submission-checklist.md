@@ -1,24 +1,26 @@
 # Store Submission Checklist
 
-## 현재 제출 후보 — 2026-11-11
+<a id="현재-제출-후보--2026-11-11"></a>
 
-아래의 과거 등록 전 검토안과 미체크 목록을 현재 완료 판정으로 사용하지 않는다. 최신 테스트 후보는 **양쪽 1.0.0(5)**다. iOS는 TestFlight 내부 그룹 배정, Android는 Play Alpha 검토본 저장까지 완료했다. Apple 본 심사 초안은 빌드 4이며 양쪽 최종 심사는 제출하지 않았다. 운영 백엔드는 `c0bd591`의 이미지 포장 변경을 적용한 API·워커이고 앱 소스 142개는 `fccab95`와 같다. 기본 Flare와 검수 실패 쪽 Sunburst 교정을 유지한다. ZDR 확인은 운영자의 별도 검토 항목이다.
+## 현재 제출 후보 — 2026-11-12
+
+아래의 과거 등록 전 검토안과 미체크 목록을 현재 완료 판정으로 사용하지 않는다. 현재 심사 후보는 **iOS 1.0.0(6)·Android 1.0.0(5)**다. Android Alpha는 데이터 보안 최종 저장 후 변경 14건을 전송해 실제 심사 진행 중이다. iOS 빌드 5의 `ITMS-91061` SDK 파일 누락을 수정해 6으로 교체했고 03:55 KST 심사 대기를 확인했다. iOS는 승인 후 수동 출시를 유지한다. 승인·일반 공개 완료는 아니다. 운영 백엔드는 `c0bd591`의 이미지 포장 변경을 적용한 API·워커이고 앱 소스 142개는 `fccab95`와 같다. 기본 Flare·검수 실패 쪽 Sunburst 교정을 유지한다. ZDR는 운영자의 별도 검토 항목이다.
 
 | 항목 | 직접 확인한 상태 | 남은 확인 |
 |---|---|---|
-| Android 패키지 | AAB 5 서명·bundletool·네이티브 16KB 정렬 확인. Play Alpha의 1.0.0(5) 업로드·게시 개요 저장 완료 | 비공개 테스트 검토 제출·승인·배포, 빌드 5 실기기 검사는 미완료 |
-| iOS 패키지 | 교정 IPA 5의 배포 서명·기기 네이티브 25개 확인. Apple 처리 완료·기존 내부 그룹 배정. 본 심사 초안은 빌드 4 | 빌드 5 실기기, 심사 접속 정보·연락처, 개인정보 신고 게시와 본 심사 빌드 선택·최종 제출 |
-| Play 데이터 보안 | 보호자 이메일 항목과 직접 삭제 요청 주소를 보완하고 5/5 미리보기에서 **임시보관함에 저장** 완료 | 실제 발송 업체·SDK·AI 처리와 공유 예외/보관 조건 대조. 초안의 '제3자 공유 없음' 표시는 확정한 사실이 아님. 최종 저장·검토 전송은 하지 않음 |
+| Android 패키지 | AAB 5 서명·bundletool·네이티브 16KB 정렬 확인. Alpha 변경 14건 제출 후 사전 검사가 끝나 실제 심사 진행 중 | 승인·테스터 배포와 빌드 5 실기기 검사는 미완료 |
+| iOS 패키지 | 빌드 5의 SDK 매니페스트 누락 수정. IPA 6의 배포 서명·네이티브 25개·SDK 전용 매니페스트 확인. 처리 완료·내부 배정·본 심사 재접수·심사 대기 중 | 심사 승인·수동 출시, 빌드 6 실기기 검사는 미완료 |
+| 스토어 데이터 신고 | Play 9종 최종 저장·전송, Apple 11종 게시 완료. 현재 이메일 선택 수집·서비스 제공자 공유 예외를 실제 코드·설정과 대조 | 보호자 필수 메일 등 처리 변경 시 재대조·신고 갱신. 외부 위탁이 없거나 법률 검토를 마쳤다는 뜻은 아님 |
 | 공개 정책·지원·삭제 주소 | 네 HTTPS 주소 모두 200이며 승인된 지원 이메일 표시 | 메일 수신·실제 요청 처리와 스토어 신고의 최종 일치 |
 | 보호자 이메일 | 서버·앱·심사 슬롯 연결 및 TLS 시험 구현. 실제 발송용 비공개 인증 파일은 없음 | 발송 계정 연결, 실제 수신·명시적 동의·심사 슬롯 배정 검증 후 운영 기능 활성화 |
-| 실기기 | iPhone 15의 빌드 4에서 운영 무료 첫 권 생성. 12쪽 각 50–54어절, 그림 13장 저장·검토. 낭독 1–4쪽 연속 재생 후 5쪽에서 공용 일일 한도로 중단. 마지막 쪽은 수동 표시 | 사용자 요청으로 기기 검사는 다음 연결 때 재개. 빌드 5와 같은 기존 책의 5–12쪽·전권 낭독·기기 스피커, 삭제·연결 복구 및 Android 최종 검사 |
-| 운영 | 최신 소스·백업 연결·DB 유휴 재개·기존 낭독 캐시 확인. 이번에 실제 Flare 첫 권 발행·한 번 차감 확인, 23:13 KST 공개 준비 상태 200 | 이번 책의 마지막 낭독은 미완료. 일일 백업은 여전히 약 3분 서비스 중지 구간이 있음 |
+| 실기기 | iPhone 15 빌드 4의 운영 첫 권·여러 삽화·1–4쪽 낭독 관측은 보존. 11월 12일 같은 책의 기본 낭독 12쪽 전체를 서버에 저장·검증 | 기기 검사는 다음 연결 때 재개. iOS 6·Android 5의 전권 낭독·기기 스피커·삭제·연결 복구와 최종 검사 |
+| 운영 | 실제 Flare 첫 권 발행·한 번 차감 확인. 새 책 없이 전권 339.25초·마지막 30.55초 WAV·캐시 일치와 준비 상태 200 확인 | 서버 음원 검사는 기기 청취를 대신하지 않음. 일일 백업은 여전히 약 3분 서비스 중지 구간이 있음 |
 
-최신 근거: [iOS 빌드 5](../acceptance/2026-11-11-ios-build5/verification.json), [TestFlight 내부 그룹](../acceptance/2026-11-11-ios-build5/testflight-build5-internal.png), [Android 빌드 5](../acceptance/2026-11-11-android-build5/verification.json), [Play 게시 개요](../acceptance/2026-11-11-android-build5/play-build5-saved.png), [데이터 보안 선언 차단](../acceptance/2026-11-11-android-build5/play-build5-declaration-blocker.png), [기기 운영 첫 권](../acceptance/2026-11-11-iphone-build4/result.json), [이번 수정·검증 범위](../RELEASE_PREPARATION.md#2026-11-11-운영-첫-권과-모바일-빌드-5). 이전 [Apple 심사 초안](../acceptance/2026-11-11-submission-draft-refresh/apple-build4-review-contact.png)과 [Play 신고 저장 초안](../acceptance/2026-11-11-submission-draft-refresh/play-saved-draft.png)은 이력으로 보존한다.
+최신 근거: [iOS 빌드 6](../acceptance/2026-11-12-ios-build6/verification.json), [내부 베타](../acceptance/2026-11-12-ios-build6/testflight-build6-internal.png), [빌드 6 심사 접수](../acceptance/2026-11-12-ios-build6/review-build6-status.png), [Play 심사 진행](../acceptance/2026-11-12-data-safety/play-in-review.png), [스토어 신고](data-safety-2026-11-12.md), [기존 책 서버 전권 음원](../acceptance/2026-11-12-existing-book-narration/result.json). 이전 빌드 4·5의 저장 초안·데이터 보안 차단·잘못된 바이너리 기록은 이력으로 보존한다.
 
 가족 정책 준수 표시를 추가하는 선택 배지는 활성화하지 않았다. 이 표시 선택은 아동 대상 앱의 정책 의무를 면제하거나 준수 검증을 완료하는 조치가 아니다. 미확인 조건을 체크해 제출 오류만 없애지 않는다. [Play 신고 정의·초안 저장 안내](https://support.google.com/googleplay/android-developer/answer/10787469?hl=en)
 
-Apple 심사 연락처에는 계정 표시 이름과 승인된 지원 이메일을 입력해 두었다. 전화번호가 없어 저장하지 않았다. 제공할 번호는 국가번호를 포함한 실제 심사 연락처여야 하며 다른 앱의 가려진 번호를 추정해 채우지 않는다. [입력 준비 기록](../acceptance/2026-11-11-submission-draft-refresh/contact-prepared.json) · [현재 입력 화면](../acceptance/2026-11-11-submission-draft-refresh/apple-contact-prepared.png)
+사용자에게 받은 실제 심사 전화번호·이름·지원 이메일과 기존 심사 패스·접근 메모를 Apple에 저장했고 빌드 6 재제출에도 보존했다. 전화번호와 비밀은 추적 문서에 기록하지 않았다. [신고·기존 접수 기록](../acceptance/2026-11-12-data-safety/verification.json) · [SDK 수정·재제출](ios-sdk-manifest-fix-2026-11-12.md). 이전 입력 준비·빌드 4·5 초안 기록은 이력이다.
 
 ## 과거 등록 전 검토 기록
 
