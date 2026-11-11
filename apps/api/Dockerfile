@@ -17,8 +17,10 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip setuptools==84.2.1 && \
     pip install --no-cache-dir -r requirements.txt
-# The final image copies this venv. Keep pip's bundled code in the builder only.
-RUN pip check && python -m pip uninstall --yes pip
+# The final image copies this venv; test runners and installers are build tools.
+# Keep the application's runtime dependency graph checked before removing them.
+RUN pip check && python -m pip uninstall --yes pytest pytest-asyncio pytest-cov coverage && \
+    pip check && python -m pip uninstall --yes pip
 
 # Production stage
 FROM python:3.11-slim as production
@@ -32,7 +34,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Patch the base interpreter's setuptools and its vendored packages as well.
-RUN python -m pip install --no-cache-dir --upgrade setuptools==84.2.1
+RUN python -m pip install --no-cache-dir --upgrade setuptools==84.2.1 && \
+    python -m pip uninstall --yes pip
 
 # Copy virtual environment from builder
 COPY --from=builder /opt/venv /opt/venv
