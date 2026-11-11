@@ -20,7 +20,7 @@
         "aggregations": [
           {
             "alignmentPeriod": "1800s",
-            "perSeriesAligner": "ALIGN_MIN"
+            "perSeriesAligner": "ALIGN_NEXT_OLDER"
           }
         ]
       }

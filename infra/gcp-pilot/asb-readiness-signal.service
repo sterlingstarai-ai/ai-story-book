@@ -6,4 +6,4 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 ExecStart=/usr/bin/python3 /opt/ai-story-book/readiness-monitor/publish_readiness_health.py
-TimeoutStartSec=60
+TimeoutStartSec=90

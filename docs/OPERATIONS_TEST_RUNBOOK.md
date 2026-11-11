@@ -24,6 +24,16 @@ A real corrected backup succeeded with 42 remote objects checksum-verified, incl
 
 Earlier OS boot trials failed first recovery and are retained. Increasing the budget alone was insufficient: the v6 worker started about 202 seconds after the API. The v7 trial explicitly stopped both roles with a durable recovery marker, rebooted the actual VM, and passed the first recovery invocation (`RECOVERED`, no `RECOVERY_FAILED` in that boot). Same image pins, strict TLS, exclusive API DNS, exact worker response, cleared markers, active timers and external readiness 200 passed. This is one real boot trial, not backup restoration or 24-hour uninterrupted service. [Boot evidence](acceptance/2026-11-11-recovery-v7/reboot-audit.json)
 
+## Idle database scheduling (2026-11-11)
+
+The active r8 API and worker match all 142 source files of commit `fccab95`, with Flare primary and Sunburst only for rejected illustrations. Backup source resolution uses the registered mirror of the actual running API image; it does not assume the API copy embedded in the older recovery artifact is current. Read-only binding verification passed after rollout.
+
+Frequent `/health/live` monitoring remains independent of the fresh `/health/ready` dependency check. Idle full checks align on half-hour boundaries; pending/error maintenance keeps five-minute retry and request commits wake the API monitor. There is no cached healthy readiness response. Current signal code is pinned to `2d5d8f4f5cfd325636aa022364a6ffd5d7aef83858207866c9c620d247310ae1`; readiness allows 30 seconds within a 90-second service budget after a real cold request took 15.862 seconds. Liveness remains bounded at ten seconds.
+
+A real quiet-window trial observed Neon `SUSPENDED`, then the first existing-book request returned 200 without an HTTP retry. The last narration cache matched and readiness recovered. This does not establish latest physical-device playback, new-image generation or zero-downtime backup. See [scope, metrics and operating evidence](IDLE_DATABASE_OPERATIONS.md).
+
+Before generating the OpenAPI snapshot, verify framework versions against `apps/api/requirements.txt`. The preserved local `apps/api/venv` has older FastAPI/Starlette; generating with that environment produces a misleading contract diff. The pinned dependency run used an isolated venv, matched the existing snapshot, and passed 3,517 API tests with 32 skipped. No manual normalization or downgrade of the schema was committed.
+
 ## 1. Fast path: repository root quality gate
 
 Run from the repository root:

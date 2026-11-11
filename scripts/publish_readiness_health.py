@@ -11,6 +11,8 @@ METRIC = 'custom.googleapis.com/ai_story_book/api_readiness'
 LIVENESS_METRIC = 'custom.googleapis.com/ai_story_book/api_liveness'
 READINESS = 'https://35.209.174.246/health/ready'
 LIVENESS = 'https://35.209.174.246/health/live'
+READINESS_TIMEOUT_SECONDS = 30  # Observed first request after actual suspension: 15.862s.
+LIVENESS_TIMEOUT_SECONDS = 10
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -47,7 +49,8 @@ def liveness(opener):
 def _health(opener, url, expected, *, providers):
     try:
         request = urllib.request.Request(url, headers={'Accept': 'application/json'})
-        with opener.open(request, timeout=10) as response:
+        with opener.open(request, timeout=(READINESS_TIMEOUT_SECONDS if providers
+                                            else LIVENESS_TIMEOUT_SECONDS)) as response:
             if response.status != 200:
                 return 0
             raw = response.read(65537)

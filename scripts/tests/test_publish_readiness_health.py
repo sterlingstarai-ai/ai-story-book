@@ -125,6 +125,30 @@ class ReadinessSignalTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             monitor.payload(1, datetime.now(timezone.utc), metric='untrusted_metric')
 
+    def test_dependency_probe_allows_observed_cold_resume_without_weakening_liveness(self):
+        import configparser
+
+        class Response:
+            status = 200
+            def __enter__(self): return self
+            def __exit__(self, *_): return None
+            def read(self, _): return b'{"status":"healthy","services":{"provider_runtime":"healthy"}}'
+        class Opener:
+            def open(self, request, *, timeout):
+                if request.full_url == monitor.READINESS:
+                    # A real sleeping production compute took longer than 10s.
+                    assert 20 <= timeout <= 30
+                else:
+                    assert timeout == 10
+                return Response()
+        opener = Opener()
+        self.assertEqual(monitor.readiness(opener), 1)
+        self.assertEqual(monitor.liveness(opener), 0)  # Wrong body remains rejected.
+        config = configparser.ConfigParser()
+        config.read(Path(__file__).resolve().parents[2] / 'infra/gcp-pilot/asb-readiness-signal.service')
+        self.assertGreaterEqual(int(config['Service']['TimeoutStartSec']),
+                                monitor.READINESS_TIMEOUT_SECONDS + 30)
+
     def test_policy_uses_distinct_metric_and_only_channel_placeholder(self):
         repo = Path(__file__).resolve().parents[2]
         policy = json.loads((repo / 'infra/gcp-pilot/asb-readiness-alert-policy.template.json').read_text())
@@ -133,7 +157,7 @@ class ReadinessSignalTests(unittest.TestCase):
         threshold = policy['conditions'][0]['conditionThreshold']
         self.assertEqual(threshold['duration'], '0s')
         self.assertEqual(threshold['aggregations'][0]['alignmentPeriod'], '1800s')
-        self.assertEqual(threshold['aggregations'][0]['perSeriesAligner'], 'ALIGN_MIN')
+        self.assertEqual(threshold['aggregations'][0]['perSeriesAligner'], 'ALIGN_NEXT_OLDER')
         self.assertEqual(policy['conditions'][1]['conditionAbsent']['duration'], '2700s')
         for condition in policy['conditions']:
             entry = condition.get('conditionThreshold') or condition.get('conditionAbsent')
