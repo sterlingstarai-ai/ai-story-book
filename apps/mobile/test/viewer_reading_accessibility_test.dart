@@ -218,7 +218,7 @@ void main() {
   }
 
   testWidgets(
-    'long cover titles stay above navigation at accessibility scale',
+    'long cover titles can scroll fully above navigation at accessibility scale',
     (tester) async {
       const title =
           'The little rabbit and the extraordinary garden of friendship';
@@ -233,13 +233,20 @@ void main() {
           pages: _book().pages,
         ),
       );
-      final coverTitle = find.byWidgetPredicate(
-        (widget) =>
-            widget is Text && widget.data == title && widget.maxLines == 2,
-      );
+      final coverTitle = find.text(title);
       expect(coverTitle, findsOneWidget);
-      final text = tester.widget<Text>(coverTitle);
-      expect(text.textScaler!.scale(32), closeTo(41.6, 0.01));
+      expect(tester.widget<Text>(coverTitle).maxLines, isNull);
+      final scroll = find.ancestor(
+        of: coverTitle,
+        matching: find.byType(SingleChildScrollView),
+      );
+      final position = tester
+          .state<ScrollableState>(
+            find.descendant(of: scroll, matching: find.byType(Scrollable)),
+          )
+          .position;
+      position.jumpTo(position.maxScrollExtent);
+      await _settle(tester);
       expect(
         tester.getRect(coverTitle).bottom,
         lessThan(tester.getRect(find.byIcon(Icons.chevron_right)).top),

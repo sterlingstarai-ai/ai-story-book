@@ -1150,6 +1150,15 @@ class ApiClient {
     return _asJsonMap(response.data, context: '/v1/consent get response');
   }
 
+  Future<String> guardianEmailStatus({String? email}) async {
+    const path = '/v1/consent/guardian-email';
+    final options = Options(headers: _headers);
+    final response = email == null
+        ? await _dio.get(path, options: options)
+        : await _dio.post(path, data: {'email': email}, options: options);
+    return _asJsonMap(response.data, context: path)['status'] as String;
+  }
+
   /// 보호자 동의 철회 (아동 사진·파생 캐릭터 파기)
   Future<Map<String, dynamic>> revokeConsent() async {
     final response = await _dio.post(

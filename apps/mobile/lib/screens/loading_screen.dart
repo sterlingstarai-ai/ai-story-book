@@ -70,97 +70,102 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
     final isCurrentRoute = ModalRoute.isCurrentOf(context) ?? true;
 
     return Scaffold(
-      backgroundColor: AppPalette.of(context).background,
+      backgroundColor: StorybookColors.of(context).paper,
       body: SafeArea(
         child: LayoutBuilder(
-          builder: (context, constraints) => SingleChildScrollView(
-            padding: const EdgeInsets.all(AppSpacing.lg),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                minHeight: (constraints.maxHeight - AppSpacing.lg * 2).clamp(
-                  0,
-                  double.infinity,
+          builder: (context, constraints) {
+            final inset = constraints.maxHeight < 520
+                ? AppSpacing.md
+                : AppSpacing.lg;
+            return SingleChildScrollView(
+              padding: EdgeInsets.all(inset),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: (constraints.maxHeight - inset * 2).clamp(
+                    0,
+                    double.infinity,
+                  ),
                 ),
-              ),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 460),
-                  child: jobStatusAsync.when(
-                    data: (status) {
-                      // 완료 시 뷰어로 이동 (guard against double navigation)
-                      final result = status.result;
-                      if (status.isComplete && result != null) {
-                        if (!_hasNavigated && isCurrentRoute) {
-                          _hasNavigated = true;
-                          WidgetsBinding.instance.addPostFrameCallback((_) {
-                            if (!mounted) return;
-                            if (ModalRoute.of(context)?.isCurrent == false) {
-                              _hasNavigated = false;
-                              return;
-                            }
-                            ref.invalidate(libraryProvider);
-                            ref.invalidate(libraryBrowseProvider);
-                            ref.invalidate(activeBookGenerationsProvider);
-                            Navigator.pushReplacementNamed(
-                              context,
-                              '/viewer',
-                              arguments: result.bookId,
-                            );
-                          });
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 460),
+                    child: jobStatusAsync.when(
+                      data: (status) {
+                        // 완료 시 뷰어로 이동 (guard against double navigation)
+                        final result = status.result;
+                        if (status.isComplete && result != null) {
+                          if (!_hasNavigated && isCurrentRoute) {
+                            _hasNavigated = true;
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              if (!mounted) return;
+                              if (ModalRoute.of(context)?.isCurrent == false) {
+                                _hasNavigated = false;
+                                return;
+                              }
+                              ref.invalidate(libraryProvider);
+                              ref.invalidate(libraryBrowseProvider);
+                              ref.invalidate(activeBookGenerationsProvider);
+                              Navigator.pushReplacementNamed(
+                                context,
+                                '/viewer',
+                                arguments: result.bookId,
+                              );
+                            });
+                          }
+                          return _buildCompletedContent(l);
                         }
-                        return _buildCompletedContent(l);
-                      }
 
-                      if (status.isComplete && status.result == null) {
+                        if (status.isComplete && status.result == null) {
+                          return _buildErrorContent(
+                            context,
+                            JobStatus(
+                              jobId: widget.jobId,
+                              status: JobState.failed,
+                              progress: status.progress,
+                              errorCode: 'STATUS_UNAVAILABLE',
+                            ),
+                          );
+                        }
+
+                        // 실패 시 에러 표시
+                        if (status.isFailed) {
+                          return _buildErrorContent(context, status);
+                        }
+
+                        // 진행 중
+                        return _buildProgressContent(l, status);
+                      },
+                      loading: () => _buildProgressContent(l),
+                      error: (error, _) {
+                        // H17: 폴링 타임아웃은 서버 실패와 구분한다. 원문(TimeoutException…
+                        // 한국어) 노출 대신 로컬라이즈 문구로, 주 액션은 신규 생성이 아니라
+                        // 현재 잡 재조회로(크레딧 재차감·서재 중복 방지).
+                        final isTimeout = error is TimeoutException;
                         return _buildErrorContent(
                           context,
                           JobStatus(
                             jobId: widget.jobId,
                             status: JobState.failed,
-                            progress: status.progress,
-                            errorCode: 'STATUS_UNAVAILABLE',
+                            progress: 0,
+                            errorCode: isTimeout
+                                ? 'TIMEOUT'
+                                : 'STATUS_UNAVAILABLE',
                           ),
                         );
-                      }
-
-                      // 실패 시 에러 표시
-                      if (status.isFailed) {
-                        return _buildErrorContent(context, status);
-                      }
-
-                      // 진행 중
-                      return _buildProgressContent(l, status);
-                    },
-                    loading: () => _buildProgressContent(l),
-                    error: (error, _) {
-                      // H17: 폴링 타임아웃은 서버 실패와 구분한다. 원문(TimeoutException…
-                      // 한국어) 노출 대신 로컬라이즈 문구로, 주 액션은 신규 생성이 아니라
-                      // 현재 잡 재조회로(크레딧 재차감·서재 중복 방지).
-                      final isTimeout = error is TimeoutException;
-                      return _buildErrorContent(
-                        context,
-                        JobStatus(
-                          jobId: widget.jobId,
-                          status: JobState.failed,
-                          progress: 0,
-                          errorCode: isTimeout
-                              ? 'TIMEOUT'
-                              : 'STATUS_UNAVAILABLE',
-                        ),
-                      );
-                    },
+                      },
+                    ),
                   ),
                 ),
               ),
-            ),
-          ),
+            );
+          },
         ),
       ),
     );
   }
 
   Widget _buildProgressContent(AppLocalizations l, [JobStatus? status]) {
-    final palette = AppPalette.of(context);
+    final colors = StorybookColors.of(context);
     final running = status?.status == JobState.running;
     final rechecking = status?.isRechecking == true;
     final title = rechecking
@@ -184,34 +189,33 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          title,
-          style: AppTextStyles.heading1.copyWith(
-            color: palette.textPrimary,
-            height: 1.25,
-          ),
-        ),
-        const SizedBox(height: AppSpacing.md),
         DecoratedBox(
-          decoration: BoxDecoration(
-            color: palette.surface,
-            border: Border.all(color: palette.divider),
-            borderRadius: BorderRadius.circular(AppRadius.lg),
+          decoration: const BoxDecoration(
+            color: StorybookColors.ink,
+            borderRadius: BorderRadius.all(Radius.circular(26)),
           ),
           child: Padding(
             padding: const EdgeInsets.all(AppSpacing.lg),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                Text(
+                  title,
+                  style: AppTextStyles.heading1.copyWith(
+                    color: StorybookColors.onInk,
+                    height: 1.18,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
                 Row(
                   children: [
                     if (animateActivity) ...[
-                      ExcludeSemantics(
+                      const ExcludeSemantics(
                         child: SizedBox.square(
                           dimension: 20,
                           child: CircularProgressIndicator(
                             strokeWidth: 2.5,
-                            color: palette.primary,
+                            color: StorybookColors.moonlight,
                           ),
                         ),
                       ),
@@ -223,7 +227,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
                         child: Text(
                           step,
                           style: AppTextStyles.heading3.copyWith(
-                            color: palette.textPrimary,
+                            color: StorybookColors.onInk,
                           ),
                         ),
                       ),
@@ -234,6 +238,9 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
                   const SizedBox(height: AppSpacing.md),
                   ProgressIndicatorBar(
                     progress: status.progress.clamp(0, 100).toInt(),
+                    trackColor: const Color(0xFF41635F),
+                    fillColor: StorybookColors.moonlight,
+                    textColor: StorybookColors.onInk,
                   ),
                 ],
                 if (running && !rechecking) ...[
@@ -241,7 +248,8 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
                   Text(
                     l.loadingInProgressHint,
                     style: AppTextStyles.bodySmall.copyWith(
-                      color: palette.textSecondary,
+                      color: StorybookColors.onInkMuted,
+                      height: 1.45,
                     ),
                   ),
                 ],
@@ -251,24 +259,29 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
         ),
         const SizedBox(height: AppSpacing.sm),
         TextButton(
-          style: TextButton.styleFrom(minimumSize: const Size(64, 64)),
+          style: TextButton.styleFrom(
+            minimumSize: const Size.square(AppSizing.minTouchTarget),
+            foregroundColor: colors.accent,
+          ),
           onPressed: () =>
               Navigator.pushNamed(context, '/library', arguments: widget.jobId),
           child: Text(l.loadingBrowseLibrary),
         ),
+        const SizedBox(height: AppSpacing.sm),
+        _buildCreationArtwork(l, colors),
         const SizedBox(height: AppSpacing.sm),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.lightbulb_outline, size: 20, color: palette.primary),
+              Icon(Icons.lightbulb_outline, size: 20, color: colors.accent),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Text(
                   l.loadingTip3,
                   style: AppTextStyles.bodySmall.copyWith(
-                    color: palette.textSecondary,
+                    color: colors.muted,
                     height: 1.45,
                   ),
                 ),
@@ -276,13 +289,11 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
             ],
           ),
         ),
-        const SizedBox(height: AppSpacing.lg),
-        _buildCreationArtwork(l, palette),
       ],
     );
   }
 
-  Widget _buildCreationArtwork(AppLocalizations l, AppPalette palette) {
+  Widget _buildCreationArtwork(AppLocalizations l, StorybookColors colors) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(AppRadius.xl),
       child: AspectRatio(
@@ -296,7 +307,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
               alignment: const Alignment(0, -0.32),
               excludeFromSemantics: true,
               errorBuilder: (_, __, ___) => ColoredBox(
-                color: palette.primaryLight,
+                color: colors.tint,
                 child: const Center(child: StorybookIllustration()),
               ),
             ),
@@ -308,7 +319,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
                 alignment: AlignmentDirectional.centerStart,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    color: palette.surface,
+                    color: colors.sheet,
                     borderRadius: BorderRadius.circular(AppRadius.sm),
                   ),
                   child: Padding(
@@ -318,9 +329,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
                     ),
                     child: Text(
                       l.loadingIllustrationExample,
-                      style: AppTextStyles.caption.copyWith(
-                        color: palette.textPrimary,
-                      ),
+                      style: AppTextStyles.caption.copyWith(color: colors.text),
                     ),
                   ),
                 ),
@@ -347,6 +356,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
 
   Widget _buildErrorContent(BuildContext context, JobStatus status) {
     final l = AppLocalizations.of(context);
+    final colors = StorybookColors.of(context);
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -391,12 +401,16 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen> {
             PrimaryButton(
               text: l.loadingCheckStatusButton,
               isFullWidth: false,
+              backgroundColor: colors.accent,
+              foregroundColor: colors.onAccent,
               onPressed: () => ref.invalidate(jobPollingProvider(widget.jobId)),
             ),
           ] else ...[
             PrimaryButton(
               text: l.loadingRetryButton,
               isFullWidth: false,
+              backgroundColor: colors.accent,
+              foregroundColor: colors.onAccent,
               onPressed: () {
                 Navigator.pushReplacementNamed(context, '/create');
               },

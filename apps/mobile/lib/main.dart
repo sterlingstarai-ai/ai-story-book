@@ -24,6 +24,12 @@ import 'widgets/screen_time_lock.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   EnvConfig.validateReleaseConfiguration();
+  LicenseRegistry.addLicense(() async* {
+    final license = await rootBundle.loadString(
+      'assets/legal/pretendard-ofl.txt',
+    );
+    yield LicenseEntryWithLineBreaks(const ['Pretendard'], license);
+  });
 
   FlutterError.onError = (details) {
     AppTelemetry.recordError(

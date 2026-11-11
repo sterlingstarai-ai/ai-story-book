@@ -82,7 +82,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # XSS protection (legacy but still useful)
         response.headers["X-XSS-Protection"] = "1; mode=block"
         # Referrer policy
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         # Content Security Policy — 공개 공유 페이지(/share)는 외부 이미지(S3/CDN)와 인라인
         # 스타일을 쓰므로 img/style만 완화. 그 외 API 응답은 엄격한 default-src 'self' 유지.
         if request.url.path.startswith("/share"):
@@ -91,7 +91,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                 "style-src 'self' 'unsafe-inline'"
             )
         else:
-            response.headers["Content-Security-Policy"] = "default-src 'self'"
+            response.headers.setdefault("Content-Security-Policy", "default-src 'self'")
         # Remove server header for security
         if "server" in response.headers:
             del response.headers["server"]
@@ -519,6 +519,14 @@ async def _build_readiness_payload(
                 ensure_photo_processing_ready()
             except APIError:
                 missing_keys.append("photo_processing_configuration")
+
+        if settings.guardian_email_consent_enabled:
+            from src.services.guardian_email import ensure_guardian_email_ready
+
+            try:
+                ensure_guardian_email_ready()
+            except APIError:
+                missing_keys.append("guardian_email_configuration")
 
         # Strict verification is mandatory even when new purchases are disabled.
         # Free beta does not require unused store credentials; existing configured

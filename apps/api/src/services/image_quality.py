@@ -138,8 +138,11 @@ Check these narrow, concrete defects; use only the corresponding issue codes:
   when their identity determines the cause, lesson, safety or meaning of the scene.
   An approximate comparison of small objects is acceptable unless the relative size changes the
   event, the result of a measurement central to the story, or the function of a recurring object.
-  When a central action requires a visible open or closed state, compare the actual object being
-  handled with that state. For example, if the shown action is drying the book that the text says
+  Smell and sound cannot be drawn directly. A recognizable character leaning toward the stated
+  source or reacting to it is compatible with the action. An optional container pose in the
+  visual brief alone is insufficient to contradict that sensory event.
+  When the page text or the mechanics of its central action require an open or closed state,
+  compare the object being handled with that state. For example, if the shown action is drying the book that the text says
   is open, but that book is clearly closed, report action_mismatch. Do not flag incidental closed
   books, obscured pages, an unshown later state, or a separately stated earlier moment.
   When the context establishes one distinctive story-central wearable or tool, also check whether

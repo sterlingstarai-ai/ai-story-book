@@ -126,6 +126,9 @@ def _deploy_locked(runtime, guard):
         if inspect(name, '{{.Image}}') != EXPECTED_OLD[name] or inspect(name, '{{.State.Running}}') != 'true':
             raise RuntimeError('Original container is not the expected running image')
         old[name] = inspect(name, '{{.Id}}')
+    # A slow or unresponsive control probe must fail before stopping admission.
+    # The guard repeats this check after admission stops to close the race.
+    assert_idle_worker(runtime)
     common = ['--restart=no', '--network', 'asb-pilot-net', '--env-file', '/etc/ai-story-book/pilot/private/pilot-privacy.env', '-v', '/etc/ai-story-book/pilot/private/neon-ca.pem:/run/storybook-certs/neon-ca.pem:ro', '-v', '/etc/ai-story-book/pilot/guard:/guard:rw', '-v', '/etc/ai-story-book/pilot/private/privacy-journal-app.key:/run/storybook-secrets/journal.key:ro', '--entrypoint', 'python']
     try:
         new[API] = docker('create', '--name', NEXT[API], *common, '-p', '127.0.0.1:18081:8000', IMAGES[API], '/guard/entry.py', 'uvicorn', 'src.main:app', '--host', '0.0.0.0', '--port', '8000', '--no-access-log')

@@ -313,7 +313,7 @@ async def request_openai_json(
     if response.status_code != 200:
         status = response.status_code
         logger.warning("OpenAI request failed", status=status)
-        code = ErrorCode.LLM_TIMEOUT if status in {408, 429, 500, 502, 503, 504} else ErrorCode.UNKNOWN
+        code = ErrorCode.LLM_TIMEOUT if status in {408, 429, 500, 502, 503, 504, 520} else ErrorCode.UNKNOWN
         raise LLMError(code, "OpenAI request failed")
     if data is None:
         await observe_invalid_provider_response(attempt)

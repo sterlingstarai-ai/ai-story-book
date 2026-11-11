@@ -30,6 +30,7 @@ from src.services.provider_runtime import (
 )
 from src.services.image_correction import (
     correction_scene_reference, image_correction_active, provider_prompt_with_correction,
+    review_image_repair_active,
 )
 from src.core.errors import ImageError, ErrorCode, get_backoff
 from src.models.dto import ImagePrompt
@@ -241,22 +242,25 @@ async def _generate_openai(prompt: ImagePrompt, reference_image_url: str | None 
     # GPT Image returns base64 without response_format, but accepts explicit
     # low/medium/high/auto quality for both generations and reference edits.
     # Use the configured quality instead of a provider-selected auto default.
+    model = settings.image_model
+    if model == "gpt-image-2.6-flare" and review_image_repair_active():
+        model = settings.openai_illustration_repair_model or model
     json_body = {
-        "model": settings.image_model,
+        "model": model,
         "prompt": gemini_prompt_text(prompt),
         "n": 1,
-        "size": _get_openai_size(prompt.aspect_ratio),
+        "size": _get_openai_size(prompt.aspect_ratio, model),
     }
-    if settings.image_model.startswith("dall-e"):
+    if model.startswith("dall-e"):
         json_body["response_format"] = "b64_json"
         json_body["quality"] = "standard"
-    elif settings.image_model.startswith("gpt-image-"):
+    elif model.startswith("gpt-image-"):
         json_body["quality"] = settings.openai_image_quality
 
     references = []
     reference_urls = _reference_urls(reference_image_url)
     if reference_urls:
-        if not settings.image_model.startswith("gpt-image-"):
+        if not model.startswith("gpt-image-"):
             raise ImageError(ErrorCode.IMAGE_FAILED, "이미지 모델이 캐릭터 참조를 지원하지 않습니다.", page=prompt.page)
         json_body["prompt"] = _reference_rules(reference_image_url) + "\n" + json_body["prompt"]
         _check_book_prompt_length(json_body["prompt"], prompt.page)
@@ -265,12 +269,12 @@ async def _generate_openai(prompt: ImagePrompt, reference_image_url: str | None 
     async with _image_provider_client() as client:
         await wait_for_image_cooldown(settings.image_timeout)
         consume_image_request()
-        attempt = begin_provider_request(settings.image_provider, settings.image_model, "image", settings.image_api_key)
+        attempt = begin_provider_request(settings.image_provider, model, "image", settings.image_api_key)
         if references:
             # Multipart sets its own boundary. GPT Image 2 always uses high
             # input fidelity; its API rejects an input_fidelity override.
             fields = {key: str(value) for key, value in json_body.items()}
-            if settings.image_model in {"gpt-image-1", "gpt-image-1.5"}:
+            if model in {"gpt-image-1", "gpt-image-1.5"}:
                 fields["input_fidelity"] = "high"
             files = [("image[]", (
                 ("character-reference" if index == 0 else "book-cover-reference")
@@ -691,13 +695,13 @@ def _extract_gemini_image(result: dict) -> tuple[bytes | None, str]:
     return None, "image/png"
 
 
-def _get_openai_size(aspect_ratio: str) -> str:
+def _get_openai_size(aspect_ratio: str, model: str) -> str:
     """Use the selected model's supported dimensions (not DALL-E sizes for GPT)."""
-    if settings.image_model == "gpt-image-2":
+    if model in {"gpt-image-2", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst"}:
         # At least 655,360 pixels; both edges are multiples of sixteen.
         return {"1:1": "1024x1024", "3:4": "768x1024", "4:3": "1024x768",
                 "9:16": "720x1280", "16:9": "1280x720"}.get(aspect_ratio, "768x1024")
-    if settings.image_model.startswith("gpt-image-"):
+    if model.startswith("gpt-image-"):
         return {"1:1": "1024x1024", "4:3": "1536x1024", "16:9": "1536x1024"}.get(aspect_ratio, "1024x1536")
     # DALL-E 3 지원 사이즈: 1024x1024, 1024x1792, 1792x1024
     sizes = {

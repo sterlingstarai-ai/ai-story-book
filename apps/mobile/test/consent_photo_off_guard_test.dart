@@ -20,6 +20,9 @@ class _FakeApi extends ApiClient {
   bool grantCalled = false;
   bool lookupFails = false;
   bool? purgeIncomplete;
+  bool emailRequired = false;
+  bool emailApproved = false;
+  String? guardianEmail;
 
   @override
   Future<Map<String, dynamic>> getConsent() async {
@@ -29,7 +32,15 @@ class _FakeApi extends ApiClient {
       'privacy': true,
       'data_processing': true,
       'revoked': false,
+      'guardian_email_required': emailRequired,
     };
+  }
+
+  @override
+  Future<String> guardianEmailStatus({String? email}) async {
+    if (email != null) guardianEmail = email;
+    if (emailApproved) return 'approved';
+    return guardianEmail == null ? 'needed' : 'pending';
   }
 
   @override
@@ -42,6 +53,7 @@ class _FakeApi extends ApiClient {
     grantCalled = true;
     serverPhotos = photos;
     return {
+      'granted': privacy && dataProcessing,
       'photos': photos,
       if (purgeIncomplete != null) 'purge_incomplete': purgeIncomplete,
     };
@@ -61,6 +73,52 @@ Widget _host(_FakeApi api) {
 }
 
 void main() {
+  testWidgets('initial consent waits for the guardian to accept by email', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    final api = _FakeApi(serverPhotos: false)
+      ..emailRequired = true
+      ..purgeIncomplete = false;
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          apiClientProvider.overrideWithValue(api),
+          sharedPreferencesProvider.overrideWithValue(prefs),
+        ],
+        child: MaterialApp(
+          locale: const Locale('ko'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          routes: {
+            '/onboarding': (_) => const Scaffold(body: Text('app entered')),
+          },
+          home: const ConsentScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final l = await AppLocalizations.delegate.load(const Locale('ko'));
+    await tester.tap(find.byType(CheckboxListTile).first);
+    await tester.pump();
+    await tester.tap(find.byType(ElevatedButton));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'parent@example.test');
+    await tester.pump();
+    await tester.tap(find.text(l.guardianEmailSend));
+    await tester.pumpAndSettle();
+    expect(api.guardianEmail, 'parent@example.test');
+    await tester.tap(find.text(l.guardianEmailCheck));
+    await tester.pumpAndSettle();
+    expect(api.grantCalled, isFalse);
+    api.emailApproved = true;
+    await tester.tap(find.text(l.guardianEmailCheck));
+    await tester.pumpAndSettle();
+    expect(api.grantCalled, isTrue);
+    expect(find.text('app entered'), findsOneWidget);
+  });
+
   for (final status in [true, false, null]) {
     testWidgets('photo opt-out reports file status $status', (tester) async {
       SharedPreferences.setMockInitialValues({});
@@ -78,7 +136,9 @@ void main() {
             locale: const Locale('ko'),
             localizationsDelegates: AppLocalizations.localizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
-            routes: {'/onboarding': (_) => const Scaffold(body: Text('app entered'))},
+            routes: {
+              '/onboarding': (_) => const Scaffold(body: Text('app entered')),
+            },
             home: const ConsentScreen(),
           ),
         ),
@@ -92,8 +152,10 @@ void main() {
       await tester.tap(find.text(l.settingsRevoke));
       await tester.pumpAndSettle();
       expect(find.text('app entered'), findsOneWidget);
-      expect(find.text(l.consentDeletionUnconfirmed),
-          status == false ? findsNothing : findsOneWidget);
+      expect(
+        find.text(l.consentDeletionUnconfirmed),
+        status == false ? findsNothing : findsOneWidget,
+      );
     });
   }
 

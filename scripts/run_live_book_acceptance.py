@@ -34,7 +34,7 @@ import httpx
 from PIL import Image
 
 from live_acceptance_guard import (
-    ACCEPTANCE_PAGE_COUNTS, IMAGE_MODELS, JOURNAL_VERSION, LLM_MODELS, LLM_TOKEN_LIMITS,
+    ACCEPTANCE_PAGE_COUNTS, IMAGE_MODELS, JOURNAL_VERSION, LLM_MODELS, LLM_TOKEN_LIMITS, OPENAI_IMAGE_MODELS,
     request_limits,
 )
 from run_runtime_e2e import (
@@ -74,7 +74,7 @@ def runtime_config(values, *, llm_values=None, llm_model=None, image_model=None)
     if not key and (declared == provider or (llm_values is not None and not declared)):
         key = source.get("LLM_API_KEY")
     selected_image = image_model or values.get("IMAGE_MODEL")
-    image_provider = "openai" if selected_image == "gpt-image-2" else "gemini"
+    image_provider = "openai" if selected_image in OPENAI_IMAGE_MODELS else "gemini"
     require(values.get("IMAGE_PROVIDER") == image_provider and selected_image in IMAGE_MODELS,
             "INVALID_IMAGE_CONFIGURATION")
     image_key = values.get("IMAGE_API_KEY")
@@ -212,7 +212,8 @@ def unverified_candidate_readiness(http_status, payload):
 
 
 
-def journey(base, directory, age, report, case=1, page_count=8, reader_profile=None, *, trial_owner=None):
+def journey(base, directory, age, report, case=1, page_count=8, reader_profile=None, *, trial_owner=None,
+            final_narration=False):
     name = "하루" if reader_profile is None else reader_profile["protagonist_name"]
     owner = {"X-User-Key": trial_owner or str(uuid.uuid4())}
     with httpx.Client(base_url=base, timeout=90, trust_env=False) as client:
@@ -320,10 +321,11 @@ def journey(base, directory, age, report, case=1, page_count=8, reader_profile=N
                     "TRIAL_FINAL_CREDIT_MISMATCH")
             require(any(row["book_id"] == book_id for row in call("GET", "/v1/library").json()["books"]),
                     "TRIAL_BOOK_NOT_IN_LIBRARY")
-            final_ready = call("GET", "/health/ready").json()["services"]
-            require(final_ready.get("provider_runtime") == "healthy", "TRIAL_PROVIDER_READINESS_UNVERIFIED")
             report.update(trial_final_credit=0, trial_book_in_library="passed")
-            report["trial_provider_readiness"] = "healthy"
+            # An isolated stack with narration enabled must first synthesize audio
+            # to establish the Realtime observation that readiness requires.
+            if not final_narration:
+                verify_trial_readiness(client, report)
         report["generation_warnings"] = detail.get("generation_warnings", [])
         report["images"] = []
         for index, entry in enumerate([{"image_url": detail["cover_image_url"]}] + detail["pages"]):
@@ -357,6 +359,14 @@ def journey(base, directory, age, report, case=1, page_count=8, reader_profile=N
         # Private disposable fixture, removed before handoff. Used only by local app acceptance.
         save_json(directory / "private-fixture.json", {"base_url": base, "user_key": owner["X-User-Key"],
                                                      "book_id": book_id, "job_id": job_id})
+
+
+def verify_trial_readiness(client, report):
+    response = client.get("/health/ready")
+    report["trial_final_readiness_http_status"] = response.status_code
+    require(response.status_code == 200 and response.json()["services"].get("provider_runtime") == "healthy",
+            "TRIAL_PROVIDER_READINESS_UNVERIFIED")
+    report["trial_provider_readiness"] = "healthy"
 
 
 def verify_final_narration(base, directory, report):
@@ -453,10 +463,15 @@ def run_acceptance(args, *, profile=None):
     require(not text_capture or (profile is None and reader_profile is None and args.page_count in (4, 12)),
             "REAL_CHILD_REVIEW_CAPTURE_FORBIDDEN")
     config = profile.config if profile is not None else load_runtime_config(args)
+    hybrid_images = config.image_model == "gpt-image-2.6-flare"
+    require(not hybrid_images or (first_book_trial and reader_profile is None and args.age == "7-9"),
+            "HYBRID_IMAGE_TEST_REQUIRES_FICTIONAL_7_TO_9_FIRST_BOOK_TRIAL")
     require(not final_narration or config.llm_provider == "openai", "FINAL_NARRATION_REQUIRES_OPENAI_KEY")
     if final_narration:
         require_ignored_path(directory / 'page-12-narration.wav')
     quality_environment = profile.environment if profile is not None else quality_gate_environment(args.page_count, config)
+    if hybrid_images:
+        quality_environment["OPENAI_ILLUSTRATION_REPAIR_MODEL"] = "gpt-image-2.6-sunburst"
     directory.mkdir(parents=True, mode=0o700)
     capture_fictional = text_capture or bool(profile is not None and getattr(profile, "retain_fictional_review_evidence", False))
     if capture_fictional:
@@ -491,6 +506,8 @@ def run_acceptance(args, *, profile=None):
     trial_owner = trial_environment.pop("RUNTIME_TRIAL_OWNER", None)
     if first_book_trial:
         report["first_book_trial"] = True
+    if hybrid_images:
+        report["models"]["image_repair"] = quality_environment["OPENAI_ILLUSTRATION_REPAIR_MODEL"]
     project = "storybook-live-" + uuid.uuid4().hex[:12]
     compose = ["docker", "compose", "--project-name", project, "--env-file", os.devnull,
                "-f", str(ROOT / "infra/docker-compose.e2e.yml")]
@@ -574,9 +591,11 @@ def run_acceptance(args, *, profile=None):
                 time.sleep(1)
             if profile is None:
                 journey(base, directory, args.age, report, args.case, args.page_count, reader_profile,
-                        trial_owner=trial_owner)
+                        trial_owner=trial_owner, final_narration=final_narration)
                 if final_narration:
                     verify_final_narration(base, directory, report)
+                    with httpx.Client(base_url=base, timeout=15, trust_env=False) as client:
+                        verify_trial_readiness(client, report)
             else:
                 profile.journey(base, directory, report, runtime)
             report["status"] = "passed"

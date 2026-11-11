@@ -5,7 +5,7 @@
 
 This document defines the production deployment contract after the P5 hardening sweep.
 
-모바일 정책 전문은 앱에 포함되며, 공개본은 `scripts/render_legal_documents.py`로 같은 JSON 원본에서 생성한다. `final-external-preflight.sh`는 원본의 검토 상태·시행일까지 확인한다. 검토본을 승인본으로 표시하거나 빌드 URL만 넣어서 우회하지 않는다. `PRIVACY_POLICY_URL`·`TERMS_OF_SERVICE_URL`이 없는 모바일 release는 컴파일 단계에서 차단되고 공개 HTTPS 주소의 형식도 검사한다. [문서 생성과 공개 절차](../apps/public-site/README.md)를 함께 따른다.
+모바일 정책 전문은 앱에 포함되며, 공개본은 `scripts/render_legal_documents.py`로 같은 JSON 원본에서 생성한다. `final-external-preflight.sh`는 원본의 검토 상태와 시행일을 확인하고, 승인 표시가 있더라도 본문에 외부 처리·보존을 추후 확정한다는 준비 문구가 남으면 차단한다. `PRIVACY_POLICY_URL`·`TERMS_OF_SERVICE_URL`이 없는 모바일 release는 컴파일 단계에서 차단되고 공개 HTTPS 주소의 형식도 검사한다. [문서 생성과 공개 절차](../apps/public-site/README.md)를 함께 따른다.
 
 출시 후보의 API와 worker는 `ILLUSTRATION_QUALITY_ENABLED=true` 및 검토를 지원하는 OpenAI 모델·키를 함께 설정해야 한다. 설정이 빠지거나 지원하지 않는 모델이면 사전 검사/readiness와 실제 생성 경로가 완성을 차단한다. 동작·횟수·검증 범위는 [삽화 검사와 부분 재생성](ILLUSTRATION_QUALITY_GATE.md)을 따른다.
 

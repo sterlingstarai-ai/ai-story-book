@@ -1,0 +1,10 @@
+[Unit]
+Description=Expire old finalized AI Story Book backup copies on the VM
+After=asb-backup.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/libexec/asb-expire-local-backups --execute
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/ai-story-book/backups /var/lib/ai-story-book/backup-state

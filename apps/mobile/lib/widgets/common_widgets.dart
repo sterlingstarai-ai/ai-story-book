@@ -10,6 +10,8 @@ class PrimaryButton extends StatelessWidget {
   final VoidCallback? onPressed;
   final bool isLoading;
   final bool isFullWidth;
+  final Color? backgroundColor;
+  final Color? foregroundColor;
 
   const PrimaryButton({
     super.key,
@@ -17,6 +19,8 @@ class PrimaryButton extends StatelessWidget {
     this.onPressed,
     this.isLoading = false,
     this.isFullWidth = true,
+    this.backgroundColor,
+    this.foregroundColor,
   });
 
   @override
@@ -29,9 +33,9 @@ class PrimaryButton extends StatelessWidget {
       child: ElevatedButton(
         onPressed: isLoading ? null : onPressed,
         style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF4F46E5),
+          backgroundColor: backgroundColor ?? const Color(0xFF4F46E5),
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-          foregroundColor: Colors.white,
+          foregroundColor: foregroundColor ?? Colors.white,
           disabledBackgroundColor: AppColors.primaryHalf,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppRadius.md),
@@ -419,11 +423,17 @@ class EmptyState extends StatelessWidget {
 class ProgressIndicatorBar extends StatelessWidget {
   final int progress;
   final String? currentStep;
+  final Color? trackColor;
+  final Color? fillColor;
+  final Color? textColor;
 
   const ProgressIndicatorBar({
     super.key,
     required this.progress,
     this.currentStep,
+    this.trackColor,
+    this.fillColor,
+    this.textColor,
   });
 
   @override
@@ -437,7 +447,10 @@ class ProgressIndicatorBar extends StatelessWidget {
               Expanded(
                 child: Text(currentStep!, style: AppTextStyles.bodySmall),
               ),
-            Text('$progress%', style: AppTextStyles.body),
+            Text(
+              '$progress%',
+              style: AppTextStyles.body.copyWith(color: textColor),
+            ),
           ],
         ),
         const SizedBox(height: AppSpacing.sm),
@@ -445,8 +458,8 @@ class ProgressIndicatorBar extends StatelessWidget {
           borderRadius: BorderRadius.circular(AppRadius.sm),
           child: LinearProgressIndicator(
             value: progress / 100,
-            backgroundColor: AppPalette.of(context).divider,
-            valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary),
+            backgroundColor: trackColor ?? AppPalette.of(context).divider,
+            color: fillColor ?? AppColors.primary,
             minHeight: 8,
           ),
         ),

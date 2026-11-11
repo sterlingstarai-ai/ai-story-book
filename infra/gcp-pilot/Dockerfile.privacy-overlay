@@ -6,4 +6,5 @@ USER root
 COPY --chown=appuser:appuser src/ /app/src/
 COPY --chown=appuser:appuser alembic/ /app/alembic/
 COPY --chown=appuser:appuser alembic.ini /app/alembic.ini
+COPY --chown=appuser:appuser scripts/provision_store_review.py /app/scripts/provision_store_review.py
 USER appuser

@@ -14,8 +14,10 @@ H. 패키징 (BookResult 생성, 업로드, 저장)
 
 import asyncio
 from contextlib import nullcontext
+from pathlib import Path
 import re
 import time
+from traceback import extract_tb
 from typing import Optional, Callable, Awaitable, TypeVar
 import unicodedata
 import uuid
@@ -156,6 +158,7 @@ async def run_step(
                 step=step_name,
                 attempt=attempt + 1,
                 error_type=type(e).__name__,
+                error_location=_exception_location(e),
             )
 
         # 재시도 대기
@@ -178,6 +181,11 @@ async def run_step(
             message=f"Step '{step_name}' failed after {retries + 1} attempts: {last_exc}",
         ) from last_exc
     raise RuntimeError(f"Step {step_name} failed without exception")
+
+
+def _exception_location(error: Exception) -> str:
+    frame = extract_tb(error.__traceback__, limit=-1)[0]
+    return f"{Path(frame.filename).name}:{frame.lineno}"
 
 
 # ==================== Database Helpers ====================
@@ -643,7 +651,10 @@ async def _start_book_generation(
             code = ErrorCode(e.error_code) if e.error_code in ErrorCode._value2member_map_ else ErrorCode.IMAGE_FAILED
             await mark_job_failed(job_id, code, e.message)
         else:
-            logger.error("Unexpected error in book generation", job_id=job_id, error_type=type(e).__name__)
+            logger.error(
+                "Unexpected error in book generation", job_id=job_id,
+                error_type=type(e).__name__, error_location=_exception_location(e),
+            )
             await mark_job_failed(job_id, ErrorCode.UNKNOWN, "동화 생성 중 오류가 발생했습니다.")
     finally:
         if learning_task is not None:
@@ -1137,8 +1148,10 @@ async def generate_image_with_retry(
             )
             logger.warning(
                 "Image generation failed",
+                job_id=job_id,
                 page=page,
                 error_type=type(e).__name__,
+                error_location=_exception_location(e),
                 attempt=attempt + 1,
             )
         if attempt < max_retries - 1:

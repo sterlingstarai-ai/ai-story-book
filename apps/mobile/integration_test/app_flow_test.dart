@@ -56,6 +56,7 @@ class _MockApi extends ApiClient {
 
   @override
   Future<Map<String, dynamic>> getConsent() async => {
+    'granted': consentGranted,
     'photos': false,
     'privacy': consentGranted,
     'data_processing': consentGranted,
@@ -68,8 +69,9 @@ class _MockApi extends ApiClient {
     required bool dataProcessing,
     String? consentVersion,
   }) async {
-    consentGranted = true;
+    consentGranted = privacy && dataProcessing;
     return {
+      'granted': consentGranted,
       'photos': photos,
       'privacy': privacy,
       'data_processing': dataProcessing,

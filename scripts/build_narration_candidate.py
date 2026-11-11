@@ -155,6 +155,7 @@ FINAL_HOST_FILES = RECEIPT_HOST_FILES | {
     'scripts/run_scheduled_backup.py',
     'scripts/backup_external.py',
     'scripts/backup_service_guard.py',
+    'scripts/worker_control_probe.py',
     'scripts/postgres_backup_fence.py',
     'scripts/provider_rotation_quarantine.py',
     'infra/gcp-pilot/asb-backup.service',

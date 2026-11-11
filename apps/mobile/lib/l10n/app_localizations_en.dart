@@ -3765,4 +3765,31 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsNarrationPreviewError => 'Could not play the preview.';
+
+  @override
+  String get guardianEmailTitle => 'Confirm guardian consent';
+
+  @override
+  String get guardianEmailIntro =>
+      'Enter a guardian email address to receive the consent notice.';
+
+  @override
+  String get guardianEmailPending =>
+      'Open the email link to give consent, then return to the app.';
+
+  @override
+  String get guardianEmailAddress => 'Guardian email';
+
+  @override
+  String get guardianEmailSend => 'Send confirmation email';
+
+  @override
+  String get guardianEmailCheck => 'Check consent';
+
+  @override
+  String get guardianEmailChange => 'Use a different email';
+
+  @override
+  String get guardianEmailError =>
+      'Check the email address and your connection, then try again.';
 }

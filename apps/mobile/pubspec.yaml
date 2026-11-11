@@ -1,7 +1,7 @@
 name: ai_story_book
 description: AI로 맞춤형 동화책을 생성하는 모바일 앱
 publish_to: 'none'
-version: 1.0.0+1
+version: 1.0.0+3
 
 environment:
   sdk: '>=3.10.0 <4.0.0'
@@ -124,8 +124,11 @@ flutter_launcher_icons:
   adaptive_icon_foreground: assets/icons/app_icon.png
 
 flutter_native_splash:
-  color: "#F8F9FC"
+  color: "#102E32"
   image: assets/branding/splash.png
+  android_12:
+    color: "#102E32"
+    image: assets/branding/splash.png
   android: true
   ios: true
   web: false

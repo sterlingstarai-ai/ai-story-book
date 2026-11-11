@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
 from src.core.exceptions import APIError, AuthorizationError
+from src.core.guardian_consent_version import guardian_consent_version
 from src.models.db import Character, UserConsent
 
 
@@ -32,8 +33,13 @@ async def latest_active_consent(
     latest = (await db.execute(select(UserConsent).where(UserConsent.user_key == user_key)
         .order_by(UserConsent.created_at.desc(), UserConsent.id.desc())
         .execution_options(populate_existing=True))).scalars().first()
-    return latest if (latest and latest.revoked_at is None and latest.granted
-                      and latest.privacy and latest.data_processing) else None
+    return latest if (
+        latest and latest.revoked_at is None and latest.granted and latest.privacy
+        and latest.data_processing and (
+            not settings.guardian_email_consent_enabled
+            or latest.consent_version == guardian_consent_version(user_key)
+        )
+    ) else None
 
 
 async def require_parental_consent(db: AsyncSession, user_key: str) -> None:
@@ -56,6 +62,9 @@ async def _has_active_photo_consent(db: AsyncSession, user_key: str) -> bool:
     photos-only 행이 게이트를 통과해 **필수 보호자 동의 없이 아동 사진을 수집**하게 된다
     (PIPA/COPPA에서 photos 는 필수 동의의 하위 항목이지 대체재가 아니다).
     """
+    if settings.guardian_email_consent_enabled:
+        active = await latest_active_consent(db, user_key)
+        return bool(active and active.photos)
     result = await db.execute(
         select(UserConsent)
         .where(

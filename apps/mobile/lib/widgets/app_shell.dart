@@ -43,16 +43,11 @@ class _BottomNavBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    final colors = StorybookColors.of(context);
     return Container(
       decoration: BoxDecoration(
-        color: AppPalette.of(context).surface,
-        boxShadow: const [
-          BoxShadow(
-            color: AppColors.blackOverlayLight,
-            blurRadius: 10,
-            offset: Offset(0, -4),
-          ),
-        ],
+        color: colors.sheet,
+        border: Border(top: BorderSide(color: colors.rule)),
       ),
       child: SafeArea(
         child: Padding(
@@ -121,9 +116,8 @@ class _NavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = isSelected
-        ? AppPalette.of(context).primary
-        : AppPalette.of(context).textSecondary;
+    final colors = StorybookColors.of(context);
+    final color = isSelected ? colors.accent : colors.muted;
 
     return Semantics(
       button: true,
@@ -149,9 +143,7 @@ class _NavItem extends StatelessWidget {
                 width: AppSizing.minTouchTarget,
                 padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
                 decoration: BoxDecoration(
-                  color: isSelected
-                      ? AppPalette.of(context).primaryLight
-                      : null,
+                  color: isSelected ? colors.tint : null,
                   borderRadius: BorderRadius.circular(AppRadius.lg),
                 ),
                 child: Icon(icon, color: color, size: 26),
@@ -160,7 +152,7 @@ class _NavItem extends StatelessWidget {
               Text(
                 label,
                 textAlign: TextAlign.center,
-                style: TextStyle(
+                style: AppTextStyles.caption.copyWith(
                   fontSize: 13,
                   color: color,
                   fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,

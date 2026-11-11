@@ -1,7 +1,8 @@
-"""Synthetic acceptance-only HTTP budget/usage instrumentation, injected in a source copy.
+"""Bounded HTTP request validation and numeric usage instrumentation.
 
-Never imported by the application or used in production. No prompts, URLs, headers,
-provider bodies, or credentials enter the journal. Reservations survive process exits.
+The default journal covers one synthetic acceptance run. The pilot entrypoint
+supplies its own daily journal and request ceilings. No prompts, URLs, headers,
+provider bodies, or credentials enter the journal.
 """
 
 import base64
@@ -20,7 +21,8 @@ LLM_MODELS = {
     "claude-sonnet-5": "anthropic", "claude-opus-5": "anthropic",
     "gpt-6-astra": "openai", "gpt-5.6-sol": "openai",
 }
-IMAGE_MODELS = frozenset({"gemini-3-pro-image", "gemini-3.1-flash-image", "gpt-image-2"})
+OPENAI_IMAGE_MODELS = frozenset({"gpt-image-2", "gpt-image-2.6-flare"})
+IMAGE_MODELS = OPENAI_IMAGE_MODELS | {"gemini-3-pro-image", "gemini-3.1-flash-image"}
 LLM_TOKEN_LIMITS = {"anthropic": 8000, "openai": 16000}
 ACCEPTANCE_PAGE_COUNTS = (4, 8, 12)
 JOURNAL_VERSION = 2
@@ -93,31 +95,40 @@ def validate_selection(provider, llm_model, image_model):
 
 
 def append_event(path, event, *, limit=None):
-    with open(path, "a+", encoding="utf-8") as stream:
+    def open_private(name, flags):
+        return os.open(name, flags | os.O_NOFOLLOW, 0o600)
+
+    with open(path, "a+", encoding="utf-8", opener=open_private) as stream:
         fcntl.flock(stream, fcntl.LOCK_EX)
         if limit is not None:
             stream.seek(0)
-            count = sum(json.loads(line).get("kind") == "request"
-                        and json.loads(line).get("role") == event["role"] for line in stream)
+            count = sum(
+                item.get("kind") == "request" and item.get("role") == event["role"]
+                for item in map(json.loads, stream)
+            )
             if count >= limit:
                 raise RuntimeError("LIVE_ACCEPTANCE_REQUEST_LIMIT")
         stream.write(json.dumps(event) + "\n")
         stream.flush()
 
 
-def install():
+def install(*, journal_for_request=None, request_ceilings=None):
     journal = Path(os.environ["LIVE_ACCEPTANCE_JOURNAL"])
     provider = os.environ.get("LLM_PROVIDER")
     llm_model = os.environ.get("LLM_MODEL")
     image_model = os.environ.get("IMAGE_MODEL")
+    repair_model = os.environ.get("OPENAI_ILLUSTRATION_REPAIR_MODEL", "")
     validate_selection(provider, llm_model, image_model)
+    if repair_model and (image_model, repair_model) != ("gpt-image-2.6-flare", "gpt-image-2.6-sunburst"):
+        raise RuntimeError("LIVE_ACCEPTANCE_INVALID_MODEL_SELECTION")
     page_count = os.environ.get("LIVE_ACCEPTANCE_PAGE_COUNT", "8")
     enabled = os.environ.get("ILLUSTRATION_QUALITY_ENABLED", "false")
     if page_count not in {str(count) for count in ACCEPTANCE_PAGE_COUNTS} or enabled not in {"true", "false"}:
         raise RuntimeError("LIVE_ACCEPTANCE_INVALID_BOOK_SELECTION")
     if enabled == "true" and provider != "openai":
         raise RuntimeError("LIVE_ACCEPTANCE_UNSUPPORTED_QUALITY_PROVIDER")
-    limits = request_limits(int(page_count), enabled == "true")
+    limits = (request_limits(int(page_count), enabled == "true")
+              if request_ceilings is None else request_ceilings)
     original = httpx.AsyncClient.post
     urls = {
         ("https://api.openai.com/v1/responses" if provider == "openai"
@@ -126,7 +137,7 @@ def install():
         + image_model + ":generateContent": ("image", limits["image"]),
     }
 
-    image_provider = "openai" if image_model == "gpt-image-2" else "gemini"
+    image_provider = "openai" if image_model in OPENAI_IMAGE_MODELS else "gemini"
     if image_provider == "openai":
         urls = {key: value for key, value in urls.items() if value[0] == "llm"}
         urls.update({"https://api.openai.com/v1/images/" + endpoint: ("image", limits["image"])
@@ -137,6 +148,7 @@ def install():
                 or kwargs.get("follow_redirects", self.follow_redirects) is not False):
             raise RuntimeError("LIVE_ACCEPTANCE_UNEXPECTED_POST")
         role, limit = urls[str(url)]
+        selected_image_model = image_model
         payload = kwargs.get("json", {})
         if not isinstance(payload, dict):
             raise RuntimeError("LIVE_ACCEPTANCE_INVALID_PAYLOAD")
@@ -155,9 +167,14 @@ def install():
             ):
                 raise RuntimeError("LIVE_ACCEPTANCE_OPENAI_OPTIONS")
         if role == "image" and image_provider == "openai":
+            if repair_model:
+                from src.services.image_correction import review_image_repair_active
+
+                if review_image_repair_active():
+                    selected_image_model = repair_model
             editing = str(url).endswith("/edits")
             payload = kwargs.get("data", {}) if editing else payload
-            if not isinstance(payload, dict) or payload.get("model") != image_model:
+            if not isinstance(payload, dict) or payload.get("model") != selected_image_model:
                 raise RuntimeError("LIVE_ACCEPTANCE_MODEL_MISMATCH")
             if (type(payload.get("n")) is not (str if editing else int)
                     or payload.get("n") != ("1" if editing else 1)
@@ -168,8 +185,9 @@ def install():
                 raise RuntimeError("LIVE_ACCEPTANCE_IMAGE_OPTIONS")
         # No image request fields are rewritten: retain the verified live shape.
         identity = {"role": role, "provider": provider if role == "llm" else image_provider,
-                    "model": llm_model if role == "llm" else image_model}
-        append_event(journal, {"kind": "request", **identity}, limit=limit)
+                    "model": llm_model if role == "llm" else selected_image_model}
+        request_journal = journal if journal_for_request is None else journal_for_request()
+        append_event(request_journal, {"kind": "request", **identity}, limit=limit)
         started = time.monotonic()
         event = {"kind": "response", "journal_version": JOURNAL_VERSION, **identity}
         if role == "image":
@@ -195,6 +213,6 @@ def install():
             raise
         finally:
             event["seconds"] = round(time.monotonic() - started, 3)
-            append_event(journal, event)
+            append_event(request_journal, event)
 
     httpx.AsyncClient.post = measured

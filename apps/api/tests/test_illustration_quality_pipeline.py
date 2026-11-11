@@ -114,7 +114,7 @@ async def test_all_pages_pass_without_extra_generation(monkeypatch, review_bytes
 async def test_action_repair_only_reuses_focus_for_the_original_story(
     monkeypatch, review_bytes, fresh_prompts,
 ):
-    from src.services.image_correction import provider_prompt_with_correction
+    from src.services.image_correction import provider_prompt_with_correction, review_image_repair_active
 
     inputs = _inputs()
     action = "Dari, the green-shirted squirrel, picks up the napkin while Haru watches."
@@ -130,6 +130,7 @@ async def test_action_repair_only_reuses_focus_for_the_original_story(
 
     async def repair(page, prompt, _urls):
         assert page == 3
+        assert review_image_repair_active()
         wire = provider_prompt_with_correction(prompt, use_cast_looks=True).positive_prompt
         assert wire.startswith(f"CURRENT PAGE NARRATIVE: {narrative}\n")
         assert (action in wire) is fresh_prompts
@@ -141,14 +142,16 @@ async def test_action_repair_only_reuses_focus_for_the_original_story(
 
     flags = {"use_prompt_action_focus": True} if fresh_prompts else {}
     result = await pipeline.verify_and_repair_illustrations(**inputs, regenerate=repair, **flags)
+    assert not review_image_repair_active()
     assert result.image_prompts[3].positive_prompt == original.positive_prompt
     assert reviewer.await_count == 2
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("cover_flagged", [True, False])
+@pytest.mark.parametrize("count_before_details", [True, False])
 async def test_action_repair_keeps_the_supporting_cast_details_without_the_old_staging(
-    monkeypatch, review_bytes, cover_flagged,
+    monkeypatch, review_bytes, cover_flagged, count_before_details,
 ):
     from src.services.image_correction import provider_prompt_with_correction
 
@@ -156,8 +159,11 @@ async def test_action_repair_keeps_the_supporting_cast_details_without_the_old_s
     details = "Haru = white rabbit, red scarf; Keeper = adult gray badger, navy cap, orange jacket"
     wrong_staging = "Both characters hold the same green litter tongs."
     brief = "ACTION FOCUS: Haru picks up the can with tongs while Keeper watches."
+    cast_lines = [f"CAST DETAILS: {details}", "Visible cast: 2 distinct characters, one of each."]
+    if count_before_details:
+        cast_lines.reverse()
     inputs["image_prompts"][3] = inputs["image_prompts"][3].model_copy(update={
-        "positive_prompt": f"{brief}\nCAST DETAILS: {details}\n{wrong_staging}",
+        "positive_prompt": "\n".join([brief, *cast_lines, wrong_staging]),
         "guidance_notes": "CAST LOOKS: Haru = white rabbit; Keeper = gray badger",
     })
     failures = {3: ["action_mismatch"]}

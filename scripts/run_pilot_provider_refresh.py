@@ -19,8 +19,8 @@ async def check():
     from src.core.rate_limit import rate_limiter
     from src.services.provider_runtime import provider_runtime_status
     if settings.testing or settings.provider_observation_ttl_seconds != 86400 or (
-        settings.llm_provider, settings.llm_model, settings.image_provider, settings.image_model
-    ) != ('openai', 'gpt-5.6-sol', 'openai', 'gpt-image-2'):
+        settings.llm_provider, settings.llm_model, settings.image_provider
+    ) != ('openai', 'gpt-5.6-sol', 'openai') or settings.image_model not in {'gpt-image-2', 'gpt-image-2.6-flare'}:
         return 'UNSUPPORTED'
     import time
     audio = settings.audio_feature_enabled
@@ -84,6 +84,9 @@ _DOCKER = ['/usr/bin/docker', '--host', 'unix:///var/run/docker.sock']
 _ENV = {'PATH': '/usr/bin:/bin', 'HOME': '/root'}
 _API = 'asb-pilot-api'
 _TTS_REQUIRED = {b'REQUIRED_TTS\n', b'REQUIRED_TTS_WITH_OPENAI\n'}
+# Importing the production provider/settings modules can exceed 20 seconds on
+# the small pilot VM. Keep observation checks bounded independently of paid probes.
+_OBSERVATION_CHECK_TIMEOUT = 60
 
 
 def docker(*args, data=None, timeout=20):
@@ -110,7 +113,8 @@ def refresh(image_id, ledger, state_dir, *, execute, refresh_now=False):
             or not re.fullmatch(r'[0-9a-f]{64}', identifier)
         ):
             raise RuntimeError('unexpected API identity')
-        status = docker('exec', '-i', identifier, 'python', '-', data=_CHECK)
+        status = docker('exec', '-i', identifier, 'python', '-', data=_CHECK,
+                        timeout=_OBSERVATION_CHECK_TIMEOUT)
         if status in {b'FRESH\n', b'FRESH_AUDIO\n'}:
             if not refresh_now:
                 return 'OBSERVATIONS_FRESH'
@@ -145,7 +149,8 @@ def refresh(image_id, ledger, state_dir, *, execute, refresh_now=False):
         if not text_and_image_ok:
             raise RuntimeError('text or image refresh failed')
         expected = b'FRESH_AUDIO\n' if audio else b'FRESH\n'
-        if docker('exec', '-i', identifier, 'python', '-', data=_CHECK) != expected:
+        if docker('exec', '-i', identifier, 'python', '-', data=_CHECK,
+                  timeout=_OBSERVATION_CHECK_TIMEOUT) != expected:
             raise RuntimeError('provider observations did not become fresh after refresh')
         return 'PROBE_VERIFIED'
     finally:
@@ -162,14 +167,16 @@ def bootstrap_isolated_narration(identifier, image_id, ledger):
     if item != {'Id': identifier, 'Image': image_id, 'Name': '/asb-narration-next-api',
                 'Running': True, 'Restart': 'no'}:
         raise RuntimeError('candidate identity does not match')
-    status = docker('exec', '-i', identifier, 'python', '-', data=_CHECK)
+    status = docker('exec', '-i', identifier, 'python', '-', data=_CHECK,
+                    timeout=_OBSERVATION_CHECK_TIMEOUT)
     if status in {b'FRESH_AUDIO\n', b'DUE_ALL\n'}:
         return
     if status not in _TTS_REQUIRED or not claim(ledger):
         raise RuntimeError('candidate narration probe is not eligible')
     if docker('exec', '-i', identifier, 'python', '-', data=_TTS_PROBE, timeout=105) != b'TTS_VERIFIED\n':
         raise RuntimeError('candidate narration probe failed')
-    if docker('exec', '-i', identifier, 'python', '-', data=_CHECK) not in {b'FRESH_AUDIO\n', b'DUE_ALL\n'}:
+    if docker('exec', '-i', identifier, 'python', '-', data=_CHECK,
+              timeout=_OBSERVATION_CHECK_TIMEOUT) not in {b'FRESH_AUDIO\n', b'DUE_ALL\n'}:
         raise RuntimeError('candidate narration observation is not verified')
 
 

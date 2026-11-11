@@ -13,6 +13,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'support/design_capture.dart';
+
 class _Library extends LibraryNotifier {
   _Library(this.load);
   final Future<List<LibraryBook>> Function() load;
@@ -127,7 +129,7 @@ Future<void> _pump(
         locale: const Locale('ko'),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        home: const HomeScreen(),
+        home: designCaptureBoundary(const HomeScreen()),
         onGenerateRoute: (settings) {
           navigation.add(settings);
           return MaterialPageRoute<void>(
@@ -156,6 +158,7 @@ Future<void> _scrollTo(WidgetTester tester, Finder target) async {
 }
 
 void main() {
+  setUpAll(loadDesignFonts);
   const resumeGeneration = Key('home_resume_generation');
   for (final count in [1, 2]) {
     testWidgets('home resumes existing generation work ($count jobs)', (
@@ -501,6 +504,7 @@ void main() {
       );
       expect(find.text('오늘은 어떤 이야기를 읽어볼까요?'), findsOneWidget);
       expect(tester.takeException(), isNull);
+      await captureDesign(tester, 'home-saved-story-large-text');
       await tester.tap(book);
       await tester.pumpAndSettle();
       expect(navigation.last.name, '/viewer');

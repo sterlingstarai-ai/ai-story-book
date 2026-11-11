@@ -16,7 +16,7 @@ import subprocess
 from provider_cutover_journal import run_journaled
 
 
-PROBE_SHA256 = '549c8218ed9341319bc01e72ffcb88d8509d35565b555ce1a93f59192708b1ee'
+PROBE_SHA256 = '08e29fdb2b5b7ed448d198f8c15db40555e712a8651749954fb56dd143727588'
 API_IMAGE = 'sha256:47dcb13c52033638740a93463cded3d61c28bc9c85ccfd7ce4932e681be139b1'
 _ID = re.compile(r'[0-9a-f]{64}\Z')
 

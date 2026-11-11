@@ -14,7 +14,7 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_NAMES = (
     'run_scheduled_backup.py', 'automatic_backup.py', 'backup_external.py',
-    'backup_service_guard.py', 'postgres_backup_fence.py', 'publish_backup_gcs.py',
+    'backup_service_guard.py', 'worker_control_probe.py', 'postgres_backup_fence.py', 'publish_backup_gcs.py',
     'verify_backup_set.py', 'final_external_preflight.py',
     'narration_marker_exec_condition.py', 'narration_deploy_safety.py',
     'provider_rotation_quarantine.py', 'check_backup_status.py', 'publish_backup_health.py',

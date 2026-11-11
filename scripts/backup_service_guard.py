@@ -30,7 +30,7 @@ class RetryableRecoveryError(GuardError):
 _API = 'asb-pilot-api'
 _WORKER = 'asb-pilot-worker'
 _NGINX = 'asb-pilot-nginx'
-_PILOT_HTTPS_IP = '35.209.174.246'
+_PILOT_API_ORIGIN = 'https://asb-https-edge-abvj5xczqa-uc.a.run.app'
 _MARKER = {'version': 1, 'previously_running': [_WORKER, _API]}
 NARRATION_RECOVERY_MARKER = Path('/var/lib/ai-story-book/narration-deploy/narration-recovery.json')
 PROVIDER_ROTATION_RECOVERY_MARKER = Path('/var/lib/ai-story-book/provider-rotation/recovery.json')
@@ -58,8 +58,11 @@ def assert_no_narration_recovery():
 
 
 class DockerRuntime:
-    def __init__(self, *, deadline=None):
+    def __init__(self, *, deadline=None, startup_timeout_seconds=30):
+        if type(startup_timeout_seconds) is not int or not 1 <= startup_timeout_seconds <= 300:
+            raise ValueError('Invalid container startup budget')
         self._deadline = deadline
+        self._startup_timeout_seconds = startup_timeout_seconds
 
     def _probe_deadline(self, seconds):
         deadline = time.monotonic() + seconds
@@ -96,16 +99,18 @@ class DockerRuntime:
 
     def verify_recovery(self):
         """Wait for the API upstream and the exact worker to answer after start."""
+        from worker_control_probe import worker_control_source
+
         hostname = self._run(['inspect', '--format', '{{.Config.Hostname}}', _WORKER], timeout=5)
         if not re.fullmatch(r'[A-Za-z0-9_.-]{1,253}', hostname):
             raise GuardError('Recovery worker hostname is invalid')
-        deadline = self._probe_deadline(30)
+        deadline = self._probe_deadline(self._startup_timeout_seconds)
 
-        def probe(command):
+        def probe(command, command_timeout=8):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise GuardError('Recovery probe timed out')
-            return json.loads(self._run(command, timeout=min(8, remaining)))
+            return json.loads(self._run(command, timeout=min(command_timeout, remaining)))
 
         while time.monotonic() < deadline:
             try:
@@ -113,9 +118,9 @@ class DockerRuntime:
                               f'http://{_API}:8000/health/live'])
                 if not isinstance(live, dict) or live.get('status') != 'alive':
                     raise GuardError('API upstream did not report liveness')
-                workers = probe(['exec', _WORKER, 'celery', '-A', 'src.worker', 'inspect',
-                                 'ping', '--timeout', '3', '--json'])
-                if workers == {f'celery@{hostname}': {'ok': 'pong'}}:
+                workers = probe(['exec', _WORKER, 'python', '-c',
+                                 worker_control_source(('ping',), timeout=10)], command_timeout=45)
+                if workers == {'ping': True}:
                     return
             except (GuardError, ValueError):
                 pass
@@ -155,12 +160,12 @@ class DockerRuntime:
         if remaining <= 0:
             return False
         try:
-            # Hit local nginx with the same TLS identity and route as the app.
+            # Verify the Cloud Run HTTPS route used by the released client.
+            # The retired direct-IP TLS origin is no longer the app's route.
             response = subprocess.run(
                 ['/usr/bin/curl', '-q', '--silent', '--fail', '--noproxy', '*',
                  '--max-filesize', '65536', '--max-time', '3',
-                 '--connect-to', f'{_PILOT_HTTPS_IP}:443:127.0.0.1:443',
-                 '--write-out', '\n%{http_code}', f'https://{_PILOT_HTTPS_IP}/health/live'],
+                 '--write-out', '\n%{http_code}', f'{_PILOT_API_ORIGIN}/health/live'],
                 capture_output=True, timeout=min(4, remaining), check=True,
                 env={'PATH': '/usr/bin:/bin'},
             )

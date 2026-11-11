@@ -176,10 +176,11 @@ class Settings(BaseSettings):
     image_provider: str = "openai"  # openai, gemini, replicate, fal, mock
     image_api_key: Optional[str] = Field(default=None, exclude=True, repr=False)
     image_api_key_file: str = ""
-    # dall-e-3, gpt-image-1, gemini-3-pro-image(Nano Banana Pro stable, 얼굴보존·레퍼런스 최대 14장)
-    # ⚠ 구 preview 별칭(gemini-3-pro-image-preview)은 stable 승격으로 대체됨 — stable ID를 쓸 것.
-    # 저비용 대안: gemini-3.1-flash-image(Nano Banana 2, 레퍼런스 지원·더 저렴).
-    image_model: str = "dall-e-3"
+    # Flare is the default for initial cover/page generation; other providers
+    # require an explicit matching IMAGE_MODEL override.
+    image_model: str = "gpt-image-2.6-flare"
+    # Opt in to Sunburst only for illustrations rejected by review when Flare is primary.
+    openai_illustration_repair_model: Literal["", "gpt-image-2.6-sunburst"] = ""
     # GPT Image generations and reference edits; other providers keep their own options.
     openai_image_quality: Literal["low", "medium", "high", "auto"] = "medium"
     image_timeout: int = 90
@@ -282,6 +283,10 @@ class Settings(BaseSettings):
     generation_access_mode: Literal["open", "invite_only", "paused"] = "open"
     # Domain-separated SHA-256 of stable account ownership keys; never raw credentials.
     generation_allowed_user_hashes: str = ""
+    # Private Play review enrollment. Slots are reserved account rows, not
+    # existing accounts. Store only a domain-separated digest of the pass.
+    store_review_pass_hash: str = ""
+    store_review_account_slots: str = ""
     # 전역(전 사용자 합산) 큐 상한 — 워커 용량을 넘어선 '시스템 과부하' 신호(503).
     # M11/R3-4로 per-user 상한과 분리되면서 의미가 바뀌었다: 한 사용자가 혼자 도달할 수
     # 없도록 per-user 상한보다 훨씬 크게 잡는다(운영이 워커 수에 맞춰 조정).
@@ -302,6 +307,14 @@ class Settings(BaseSettings):
     require_parental_consent_enabled: bool = True
     require_parental_consent_in_testing: bool = False
     consent_current_version: str = "v2"
+    guardian_email_consent_enabled: bool = False
+    guardian_email_smtp_host: str = ""
+    guardian_email_smtp_port: int = 465
+    guardian_email_smtp_security: Literal["implicit_tls", "starttls"] = "implicit_tls"
+    guardian_email_smtp_username: str = ""
+    guardian_email_smtp_password_file: str = ""
+    guardian_email_sender: str = ""
+    guardian_email_public_origin: str = ""
 
     # 결제/보안: 운영에선 검증된 IAP 영수증만으로 구독을 열어야 한다.
     # False면 /v1/credits/subscribe의 유료플랜 직접 크레딧 지급을 차단(테스트는 우회).

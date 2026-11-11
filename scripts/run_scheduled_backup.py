@@ -147,27 +147,11 @@ def private_file(path, *, max_bytes):
 
 def assert_idle_worker(runtime):
     """Reject unresponsive, multiple, active, reserved or ETA worker tasks."""
-    # Separate control mailboxes and broker connections preserve the full
-    # broadcast window without starting three Python processes on the pilot VM.
-    probe = '''
-from concurrent.futures import ThreadPoolExecutor
-import json
-from socket import gethostname
-from celery.app.control import Control
-from src.worker import celery_app
+    from worker_control_probe import worker_control_source
 
-kinds = ('active', 'reserved', 'scheduled')
-expected = [{f'celery@{gethostname()}': []}]
-controls = {kind: Control(app=celery_app) for kind in kinds}
-
-def idle(kind):
-    with celery_app.connection_for_read() as connection:
-        replies = controls[kind].broadcast(kind, connection=connection, reply=True, timeout=10)
-    return replies == expected
-
-with ThreadPoolExecutor(max_workers=len(kinds)) as pool:
-    print(json.dumps(dict(zip(kinds, pool.map(idle, kinds), strict=True))))
-'''
+    # Avoid repeated Celery CLI/application imports on the memory-limited VM.
+    # Each control retains its own reply mailbox and full broadcast window.
+    probe = worker_control_source(('active', 'reserved', 'scheduled'), timeout=10)
     raw = runtime._run(['exec', 'asb-pilot-worker', 'python', '-c', probe], timeout=30)
     try:
         value = json.loads(raw)

@@ -17,10 +17,10 @@ from src.services.image_correction import CORRECTION_INSTRUCTIONS, image_correct
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("provider", ["openai", "gemini"])
+@pytest.mark.parametrize("provider,hybrid", [("openai", False), ("openai", True), ("gemini", False)])
 @pytest.mark.parametrize("issue", list(CORRECTION_INSTRUCTIONS))
 async def test_real_reference_payload_uses_page_for_local_defects_and_avatar_for_identity(
-    monkeypatch, provider, issue,
+    monkeypatch, provider, hybrid, issue,
 ):
     page_url = "https://owned.invalid/jobs/inert/page-7.png"
     avatar_url = "https://owned.invalid/jobs/inert/approved-avatar.png"
@@ -30,6 +30,7 @@ async def test_real_reference_payload_uses_page_for_local_defects_and_avatar_for
     keys = {page_url: "page-7", avatar_url: "approved-avatar"}
     loaded = []
     sent = []
+    models = []
 
     async def object_bytes(key):
         loaded.append(key)
@@ -49,6 +50,7 @@ async def test_real_reference_payload_uses_page_for_local_defects_and_avatar_for
             assert fields["image[]"].get_content_type() == "image/png"
             assert fields["n"].get_payload(decode=True) == b"1"
             assert fields["quality"].get_payload(decode=True) == b"medium"
+            models.append(fields["model"].get_payload(decode=True).decode("ascii"))
             sent.append((fields["image[]"].get_payload(decode=True),
                          fields["prompt"].get_payload(decode=True).decode("utf-8")))
         else:
@@ -69,12 +71,16 @@ async def test_real_reference_payload_uses_page_for_local_defects_and_avatar_for
     monkeypatch.setattr(storage, "get_object_bytes", object_bytes)
     monkeypatch.setattr(settings, "image_provider", provider)
     monkeypatch.setattr(settings, "image_model", "gpt-image-2" if provider == "openai" else "gemini-3-pro-image")
+    if hybrid:
+        monkeypatch.setattr(settings, "image_model", "gpt-image-2.6-flare")
+        monkeypatch.setattr(settings, "openai_illustration_repair_model", "gpt-image-2.6-sunburst")
     monkeypatch.setattr(settings, "image_api_key", "test-only-not-real")
     monkeypatch.setattr(settings, "openai_image_quality", "medium")
     prompt = ImagePrompt(page=7, positive_prompt="An illustrated garden scene.", negative_prompt="text, letters", seed=7)
     with image_correction_scope(
         page_text="The watering can fills through its top opening.",
         issues=[issue], source_image_url=page_url,
+        review_repair=True,
     ):
         with pytest.raises(StoryBookError):
             await image.generate_image(prompt, reference_image_url=avatar_url)
@@ -89,3 +95,5 @@ async def test_real_reference_payload_uses_page_for_local_defects_and_avatar_for
     assert sent[1][0] == avatar_bytes
     assert "EDIT THE GENERATED STORYBOOK PAGE" not in sent[1][1]
     assert "CORRECTION REQUIREMENTS" not in sent[1][1]
+    if hybrid:
+        assert models == ["gpt-image-2.6-sunburst", "gpt-image-2.6-flare"]

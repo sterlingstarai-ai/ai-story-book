@@ -12,7 +12,6 @@ import '../utils/constants.dart';
 import '../widgets/app_shell.dart';
 import '../widgets/common_widgets.dart';
 import '../widgets/scoped_book_image.dart';
-import '../widgets/storybook_illustration.dart';
 import '../widgets/credit_shortage_modal.dart';
 import '../providers/providers.dart';
 import '../services/analytics.dart';
@@ -215,6 +214,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
+    final colors = StorybookColors.of(context);
     final submittingTodayStory =
         _todayStoryApi != null &&
         identical(_todayStoryApi, ref.watch(apiClientProvider));
@@ -255,6 +255,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
 
     final hasBooks = libraryAsync.valueOrNull?.isNotEmpty ?? false;
+    final activeProfile = ref.watch(activeChildProfileProvider).valueOrNull;
     final trialAvailable =
         firstBookTrial &&
         libraryAsync.asData?.value.isEmpty == true &&
@@ -267,56 +268,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     return AppShell(
       currentIndex: 0,
+      backgroundColor: colors.paper,
       body: SafeArea(
         child: CustomScrollView(
           key: const Key('home_scroll'),
           slivers: [
             SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.lg,
-                  AppSpacing.md,
-                  AppSpacing.lg,
-                  AppSpacing.md,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            l.homeTitle,
-                            style: AppTextStyles.heading1,
-                          ),
-                        ),
-                        IconButton(
-                          constraints: const BoxConstraints(
-                            minWidth: AppSizing.minTouchTarget,
-                            minHeight: AppSizing.minTouchTarget,
-                          ),
-                          onPressed: () =>
-                              Navigator.pushNamed(context, '/settings'),
-                          icon: const Icon(Icons.settings_outlined),
-                          tooltip: l.homeSettingsTooltip,
-                        ),
-                      ],
-                    ),
-                    Text(
-                      ref.watch(activeChildProfileProvider).valueOrNull == null
-                          ? (hasBooks
-                                ? l.homeReadingSubtitle
-                                : l.homeHeaderSubtitle)
-                          : l.activeChildLabel(
-                              ref
-                                  .watch(activeChildProfileProvider)
-                                  .valueOrNull!
-                                  .name,
-                            ),
-                      style: AppTextStyles.bodySmall,
-                    ),
-                  ],
-                ),
+              child: _HomeMasthead(
+                title: l.homeTitle,
+                subtitle: activeProfile != null
+                    ? l.activeChildLabel(activeProfile.name)
+                    : hasBooks
+                    ? l.homeReadingSubtitle
+                    : l.homeHeaderSubtitle,
+                settingsLabel: l.homeSettingsTooltip,
+                openSettings: () => Navigator.pushNamed(context, '/settings'),
               ),
             ),
 
@@ -375,7 +341,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         ),
                         child: Text(
                           l.homeEmptyTitle,
-                          style: AppTextStyles.heading3,
+                          style: AppTextStyles.heading3.copyWith(
+                            color: colors.text,
+                          ),
                         ),
                       )
                     : _HomeReadingSection(books: books.take(4).toList()),
@@ -499,6 +467,82 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 }
 
+class _HomeMasthead extends StatelessWidget {
+  const _HomeMasthead({
+    required this.title,
+    required this.subtitle,
+    required this.settingsLabel,
+    required this.openSettings,
+  });
+
+  final String title;
+  final String subtitle;
+  final String settingsLabel;
+  final VoidCallback openSettings;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+      child: DecoratedBox(
+        decoration: const BoxDecoration(
+          color: StorybookColors.ink,
+          borderRadius: BorderRadius.all(Radius.circular(26)),
+        ),
+        child: Padding(
+          padding: const EdgeInsetsDirectional.fromSTEB(10, 2, 4, 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Image.asset(
+                    'assets/branding/splash.png',
+                    width: 62,
+                    excludeFromSemantics: true,
+                  ),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: AppTextStyles.heading1.copyWith(
+                        color: StorybookColors.onInk,
+                        fontSize: MediaQuery.sizeOf(context).width < 360
+                            ? 24
+                            : 30,
+                        height: 1.12,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    constraints: const BoxConstraints(
+                      minWidth: AppSizing.minTouchTarget,
+                      minHeight: AppSizing.minTouchTarget,
+                    ),
+                    onPressed: openSettings,
+                    color: StorybookColors.onInk,
+                    icon: const Icon(Icons.settings_outlined),
+                    tooltip: settingsLabel,
+                  ),
+                ],
+              ),
+              Padding(
+                padding: const EdgeInsetsDirectional.only(start: 14, end: 16),
+                child: Text(
+                  subtitle,
+                  style: AppTextStyles.bodySmall.copyWith(
+                    color: StorybookColors.onInkMuted,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _HomeReadingSection extends ConsumerStatefulWidget {
   const _HomeReadingSection({required this.books});
 
@@ -514,6 +558,7 @@ class _HomeReadingSectionState extends ConsumerState<_HomeReadingSection> {
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
     final books = widget.books;
+    final colors = StorybookColors.of(context);
     final latest = books.first;
     final progress = ref.watch(homeReadingProgressProvider(latest.id));
     final hasProgress = (progress.valueOrNull ?? 0) > 0;
@@ -539,6 +584,8 @@ class _HomeReadingSectionState extends ConsumerState<_HomeReadingSection> {
                       AppSizing.minTouchTarget,
                       AppSizing.minTouchTarget,
                     ),
+                    foregroundColor: colors.accent,
+                    textStyle: AppTextStyles.bodySmall,
                   ),
                   onPressed: () => Navigator.pushNamed(context, '/library'),
                   child: Text(l.homeViewAll),
@@ -549,10 +596,10 @@ class _HomeReadingSectionState extends ConsumerState<_HomeReadingSection> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
             child: Material(
-              color: AppPalette.of(context).surface,
+              color: colors.sheet,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(AppRadius.lg),
-                side: const BorderSide(color: AppColors.primaryMedium),
+                side: BorderSide(color: colors.rule),
               ),
               clipBehavior: Clip.antiAlias,
               child: InkWell(
@@ -572,8 +619,8 @@ class _HomeReadingSectionState extends ConsumerState<_HomeReadingSection> {
                       _HomeBookCover(
                         bookId: latest.id,
                         imageUrl: latest.coverImageUrl,
-                        width: 80,
-                        height: 108,
+                        width: 84,
+                        height: 116,
                       ),
                       const SizedBox(width: AppSpacing.md),
                       Expanded(
@@ -584,14 +631,17 @@ class _HomeReadingSectionState extends ConsumerState<_HomeReadingSection> {
                               latest.title,
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
-                              style: AppTextStyles.heading3,
+                              style: AppTextStyles.heading3.copyWith(
+                                color: colors.text,
+                                height: 1.25,
+                              ),
                             ),
                             const SizedBox(height: AppSpacing.md),
                             Row(
                               children: [
                                 Icon(
                                   Icons.auto_stories_rounded,
-                                  color: AppPalette.of(context).primary,
+                                  color: colors.accent,
                                   size: 20,
                                 ),
                                 const SizedBox(width: AppSpacing.sm),
@@ -601,7 +651,7 @@ class _HomeReadingSectionState extends ConsumerState<_HomeReadingSection> {
                                         ? l.homeContinueReading
                                         : l.homeReadBook,
                                     style: AppTextStyles.body.copyWith(
-                                      color: AppPalette.of(context).primary,
+                                      color: colors.accent,
                                       fontWeight: FontWeight.w700,
                                     ),
                                   ),
@@ -695,14 +745,11 @@ class _HomeBookCover extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = StorybookColors.of(context);
     final placeholder = Container(
-      color: AppPalette.of(context).primaryLight,
+      color: colors.tint,
       alignment: Alignment.center,
-      child: Icon(
-        Icons.auto_stories_outlined,
-        color: AppPalette.of(context).primary,
-        size: 32,
-      ),
+      child: Icon(Icons.auto_stories_outlined, color: colors.accent, size: 32),
     );
     return ExcludeSemantics(
       child: ClipRRect(
@@ -740,12 +787,12 @@ class _CreateBookCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
-    final palette = AppPalette.of(context);
+    final colors = StorybookColors.of(context);
     return Material(
-      color: palette.primaryLight,
+      color: colors.tint,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppRadius.xl),
-        side: BorderSide(color: palette.divider),
+        side: BorderSide(color: colors.rule),
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
@@ -755,7 +802,12 @@ class _CreateBookCard extends StatelessWidget {
           padding: const EdgeInsets.all(AppSpacing.md),
           child: Row(
             children: [
-              StorybookIllustration(width: compact ? 48 : 72),
+              CircleAvatar(
+                radius: compact ? 22 : 28,
+                backgroundColor: StorybookColors.ink,
+                foregroundColor: StorybookColors.moonlight,
+                child: const Icon(Icons.auto_stories_outlined),
+              ),
               const SizedBox(width: AppSpacing.md),
               Expanded(
                 child: Column(
@@ -764,7 +816,7 @@ class _CreateBookCard extends StatelessWidget {
                     Text(
                       l.homeCreateCardTitle,
                       style: AppTextStyles.heading3.copyWith(
-                        color: palette.textPrimary,
+                        color: colors.text,
                       ),
                     ),
                     if (!compact) ...[
@@ -772,7 +824,7 @@ class _CreateBookCard extends StatelessWidget {
                       Text(
                         trialOffer ?? l.homeCreateCardSubtitle,
                         style: AppTextStyles.bodySmall.copyWith(
-                          color: palette.textSecondary,
+                          color: colors.muted,
                         ),
                       ),
                     ],
@@ -780,7 +832,7 @@ class _CreateBookCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: AppSpacing.sm),
-              Icon(Icons.chevron_right_rounded, color: palette.primary),
+              Icon(Icons.chevron_right_rounded, color: colors.accent),
             ],
           ),
         ),
@@ -806,39 +858,31 @@ class _StreakSummaryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
     final recentDays = _recentDays(context, data.readDates);
+    final colors = StorybookColors.of(context);
 
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.lg),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: AppPalette.of(context).isDark
-              ? [
-                  AppPalette.of(context).primaryLight,
-                  AppPalette.of(context).surface,
-                ]
-              : const [Color(0xFFFFEDD5), Color(0xFFFFFBEB)],
+          colors: [colors.tint, colors.sheet],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(AppRadius.lg),
-        border: Border.all(
-          color: AppPalette.of(context).isDark
-              ? AppPalette.of(context).divider
-              : const Color(0xFFFED7AA),
-        ),
+        border: Border.all(color: colors.rule),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Text('🔥', style: TextStyle(fontSize: 24)),
+              Icon(Icons.bookmark_outline_rounded, color: colors.accent),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Text(
                   l.homeStreakDaysLabel(data.currentStreak),
-                  style: AppTextStyles.heading3,
+                  style: AppTextStyles.heading3.copyWith(color: colors.text),
                 ),
               ),
             ],
@@ -966,11 +1010,12 @@ class _TodayStoryPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
+    final colors = StorybookColors.of(context);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
-        color: AppPalette.of(context).surface,
+        color: colors.sheet,
         borderRadius: BorderRadius.circular(AppRadius.md),
       ),
       child: Column(
@@ -996,6 +1041,8 @@ class _TodayStoryPanel extends StatelessWidget {
                   : l.homeMakeTodayStory,
               onPressed: onTap,
               isLoading: isSubmitting,
+              backgroundColor: colors.accent,
+              foregroundColor: colors.onAccent,
               isFullWidth: false,
             ),
           ),

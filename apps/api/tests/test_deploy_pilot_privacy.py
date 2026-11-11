@@ -16,7 +16,8 @@ spec.loader.exec_module(m)
 
 
 @pytest.mark.parametrize("stages", itertools.product(range(3), repeat=2))
-def test_partial_swap_rollback(tmp_path, monkeypatch, stages):
+@pytest.mark.parametrize("staging_running", [False, True])
+def test_partial_swap_rollback(tmp_path, monkeypatch, stages, staging_running):
     monkeypatch.setattr(m, "STATE", tmp_path)
     monkeypatch.setattr(m, "MARKER", tmp_path / "rollback.json")
     monkeypatch.setattr(m, "BACKUP_STATE", tmp_path)
@@ -25,7 +26,8 @@ def test_partial_swap_rollback(tmp_path, monkeypatch, stages):
     state = {}
     for name, stage in zip((m.API, m.WORKER), stages):
         state[old[name]] = {"name": name if stage == 0 else m.OLD[name], "running": False}
-        state[new[name]] = {"name": name if stage == 2 else m.NEXT[name], "running": stage == 2}
+        state[new[name]] = {"name": name if stage == 2 else m.NEXT[name],
+                            "running": staging_running or stage == 2}
     m.MARKER.write_text(json.dumps({"version": 1, "old": old, "new": new}))
 
     def identify(value):

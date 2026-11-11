@@ -17,8 +17,11 @@ from src.core.config import settings
 from src.core.consent import _has_active_photo_consent, latest_active_consent
 from src.core.database import get_db
 from src.core.dependencies import get_user_key
+from src.core.exceptions import APIError
+from src.core.guardian_consent_version import GUARDIAN_EMAIL_PREFIX, guardian_consent_version
 from src.core.utils import utcnow
 from src.models.db import Book, Character, Job, StoragePurgeTask, UserConsent
+from src.routers.guardian_email import pending_approval, router as guardian_email_router
 from src.services.data_deletion import (
     collect_purgeable_image_keys,
     detach_series_from_characters,
@@ -43,6 +46,7 @@ from src.services.storage import (
 logger = structlog.get_logger()
 
 router = APIRouter()
+router.include_router(guardian_email_router)
 
 
 class ConsentGrantRequest(BaseModel):
@@ -66,6 +70,8 @@ class ConsentResponse(BaseModel):
     data_processing: bool
     consent_version: str
     revoked: bool
+    guardian_email_required: bool = False
+    photo_consent_previously_granted: bool = False
     # True includes failed, delayed and unknown statuses; it does not promise
     # that automatic retries are still available after their attempt limit.
     purge_incomplete: bool = Field(description=(
@@ -91,6 +97,7 @@ def _to_response(
             data_processing=False,
             consent_version=settings.consent_current_version,
             revoked=revoked,
+            guardian_email_required=settings.guardian_email_consent_enabled,
             purge_incomplete=purge_incomplete,
         )
     return ConsentResponse(
@@ -98,7 +105,9 @@ def _to_response(
         privacy=consent.privacy,
         photos=consent.photos,
         data_processing=consent.data_processing,
-        consent_version=consent.consent_version,
+        consent_version=(settings.consent_current_version
+                         if consent.consent_version.startswith(GUARDIAN_EMAIL_PREFIX)
+                         else consent.consent_version),
         revoked=consent.revoked_at is not None,
         purge_incomplete=purge_incomplete,
     )
@@ -141,9 +150,18 @@ async def grant_consent(
     항목 해제'의 의미가 이원화되고, 사용자가 사진 사용을 껐는데 얼굴은 그대로 남는다.
     """
     await lock_photo_account(db, user_key)
+    version = request.consent_version or settings.consent_current_version
+    if version.startswith(GUARDIAN_EMAIL_PREFIX):
+        raise APIError(422, "VALIDATION_ERROR", "유효한 동의 버전을 사용해주세요.")
+    if settings.guardian_email_consent_enabled and (request.privacy or request.data_processing or request.photos):
+        active = await latest_active_consent(db, user_key)
+        if active is None:
+            record = await pending_approval(db, user_key)
+            if not record or not record["approved"] or request.photos:
+                raise APIError(403, "GUARDIAN_EMAIL_REQUIRED", "보호자 이메일 동의를 먼저 확인해주세요.")
+        version = guardian_consent_version(user_key)
     journal_event = await prepare_transaction_event(db, user_key=user_key, action='consent_grant',
-        consent_state=ConsentState(request.privacy, request.photos, request.data_processing,
-                                   request.consent_version or settings.consent_current_version))
+        consent_state=ConsentState(request.privacy, request.photos, request.data_processing, version))
     # Also repair assets stranded by an earlier ineffective consent decision.
     photos_revoked = not (request.privacy and request.data_processing and request.photos)
 
@@ -158,7 +176,7 @@ async def grant_consent(
     )
     consent = UserConsent(
         user_key=user_key,
-        consent_version=request.consent_version or settings.consent_current_version,
+        consent_version=version,
         privacy=request.privacy,
         photos=request.photos,
         data_processing=request.data_processing,
@@ -214,6 +232,13 @@ async def get_consent(
     # photos 게이트는 'granted'와 독립으로 평가되므로(require_photo_consent와 동일 소스),
     # JIT 판단이 서버 집행과 어긋나지 않게 photos 필드를 게이트 기준으로 보정한다.
     resp.photos = await _has_active_photo_consent(db, user_key)
+    if settings.guardian_email_consent_enabled and active is None:
+        resp.photo_consent_previously_granted = bool(await db.scalar(
+            select(UserConsent.id).where(
+                UserConsent.user_key == user_key, UserConsent.revoked_at.is_(None),
+                UserConsent.granted.is_(True), UserConsent.photos.is_(True),
+            ).limit(1)
+        ))
     return resp
 
 
@@ -351,6 +376,14 @@ async def revoke_consent(
         )
         .values(revoked_at=utcnow(), granted=False)
     )
+    if settings.guardian_email_consent_enabled:
+        # A pending request can exist even when the account has never granted
+        # consent. Record a withdrawal boundary before permitting a new grant.
+        db.add(UserConsent(
+            user_key=user_key, consent_version=settings.consent_current_version,
+            privacy=False, photos=False, data_processing=False, granted=False,
+            revoked_at=utcnow(),
+        ))
 
     failed_keys = await purge_photo_derived_data(
         db, user_key, reason="consent_revoke"

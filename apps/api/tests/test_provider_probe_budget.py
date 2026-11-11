@@ -2,6 +2,7 @@ import importlib
 import importlib.util
 import json
 import sqlite3
+import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -74,13 +75,14 @@ def test_missing_or_insecure_ledger_fails_closed(ledger):
     ('quota_exhausted', 'REQUIRED'),
     ('credentials_rejected', 'UNAVAILABLE'),
 ])
-def test_refresh_can_recover_quota_before_observation_expires(monkeypatch, capsys, reason, expected):
+@pytest.mark.parametrize('image_model', ['gpt-image-2', 'gpt-image-2.6-flare'])
+def test_refresh_can_recover_quota_before_observation_expires(monkeypatch, capsys, reason, expected, image_model):
     monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[3] / 'scripts'))
     runner = importlib.import_module('run_pilot_provider_refresh')
     settings = SimpleNamespace(
         testing=False, provider_observation_ttl_seconds=86400,
         llm_provider='openai', llm_model='gpt-5.6-sol', image_provider='openai',
-        image_model='gpt-image-2', audio_feature_enabled=False,
+        image_model=image_model, audio_feature_enabled=False,
     )
     state = {'status': 'unavailable', 'observations': [
         {'kind': 'llm', 'reason': reason, 'status': 'unavailable'},
@@ -91,6 +93,34 @@ def test_refresh_can_recover_quota_before_observation_expires(monkeypatch, capsy
                         SimpleNamespace(provider_runtime_status=AsyncMock(return_value=state)))
     exec(runner._CHECK, {})
     assert capsys.readouterr().out.strip() == expected
+
+
+@pytest.mark.parametrize('slow_check_seconds', [30, 61])
+def test_observation_startup_has_a_bounded_budget_without_spending(monkeypatch, ledger, slow_check_seconds):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[3] / 'scripts'))
+    runner = importlib.import_module('run_pilot_provider_refresh')
+    identifier, image = 'a' * 64, 'sha256:' + 'b' * 64
+
+    def docker(*args, data=None, timeout=20):
+        if args[0] == 'inspect':
+            return json.dumps({'Id': identifier, 'Image': image, 'Name': '/asb-pilot-api',
+                               'Running': True}).encode()
+        assert data == runner._CHECK
+        assert timeout <= 60
+        if slow_check_seconds > timeout:
+            raise subprocess.TimeoutExpired('observation-check', timeout)
+        return b'FRESH_AUDIO\n'
+
+    claim = Mock(side_effect=AssertionError('fresh observations must not spend a claim'))
+    monkeypatch.setattr(runner, 'docker', docker)
+    monkeypatch.setattr(runner, 'claim', claim)
+    monkeypatch.setattr(runner, 'assert_no_narration_recovery', lambda: None)
+    if slow_check_seconds <= 60:
+        assert runner.refresh(image, ledger, ledger.parent, execute=True) == 'OBSERVATIONS_FRESH'
+    else:
+        with pytest.raises(subprocess.TimeoutExpired):
+            runner.refresh(image, ledger, ledger.parent, execute=True)
+    claim.assert_not_called()
 
 
 @pytest.mark.parametrize(('openai_age', 'expected'), [

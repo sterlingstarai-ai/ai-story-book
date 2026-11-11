@@ -1,0 +1,13 @@
+# Optional API-only mount. The file must be owned by the container's runtime
+# user and unreadable by group and others.
+services:
+  api:
+    environment:
+      GUARDIAN_EMAIL_SMTP_PASSWORD_FILE: /run/asb-guardian-mail.key
+    volumes:
+      - type: bind
+        source: ${GUARDIAN_EMAIL_SMTP_HOST_PASSWORD_FILE:?Set the absolute path to the private SMTP password file}
+        target: /run/asb-guardian-mail.key
+        read_only: true
+        bind:
+          create_host_path: false

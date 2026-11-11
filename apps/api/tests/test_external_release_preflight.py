@@ -138,11 +138,19 @@ def test_realtime_release_accepts_private_key_file_instead_of_raw_key(realtime_f
     assert any(error.startswith('OPENAI_TTS_API_KEY_FILE ') for error in invalid['invalid_configuration'])
 
 
-@pytest.mark.parametrize("model", ["dall-e-3", "gpt-image-unverified"])
+@pytest.mark.parametrize("model", ["dall-e-3", "gpt-image-unverified", "gpt-image-2.6-flare"])
 def test_free_beta_rejects_openai_image_models_without_documented_zdr_support(realtime_free_beta, model):
     result = preflight.assess({**realtime_free_beta, "IMAGE_MODEL": model}, free_beta=True)
     assert result["status"] == "BLOCKED"
     assert any(error.startswith("IMAGE_MODEL (OpenAI image model") for error in result["invalid_configuration"])
+
+
+def test_free_beta_checks_the_repair_model_for_zdr_separately(realtime_free_beta, monkeypatch):
+    monkeypatch.setattr(preflight, "OPENAI_ZDR_IMAGE_MODELS", preflight.OPENAI_ZDR_IMAGE_MODELS | {"gpt-image-2.6-flare"})
+    result = preflight.assess({**realtime_free_beta, "IMAGE_MODEL": "gpt-image-2.6-flare",
+                               "OPENAI_ILLUSTRATION_REPAIR_MODEL": "gpt-image-2.6-sunburst"}, free_beta=True)
+    assert result["status"] == "BLOCKED"
+    assert any(error.startswith("OPENAI_ILLUSTRATION_REPAIR_MODEL ") for error in result["invalid_configuration"])
 
 
 def test_project_zdr_evidence_includes_text_and_images_with_audio_and_photos_disabled(configured):
@@ -353,6 +361,10 @@ def test_explicit_openai_image_quality_is_valid_configuration(configured, qualit
     {"version_label": "버전 2026-09-07 · 시행일 2026-09-06"},
     {"version_label": "2026-09-07 검토본 · 시행일은 공개 시 확정"},
     {"introduction": "현재 공개 전 검토본입니다."},
+    {"sections": [{"heading": "외부 처리와 국외 이전", "paragraphs": [
+        "공개 전 확정 항목은 실제 처리 업체와 문의처입니다."]}]},
+    {"sections": [{"heading": "보관과 삭제", "paragraphs": [
+        "공개본에 보존 대상·근거·기간과 백업 만료 기준을 명시합니다."]}]},
     {"effective_date": "2026-09-08", "version_label": "시행일 2026-09-08"},
 ])
 def test_bundled_policy_release_gate_requires_both_complete_documents(tmp_path, change):

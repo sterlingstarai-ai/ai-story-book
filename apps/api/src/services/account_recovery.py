@@ -5,20 +5,25 @@ identity must never fall back to authenticating that identifier after rotation.
 """
 
 import hashlib
+import hmac
 import re
 import secrets
 from datetime import datetime
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.config import settings
+from src.core.consent import latest_active_consent
 from src.core.exceptions import APIError, AuthorizationError
+from src.core.generation_access import generation_access_allowed, generation_invitation_supported
 from src.core.utils import utcnow
-from src.models.db import AccountIdentity
+from src.models.db import AccountIdentity, PrivacyJournalOutbox
 from src.services.privacy_journal import CredentialState
 from src.services.privacy_journal_transaction import (
-    journal_attached, lock_account_before_credential_change, prepare_transaction_event, publish_committed_event,
+    guardian_consent_published, journal_attached, lock_account_before_credential_change,
+    prepare_transaction_event, publish_committed_event,
 )
 
 DEVICE_KEY_PATTERN = r"^asb_device_[A-Za-z0-9_-]{43}$"
@@ -27,6 +32,9 @@ _DEVICE_KEY_RE = re.compile(DEVICE_KEY_PATTERN)
 _LEGACY_KEY_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
     re.IGNORECASE,
+)
+_STORE_REVIEW_LOCK = int.from_bytes(
+    hashlib.sha256(b"storybook:store-review-enrollment:v1").digest()[:8], "big", signed=True
 )
 
 
@@ -123,6 +131,11 @@ async def recover_account(
     old_hash = credential_hash(recovery_code, kind="recovery")
     next_device_hash = credential_hash(new_user_key, kind="device")
     invalid = APIError(401, "RECOVERY_CODE_INVALID", "복구 코드를 확인해주세요.")
+    review_pass = settings.store_review_pass_hash
+    if re.fullmatch(r"[0-9a-f]{64}", review_pass) and hmac.compare_digest(
+        credential_hash(recovery_code, kind="store-review"), review_pass
+    ):
+        return await _claim_store_review_slot(db, next_device_hash, invalid)
     if journal_attached(db):
         # Find only the lock key first, then repeat the authoritative lookup
         # after acquiring the same lock used by account deletion.
@@ -191,6 +204,93 @@ async def recover_account(
         await db.rollback()
         raise invalid from None
     return code, now
+
+
+async def _claim_store_review_slot(
+    db: AsyncSession, device_hash: str, invalid: APIError
+) -> tuple[str | None, datetime]:
+    """Give each reviewer a reserved, separate account through the existing client."""
+    slots = settings.store_review_account_slots.split(",")
+    if (
+        not journal_attached(db)
+        or not generation_invitation_supported()
+        or not 1 <= len(slots) <= 32
+        or len(slots) != len(set(slots))
+        or not all(_LEGACY_KEY_RE.fullmatch(slot) and generation_access_allowed(slot) for slot in slots)
+    ):
+        raise invalid
+
+    if db.get_bind().dialect.name == "postgresql":
+        # A stable lock serializes slot assignment across API replicas. Ordinary
+        # account recovery retains its existing per-account locking.
+        await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": _STORE_REVIEW_LOCK})
+    identity = await db.scalar(
+        select(AccountIdentity).where(AccountIdentity.device_key_hash == device_hash)
+    )
+    if identity is not None:
+        if (
+            identity.user_key not in slots
+            or identity.deleted
+            or identity.recovery_code_created_at is None
+        ):
+            raise invalid
+        return None, identity.recovery_code_created_at
+
+    # Previous review devices remain barred even after their active hash was
+    # rotated. The existing restore path replays this same credential history.
+    if await db.scalar(
+        select(PrivacyJournalOutbox.event_id)
+        .where(
+            PrivacyJournalOutbox.user_key.in_(slots),
+            PrivacyJournalOutbox.action == "credential_revoke",
+            PrivacyJournalOutbox.credential_state["device_hash"].as_string() == device_hash,
+        )
+        .limit(1)
+    ):
+        raise invalid
+    code = "ASB-R1-" + secrets.token_urlsafe(32)
+    code_hash = credential_hash(code, kind="recovery")
+    now = utcnow()
+    try:
+        for slot in sorted(slots):
+            try:
+                await lock_account_before_credential_change(db, slot)
+            except AuthorizationError:
+                continue
+            if settings.guardian_email_consent_enabled:
+                consent = await latest_active_consent(db, slot)
+                if consent is None or not await guardian_consent_published(db, consent):
+                    continue
+            result = await db.execute(
+                update(AccountIdentity)
+                .where(
+                    AccountIdentity.user_key == slot,
+                    AccountIdentity.deleted.is_(False),
+                    AccountIdentity.device_key_hash == credential_hash(
+                        slot, kind="store-review-reservation"
+                    ),
+                    AccountIdentity.recovery_code_hash.is_(None),
+                    AccountIdentity.previous_recovery_code_hash.is_(None),
+                    AccountIdentity.recovery_code_created_at.is_(None),
+                )
+                .values(
+                    device_key_hash=device_hash,
+                    recovery_code_hash=code_hash,
+                    recovery_code_created_at=now,
+                    updated_at=now,
+                )
+            )
+            if result.rowcount == 1:
+                event = await prepare_transaction_event(
+                    db, user_key=slot, action="credential_revoke",
+                    credential_state=CredentialState(device_hash, code_hash, None, now),
+                )
+                await db.commit()
+                await publish_committed_event(db, event)
+                return code, now
+    except IntegrityError:
+        await db.rollback()
+    raise invalid
 
 
 async def revoke_deleted_account(db: AsyncSession, user_key: str, credential: str) -> None:

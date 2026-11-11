@@ -6655,6 +6655,54 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Could not play the preview.'**
   String get settingsNarrationPreviewError;
+
+  /// No description provided for @guardianEmailTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm guardian consent'**
+  String get guardianEmailTitle;
+
+  /// No description provided for @guardianEmailIntro.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a guardian email address to receive the consent notice.'**
+  String get guardianEmailIntro;
+
+  /// No description provided for @guardianEmailPending.
+  ///
+  /// In en, this message translates to:
+  /// **'Open the email link to give consent, then return to the app.'**
+  String get guardianEmailPending;
+
+  /// No description provided for @guardianEmailAddress.
+  ///
+  /// In en, this message translates to:
+  /// **'Guardian email'**
+  String get guardianEmailAddress;
+
+  /// No description provided for @guardianEmailSend.
+  ///
+  /// In en, this message translates to:
+  /// **'Send confirmation email'**
+  String get guardianEmailSend;
+
+  /// No description provided for @guardianEmailCheck.
+  ///
+  /// In en, this message translates to:
+  /// **'Check consent'**
+  String get guardianEmailCheck;
+
+  /// No description provided for @guardianEmailChange.
+  ///
+  /// In en, this message translates to:
+  /// **'Use a different email'**
+  String get guardianEmailChange;
+
+  /// No description provided for @guardianEmailError.
+  ///
+  /// In en, this message translates to:
+  /// **'Check the email address and your connection, then try again.'**
+  String get guardianEmailError;
 }
 
 class _AppLocalizationsDelegate

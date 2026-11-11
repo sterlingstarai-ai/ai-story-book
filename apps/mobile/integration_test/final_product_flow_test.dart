@@ -89,6 +89,7 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   const baseUrl = String.fromEnvironment('FINAL_E2E_LOCAL_API');
   const trialOwner = String.fromEnvironment('FINAL_E2E_TRIAL_OWNER');
+  const archiveTitle = String.fromEnvironment('FINAL_E2E_ARCHIVE_TITLE');
   const firstBookTrial = trialOwner != '';
   testWidgets(
     'full local HTTP journey: consent, profile, twelve pages, report, library and settings',
@@ -333,23 +334,28 @@ void main() {
         }
         await tester.enterText(
           find.byType(TextFormField).first,
-          '친구와 함께 작은 정원에 꽃을 피우는 이야기',
+          archiveTitle.isEmpty
+              ? '친구와 함께 작은 정원에 꽃을 피우는 이야기'
+              : archiveTitle,
         );
         FocusManager.instance.primaryFocus?.unfocus();
         await tester.pumpAndSettle();
-        final protagonist = find.byWidgetPredicate(
-          (w) =>
-              w is TextField && w.decoration?.hintText == l.createChildNameHint,
-        );
-        await tester.scrollUntilVisible(
-          protagonist,
-          200,
-          scrollable: find.byType(Scrollable).first,
-        );
-        await tester.ensureVisible(protagonist);
-        await tester.enterText(protagonist, readerName);
-        FocusManager.instance.primaryFocus?.unfocus();
-        await tester.pump(const Duration(milliseconds: 300));
+        // Archive replay requires the original topic and no character override.
+        if (archiveTitle.isEmpty) {
+          final protagonist = find.byWidgetPredicate(
+            (w) =>
+                w is TextField && w.decoration?.hintText == l.createChildNameHint,
+          );
+          await tester.scrollUntilVisible(
+            protagonist,
+            200,
+            scrollable: find.byType(Scrollable).first,
+          );
+          await tester.ensureVisible(protagonist);
+          await tester.enterText(protagonist, readerName);
+          FocusManager.instance.primaryFocus?.unfocus();
+          await tester.pump(const Duration(milliseconds: 300));
+        }
 
         await shot('05-create');
         await tap(find.byType(PrimaryButton));
@@ -380,6 +386,9 @@ void main() {
         final scoped = container.read(apiClientProvider);
         final library = await scoped.getLibrary();
         expect(library.books.length, 1);
+        if (archiveTitle.isNotEmpty) {
+          expect(library.books.single.title, archiveTitle);
+        }
         if (firstBookTrial) {
           expect(library.books.single.targetAge, '7-9');
           expect(await cleanup.getCreditsBalance(), 0);

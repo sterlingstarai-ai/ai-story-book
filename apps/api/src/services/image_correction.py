@@ -50,6 +50,7 @@ class ImageCorrection:
     previous_page_text: str = ""
     next_page_text: str = ""
     use_prompt_action_focus: bool = False
+    review_repair: bool = False
 
 
 _correction: ContextVar[ImageCorrection | None] = ContextVar("image_correction", default=None)
@@ -58,7 +59,7 @@ _correction: ContextVar[ImageCorrection | None] = ContextVar("image_correction",
 @contextmanager
 def image_correction_scope(*, page_text: str, issues: list[str], source_image_url: str | None = None,
                            previous_page_text: str = "", next_page_text: str = "",
-                           use_prompt_action_focus: bool = False):
+                           use_prompt_action_focus: bool = False, review_repair: bool = False):
     """Accept finite issue codes, never reviewer-authored repair instructions."""
     if not page_text.strip() or not issues or any(i not in CORRECTION_INSTRUCTIONS for i in issues):
         raise ImageError(ErrorCode.IMAGE_QUALITY_FAILED, "삽화 교정 입력이 유효하지 않습니다.")
@@ -66,7 +67,7 @@ def image_correction_scope(*, page_text: str, issues: list[str], source_image_ur
         raise ImageError(ErrorCode.IMAGE_QUALITY_FAILED, "삽화 교정 참조가 유효하지 않습니다.")
     token = _correction.set(ImageCorrection(
         page_text, tuple(dict.fromkeys(issues)), source_image_url, previous_page_text, next_page_text,
-        use_prompt_action_focus,
+        use_prompt_action_focus, review_repair,
     ))
     try:
         yield
@@ -91,6 +92,11 @@ def image_correction_active() -> bool:
     return _correction.get() is not None
 
 
+def review_image_repair_active() -> bool:
+    context = _correction.get()
+    return context is not None and context.review_repair
+
+
 def _prompt_action_focus(positive_prompt: str) -> str:
     first_line, separator, brief = positive_prompt.partition("\n")
     if not separator or not brief.strip() or not first_line.startswith(ACTION_FOCUS_PREFIX):
@@ -102,6 +108,9 @@ def _prompt_action_focus(positive_prompt: str) -> str:
 def _prompt_cast_details(positive_prompt: str) -> str:
     first, _, remaining = positive_prompt.partition("\n")
     line, separator, scene = remaining.partition("\n")
+    # Older prompts could place the cast count directly below ACTION FOCUS.
+    if line.startswith("Visible cast: "):
+        line, separator, scene = scene.partition("\n")
     if not first.startswith(ACTION_FOCUS_PREFIX) or not separator or not scene.strip():
         return ""
     if not line.startswith(CAST_DETAILS_PREFIX):
@@ -127,7 +136,12 @@ def provider_prompt_with_correction(prompt: ImagePrompt, *, use_cast_looks: bool
         else:
             visual_details = cast_looks if has_cast_looks else f"COMPATIBLE BRIEF: {prompt.positive_prompt}"
         focus = _prompt_action_focus(prompt.positive_prompt) if (details or has_cast_looks) and context.use_prompt_action_focus else ""
-        focus_line = f"ACTION FOCUS (only if supported by the current narrative): {focus}\n" if focus else ""
+        focus_line = (
+            f"ACTION FOCUS (only if supported by the current narrative): {focus}\n"
+            "Show that one moment. Omit actions and props from other moments on this page. "
+            "Keep each observer's hands empty when the focus calls for it.\n"
+            if focus else ""
+        )
         positive = (
             f"CURRENT PAGE NARRATIVE: {narrative}\n"
             f"{focus_line}"

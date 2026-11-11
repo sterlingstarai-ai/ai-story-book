@@ -15,7 +15,7 @@ import uuid
 
 
 @contextmanager
-def _provider_request_budget():
+def _provider_request_budget(image_model='gpt-image-2'):
     """Enforce a single request for each pinned model, including retries."""
     import httpx
     original = httpx.AsyncClient.send
@@ -28,7 +28,7 @@ def _provider_request_budget():
         if endpoint == 'https://api.openai.com/v1/responses':
             kind, model = 'text', 'gpt-5.6-sol'
         elif endpoint == 'https://api.openai.com/v1/images/generations':
-            kind, model = 'image', 'gpt-image-2'
+            kind, model = 'image', image_model
         else:
             raise RuntimeError('Unexpected provider endpoint')
         body = json.loads(request.content)
@@ -59,14 +59,14 @@ async def probe_inside():
     # Fixed provider/model selection bounds this probe's possible cost. It must
     # not silently succeed against a mock or another more expensive model.
     if (settings.llm_provider != 'openai' or settings.llm_model != 'gpt-5.6-sol'
-            or settings.image_provider != 'openai' or settings.image_model != 'gpt-image-2'):
+            or settings.image_provider != 'openai' or settings.image_model not in {'gpt-image-2', 'gpt-image-2.6-flare'}):
         return False
     prefix = f'provider-cutover-check/{uuid.uuid4().hex}/'
     image_attempted = False
     success = False
     cleanup_ok = True
     try:
-        with _provider_request_budget() as counts:
+        with _provider_request_budget(settings.image_model) as counts:
             text = await call_llm('Return a JSON object only.', 'Return exactly {"ok": true}.', max_tokens=64)
             parsed = json.loads(text)
             if counts['text'] != 1 or type(parsed) is not dict or parsed != {'ok': True}:

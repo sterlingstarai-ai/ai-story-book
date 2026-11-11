@@ -285,7 +285,7 @@ void main() {
         matching: find.byWidgetPredicate(
           (widget) =>
               widget is ColoredBox &&
-              widget.color == const AppPalette(true).background,
+              widget.color == const StorybookColors(true).paper,
         ),
       ),
       findsOneWidget,
@@ -508,7 +508,8 @@ void main() {
 
   testWidgets('오디오 미지원 배포에서는 낭독 버튼이 숨겨진다 (H1/G9)', (tester) async {
     await _pumpViewer(tester, audioSupported: false);
-    expect(find.byIcon(Icons.volume_up), findsNothing);
+    final l = AppLocalizations.of(tester.element(find.byType(ViewerScreen)));
+    expect(find.byTooltip(l.viewerPlayAudioTooltip), findsNothing);
     await tester.tap(find.byIcon(Icons.more_vert));
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.byIcon(Icons.hearing), findsNothing);
@@ -540,7 +541,6 @@ void main() {
 
   testWidgets('오디오 지원 배포에서는 낭독 버튼이 노출된다 (과잉 차단 방지)', (tester) async {
     await _pumpViewer(tester, audioSupported: true);
-    expect(find.byIcon(Icons.volume_up), findsOneWidget);
     final l = AppLocalizations.of(tester.element(find.byType(ViewerScreen)));
     expect(find.byTooltip(l.viewerPlayAudioTooltip), findsOneWidget);
     await _teardownViewer(tester);
@@ -593,7 +593,8 @@ void main() {
 
   testWidgets('낭독만 지원하면 낭독은 보이고 발음 연습은 숨긴다', (tester) async {
     await _pumpViewer(tester, audioSupported: false, narrationSupported: true);
-    expect(find.byIcon(Icons.volume_up), findsOneWidget);
+    final l = AppLocalizations.of(tester.element(find.byType(ViewerScreen)));
+    expect(find.byTooltip(l.viewerPlayAudioTooltip), findsOneWidget);
     await tester.tap(find.byIcon(Icons.more_vert));
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.byIcon(Icons.record_voice_over_outlined), findsNothing);
@@ -602,7 +603,8 @@ void main() {
 
   testWidgets('낭독이 명시적으로 비활성이면 기존 오디오 플래그보다 우선한다', (tester) async {
     await _pumpViewer(tester, audioSupported: true, narrationSupported: false);
-    expect(find.byIcon(Icons.volume_up), findsNothing);
+    final l = AppLocalizations.of(tester.element(find.byType(ViewerScreen)));
+    expect(find.byTooltip(l.viewerPlayAudioTooltip), findsNothing);
     await _teardownViewer(tester);
   });
 }

@@ -1,18 +1,23 @@
 """Account continuity, one-time rotation, erasure and anonymous attack boundaries."""
 
 import secrets
+import uuid
 from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import delete, select
 
+from src.core.config import settings
 from src.core.exceptions import APIError
+from src.core.generation_access import generation_identity_hash
 from src.core.logging import redact_log_data
 from src.core.rate_limit import rate_limiter
 from src.core.utils import utcnow
 from src.models.db import AccountIdentity, Book, ChildProfile, UserConsent, UserSettings
 from src.services.account_recovery import credential_hash, issue_recovery_code, revoke_deleted_account
+from src.services.privacy_journal import PrivacyJournal
 from tests.factories import make_book_rows
+from tests.test_privacy_journal_outbox import FakeStore
 
 pytestmark = pytest.mark.asyncio
 
@@ -100,6 +105,59 @@ async def test_lost_response_can_retry_exact_pending_device_but_not_another_devi
 async def test_unknown_modern_device_never_bootstraps_legacy_account(client):
     response = await client.get("/v1/account/session", headers={"X-User-Key": next_device()})
     assert response.status_code == 401
+
+
+async def test_store_review_pass_claims_only_reserved_private_slots(
+    client, headers, user_key, db_session, monkeypatch
+):
+    slots = [str(uuid.uuid4()) for _ in range(3)]
+    journal = PrivacyJournal(FakeStore(), b"k" * 32)
+    # A configured ordinary account must never become a claimable slot.
+    db_session.add(AccountIdentity(user_key=user_key))
+    db_session.add_all(make_book_rows([("ordinary-private-book", user_key)]))
+    db_session.add_all(
+        AccountIdentity(
+            user_key=slot,
+            device_key_hash=credential_hash(slot, kind="store-review-reservation"),
+        ) for slot in slots[:2]
+    )
+    await db_session.commit()
+    passcode = "ASB-R1-" + secrets.token_urlsafe(32)
+    monkeypatch.setattr(settings, "generation_access_mode", "invite_only")
+    monkeypatch.setattr(settings, "free_plan_first_book_trial", True)
+    monkeypatch.setattr(settings, "generation_allowed_user_hashes", ",".join(
+        generation_identity_hash(key) for key in [user_key, *slots]
+    ))
+    monkeypatch.setattr(settings, "store_review_account_slots", ",".join([user_key, *slots]))
+    monkeypatch.setattr(settings, "store_review_pass_hash", credential_hash(passcode, kind="store-review"))
+
+    assert (await client.get("/v1/account/session", headers={"X-User-Key": slots[0]})).status_code == 401
+    assert (await recover(client, passcode))[0].status_code == 401
+    db_session.info["privacy_journal"] = journal
+    first, first_device = await recover(client, passcode)
+    second, second_device = await recover(client, passcode)
+    assert first.status_code == second.status_code == 200
+    assert first.json()["recovery_code"] != second.json()["recovery_code"]
+    for device in (first_device, second_device):
+        library = await client.get("/v1/library", headers=device)
+        assert library.status_code == 200
+        assert "ordinary-private-book" not in library.text
+    first_retry, _ = await recover(client, passcode, first_device["X-User-Key"])
+    assert first_retry.status_code == 200
+    assert first_retry.json()["recovery_code"] is None
+    assert (await recover(client, passcode))[0].status_code == 401
+    assert (await recover(client, first.json()["recovery_code"]))[0].status_code == 200
+    db_session.add(AccountIdentity(
+        user_key=slots[-1],
+        device_key_hash=credential_hash(slots[-1], kind="store-review-reservation"),
+    ))
+    await db_session.commit()
+    assert (await recover(client, passcode, first_device["X-User-Key"]))[0].status_code == 401
+    assert (await client.get("/v1/account/session", headers=second_device)).status_code == 200
+
+    monkeypatch.setattr(settings, "generation_access_mode", "paused")
+    assert (await recover(client, passcode, second_device["X-User-Key"]))[0].status_code == 401
+    assert (await client.get("/v1/account/session", headers=second_device)).status_code == 200
 
 
 async def test_previously_authorized_old_device_cannot_rotate_backup_after_recovery(

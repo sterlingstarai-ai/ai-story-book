@@ -2076,5 +2076,13 @@
         "type": "String"
       }
     }
-  }
+  },
+  "guardianEmailTitle": "Confirm guardian consent",
+  "guardianEmailIntro": "Enter a guardian email address to receive the consent notice.",
+  "guardianEmailPending": "Open the email link to give consent, then return to the app.",
+  "guardianEmailAddress": "Guardian email",
+  "guardianEmailSend": "Send confirmation email",
+  "guardianEmailCheck": "Check consent",
+  "guardianEmailChange": "Use a different email",
+  "guardianEmailError": "Check the email address and your connection, then try again."
 }

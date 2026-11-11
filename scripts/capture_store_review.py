@@ -19,6 +19,7 @@ from threading import Lock
 from PIL import Image
 
 SIZES = {"iphone-69": {(1260, 2736), (1290, 2796), (1320, 2868)},
+         "iphone-dynamic-medium": {(1179, 2556), (1206, 2622)},
          "ipad-13": {(2064, 2752), (2048, 2732)}}
 ROOT = Path(__file__).resolve().parents[1]
 

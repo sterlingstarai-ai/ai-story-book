@@ -1,0 +1,9 @@
+[Unit]
+Description=Run AI Story Book local backup expiry daily
+
+[Timer]
+OnCalendar=*-*-* 21:10:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

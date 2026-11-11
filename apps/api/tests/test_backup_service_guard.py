@@ -238,7 +238,7 @@ def test_unexpected_worker_response_does_not_prove_recovery(guard_module, monkey
         clock += seconds
 
     def run(command, *, timeout):
-        assert 0 < timeout <= 8
+        assert 0 < timeout <= (30 if command[1] == 'asb-pilot-worker' else 8)
         if command[0] == 'inspect':
             return 'expected-worker'
         if command[1] == 'asb-pilot-nginx':
@@ -251,6 +251,12 @@ def test_unexpected_worker_response_does_not_prove_recovery(guard_module, monkey
     with pytest.raises(guard_module.GuardError, match='expected worker did not respond'):
         runtime.verify_recovery()
     assert clock == 30
+
+
+@pytest.mark.parametrize('timeout', [0, 301, True])
+def test_invalid_container_startup_budget_is_rejected(guard_module, timeout):
+    with pytest.raises(ValueError, match='startup budget'):
+        guard_module.DockerRuntime(startup_timeout_seconds=timeout)
 
 
 @pytest.mark.parametrize(('new_worker', 'route_live'), [(True, True), (False, True), (True, False)])
@@ -303,9 +309,8 @@ def test_proxy_reload_requires_new_workers_and_a_live_route(guard_module, monkey
 ])
 def test_proxy_liveness_probe_verifies_tls_route_and_response(guard_module, monkeypatch, response, expected):
     def run(command, **options):
-        origin = guard_module._PILOT_HTTPS_IP
-        assert command[-1] == f'https://{origin}/health/live'
-        assert command[command.index('--connect-to') + 1] == f'{origin}:443:127.0.0.1:443'
+        assert command[-1] == f'{guard_module._PILOT_API_ORIGIN}/health/live'
+        assert '--connect-to' not in command
         assert not {'-k', '--insecure', '-L', '--location'}.intersection(command)
         assert options['timeout'] == 2.0
         if response is None:

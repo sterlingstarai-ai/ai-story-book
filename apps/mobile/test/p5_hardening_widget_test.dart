@@ -201,6 +201,14 @@ class _InteractiveMockApiClient extends ApiClient {
       Map<String, dynamic>.from(_settingsPayload);
 
   @override
+  Future<Map<String, dynamic>> getConsent() async => {
+    'granted': false,
+    'photos': false,
+    'revoked': false,
+    'guardian_email_required': false,
+  };
+
+  @override
   Future<Map<String, dynamic>> grantConsent({
     required bool privacy,
     required bool photos,

@@ -334,7 +334,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     final bookAsync = ref.watch(bookDetailProvider(widget.bookId));
 
     final reader = Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: StorybookColors.ink,
       bottomNavigationBar: _showControls
           ? bookAsync.maybeWhen(
               data: (book) => _buildControls(book, book.pages.length + 1),
@@ -830,9 +830,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
 
   Widget _buildControls(BookResult book, int totalPages) {
     final l = AppLocalizations.of(context);
-    final palette = _sleepModeEnabled
-        ? const AppPalette(true)
-        : AppPalette.of(context);
+    final colors = StorybookColors(
+      _sleepModeEnabled || AppPalette.of(context).isDark || _currentPage == 0,
+    );
     final audioOk = narrationSupported(
       ref.watch(capabilitiesProvider).valueOrNull,
     );
@@ -846,21 +846,22 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     final buttonStyle = IconButton.styleFrom(
       minimumSize: const Size.square(AppSizing.minTouchTarget),
       padding: EdgeInsets.zero,
-      foregroundColor: palette.textPrimary,
+      foregroundColor: colors.text,
     );
     final metaStyle = AppTextStyles.caption.copyWith(
-      color: palette.textSecondary,
+      color: colors.muted,
+      fontWeight: FontWeight.w600,
     );
 
     return ColoredBox(
       key: const Key('viewer_bottom_controls'),
-      color: palette.surface,
+      color: colors.sheet,
       child: SafeArea(
         top: false,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Divider(height: 1, color: palette.divider),
+            Divider(height: 1, color: colors.rule),
             Padding(
               padding: const EdgeInsets.only(top: AppSpacing.xs),
               child: Wrap(
@@ -913,6 +914,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                           minimumSize: const Size.square(
                             AppSizing.minTouchTarget,
                           ),
+                          foregroundColor: colors.accent,
                           padding: const EdgeInsets.symmetric(
                             horizontal: AppSpacing.xs,
                           ),
@@ -935,24 +937,26 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                           : () => _toggleAudio(book),
                       icon: DecoratedBox(
                         decoration: BoxDecoration(
-                          color: palette.primaryLight,
+                          color: colors.tint,
                           shape: BoxShape.circle,
                         ),
                         child: SizedBox.square(
-                          dimension: 38,
+                          dimension: 42,
                           child: Center(
                             child: _isLoadingAudio
                                 ? SizedBox.square(
                                     dimension: 18,
                                     child: CircularProgressIndicator(
                                       strokeWidth: 2,
-                                      color: palette.primary,
+                                      color: colors.accent,
                                     ),
                                   )
                                 : Icon(
-                                    _isPlaying ? Icons.pause : Icons.volume_up,
+                                    _isPlaying
+                                        ? Icons.pause_rounded
+                                        : Icons.play_arrow_rounded,
                                     size: iconSize,
-                                    color: palette.primary,
+                                    color: colors.accent,
                                   ),
                           ),
                         ),
@@ -2790,87 +2794,86 @@ class _CoverPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: onTap,
       excludeFromSemantics: true,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Semantics(
-            container: true,
-            label: l.viewerCoverImageSemantics(title),
-            hint: controlsHint,
-            image: true,
-            button: true,
-            onTap: onTap,
-            child: imageUrl.trim().isEmpty
-                ? Container(
-                    color: AppColors.primary,
-                    child: const Icon(
-                      Icons.auto_stories_rounded,
-                      color: Colors.white,
-                      size: 64,
-                    ),
-                  )
-                : ScopedBookImage(
-                    bookId: bookId,
-                    imageUrl: imageUrl,
-                    onSignedUrlRejected: onSignedUrlRejected,
-                    onRetrySignedUrl: onRetrySignedUrl,
-                    fit: BoxFit.contain,
-                    placeholder: const Center(
-                      child: CircularProgressIndicator(color: Colors.white),
-                    ),
-                    error: Container(
-                      color: AppColors.primary,
-                      child: const Icon(
-                        Icons.broken_image,
-                        color: Colors.white,
-                        size: 64,
+      child: SafeArea(
+        bottom: false,
+        child: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 540),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SizedBox(
+                      height: (constraints.maxHeight * 0.68).clamp(
+                        150.0,
+                        560.0,
+                      ),
+                      child: Semantics(
+                        container: true,
+                        label: l.viewerCoverImageSemantics(title),
+                        hint: controlsHint,
+                        image: true,
+                        button: true,
+                        onTap: onTap,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF193D40),
+                            borderRadius: BorderRadius.circular(AppRadius.lg),
+                            border: Border.all(color: const Color(0xFF40635D)),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(AppSpacing.sm),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(AppRadius.md),
+                              child: imageUrl.trim().isEmpty
+                                  ? const Icon(
+                                      Icons.auto_stories_outlined,
+                                      color: StorybookColors.moonlight,
+                                      size: 64,
+                                    )
+                                  : ScopedBookImage(
+                                      bookId: bookId,
+                                      imageUrl: imageUrl,
+                                      onSignedUrlRejected: onSignedUrlRejected,
+                                      onRetrySignedUrl: onRetrySignedUrl,
+                                      fit: BoxFit.contain,
+                                      placeholder: const Center(
+                                        child: CircularProgressIndicator(
+                                          color: StorybookColors.moonlight,
+                                        ),
+                                      ),
+                                      error: const Icon(
+                                        Icons.broken_image_outlined,
+                                        color: StorybookColors.onInk,
+                                        size: 48,
+                                      ),
+                                    ),
+                            ),
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-          ),
-          const IgnorePointer(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Colors.transparent, AppColors.blackOverlayStrong],
+                    const SizedBox(height: AppSpacing.lg),
+                    Text(
+                      title,
+                      style: AppTextStyles.heading1.copyWith(
+                        fontSize: 32,
+                        height: 1.18,
+                        color: StorybookColors.onInk,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
                 ),
               ),
             ),
           ),
-          Positioned(
-            left: AppSpacing.lg,
-            right: AppSpacing.lg,
-            bottom: MediaQuery.paddingOf(context).bottom + AppSpacing.xl,
-            child: Text(
-              title,
-              // 표지 제목만 삽화 위에 겹쳐 그린다. 시스템 글자 크기를 그대로 곱하면
-              // 접근성 크기에서 세 줄로 불어나 인물과 그림을 통째로 덮었다(스크롤도 없음).
-              // 본문 글자 크기는 그대로 두고, 이 겹치는 제목만 배율과 줄 수를 제한한다.
-              textScaler: TextScaler.linear(
-                MediaQuery.textScalerOf(context).scale(1.0).clamp(1.0, 1.3),
-              ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-                shadows: [
-                  Shadow(
-                    offset: Offset(0, 2),
-                    blurRadius: 8,
-                    color: Colors.black54,
-                  ),
-                ],
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -2922,10 +2925,10 @@ class _ContentPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
     final hasLearning = page.hasLearningContent;
-    final palette = AppPalette(sleepMode || AppPalette.of(context).isDark);
+    final colors = StorybookColors(sleepMode || AppPalette.of(context).isDark);
 
     return ColoredBox(
-      color: palette.background,
+      color: colors.paper,
       child: Column(
         children: [
           SizedBox(height: MediaQuery.paddingOf(context).top),
@@ -2935,115 +2938,143 @@ class _ContentPage extends StatelessWidget {
                 return _ReaderPageScroll(
                   key: ValueKey(pageNumber),
                   pageNumber: pageNumber,
-                  thumbColor: palette.textSecondary.withValues(alpha: 0.6),
+                  thumbColor: colors.muted.withValues(alpha: 0.6),
                   child: Column(
                     children: [
-                      SizedBox(
-                        height: max(
-                          160.0,
-                          constraints.maxHeight *
-                              (onComplete == null ? 0.6 : 0.45),
-                        ),
-                        child: GestureDetector(
-                          onTap: onIllustrationTap,
-                          excludeFromSemantics: true,
-                          child: Semantics(
-                            container: true,
-                            label: l.viewerPageImageSemantics(pageNumber),
-                            hint: controlsHint,
-                            image: true,
-                            button: true,
-                            onTap: onIllustrationTap,
-                            child: imageUrl.trim().isEmpty
-                                ? Container(
-                                    width: double.infinity,
-                                    color: AppColors.divider,
-                                    child: const Icon(
-                                      Icons.image_outlined,
-                                      size: 64,
-                                      color: AppColors.textSecondary,
-                                    ),
-                                  )
-                                : ScopedBookImage(
-                                    bookId: bookId,
-                                    imageUrl: imageUrl,
-                                    onSignedUrlRejected: onSignedUrlRejected,
-                                    onRetrySignedUrl: onRetrySignedUrl,
-                                    fit: BoxFit.contain,
-                                    width: double.infinity,
-                                    placeholder: Container(
-                                      color: AppColors.divider,
-                                      child: const Center(
-                                        child: CircularProgressIndicator(),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+                        child: Center(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 620),
+                            child: SizedBox(
+                              height:
+                                  (constraints.maxHeight *
+                                          (onComplete == null ? 0.58 : 0.43))
+                                      .clamp(150.0, 540.0),
+                              width: double.infinity,
+                              child: GestureDetector(
+                                onTap: onIllustrationTap,
+                                excludeFromSemantics: true,
+                                child: Semantics(
+                                  container: true,
+                                  label: l.viewerPageImageSemantics(pageNumber),
+                                  hint: controlsHint,
+                                  image: true,
+                                  button: true,
+                                  onTap: onIllustrationTap,
+                                  child: DecoratedBox(
+                                    decoration: BoxDecoration(
+                                      color: colors.sheet,
+                                      border: Border.all(color: colors.rule),
+                                      borderRadius: BorderRadius.circular(
+                                        AppRadius.lg,
                                       ),
                                     ),
-                                    error: Container(
-                                      color: AppColors.divider,
-                                      child: const Icon(
-                                        Icons.broken_image,
-                                        size: 64,
-                                        color: AppColors.textSecondary,
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(
+                                        AppSpacing.sm,
+                                      ),
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(
+                                          AppRadius.md,
+                                        ),
+                                        child: imageUrl.trim().isEmpty
+                                            ? Icon(
+                                                Icons.image_outlined,
+                                                size: 48,
+                                                color: colors.muted,
+                                              )
+                                            : ScopedBookImage(
+                                                bookId: bookId,
+                                                imageUrl: imageUrl,
+                                                onSignedUrlRejected:
+                                                    onSignedUrlRejected,
+                                                onRetrySignedUrl:
+                                                    onRetrySignedUrl,
+                                                fit: BoxFit.contain,
+                                                width: double.infinity,
+                                                placeholder: Center(
+                                                  child:
+                                                      CircularProgressIndicator(
+                                                        color: colors.accent,
+                                                      ),
+                                                ),
+                                                error: Icon(
+                                                  Icons.broken_image_outlined,
+                                                  size: 48,
+                                                  color: colors.muted,
+                                                ),
+                                              ),
                                       ),
                                     ),
                                   ),
+                                ),
+                              ),
+                            ),
                           ),
                         ),
                       ),
-                      Padding(
-                        padding: const EdgeInsets.all(AppSpacing.lg),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            GestureDetector(
-                              behavior: HitTestBehavior.opaque,
-                              onTap: onNarrate,
-                              child: _HighlightedStoryText(
-                                text: text,
-                                progress: followProgress,
-                                enabled: followReadingEnabled,
-                                style: TextStyle(
-                                  fontSize: 20,
-                                  height: 1.8,
-                                  color: palette.textPrimary,
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 580),
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(26, 22, 26, 28),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: onNarrate,
+                                child: _HighlightedStoryText(
+                                  text: text,
+                                  progress: followProgress,
+                                  enabled: followReadingEnabled,
+                                  style: AppTextStyles.body.copyWith(
+                                    fontSize: 20,
+                                    height: 1.75,
+                                    color: colors.text,
+                                  ),
+                                  highlightColor: colors.accent,
                                 ),
-                                highlightColor: palette.primary,
                               ),
-                            ),
-                            if (secondaryText != null &&
-                                secondaryText!.trim().isNotEmpty) ...[
-                              const SizedBox(height: AppSpacing.lg),
-                              Divider(color: palette.divider, height: 1),
-                              const SizedBox(height: AppSpacing.lg),
-                              _HighlightedStoryText(
-                                text: secondaryText!,
-                                progress: 0,
-                                enabled: false,
-                                style: TextStyle(
-                                  fontSize: 17,
-                                  height: 1.7,
-                                  color: palette.textSecondary,
+                              if (secondaryText != null &&
+                                  secondaryText!.trim().isNotEmpty) ...[
+                                const SizedBox(height: AppSpacing.lg),
+                                Divider(color: colors.rule, height: 1),
+                                const SizedBox(height: AppSpacing.lg),
+                                _HighlightedStoryText(
+                                  text: secondaryText!,
+                                  progress: 0,
+                                  enabled: false,
+                                  style: AppTextStyles.body.copyWith(
+                                    fontSize: 17,
+                                    height: 1.7,
+                                    color: colors.muted,
+                                  ),
+                                  highlightColor: colors.accent,
                                 ),
-                                highlightColor: palette.primary,
-                              ),
+                              ],
+                              if (onComplete != null) ...[
+                                const SizedBox(height: AppSpacing.lg),
+                                PrimaryButton(
+                                  key: const Key('viewer-finish-reading'),
+                                  text: l.viewerFinishReading,
+                                  backgroundColor: colors.accent,
+                                  foregroundColor: colors.onAccent,
+                                  onPressed: onComplete,
+                                ),
+                              ],
+                              if (hasLearning && showInlineLearning)
+                                TextButton.icon(
+                                  onPressed: onShowLearning,
+                                  icon: const Icon(Icons.school, size: 18),
+                                  label: Text(l.viewerLearn),
+                                  style: TextButton.styleFrom(
+                                    foregroundColor: colors.accent,
+                                  ),
+                                ),
                             ],
-                            if (onComplete != null) ...[
-                              const SizedBox(height: AppSpacing.lg),
-                              PrimaryButton(
-                                key: const Key('viewer-finish-reading'),
-                                text: l.viewerFinishReading,
-                                onPressed: onComplete,
-                              ),
-                            ],
-                            if (hasLearning && showInlineLearning)
-                              TextButton.icon(
-                                onPressed: onShowLearning,
-                                icon: const Icon(Icons.school, size: 18),
-                                label: Text(l.viewerLearn),
-                                style: TextButton.styleFrom(
-                                  foregroundColor: palette.primary,
-                                ),
-                              ),
-                          ],
+                          ),
                         ),
                       ),
                     ],
@@ -3124,7 +3155,7 @@ class _HighlightedStoryText extends StatelessWidget {
   Widget build(BuildContext context) {
     final normalized = text.trim();
     if (!enabled || normalized.isEmpty) {
-      return Text(text, style: style, textAlign: TextAlign.center);
+      return Text(text, style: style, textAlign: TextAlign.start);
     }
 
     final segments = RegExp(
@@ -3132,7 +3163,7 @@ class _HighlightedStoryText extends StatelessWidget {
     ).allMatches(text).map((match) => match.group(0)!).toList(growable: false);
     final words = segments.where((segment) => segment.trim().isNotEmpty).length;
     if (words == 0) {
-      return Text(text, style: style, textAlign: TextAlign.center);
+      return Text(text, style: style, textAlign: TextAlign.start);
     }
 
     final target = (words * progress.clamp(0.0, 1.0)).round().clamp(0, words);
@@ -3158,7 +3189,7 @@ class _HighlightedStoryText extends StatelessWidget {
 
     return RichText(
       textScaler: MediaQuery.textScalerOf(context),
-      textAlign: TextAlign.center,
+      textAlign: TextAlign.start,
       text: TextSpan(
         style: DefaultTextStyle.of(context).style.merge(style),
         children: spans,

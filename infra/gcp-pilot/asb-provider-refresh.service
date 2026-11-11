@@ -10,4 +10,6 @@ EnvironmentFile=/etc/ai-story-book/pilot/private/provider-refresh.env
 ExecStartPre=/usr/bin/systemctl is-active --quiet docker.service
 ExecStartPre=/bin/sh -ec 'load=$$(/usr/bin/systemctl show --property=LoadState --value asb-backup-recover.service); result=$$(/usr/bin/systemctl show --property=Result --value asb-backup-recover.service); test "$$load" = loaded && test "$$result" = success'
 ExecStart=/usr/bin/python3 /opt/ai-story-book/provider-refresh/run_pilot_provider_refresh.py --execute --image-id ${ASB_PROVIDER_REFRESH_API_IMAGE} --ledger /var/lib/ai-story-book/provider-refresh/claims.sqlite --state-dir /var/lib/ai-story-book/backup-state
-TimeoutStartSec=510
+# Docker identity 20s + observation checks 2x60s + provider 300s + TTS 105s,
+# with 55s left for local startup/cleanup. Paid request budgets are unchanged.
+TimeoutStartSec=600

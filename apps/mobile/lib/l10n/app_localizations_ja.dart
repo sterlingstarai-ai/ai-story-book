@@ -3560,4 +3560,28 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get settingsNarrationPreviewError => '試聴を再生できませんでした。';
+
+  @override
+  String get guardianEmailTitle => '保護者の同意を確認';
+
+  @override
+  String get guardianEmailIntro => '同意の案内を受け取る保護者のメールアドレスを入力してください。';
+
+  @override
+  String get guardianEmailPending => 'メールのリンクから同意して、アプリに戻ってください。';
+
+  @override
+  String get guardianEmailAddress => '保護者のメールアドレス';
+
+  @override
+  String get guardianEmailSend => '確認メールを送信';
+
+  @override
+  String get guardianEmailCheck => '同意を確認';
+
+  @override
+  String get guardianEmailChange => '別のメールアドレスを使う';
+
+  @override
+  String get guardianEmailError => 'メールアドレスと接続を確認して、もう一度お試しください。';
 }

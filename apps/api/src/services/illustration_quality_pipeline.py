@@ -253,6 +253,7 @@ async def verify_and_repair_illustrations(
             previous_page_text=page_texts.get(page - 1, "") if page > 1 else "",
             next_page_text=page_texts.get(page + 1, "") if page > 0 else "",
             use_prompt_action_focus=use_prompt_action_focus and page != 0,
+            review_repair=True,
         ), image_book_reference_scope(book_reference):
             url = await asyncio.wait_for(regenerate(page, prompt, reference_urls), timeout=timeout)
         key = key_from_public_url(url)

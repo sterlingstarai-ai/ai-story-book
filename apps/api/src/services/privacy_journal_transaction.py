@@ -5,9 +5,11 @@ coverage, retry, independent durability and quarantine before relying on it.
 """
 
 import structlog
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from src.core.exceptions import APIError
+from src.models.db import PrivacyJournalOutbox, UserConsent
 from src.services.privacy_journal_outbox import prepare_privacy_event, publish_privacy_event
 
 _SESSION_KEY = 'privacy_journal'
@@ -16,6 +18,28 @@ logger = structlog.get_logger()
 
 def journal_attached(db):
     return db.info.get(_SESSION_KEY) is not None
+
+
+async def guardian_consent_published(db, consent: UserConsent) -> bool:
+    """Require the latest consent decision in the independently stored journal."""
+    event = await db.scalar(
+        select(PrivacyJournalOutbox)
+        .where(
+            PrivacyJournalOutbox.user_key == consent.user_key,
+            PrivacyJournalOutbox.action.in_(("consent_grant", "consent_revoke")),
+        )
+        .order_by(PrivacyJournalOutbox.revision.desc())
+        .limit(1)
+    )
+    return bool(
+        event and event.action == "consent_grant" and event.published_at is not None
+        and event.consent_state == {
+            "privacy": consent.privacy,
+            "photos": consent.photos,
+            "data_processing": consent.data_processing,
+            "version": consent.consent_version,
+        }
+    )
 
 
 async def lock_account_before_credential_change(db, user_key):

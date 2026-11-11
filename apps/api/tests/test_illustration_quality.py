@@ -162,7 +162,8 @@ async def test_visible_object_state_policy_preserves_earlier_moment_tolerance(
 
     body = requests[0][1]
     instruction = next(item["content"] for item in body["input"] if item["role"] == "system")
-    assert "compare the actual object being" in instruction
+    assert "compare the object being handled with that state" in instruction
+    assert "visual brief alone is insufficient to contradict that sensory event" in instruction
     assert "book is clearly closed" in instruction
     assert "obscured pages" in instruction
     assert "separately stated earlier moment" in instruction

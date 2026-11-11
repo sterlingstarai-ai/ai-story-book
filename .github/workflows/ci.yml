@@ -24,6 +24,7 @@ env:
   GENERATION_ALLOWED_USER_HASHES: ''
   PROVIDER_OBSERVATION_TTL_SECONDS: '86400'
   PROVIDER_USAGE_PRICES_JSON: '{}'
+  OPENAI_ILLUSTRATION_REPAIR_MODEL: ''
   APPLE_APP_ID: '0'
   APPLE_NOTIFICATION_ENVIRONMENT: 'Sandbox'
   APPLE_ROOT_CA_PATHS: ''
@@ -173,6 +174,7 @@ jobs:
         # 이 스텝의 존재와 env 배선을 정적으로 잠근다.
         env:
           E2E_PG_DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/test_db
+          E2E_GUARDIAN_REDIS_URL: redis://localhost:6379/6
         run: pytest tests/test_pg_fk_erasure.py tests/test_account_recovery_pg.py tests/test_photo_lifecycle_pg.py -v
 
       - name: C1 gate — Celery worker x real PostgreSQL

@@ -2,6 +2,9 @@
 
 import importlib.util
 import json
+import stat
+import sys
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,6 +16,59 @@ spec = importlib.util.spec_from_file_location(
     "live_guard", Path(__file__).resolve().parents[3] / "scripts/live_acceptance_guard.py")
 guard = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(guard)
+
+
+@pytest.mark.asyncio
+async def test_pilot_budget_covers_multiple_books_and_rolls_at_korean_midnight(
+    tmp_path, monkeypatch,
+):
+    from datetime import timezone
+
+    monkeypatch.setitem(sys.modules, "live_acceptance_guard", guard)
+    entry_spec = importlib.util.spec_from_file_location(
+        "pilot_entry", Path(spec.origin).with_name("pilot_provider_guard_entry.py"),
+    )
+    entry = importlib.util.module_from_spec(entry_spec)
+    entry_spec.loader.exec_module(entry)
+    base = tmp_path / "usage.jsonl"
+    for key, value in {
+        "LIVE_ACCEPTANCE_JOURNAL": str(base),
+        "DAILY_GENERATION_BUDGET": "2",
+        "ILLUSTRATION_QUALITY_ENABLED": "true",
+        "LIVE_ACCEPTANCE_PAGE_COUNT": "4",
+        "LLM_PROVIDER": "openai",
+        "LLM_MODEL": "gpt-5.6-sol",
+        "IMAGE_MODEL": "gpt-image-2",
+    }.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(httpx.AsyncClient, "post", httpx.AsyncClient.post)
+    now = datetime(2026, 11, 10, 14, 59, tzinfo=timezone.utc)
+    entry.install_daily_guard(now=lambda tz: now.astimezone(tz))
+    calls = 0
+
+    def handle(_request):
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json={"usage": {"input_tokens": 1}})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        url = "https://api.openai.com/v1/images/generations"
+        payload = {"model": "gpt-image-2", "n": 1, "quality": "low", "size": "1024x768"}
+        for _ in range(32):
+            assert (await client.post(url, json=payload)).status_code == 200
+        with pytest.raises(RuntimeError, match="REQUEST_LIMIT"):
+            await client.post(url, json=payload)
+        assert calls == 32
+        now = now.replace(hour=15, minute=0)
+        with pytest.raises(RuntimeError, match="IMAGE_OPTIONS"):
+            await client.post(url, json=dict(payload, n=2))
+        assert (await client.post(url, json=payload)).status_code == 200
+    assert calls == 33
+    old = base.with_suffix(".20261110.jsonl")
+    new = base.with_suffix(".20261111.jsonl")
+    assert len(old.read_text().splitlines()) == 64
+    assert len(new.read_text().splitlines()) == 2
+    assert stat.S_IMODE(new.stat().st_mode) == 0o600
 
 
 @pytest.fixture

@@ -59,20 +59,11 @@ class AppTextStyles {
     fontWeight: FontWeight.w600,
   );
 
-  static const body = TextStyle(
-    fontFamily: 'Pretendard',
-    fontSize: 16,
-  );
+  static const body = TextStyle(fontFamily: 'Pretendard', fontSize: 16);
 
-  static const bodySmall = TextStyle(
-    fontFamily: 'Pretendard',
-    fontSize: 14,
-  );
+  static const bodySmall = TextStyle(fontFamily: 'Pretendard', fontSize: 14);
 
-  static const caption = TextStyle(
-    fontFamily: 'Pretendard',
-    fontSize: 12,
-  );
+  static const caption = TextStyle(fontFamily: 'Pretendard', fontSize: 12);
 
   static const button = TextStyle(
     fontFamily: 'Pretendard',
@@ -102,6 +93,29 @@ class AppPalette {
       isDark ? const Color(0xFFB6AEFF) : const Color(0xFF4F46E5);
   Color get primaryLight =>
       isDark ? const Color(0xFF34304D) : const Color(0xFFF0EFFE);
+}
+
+/// The story surfaces share an ink, paper and moonlight palette.
+class StorybookColors {
+  const StorybookColors(this.isDark);
+
+  factory StorybookColors.of(BuildContext context) =>
+      StorybookColors(Theme.of(context).brightness == Brightness.dark);
+
+  static const ink = Color(0xFF102E32);
+  static const moonlight = Color(0xFFFFD38B);
+  static const onInk = Color(0xFFFFF3D9);
+  static const onInkMuted = Color(0xFFBFD8CD);
+
+  final bool isDark;
+  Color get paper => isDark ? ink : const Color(0xFFF5F5EB);
+  Color get sheet => isDark ? const Color(0xFF193D40) : const Color(0xFFFFFDF3);
+  Color get tint => isDark ? const Color(0xFF25494A) : const Color(0xFFDFEDE1);
+  Color get rule => isDark ? const Color(0xFF40635D) : const Color(0xFFCFDBCE);
+  Color get text => isDark ? onInk : ink;
+  Color get muted => isDark ? onInkMuted : const Color(0xFF4D655E);
+  Color get accent => isDark ? moonlight : const Color(0xFF235952);
+  Color get onAccent => isDark ? ink : Colors.white;
 }
 
 /// 앱 간격

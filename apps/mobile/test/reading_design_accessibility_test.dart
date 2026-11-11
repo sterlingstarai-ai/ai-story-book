@@ -281,11 +281,11 @@ void main() {
       );
       await tester.pumpAndSettle();
       final card = find.byKey(const Key('home_featured_book'));
-      final palette = AppPalette.of(tester.element(card));
+      final colors = StorybookColors.of(tester.element(card));
       final material = tester.widget<Material>(
         find.ancestor(of: card, matching: find.byType(Material)).first,
       );
-      expect(material.color, palette.surface);
+      expect(material.color, colors.sheet);
       await captureDesign(tester, 'reading-home-dark-short');
       await _scrollTo(tester, find.textContaining('2-day'));
       final gradients = tester
@@ -297,7 +297,7 @@ void main() {
           );
       expect(gradients, isNotEmpty);
       final gradient = (gradients.first.decoration! as BoxDecoration).gradient!;
-      expect(gradient.colors, [palette.primaryLight, palette.surface]);
+      expect(gradient.colors, [colors.tint, colors.sheet]);
       await captureDesign(tester, 'reading-home-streak-dark-short');
       expect(tester.takeException(), isNull);
     },

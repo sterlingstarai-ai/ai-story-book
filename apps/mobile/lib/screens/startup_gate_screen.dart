@@ -1,13 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../l10n/app_localizations.dart';
 import '../providers/providers.dart';
 import '../services/timezone_sync.dart';
 import '../utils/constants.dart';
-import '../widgets/storybook_illustration.dart';
 import 'home_screen.dart';
 
 class StartupGateScreen extends ConsumerStatefulWidget {
@@ -31,7 +31,19 @@ class _StartupGateScreenState extends ConsumerState<StartupGateScreen> {
     final parental = ref.read(parentalControlServiceProvider);
     await parental.loadAgeGateSession(prefs);
 
-    final hasConsent = await parental.hasConsent(prefs);
+    var hasConsent = await parental.hasConsent(prefs);
+    if (hasConsent && mounted) {
+      try {
+        final current = await ref
+            .read(apiClientProvider)
+            .getConsent()
+            .timeout(const Duration(seconds: 3));
+        if (current['guardian_email_required'] == true) hasConsent = false;
+      } catch (_) {
+        // Local reading remains possible offline. The server still controls
+        // all writes that require an active consent record.
+      }
+    }
     if (!hasConsent) {
       if (!mounted) {
         return;
@@ -62,36 +74,43 @@ class _StartupGateScreenState extends ConsumerState<StartupGateScreen> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      final palette = AppPalette.of(context);
-      return Scaffold(
-        body: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(AppSpacing.lg),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const StorybookIllustration(width: 144),
-                  const SizedBox(height: AppSpacing.md),
-                  Text(
-                    AppLocalizations.of(context).appTitle,
-                    style: AppTextStyles.heading2.copyWith(
-                      color: palette.textPrimary,
+      return AnnotatedRegion<SystemUiOverlayStyle>(
+        value: SystemUiOverlayStyle.light,
+        child: Scaffold(
+          backgroundColor: StorybookColors.ink,
+          body: SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(AppSpacing.lg),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Image.asset(
+                      'assets/branding/splash.png',
+                      width: 240,
+                      excludeFromSemantics: true,
                     ),
-                    textAlign: TextAlign.center,
-                  ),
-                  if (!MediaQuery.disableAnimationsOf(context)) ...[
-                    const SizedBox(height: AppSpacing.lg),
-                    SizedBox(
-                      width: 48,
-                      child: LinearProgressIndicator(
-                        color: palette.primary,
-                        backgroundColor: palette.primaryLight,
-                        borderRadius: BorderRadius.circular(AppRadius.sm),
+                    Text(
+                      AppLocalizations.of(context).appTitle,
+                      style: AppTextStyles.heading1.copyWith(
+                        color: StorybookColors.onInk,
+                        fontSize: 34,
                       ),
+                      textAlign: TextAlign.center,
                     ),
+                    if (!MediaQuery.disableAnimationsOf(context)) ...[
+                      const SizedBox(height: AppSpacing.lg),
+                      const SizedBox(
+                        width: 48,
+                        child: LinearProgressIndicator(
+                          minHeight: 2,
+                          color: StorybookColors.moonlight,
+                          backgroundColor: Color(0xFF315553),
+                        ),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
           ),

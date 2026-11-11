@@ -404,6 +404,10 @@ validate_provider_settings() {
   if [ "${IMAGE_PROVIDER:-}" = gemini ] && [[ "${IMAGE_MODEL:-}" != gemini-*-image* ]]; then
     log_fail "IMAGE_MODEL must be an explicitly selected Gemini image model"; failed=true
   fi
+  if [ -n "${OPENAI_ILLUSTRATION_REPAIR_MODEL:-}" ] &&
+     [ "${IMAGE_PROVIDER:-}/${IMAGE_MODEL:-}/${OPENAI_ILLUSTRATION_REPAIR_MODEL}" != openai/gpt-image-2.6-flare/gpt-image-2.6-sunburst ]; then
+    log_fail "Sunburst review repairs require Flare as the primary OpenAI image model"; failed=true
+  fi
   if { [ "$MODE" = production ] || [ "$MODE" = external ]; } && flag_enabled "${POD_ORDERING_ENABLED:-false}"; then
     log_fail "POD_ORDERING_ENABLED is outside this release scope and must remain false"; failed=true
   fi

@@ -249,6 +249,12 @@ def assess(values, *, free_beta=False):
     if ((free_beta or photo_processing) and openai_images
             and present(values.get("IMAGE_MODEL")) and values["IMAGE_MODEL"] not in OPENAI_ZDR_IMAGE_MODELS):
         invalid.append("IMAGE_MODEL (OpenAI image model documented as ZDR-compatible required)")
+    repair_model = values.get("OPENAI_ILLUSTRATION_REPAIR_MODEL", "")
+    if repair_model and (
+        not openai_images or values.get("IMAGE_MODEL") != "gpt-image-2.6-flare"
+        or repair_model != "gpt-image-2.6-sunburst" or repair_model not in OPENAI_ZDR_IMAGE_MODELS
+    ):
+        invalid.append("OPENAI_ILLUSTRATION_REPAIR_MODEL (supported pairing and ZDR-compatible model required)")
     if photo_processing:
         need("PHOTO_ANALYSIS_API_KEY")
         need("PHOTO_ANALYSIS_MODEL")
@@ -326,6 +332,12 @@ def _nonblank_policy_text(value):
     return isinstance(value, str) and bool(value.strip())
 
 
+_POLICY_PENDING_DETAIL_MARKERS = (
+    "공개 전 확정 항목",
+    "공개본에 보존 대상·근거·기간",
+)
+
+
 def assess_bundled_policies(root=None, *, today=None):
     """A URL define must not let an unfinished bundled policy ship silently."""
     root = Path(root) if root is not None else Path(__file__).resolve().parents[1]
@@ -354,6 +366,10 @@ def assess_bundled_policies(root=None, *, today=None):
                     or not re.search(rf"시행일\s+{effective_date}\b", label)
                     or "검토본" in label or "검토본" in introduction):
                 documents[slug] = "review_required"
+            elif any(marker in " ".join(text.split())
+                     for text in (introduction, *(p for section in sections for p in section["paragraphs"]))
+                     for marker in _POLICY_PENDING_DETAIL_MARKERS):
+                documents[slug] = "pending_details"
             else:
                 documents[slug] = "approved" if effective <= today else "not_effective"
         except (OSError, ValueError, TypeError, AttributeError):

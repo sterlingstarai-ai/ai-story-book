@@ -1373,6 +1373,16 @@
             "title": "Granted",
             "type": "boolean"
           },
+          "guardian_email_required": {
+            "default": false,
+            "title": "Guardian Email Required",
+            "type": "boolean"
+          },
+          "photo_consent_previously_granted": {
+            "default": false,
+            "title": "Photo Consent Previously Granted",
+            "type": "boolean"
+          },
           "photos": {
             "title": "Photos",
             "type": "boolean"
@@ -1876,6 +1886,62 @@
           "plan"
         ],
         "title": "GrantSubscriptionRequest",
+        "type": "object"
+      },
+      "GuardianEmailConfirmation": {
+        "additionalProperties": false,
+        "properties": {
+          "consent": {
+            "const": true,
+            "title": "Consent",
+            "type": "boolean"
+          },
+          "token": {
+            "pattern": "^[A-Za-z0-9_-]{43}$",
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "consent"
+        ],
+        "title": "GuardianEmailConfirmation",
+        "type": "object"
+      },
+      "GuardianEmailRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "maxLength": 254,
+            "minLength": 3,
+            "title": "Email",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "title": "GuardianEmailRequest",
+        "type": "object"
+      },
+      "GuardianEmailStatus": {
+        "properties": {
+          "status": {
+            "enum": [
+              "not_required",
+              "needed",
+              "pending",
+              "approved"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "GuardianEmailStatus",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -6834,6 +6900,143 @@
           }
         },
         "summary": "Grant Consent",
+        "tags": [
+          "Consent"
+        ]
+      }
+    },
+    "/v1/consent/guardian-email": {
+      "get": {
+        "operationId": "get_guardian_email_status_v1_consent_guardian_email_get",
+        "parameters": [
+          {
+            "description": "Device credential; legacy UUID or recovered device key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "Device credential; legacy UUID or recovered device key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuardianEmailStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Guardian Email Status",
+        "tags": [
+          "Consent"
+        ]
+      },
+      "post": {
+        "operationId": "request_guardian_email_v1_consent_guardian_email_post",
+        "parameters": [
+          {
+            "description": "Device credential; legacy UUID or recovered device key",
+            "in": "header",
+            "name": "x-user-key",
+            "required": true,
+            "schema": {
+              "description": "Device credential; legacy UUID or recovered device key",
+              "title": "X-User-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuardianEmailRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuardianEmailStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Request Guardian Email",
+        "tags": [
+          "Consent"
+        ]
+      }
+    },
+    "/v1/consent/guardian-email/confirm": {
+      "post": {
+        "operationId": "confirm_guardian_email_v1_consent_guardian_email_confirm_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuardianEmailConfirmation"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuardianEmailStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Confirm Guardian Email",
         "tags": [
           "Consent"
         ]

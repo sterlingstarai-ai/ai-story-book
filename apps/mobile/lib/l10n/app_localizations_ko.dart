@@ -3571,4 +3571,28 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get settingsNarrationPreviewError => '미리 듣기를 재생하지 못했어요.';
+
+  @override
+  String get guardianEmailTitle => '보호자 이메일 확인';
+
+  @override
+  String get guardianEmailIntro => '동의 안내를 받을 보호자 이메일을 입력해 주세요.';
+
+  @override
+  String get guardianEmailPending => '이메일에서 링크를 열어 동의한 뒤 앱으로 돌아와 주세요.';
+
+  @override
+  String get guardianEmailAddress => '보호자 이메일';
+
+  @override
+  String get guardianEmailSend => '확인 메일 보내기';
+
+  @override
+  String get guardianEmailCheck => '동의 확인';
+
+  @override
+  String get guardianEmailChange => '다른 이메일 사용';
+
+  @override
+  String get guardianEmailError => '메일 주소와 연결을 확인한 뒤 다시 시도해 주세요.';
 }

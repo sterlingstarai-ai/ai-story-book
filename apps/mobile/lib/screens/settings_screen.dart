@@ -869,6 +869,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               leading: const Icon(Icons.info_outline),
               title: Text(l.settingsAppVersion),
               subtitle: const Text('v$_appVersion'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => showLicensePage(
+                context: context,
+                applicationVersion: _appVersion,
+              ),
             ),
             ListTile(
               leading: const Icon(Icons.privacy_tip_outlined),

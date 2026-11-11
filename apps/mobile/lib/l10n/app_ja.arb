@@ -1182,5 +1182,13 @@
         "type": "String"
       }
     }
-  }
+  },
+  "guardianEmailTitle": "保護者の同意を確認",
+  "guardianEmailIntro": "同意の案内を受け取る保護者のメールアドレスを入力してください。",
+  "guardianEmailPending": "メールのリンクから同意して、アプリに戻ってください。",
+  "guardianEmailAddress": "保護者のメールアドレス",
+  "guardianEmailSend": "確認メールを送信",
+  "guardianEmailCheck": "同意を確認",
+  "guardianEmailChange": "別のメールアドレスを使う",
+  "guardianEmailError": "メールアドレスと接続を確認して、もう一度お試しください。"
 }

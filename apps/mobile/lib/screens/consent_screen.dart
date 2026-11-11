@@ -6,6 +6,7 @@ import '../providers/providers.dart';
 import '../utils/constants.dart';
 import '../widgets/scroll_more_hint.dart';
 import 'account_recovery_screen.dart';
+import 'guardian_email_dialog.dart';
 import 'legal_document_screen.dart';
 
 /// 약관 버전 — 개정 시 올리면 재동의를 유발(서버 consent_version과 맞춤).
@@ -49,23 +50,12 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
   /// 저장소 삭제는 장애 시 지연·재시도될 수 있다(재설치 후 로컬 동의 플래그만 초기화된
   /// 경우 등에서 도달). 실수 파기를 막기 위해, 사진
   /// 미동의로 제출하는데 서버에 활성 사진 동의가 있으면 철회 버튼과 같은 파괴적 확인을 받는다.
-  Future<bool> _confirmPhotoDataDeletionIfNeeded() async {
-    final apiClient = ref.read(apiClientProvider);
-    bool serverHadPhotos = false;
-    try {
-      final current = await apiClient.getConsent();
-      serverHadPhotos = current['photos'] == true && current['revoked'] != true;
-    } catch (_) {
-      // An unknown previous consent must not silently authorize photo deletion.
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(AppLocalizations.of(context).consentSaveError),
-          ),
-        );
-      }
-      return false;
-    }
+  Future<bool> _confirmPhotoDataDeletionIfNeeded(
+    Map<String, dynamic> current,
+  ) async {
+    final serverHadPhotos =
+        (current['photos'] == true && current['revoked'] != true) ||
+        current['photo_consent_previously_granted'] == true;
     if (!serverHadPhotos) {
       return true;
     }
@@ -101,35 +91,49 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
     if (!_canContinue || _submitting || _checkingPhoto) {
       return;
     }
-    // 사진 동의를 끄고 제출하는 경우, 기수집 사진 파생물 파기 전에 확인을 받는다.
     setState(() => _checkingPhoto = true);
-    if (!_photo && !await _confirmPhotoDataDeletionIfNeeded()) {
-      if (mounted) setState(() => _checkingPhoto = false);
-      return;
-    }
-    if (!mounted) return;
-    setState(() {
-      _checkingPhoto = false;
-      _submitting = true;
-    });
-
-    final prefs = ref.read(sharedPreferencesProvider);
+    _photoDeletionConfirmed = false;
     final apiClient = ref.read(apiClientProvider);
-    final parental = ref.read(parentalControlServiceProvider);
-    final mediaCleanup = ref.read(localMediaCleanupProvider);
     var cleaningLocalMedia = false;
 
     try {
+      final current = await apiClient.getConsent();
+      if (!mounted) return;
+      final emailRequired = current['guardian_email_required'] == true;
+      final photos = _photo && !emailRequired;
+      if (!photos && !await _confirmPhotoDataDeletionIfNeeded(current)) return;
+      if (!mounted) return;
+      if (emailRequired) {
+        final status = await apiClient.guardianEmailStatus();
+        if (!mounted) return;
+        if (status != 'approved' && status != 'not_required') {
+          final approved = await showDialog<bool>(
+            context: context,
+            barrierDismissible: false,
+            builder: (_) => GuardianEmailDialog(
+              pending: status == 'pending',
+              checkStatus: () => apiClient.guardianEmailStatus(),
+              send: (address) => apiClient.guardianEmailStatus(email: address),
+            ),
+          );
+          if (approved != true || !mounted) return;
+        }
+      }
+      final prefs = ref.read(sharedPreferencesProvider);
+      final parental = ref.read(parentalControlServiceProvider);
+      final mediaCleanup = ref.read(localMediaCleanupProvider);
+      setState(() => _submitting = true);
       // Persist before the destructive server request: a lost response or app
       // termination must not leave previously cached photo-derived images.
       if (_photoDeletionConfirmed) await mediaCleanup.markPending();
       // 1) 서버에 동의 기록(사진 기능 게이트의 근거) — 성공해야 진행
       final result = await apiClient.grantConsent(
         privacy: _privacy,
-        photos: _photo,
+        photos: photos,
         dataProcessing: _dataProcess,
         consentVersion: kConsentVersion,
       );
+      if (result['granted'] != true) throw StateError('Consent not granted');
       cleaningLocalMedia = true;
       if (_photoDeletionConfirmed && mounted) {
         invalidateAccountScope(
@@ -146,8 +150,10 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
       final seenOnboarding = await parental.hasSeenOnboarding(prefs);
       if (!mounted) return;
       final messenger = ScaffoldMessenger.of(context);
-      final purgeUnconfirmed = !_photo && result['purge_incomplete'] != false;
-      final pendingMessage = AppLocalizations.of(context).consentDeletionUnconfirmed;
+      final purgeUnconfirmed = !photos && result['purge_incomplete'] != false;
+      final pendingMessage = AppLocalizations.of(
+        context,
+      ).consentDeletionUnconfirmed;
       Navigator.pushReplacementNamed(
         context,
         seenOnboarding ? '/' : '/onboarding',
@@ -169,6 +175,8 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
           ),
         ),
       );
+    } finally {
+      if (mounted) setState(() => _checkingPhoto = false);
     }
   }
 
