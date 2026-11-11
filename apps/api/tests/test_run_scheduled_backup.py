@@ -495,7 +495,7 @@ def test_source_preflight_runs_before_service_guard(module, tmp_path, monkeypatc
         require_capacity(path, minimum_bytes=minimum_bytes)
 
     monkeypatch.setattr(module, 'require_backup_disk_headroom', check_capacity)
-    monkeypatch.setattr(module, 'BackupServiceGuard', lambda *_args: calls.append('guard'))
+    monkeypatch.setattr(module, 'BackupServiceGuard', lambda *_args, **_kwargs: calls.append('guard'))
     monkeypatch.setattr(module, 'run_guarded_backup', run_guard)
     monkeypatch.setattr(module, 'record_success', lambda *_args: calls.append('recorded'))
 

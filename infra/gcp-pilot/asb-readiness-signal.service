@@ -1,6 +1,6 @@
 [Unit]
 Description=Publish AI Story Book API readiness signal to Cloud Monitoring
-After=network-online.target
+After=network-online.target asb-backup-recover.service
 Wants=network-online.target
 
 [Service]

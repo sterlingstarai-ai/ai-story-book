@@ -22,6 +22,7 @@ SCRIPT_NAMES = (
     'provider_rotation_quarantine.py', 'check_backup_status.py', 'publish_backup_health.py',
 )
 UNIT_NAMES = ('asb-backup.service', 'asb-backup.timer', 'asb-backup-recover.service',
+              'asb-readiness-signal.service', 'asb-privacy-purge-signal.service', 'asb-observe-ready.service',
               'asb-backup-recover.service.d/narration-guard.conf',
               'asb-backup-recover.service.d/provider-order.conf',
               'asb-backup-watch.service', 'asb-backup-watch.timer',

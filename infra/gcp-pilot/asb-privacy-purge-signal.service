@@ -1,6 +1,6 @@
 [Unit]
 Description=Publish privacy erasure queue health
-After=network-online.target docker.service
+After=network-online.target docker.service asb-backup-recover.service
 Wants=network-online.target
 
 [Service]

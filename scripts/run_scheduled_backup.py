@@ -662,7 +662,7 @@ def main(argv=None):
                                       'backup_created': False, 'restore_authorized': False}))
                     return 0
                 stage = 'guarded_backup'
-                guard = BackupServiceGuard(args.state_dir, runtime)
+                guard = BackupServiceGuard(args.state_dir, runtime, timings_ms=timings_ms)
                 result = run_guarded_backup(guard=guard, verify_idle=verify_idle, preflight_idle=verify_idle,
                     verify_journal=verify_journal,
                     publication_boundary=publication_boundary,

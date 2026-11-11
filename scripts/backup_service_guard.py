@@ -36,7 +36,10 @@ _MARKER = {'version': 1, 'previously_running': [_WORKER, _API]}
 NARRATION_RECOVERY_MARKER = Path('/var/lib/ai-story-book/narration-deploy/narration-recovery.json')
 PROVIDER_ROTATION_RECOVERY_MARKER = Path('/var/lib/ai-story-book/provider-rotation/recovery.json')
 RECOVERY_RETRY_DELAYS_SECONDS = (5, 5, 15, 25, 30)
-RECOVERY_COMMAND_SECONDS = 150
+# A real OS cold boot took 118 seconds just to import/start the API on the
+# 1 GB pilot. Leave room for the worker too; normal backup restarts use 60s.
+RECOVERY_COMMAND_SECONDS = 300
+RECOVERY_COLD_START_SECONDS = 180
 
 
 def assert_no_narration_recovery():
@@ -59,7 +62,9 @@ def assert_no_narration_recovery():
 
 
 class DockerRuntime:
-    def __init__(self, *, deadline=None, startup_timeout_seconds=30):
+    # The 1 GB pilot's cold worker exceeded the former 30-second window.
+    # The standalone cold-boot command supplies its own bounded startup budget.
+    def __init__(self, *, deadline=None, startup_timeout_seconds=60):
         if type(startup_timeout_seconds) is not int or not 1 <= startup_timeout_seconds <= 300:
             raise ValueError('Invalid container startup budget')
         self._deadline = deadline
@@ -136,8 +141,18 @@ class DockerRuntime:
                               f'http://{_API}:8000/health/live'])
                 if not isinstance(live, dict) or live.get('status') != 'alive':
                     raise GuardError('API upstream did not report liveness')
+                remaining = deadline - time.monotonic()
+                if remaining < 3:
+                    time.sleep(max(0, remaining))
+                    break
+                # Killing a timed-out docker CLI alone can leave its exec
+                # process alive. Arm an in-container watchdog before imports.
+                lifetime = min(35, int(remaining) - 2)
                 workers = probe(['exec', _WORKER, 'python', '-c',
-                                 worker_control_source(('ping',), timeout=10)], command_timeout=45)
+                                 worker_control_source(('ping',), timeout=10,
+                                                       expected_hostnames=(hostname,), target_only=True,
+                                                       process_timeout=lifetime)],
+                                command_timeout=45)
                 if workers == {'ping': True}:
                     return
             except (GuardError, ValueError):
@@ -249,9 +264,13 @@ class DockerRuntime:
 
 
 class BackupServiceGuard:
-    def __init__(self, state_dir: Path, runtime):
+    def __init__(self, state_dir: Path, runtime, *, timings_ms=None, start_worker_early=False):
+        if type(start_worker_early) is not bool:
+            raise ValueError('Invalid recovery start order')
         self._dir = Path(state_dir)
         self._runtime = runtime
+        self._timings_ms = timings_ms
+        self._start_worker_early = start_worker_early
         self._dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         st = self._dir.lstat()
         if (not stat.S_ISDIR(st.st_mode) or stat.S_ISLNK(st.st_mode)
@@ -259,6 +278,16 @@ class BackupServiceGuard:
             raise GuardError('A private, non-symlink state directory is required')
         self._marker = self._dir / 'restart-required.json'
         self._lock = self._dir / 'backup.lock'
+
+    def _timed(self, name, operation):
+        if self._timings_ms is None:
+            return operation()
+        start = time.monotonic_ns()
+        try:
+            return operation()
+        finally:
+            elapsed = (time.monotonic_ns() - start) // 1_000_000
+            self._timings_ms[name] = self._timings_ms.get(name, 0) + elapsed
 
     def _locked(self):
         flags = os.O_CREAT | os.O_RDWR | getattr(os, 'O_NOFOLLOW', 0)
@@ -311,29 +340,53 @@ class BackupServiceGuard:
                 raise ValueError('unexpected marker')
         except (OSError, ValueError, TypeError):
             raise GuardError('Recovery marker is invalid; manual investigation required') from None
-        failures = []
-        for name in (_WORKER, _API):
+        def start(name):
+            if not self._runtime.running(name):
+                self._runtime.start(name)
+            if not self._runtime.running(name):
+                raise GuardError('Service did not start')
+
+        # A normal backup routes HTTP first. During OS cold recovery, start
+        # both roles before waiting: serial cold imports consumed the entire
+        # shared budget while the worker had not even been launched.
+        route_error = None
+        worker_error = None
+        def start_worker():
+            nonlocal worker_error
             try:
-                if not self._runtime.running(name):
-                    self._runtime.start(name)
-                if not self._runtime.running(name):
-                    failures.append(name)
-            except Exception:
-                failures.append(name)
-        if failures:
-            raise RetryableRecoveryError('Service restart incomplete; recovery marker retained')
+                self._timed('recovery_worker_start', lambda: start(_WORKER))
+            except Exception as exc:
+                worker_error = RetryableRecoveryError('Service restart incomplete; recovery marker retained')
+                worker_error.__cause__ = exc
+
         try:
-            self._runtime.verify_api_upstream()
-        except Exception:
-            raise RetryableRecoveryError('Service liveness check failed; recovery marker retained') from None
+            self._timed('recovery_api_start', lambda: start(_API))
+        except Exception as exc:
+            route_error = RetryableRecoveryError('Service restart incomplete; recovery marker retained')
+            route_error.__cause__ = exc
+        if self._start_worker_early:
+            start_worker()
+        if route_error is None:
+            try:
+                self._timed('recovery_api_upstream', self._runtime.verify_api_upstream)
+            except Exception as exc:
+                route_error = RetryableRecoveryError('Service liveness check failed; recovery marker retained')
+                route_error.__cause__ = exc
+        if route_error is None:
+            try:
+                # A restarted API can have a new IP; verify DNS and strict TLS.
+                self._timed('recovery_proxy', self._runtime.reload_proxy)
+            except Exception as exc:
+                route_error = RetryableRecoveryError('Proxy reload failed; recovery marker retained')
+                route_error.__cause__ = exc
+        if not self._start_worker_early:
+            start_worker()
+        if worker_error is not None:
+            raise worker_error
+        if route_error is not None:
+            raise route_error
         try:
-            # Docker may assign the restarted API a different address. Nginx
-            # must resolve it again before the recovery marker can be removed.
-            self._runtime.reload_proxy()
-        except Exception:
-            raise RetryableRecoveryError('Proxy reload failed; recovery marker retained') from None
-        try:
-            self._runtime.verify_recovery()
+            self._timed('recovery_worker_response', self._runtime.verify_recovery)
         except Exception:
             # HTTP reads can recover while a worker is still starting. The
             # cycle remains unverified until the exact worker also responds.
@@ -366,11 +419,11 @@ class BackupServiceGuard:
             raise GuardError('Both pilot services must initially be running')
         self._write_marker()
         try:
-            self._runtime.stop(_API)
+            self._timed('admission_stop', lambda: self._runtime.stop(_API))
             if self._runtime.running(_API):
                 raise GuardError('API did not stop')
             verify_idle()  # API is stopped; worker still running.
-            self._runtime.stop(_WORKER)
+            self._timed('worker_stop', lambda: self._runtime.stop(_WORKER))
             if self._runtime.running(_WORKER):
                 raise GuardError('Worker did not stop')
             return backup()  # The callback must verify isolation and consistency.
@@ -379,9 +432,11 @@ class BackupServiceGuard:
 
 
 def recover_services(state_dir):
-    """Retry temporary failures inside systemd's 180-second command budget."""
+    """Retry cold-start failures within 300s; systemd leaves 30s cleanup margin."""
     deadline = time.monotonic() + RECOVERY_COMMAND_SECONDS
-    guard = BackupServiceGuard(state_dir, DockerRuntime(deadline=deadline))
+    guard = BackupServiceGuard(state_dir, DockerRuntime(
+        deadline=deadline, startup_timeout_seconds=RECOVERY_COLD_START_SECONDS,
+    ), start_worker_early=True)
     for delay in RECOVERY_RETRY_DELAYS_SECONDS:
         try:
             return guard.recover()
@@ -405,9 +460,43 @@ def main(argv=None):
         recovered = recover_services(args.state_dir)
         print(json.dumps({'status': 'RECOVERED' if recovered else 'NO_RECOVERY_NEEDED'}))
         return 0
-    except Exception:
-        print(json.dumps({'status': 'RECOVERY_FAILED'}))
+    except Exception as exc:
+        print(json.dumps({'status': 'RECOVERY_FAILED', 'reason': recovery_failure_code(exc)}))
         return 1
+
+
+def recovery_failure_code(exc):
+    """Return only finite operator reasons, without any exception payload."""
+    codes = {
+        'Another backup or recovery is running': 'lock_busy',
+        'Recovery required; automatic restart blocked': 'recovery_fence',
+        'Recovery state cannot be verified; automatic restart blocked': 'recovery_fence',
+        'Recovery marker is invalid; manual investigation required': 'invalid_marker',
+        'Recovery time budget exhausted': 'time_budget',
+        'API upstream did not report liveness': 'api_upstream',
+        'API upstream or expected worker did not respond': 'worker_response',
+        'Proxy DNS does not exclusively select the current API': 'proxy_dns',
+        'Proxy is not running': 'proxy_not_running',
+        'Proxy did not start a new worker after reload': 'proxy_reload',
+        'Container operation failed': 'container_operation',
+    }
+    seen = set()
+    reason = 'unclassified'
+    while exc is not None and id(exc) not in seen and len(seen) < 12:
+        seen.add(id(exc))
+        if type(exc) in (GuardError, RetryableRecoveryError):
+            message = str(exc)
+            if message in codes:
+                reason = codes[message]
+            elif message.startswith('Reloaded proxy did not serve API liveness over HTTPS: '):
+                value = message.rsplit(': ', 1)[-1]
+                if value in {'timeout', 'tls_verification', 'http_failure', 'transport_failure',
+                             'transport_unavailable', 'invalid_response', 'time_budget'}:
+                    reason = 'proxy_' + value
+                elif re.fullmatch(r'http_[1-5][0-9]{2}', value):
+                    reason = 'proxy_' + value
+        exc = exc.__cause__ or exc.__context__
+    return reason
 
 
 if __name__ == '__main__':

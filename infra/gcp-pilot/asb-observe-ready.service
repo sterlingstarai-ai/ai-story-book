@@ -1,6 +1,6 @@
 [Unit]
 Description=Record AI Story Book private pilot dependency readiness
-After=docker.service network-online.target
+After=docker.service network-online.target asb-backup-recover.service
 Wants=network-online.target
 
 [Service]

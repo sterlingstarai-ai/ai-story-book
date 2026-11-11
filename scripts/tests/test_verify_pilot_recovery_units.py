@@ -53,3 +53,28 @@ def test_drifted_verification_and_recovery_arguments_are_rejected(damage):
         value['ExecStart'] = value['ExecStart'].replace('--recover', '--execute')
     with pytest.raises(module.BindingError):
         module.verify_properties('asb-privacy-deploy-recover.service', value, ARTIFACT, PIN)
+
+
+@pytest.mark.parametrize('timeout', [None, '3min', 'infinity', '5min 30s', '10min'])
+def test_effective_cold_recovery_timeout_cannot_be_a_stale_or_unbounded_override(timeout):
+    value = properties()
+    value['ExecStart'] = command([
+        '/usr/bin/python3', str(ARTIFACT / 'scripts/backup_service_guard.py'),
+        '--recover', '--state-dir', '/var/lib/ai-story-book/backup-state',
+    ])
+    if timeout is not None:
+        value['TimeoutStartUSec'] = timeout
+    if timeout == '5min 30s':
+        module.verify_properties('asb-backup-recover.service', value, ARTIFACT, PIN)
+    else:
+        with pytest.raises(module.BindingError, match='timeout'):
+            module.verify_properties('asb-backup-recover.service', value, ARTIFACT, PIN)
+
+
+@pytest.mark.parametrize('after', ['docker.service', '', 'network-online.target asb-backup-recover.service'])
+def test_db_monitor_cannot_compete_with_cold_recovery(after):
+    if 'asb-backup-recover.service' in after:
+        module.verify_monitor_order(after)
+    else:
+        with pytest.raises(module.BindingError, match='race cold recovery'):
+            module.verify_monitor_order(after)

@@ -4,21 +4,25 @@ This runbook is the operator-facing checklist for validating code, runtime behav
 
 ## Pilot recovery source binding (2026-11-11)
 
-The installed pilot recovery artifact is `/opt/ai-story-book/ops-releases/4f75ac4b2def64ee7f2e2ce0b1abb90489d39a8b3cf426d1e9fd7bc1b4f2b7eb` (210 verified files). Its manifest is pinned by the same hexadecimal digest. The previous 209-file artifact is retained. A future local candidate can contain additional operator tools; do not equate a new checkout with the installed artifact.
+The installed pilot recovery artifact is `/opt/ai-story-book/ops-releases/c7d17e24cf8e38cdd867ee6de2c27bf01c7f63f066f77e9d2a5da94c51518744` (213 verified files). Its manifest is pinned by the same hexadecimal digest. The previous 209-file artifact is retained. A future local candidate can contain additional operator tools; do not equate a new checkout with the installed artifact.
 
 Systemd reads drop-ins alphabetically. A numeric `99-` file still precedes unnumbered `provider-interlock.conf`; a valid pinned `ExecStartPre` does not prove that `ExecStart` runs the same source. The pilot uses `zzz-verified-release.conf`, preserving narration/provider conditions and unit ordering. Always inspect effective commands after daemon reload:
 
 ```bash
 python3 scripts/verify_pilot_recovery_units.py \
-  --artifact /opt/ai-story-book/ops-releases/4f75ac4b2def64ee7f2e2ce0b1abb90489d39a8b3cf426d1e9fd7bc1b4f2b7eb \
-  --manifest-sha256 4f75ac4b2def64ee7f2e2ce0b1abb90489d39a8b3cf426d1e9fd7bc1b4f2b7eb
+  --artifact /opt/ai-story-book/ops-releases/c7d17e24cf8e38cdd867ee6de2c27bf01c7f63f066f77e9d2a5da94c51518744 \
+  --manifest-sha256 c7d17e24cf8e38cdd867ee6de2c27bf01c7f63f066f77e9d2a5da94c51518744
 ```
 
 This command only reads systemd properties. A pass is not a reboot or restore rehearsal. Keep the shared backup lock and every rollback marker until original container identities, worker response, strict TLS and readiness all pass. Configuration rollback journals contain credentials: never print them or copy them into acceptance artifacts. Public Cloud Run readiness must also be checked from outside the VM; a same-VM hairpin request is not the internal proxy check.
 
-Restore the API upstream and reload the verified TLS proxy before waiting for worker control replies. A slow worker must retain the recovery marker without unnecessarily delaying the HTTP route. Before reload, require Docker DNS inside nginx to resolve only to the current canonical API container. Finite proxy failure codes omit response bodies, URLs and transport stderr.
+Normal backup recovery restores the API route before starting/waiting for the worker. OS cold recovery starts both roles before waiting so serial imports cannot consume the entire command budget before worker launch. Both paths retain the marker until API liveness, exclusive current-API DNS, strict proxy TLS and the exact worker reply pass. Health-only targeted ping never replaces the global active/reserved/scheduled quiescence broadcast. The ping helper arms an in-container watchdog before imports; terminating the Docker client alone is insufficient to bound that child.
 
-The November 11 pilot reboot preserved an interrupted-service marker and stopped admission. The first recovery invocation failed; the provider-refresh timer's boot-time prerequisite reran recovery and it succeeded. The final image pins, strict TLS, worker reply, cleared marker and existing narration cache were verified. This is evidence of eventual boot recovery, not first-attempt reliability, backup restoration or uninterrupted service. Keep the initial failure in the record and improve cold-start recovery time separately. See [recorded reboot](acceptance/2026-11-11-backend-final-r7/reboot-audit.json).
+Normal startup probes have a 60-second budget. Standalone cold recovery uses 180 seconds per startup stage within one shared 300-second deadline; systemd has 330 seconds including cleanup margin. Effective unit verification checks both the source binding and these timeout values. DB-heavy boot monitoring is ordered after backup recovery with `After` only, so a failed recovery does not suppress failure monitoring through a required-success dependency.
+
+A real corrected backup succeeded with 42 remote objects checksum-verified, including a 38.121-second worker response that exceeded the former 30-second limit. The guarded cycle was 182.866 seconds and the complete service invocation was 240.79 seconds: this fixes a false recovery failure, not the remaining backup interruption. The backup was not restored in that run. [Backup evidence](acceptance/2026-11-11-recovery-v5/backup/unit-run.log)
+
+Earlier OS boot trials failed first recovery and are retained. Increasing the budget alone was insufficient: the v6 worker started about 202 seconds after the API. The v7 trial explicitly stopped both roles with a durable recovery marker, rebooted the actual VM, and passed the first recovery invocation (`RECOVERED`, no `RECOVERY_FAILED` in that boot). Same image pins, strict TLS, exclusive API DNS, exact worker response, cleared markers, active timers and external readiness 200 passed. This is one real boot trial, not backup restoration or 24-hour uninterrupted service. [Boot evidence](acceptance/2026-11-11-recovery-v7/reboot-audit.json)
 
 ## 1. Fast path: repository root quality gate
 

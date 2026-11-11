@@ -18,6 +18,8 @@ UNITS = {
         '/opt/ai-story-book/current/apps/api/venv/bin/python', 'run_scheduled_backup.py',
     ),
 }
+MONITORS = ('asb-readiness-signal.service', 'asb-privacy-purge-signal.service',
+            'asb-observe-ready.service')
 
 
 class BindingError(ValueError):
@@ -52,6 +54,11 @@ def verify_properties(unit, properties, artifact, pin):
     ]
     if verifier not in _commands(properties.get('ExecStartPre', '')):
         raise BindingError('Effective service is missing artifact verification')
+    # Checking only ExecStart misses an old unit killing valid cold recovery.
+    timeout_property = ({'asb-backup-recover.service': 'TimeoutStartUSec',
+                         'asb-backup.service': 'TimeoutStopUSec'}).get(unit)
+    if timeout_property and properties.get(timeout_property) != '5min 30s':
+        raise BindingError('Effective recovery timeout differs from the bounded release')
     if unit == 'asb-backup.service':
         stop = _commands(properties.get('ExecStopPost', ''))
         if stop != [[
@@ -69,17 +76,27 @@ def main():
     try:
         for unit in UNITS:
             result = subprocess.run(
-                ['systemctl', 'show', unit, '-p', 'ExecStart', '-p', 'ExecStartPre', '-p', 'ExecStopPost'],
+                ['systemctl', 'show', unit, '-p', 'ExecStart', '-p', 'ExecStartPre', '-p', 'ExecStopPost',
+                 '-p', 'TimeoutStartUSec', '-p', 'TimeoutStopUSec'],
                 check=True, capture_output=True, text=True, timeout=15,
             )
             properties = dict(line.split('=', 1) for line in result.stdout.splitlines() if '=' in line)
             verify_properties(unit, properties, args.artifact, args.manifest_sha256)
+        for unit in MONITORS:
+            result = subprocess.run(['systemctl', 'show', unit, '-p', 'After', '--value'],
+                                    check=True, capture_output=True, text=True, timeout=15)
+            verify_monitor_order(result.stdout)
     except (BindingError, OSError, subprocess.SubprocessError):
         print(json.dumps({'status': 'EFFECTIVE_UNIT_BINDING_FAILED'}))
         return 1
     print(json.dumps({'status': 'EFFECTIVE_UNIT_BINDINGS_VERIFIED', 'units': list(UNITS),
-                      'manifest_sha256': args.manifest_sha256}))
+                      'manifest_sha256': args.manifest_sha256, 'boot_monitor_order_verified': True}))
     return 0
+
+
+def verify_monitor_order(after):
+    if 'asb-backup-recover.service' not in after.split():
+        raise BindingError('DB monitor can race cold recovery')
 
 
 if __name__ == '__main__':
