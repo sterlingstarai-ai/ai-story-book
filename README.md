@@ -6,7 +6,11 @@ Current launch decisions, remaining owner actions, and verification boundaries: 
 
 The pilot uses Flare for initial illustrations and Sunburst only for flagged-page repair. Latest full-backend rollout and store-submission status remain separate from that model setting. Verify effective pinned systemd recovery commands with the [operations runbook](docs/OPERATIONS_TEST_RUNBOOK.md#pilot-recovery-source-binding-2026-11-11).
 
-## Release status — 2026-09-06
+## Release status — 2026-11-12
+
+Google Play Alpha `1.0.0(5)` is active for selected testers in South Korea. Apple `1.0.0(6)` is waiting for review after the required sharing SDK privacy manifest was fixed and verified in the signed IPA. Neither status means general public release is complete. The owner is handling Google's 12-tester/14-day production-access requirement. Guardian email remains disabled; final release-device checks are separate. See the [current follow-up and evidence](docs/appstore/release-followup-2026-11-12.md).
+
+## Historical release checkpoint — 2026-09-06
 
 **Public release quality remains on hold.** The fixed 15-book baseline completed all technical paths, but character consistency and text–image agreement each passed only 53.3%. A prepublication [illustration review and bounded page repair gate](docs/ILLUSTRATION_QUALITY_GATE.md) has been implemented and verified on stored error cases. It does not overwrite the failed baseline or establish zero-error generation. See [launch status](docs/LAUNCH_STATUS.md).
 
@@ -26,7 +30,7 @@ The pilot uses Flare for initial illustrations and Sunburst only for flagged-pag
 - Public-only mobile release build preparation: `scripts/build_mobile_release.py` ([deployment guide](docs/DEPLOYMENT.md)); validation by default, no store upload.
 - iOS release output is checked for device-only native platforms. Use a clean isolated source directory for store archives and check the exported IPA with `scripts/validate_ios_native_platforms.py --ipa /path/app.ipa` before upload; simulator arm64 binaries are rejected.
 - The same iOS check requires a valid SDK-owned privacy manifest whenever `share_plus.framework` is included. An app-root manifest or another SDK's manifest cannot satisfy that check; full Apple policy validation remains separate.
-- Guardian SMTP setup uses `scripts/connect_guardian_smtp.py` in a private terminal. Gmail requires a 16-letter app password; errors distinguish authentication, TLS and network failure without provider payloads or secrets. [Current mail status](docs/appstore/guardian-email-release.md).
+- The existing Gmail SMTP helper, `scripts/connect_guardian_smtp.py`, uses a 16-letter app password in a private terminal. This is the helper's authentication method, not a product requirement to use app passwords; OAuth or another mail provider would need its own connection. Mail remains disabled. Errors distinguish authentication, TLS, network and local saving failures without exposing secrets. [Current mail status](docs/appstore/guardian-email-release.md).
 - Health contract:
   - `/health/live`
   - `/health/ready`
@@ -130,6 +134,8 @@ For a synthetic PostgreSQL/private-media backup and restore check, run
 `./scripts/run_backup_restore_rehearsal.sh`. It compares restored database and media
 checksums in a second isolated stack. The operational procedure is in
 [docs/BACKUP_RESTORE.md](docs/BACKUP_RESTORE.md).
+
+For the installed pilot, the [recovery-source runbook](docs/OPERATIONS_TEST_RUNBOOK.md#pilot-recovery-source-binding-2026-11-11) checks five effective systemd commands against one immutable release. Use `PYTHONDONTWRITEBYTECODE=1` and Python `-B` for its diagnostic commands and children; strict verification still rejects unexpected bytecode files. Backup health also checks recovery dependency failures and completion after an actual timer trigger, rather than treating an older successful snapshot as proof that today's job ran.
 
 What it verifies:
 - API tests from `apps/api`

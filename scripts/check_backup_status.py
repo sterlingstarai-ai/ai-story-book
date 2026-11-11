@@ -14,9 +14,18 @@ MAX_AGE_SECONDS = 48 * 60 * 60
 MIN_FREE_BYTES = 1024 * 1024 * 1024
 BACKUP_SERVICE = 'asb-backup.service'
 BACKUP_TIMER = 'asb-backup.timer'
+RECOVERY_SERVICE = 'asb-backup-recover.service'
+# Cover the loaded units' one-hour backup and two 330-second recovery windows.
+# This checks each actual timer trigger; the independent 48-hour age limit stays.
+SCHEDULE_COMPLETION_GRACE_SECONDS = 75 * 60
 JOURNAL_INGEST_GRACE_USEC = 5_000_000
-SERVICE_PROPERTIES = '--property=Result,ExecMainPID,ExecMainStartTimestampMonotonic,ExecMainExitTimestampMonotonic'
-TIMER_PROPERTIES = '--property=ActiveState,UnitFileState'
+SERVICE_PROPERTIES = '--property=Result,ExecMainPID,ExecMainStartTimestampMonotonic,ExecMainExitTimestampMonotonic,LoadState,ActiveState,ExecMainStartTimestamp'
+TIMER_PROPERTIES = '--property=ActiveState,UnitFileState,LastTriggerUSec'
+RECOVERY_PROPERTIES = '--property=LoadState,ActiveState,Result'
+_SERVICE_STATES = {'active', 'reloading', 'inactive', 'failed', 'activating', 'deactivating', 'maintenance', 'refreshing'}
+_SERVICE_RESULTS = {'success', 'exit-code', 'timeout', 'signal', 'core-dump', 'oom-kill',
+                    'watchdog', 'start-limit-hit', 'resources', 'protocol', 'dependency',
+                    'exec-condition', 'skip-condition'}
 BACKUP_FAILURE_STAGE_CODES = {
     'configuration': 1, 'backup_source': 2, 'writer_bindings': 3,
     'initialization': 4, 'source_preflight': 5, 'journal_preflight': 6,
@@ -35,6 +44,8 @@ _BACKUP_ERROR_FILES = {
 }
 BACKUP_HEALTH_PROBLEM_CODES = {
     'backup_recovery_pending': 8,
+    'backup_recovery_service_failed': 8,
+    'backup_recovery_status_unavailable': 8,
     'provider_recovery_pending': 9,
     'timer_inactive': 10,
     'timer_not_enabled': 10,
@@ -42,6 +53,8 @@ BACKUP_HEALTH_PROBLEM_CODES = {
     'backup_timestamp_future': 12,
     'backup_stale': 13,
     'backup_record_invalid_or_missing': 14,
+    'scheduled_backup_not_completed': 15,
+    'backup_schedule_status_unavailable': 19,
 }
 PROVIDER_MARKERS = (
     Path('/var/lib/ai-story-book/provider-rotation/recovery.json'),
@@ -128,7 +141,8 @@ def read_record(path):
 
 def _read_command(*args):
     try:
-        result = subprocess.run(args, capture_output=True, text=True, timeout=10)
+        result = subprocess.run(args, capture_output=True, text=True, timeout=10,
+                                env={**os.environ, 'LC_ALL': 'C', 'TZ': 'UTC'})
         return result.stdout.strip() if result.returncode == 0 else ''
     except (OSError, subprocess.SubprocessError):
         return ''
@@ -136,6 +150,58 @@ def _read_command(*args):
 
 def systemctl(*args):
     return _read_command('systemctl', *args)
+
+
+def _systemd_timestamp(value):
+    """Parse systemctl's C-locale UTC wall time, not humanized monotonic spans."""
+    if value in ('', 'n/a'):
+        return None
+    if not isinstance(value, str):
+        raise ValueError('Missing systemd timestamp')
+    match = re.fullmatch(r'(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{1,6})?) UTC', value)
+    if not match:
+        raise ValueError('Invalid systemd timestamp')
+    return datetime.fromisoformat(match[1]).replace(tzinfo=timezone.utc)
+
+
+def scheduled_run_status(timer, service, recovery, verified, *, now):
+    """Catch dependency failures and missed runs even while an old backup is fresh."""
+    problems = []
+    recovery_result = recovery.get('Result')
+    recovery_state = recovery.get('ActiveState')
+    result = {'problems': problems, 'recovery_service_result': (
+        recovery_result if recovery_result in _SERVICE_RESULTS else 'unavailable'
+    )}
+    if (recovery.get('LoadState') != 'loaded' or recovery_state not in _SERVICE_STATES
+            or recovery_result not in _SERVICE_RESULTS):
+        problems.append('backup_recovery_status_unavailable')
+    elif recovery_state == 'failed' or recovery_result != 'success':
+        problems.append('backup_recovery_service_failed')
+    try:
+        if (service.get('LoadState') != 'loaded' or service.get('ActiveState') not in _SERVICE_STATES
+                or 'LastTriggerUSec' not in timer or 'ExecMainStartTimestamp' not in service):
+            raise ValueError('Missing scheduling metadata')
+        triggered = _systemd_timestamp(timer['LastTriggerUSec'])
+        started = _systemd_timestamp(service['ExecMainStartTimestamp'])
+        if any(value is not None and (value - now).total_seconds() > 300 for value in (triggered, started)):
+            raise ValueError('Scheduling timestamp is in the future')
+        result.update(last_timer_trigger_at=triggered.isoformat() if triggered else None,
+                      last_backup_started_at=started.isoformat() if started else None)
+    except (TypeError, ValueError, OverflowError):
+        problems.append('backup_schedule_status_unavailable')
+        return result
+    if triggered is None or (now - triggered).total_seconds() <= SCHEDULE_COMPLETION_GRACE_SECONDS:
+        return result
+    try:
+        completed = _record_timestamp(verified, 'verified_at')
+    except (TypeError, ValueError, KeyError, OverflowError):
+        # assess() already reports an invalid/missing verification record.
+        return result
+    if completed < triggered:
+        # A successful manual run after the trigger also covers this obligation.
+        # An earlier success or a merely started service does not.
+        problems.append('scheduled_backup_not_completed')
+    return result
 
 
 def latest_failure_diagnostic(service, journal):
@@ -184,6 +250,10 @@ def failure_reason_code(problems, service_result, stage):
     for problem, code in BACKUP_HEALTH_PROBLEM_CODES.items():
         if problem in problems and code <= 11:
             return code
+    if 'backup_schedule_status_unavailable' in problems:
+        return 19
+    if 'scheduled_backup_not_completed' in problems:
+        return 15
     if 'last_service_failed' in problems:
         if stage is not None:
             return BACKUP_FAILURE_STAGE_CODES[stage]
@@ -236,6 +306,8 @@ def main():
     timer = dict(line.split('=', 1) for line in timer_fields.splitlines() if '=' in line)
     fields = systemctl('show', BACKUP_SERVICE, SERVICE_PROPERTIES)
     service = dict(line.split('=', 1) for line in fields.splitlines() if '=' in line)
+    recovery_fields = systemctl('show', RECOVERY_SERVICE, RECOVERY_PROPERTIES)
+    recovery = dict(line.split('=', 1) for line in recovery_fields.splitlines() if '=' in line)
     now = datetime.now(timezone.utc)
     verified = read_record(STATE / 'last-verified-backup.json')
     recorded_stage = recorded_failure_stage(read_record(STATE / 'last-scheduled-failure.json'), verified, now=now)
@@ -246,6 +318,11 @@ def main():
                     service_result=service_result, free_bytes=free, recorded_stage=recorded_stage,
                     provider_recovery_pending=provider_recovery_pending(),
                     backup_recovery_pending=_recovery_marker_pending(STATE / 'restart-required.json'))
+    schedule = scheduled_run_status(timer, service, recovery, verified, now=now)
+    result['problems'].extend(schedule.pop('problems'))
+    result['scheduler'] = schedule
+    if result['problems']:
+        result['status'] = 'ALERT'
     diagnostic = {}
     service_changed = False
     if 'last_service_failed' in result['problems'] and service_result not in (None, 'success'):

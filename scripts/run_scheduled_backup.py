@@ -337,13 +337,16 @@ def _scheduler_plan(raw, config):
         raise ScheduledBackupError('Exactly one unmodified scheduler command is required')
     executable, command_line = command.groups()
     argv = shlex.split(command_line)
-    if (len(argv) < 3 or argv[0] != executable or argv[2] != '--execute'
+    # Accept the legacy command for transition planning and exactly one reviewed
+    # bytecode-suppression flag. Other Python options can change code loading.
+    script_index = 2 if len(argv) > 1 and argv[1] == '-B' else 1
+    if (len(argv) < script_index + 2 or argv[0] != executable or argv[script_index + 1] != '--execute'
             or not (_scheduler_path(argv[0], PILOT_ROOT) or argv[0] == '/usr/bin/python3')
             or not re.fullmatch(r'python(?:3(?:\.\d+)?)?', Path(argv[0]).name)
-            or not _scheduler_path(argv[1], PILOT_ROOT)
-            or Path(argv[1]).name != 'run_scheduled_backup.py'):
+            or not _scheduler_path(argv[script_index], PILOT_ROOT)
+            or Path(argv[script_index]).name != 'run_scheduled_backup.py'):
         raise ScheduledBackupError('Loaded scheduler executable is unexpected')
-    fields = argv[3:]
+    fields = argv[script_index + 2:]
     options = fields[::2]
     witness_option = '--journal-witness-bucket'
     required = _PRIVATE_OPTIONS | _DATA_OPTIONS | (_BUCKET_OPTIONS.keys() - {witness_option})
@@ -377,7 +380,7 @@ def _scheduler_plan(raw, config):
                                  else Path('/var/lib/ai-story-book')):
             raise ScheduledBackupError('Loaded scheduler data path is unexpected')
         dry_args.extend((option, value))
-    command = ' '.join(argv[:3] + fields)
+    command = ' '.join(argv[:script_index + 2] + fields)
     return {
         'status': 'SCHEDULER_WITNESS_PLAN_CHECKED',
         'loaded_exec_start_sha256': hashlib.sha256(original.encode()).hexdigest(),
@@ -387,7 +390,7 @@ def _scheduler_plan(raw, config):
         'already_bound': witness_option in options,
         'drop_in': None if witness_option in options else f'[Service]\nExecStart=\nExecStart={command}\n',
         'installed': False, 'backup_created': False, 'restore_authorized': False,
-    }, dry_args, Path(argv[1])
+    }, dry_args, Path(argv[script_index])
 
 
 def _verify_pinned_scheduler(path):

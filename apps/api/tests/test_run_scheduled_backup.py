@@ -49,20 +49,23 @@ def _loaded_scheduler(argv=_SCHEDULER):
 
 
 @pytest.mark.parametrize('already_bound', [False, True])
-def test_witness_plan_preserves_pinned_command_and_only_prints_placeholders(module, already_bound):
-    corrected = f'{_SCHEDULER} {_WITNESS}'
-    loaded = corrected if already_bound else _SCHEDULER
+@pytest.mark.parametrize('bytecode_flag', ['', '-B '])
+def test_witness_plan_preserves_pinned_command_and_only_prints_placeholders(module, already_bound, bytecode_flag):
+    scheduler = _SCHEDULER.replace('/bin/python ', f'/bin/python {bytecode_flag}', 1)
+    corrected = f'{scheduler} {_WITNESS}'
+    loaded = corrected if already_bound else scheduler
+    script_index = 2 if bytecode_flag else 1
     plan, dry_args, script = module._scheduler_plan(_loaded_scheduler(loaded), _SCHEDULER_CONFIG)
     assert plan['already_bound'] is already_bound
     assert plan['loaded_exec_start_sha256'] == hashlib.sha256(loaded.encode()).hexdigest()
     assert plan['proposed_exec_start_sha256'] == hashlib.sha256(corrected.encode()).hexdigest()
     assert plan['drop_in'] == (None if already_bound else f'[Service]\nExecStart=\nExecStart={corrected}\n')
     assert 'witness-fixture' not in json.dumps(plan)
-    assert script == Path(loaded.split()[1])
+    assert script == Path(loaded.split()[script_index])
     assert dry_args == ['--check-bindings', *corrected.replace(
         '${ASB_JOURNAL_BUCKET}', 'primary-fixture').replace(
         '${ASB_BACKUP_BUCKET}', 'backup-fixture').replace(
-        '${ASB_JOURNAL_WITNESS_BUCKET}', 'witness-fixture').split()[3:]]
+        '${ASB_JOURNAL_WITNESS_BUCKET}', 'witness-fixture').split()[script_index + 2:]]
 
 
 @pytest.mark.parametrize('unsafe', [
@@ -73,6 +76,8 @@ def test_witness_plan_preserves_pinned_command_and_only_prints_placeholders(modu
     _loaded_scheduler(f'{_SCHEDULER} {_WITNESS} {_WITNESS}'),
     _loaded_scheduler(_SCHEDULER.replace('--env-file /etc/', '--env-file /tmp/')),
     _loaded_scheduler(_SCHEDULER.replace('${ASB_BACKUP_BUCKET}', 'hard-coded')),
+    *(_loaded_scheduler(_SCHEDULER.replace('/bin/python ', f'/bin/python {flags} ', 1))
+      for flags in ('-I', '-B -B', '-B -I', '-c', '-BB')),
 ])
 def test_witness_plan_rejects_changed_systemd_semantics(module, unsafe):
     with pytest.raises(module.ScheduledBackupError):
@@ -133,11 +138,14 @@ def test_witness_plan_cli_requires_read_only_binding_check(module, monkeypatch, 
     assert ('drop_in' in report) is check_passed
 
 
-@pytest.mark.parametrize('phase', ['before', 'after', 'rolled_back', 'command_changed', 'runner_changed'])
+@pytest.mark.parametrize('phase', ['before', 'after', 'rolled_back', 'command_changed', 'runner_changed',
+                                  'bytecode_flag_changed'])
 def test_witness_plan_cli_rechecks_the_exact_reviewed_transition(module, monkeypatch, capsys, phase):
     entry = module.main
     corrected = f'{_SCHEDULER} {_WITNESS}'
     loaded = corrected if phase == 'after' else _SCHEDULER
+    if phase == 'bytecode_flag_changed':
+        loaded = loaded.replace('/bin/python ', '/bin/python -B ', 1)
     pinned = 'b' * 64 if phase == 'runner_changed' else 'a' * 64
     expected = corrected if phase in {'after', 'command_changed'} else _SCHEDULER
     monkeypatch.setattr(module.subprocess, 'run', lambda *_, **__: SimpleNamespace(stdout=_loaded_scheduler(loaded)))
@@ -157,7 +165,7 @@ def test_witness_plan_cli_rechecks_the_exact_reviewed_transition(module, monkeyp
                     '--expected-pinned-runner-sha256', 'a' * 64])
     report = json.loads(capsys.readouterr().out)
     assert report['installed'] is False and report['backup_created'] is False
-    if phase in {'command_changed', 'runner_changed'}:
+    if phase in {'command_changed', 'runner_changed', 'bytecode_flag_changed'}:
         assert result == 1 and report['failure_stage'] == 'reviewed_fingerprints'
         assert not checks and 'drop_in' not in report
     else:
@@ -182,13 +190,16 @@ def test_witness_fingerprints_cannot_be_partial_or_apply_changes(module, argumen
 @pytest.mark.parametrize('fault', [None, 'source_preflight', 'destination_preflight', 'journal_preflight',
                                    'command_changed', 'bucket_changed', 'runner_changed',
                                    'bucket_changed_before'])
-def test_witness_plan_checks_reviewed_prerequisites_and_rejects_drift(module, monkeypatch, capsys, fault):
+@pytest.mark.parametrize('bytecode_flag', ['', '-B '])
+def test_witness_plan_checks_reviewed_prerequisites_and_rejects_drift(module, monkeypatch, capsys, fault,
+                                                                    bytecode_flag):
     entry = module.main
     checked = False
-    corrected = f'{_SCHEDULER} {_WITNESS}'
+    scheduler = _SCHEDULER.replace('/bin/python ', f'/bin/python {bytecode_flag}', 1)
+    corrected = f'{scheduler} {_WITNESS}'
 
     def read_plan():
-        command = corrected if checked and fault == 'command_changed' else _SCHEDULER
+        command = corrected if checked and fault == 'command_changed' else scheduler
         config = _SCHEDULER_CONFIG
         if fault == 'bucket_changed_before' or (checked and fault == 'bucket_changed'):
             config = config.replace('witness-fixture', 'different-witness')
@@ -200,7 +211,7 @@ def test_witness_plan_checks_reviewed_prerequisites_and_rejects_drift(module, mo
 
     def check(arguments):
         nonlocal checked
-        expected = module._scheduler_plan(_loaded_scheduler(), _SCHEDULER_CONFIG)[1]
+        expected = module._scheduler_plan(_loaded_scheduler(scheduler), _SCHEDULER_CONFIG)[1]
         assert arguments == ['--check-prerequisites', *expected[1:]]
         checked = True
         if fault in ('source_preflight', 'destination_preflight', 'journal_preflight'):
@@ -211,9 +222,9 @@ def test_witness_plan_checks_reviewed_prerequisites_and_rejects_drift(module, mo
         return 0
 
     monkeypatch.setattr(module, 'main', check)
-    baseline, _, _ = module._scheduler_plan(_loaded_scheduler(), _SCHEDULER_CONFIG)
+    baseline, _, _ = module._scheduler_plan(_loaded_scheduler(scheduler), _SCHEDULER_CONFIG)
     result = entry(['--plan-systemd-witness', '--verify-prerequisites',
-                    '--expected-loaded-exec-start-sha256', hashlib.sha256(_SCHEDULER.encode()).hexdigest(),
+                    '--expected-loaded-exec-start-sha256', hashlib.sha256(scheduler.encode()).hexdigest(),
                     '--expected-pinned-runner-sha256', 'a' * 64,
                     '--expected-scheduler-bindings-sha256', baseline['scheduler_bindings_sha256']])
     output = capsys.readouterr().out

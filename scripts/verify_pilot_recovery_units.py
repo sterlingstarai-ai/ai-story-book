@@ -17,6 +17,8 @@ UNITS = {
     'asb-backup.service': (
         '/opt/ai-story-book/current/apps/api/venv/bin/python', 'run_scheduled_backup.py',
     ),
+    'asb-backup-watch.service': ('/usr/bin/python3', 'check_backup_status.py'),
+    'asb-backup-signal.service': ('/usr/bin/python3', 'publish_backup_health.py'),
 }
 MONITORS = ('asb-readiness-signal.service', 'asb-privacy-purge-signal.service',
             'asb-observe-ready.service')
@@ -40,16 +42,26 @@ def verify_properties(unit, properties, artifact, pin):
         raise BindingError('Unknown release or service')
     interpreter, script = UNITS[unit]
     start = _commands(properties.get('ExecStart', ''))
-    expected = [interpreter, str(artifact / 'scripts' / script)]
-    if len(start) != 1 or start[0][:2] != expected:
+    expected = [interpreter, '-B', str(artifact / 'scripts' / script)]
+    if len(start) != 1 or start[0][:3] != expected:
         raise BindingError('Effective service does not execute the pinned source')
-    if unit != 'asb-backup.service' and start[0][2:] != (
-        ['--recover'] if script == 'deploy_pilot_privacy.py'
-        else ['--recover', '--state-dir', '/var/lib/ai-story-book/backup-state']
-    ):
+    expected_args = {
+        'deploy_pilot_privacy.py': ['--recover'],
+        'backup_service_guard.py': ['--recover', '--state-dir', '/var/lib/ai-story-book/backup-state'],
+        'check_backup_status.py': [],
+        'publish_backup_health.py': [],
+    }
+    if script in expected_args and start[0][3:] != expected_args[script]:
         raise BindingError('Effective recovery arguments differ')
+    try:
+        bytecode_settings = [value.partition('=')[2] for value in shlex.split(properties.get('Environment', ''))
+                             if value.partition('=')[0] == 'PYTHONDONTWRITEBYTECODE']
+    except ValueError:
+        raise BindingError('Effective service environment is invalid') from None
+    if bytecode_settings != ['1']:
+        raise BindingError('Effective service must disable bytecode writes for child Python processes')
     verifier = [
-        '/usr/bin/python3', str(artifact / 'scripts/build_backup_candidate.py'),
+        '/usr/bin/python3', '-B', str(artifact / 'scripts/build_backup_candidate.py'),
         'verify', '--output', str(artifact), '--manifest-sha256', pin,
     ]
     if verifier not in _commands(properties.get('ExecStartPre', '')):
@@ -62,7 +74,7 @@ def verify_properties(unit, properties, artifact, pin):
     if unit == 'asb-backup.service':
         stop = _commands(properties.get('ExecStopPost', ''))
         if stop != [[
-            '/usr/bin/python3', str(artifact / 'scripts/backup_service_guard.py'),
+            '/usr/bin/python3', '-B', str(artifact / 'scripts/backup_service_guard.py'),
             '--recover', '--state-dir', '/var/lib/ai-story-book/backup-state',
         ]]:
             raise BindingError('Backup completion uses a different recovery source')
@@ -77,7 +89,7 @@ def main():
         for unit in UNITS:
             result = subprocess.run(
                 ['systemctl', 'show', unit, '-p', 'ExecStart', '-p', 'ExecStartPre', '-p', 'ExecStopPost',
-                 '-p', 'TimeoutStartUSec', '-p', 'TimeoutStopUSec'],
+                 '-p', 'TimeoutStartUSec', '-p', 'TimeoutStopUSec', '-p', 'Environment'],
                 check=True, capture_output=True, text=True, timeout=15,
             )
             properties = dict(line.split('=', 1) for line in result.stdout.splitlines() if '=' in line)

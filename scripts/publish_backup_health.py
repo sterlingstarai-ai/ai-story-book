@@ -1,5 +1,7 @@
 """Publish the binary backup signal and a bounded failure diagnosis."""
 import json
+import os
+from pathlib import Path
 import subprocess
 import sys
 import urllib.request
@@ -8,7 +10,7 @@ from datetime import datetime, timezone
 PROJECT = 'gen-lang-client-0308507618'
 METRIC = 'custom.googleapis.com/ai_story_book/backup_health'
 FAILURE_METRIC = 'custom.googleapis.com/ai_story_book/backup_failure_stage'
-CHECK = '/opt/ai-story-book/current/scripts/check_backup_status.py'
+CHECK = str(Path(__file__).resolve().with_name('check_backup_status.py'))
 
 
 def measurement(result):
@@ -84,7 +86,8 @@ def main():
     try:
         stage_code = None
         try:
-            result = subprocess.run(['/usr/bin/python3', CHECK], capture_output=True, text=True, timeout=45)
+            result = subprocess.run(['/usr/bin/python3', '-B', CHECK], capture_output=True, text=True, timeout=45,
+                                    env={**os.environ, 'PYTHONDONTWRITEBYTECODE': '1'})
             value = measurement(result)
             stage_code = failure_stage_code(result)
         except (OSError, subprocess.SubprocessError):

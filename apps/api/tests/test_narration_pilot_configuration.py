@@ -42,12 +42,15 @@ def test_legacy_mode_accepts_absent_flag(sample):
     ('--journal-witness-bucket ${ASB_JOURNAL_WITNESS_BUCKET} --journal-witness-bucket other', 'no', False),
     ('--journal-witness-bucket ${ASB_JOURNAL_WITNESS_BUCKET}', 'yes', False),
 ])
-def test_pilot_preflight_checks_loaded_backup_witness_argument(sample, monkeypatch, arguments, reload, passes):
+@pytest.mark.parametrize('python_flags', ['', '-B ', '-I ', '-B -B ', '-B -I '])
+def test_pilot_preflight_checks_loaded_backup_witness_argument(sample, monkeypatch, arguments, reload, passes,
+                                                              python_flags):
     module, _, _ = sample
-    unit = f'ExecStart={{ argv[]=/opt/pilot/bin/python /opt/pilot/run_scheduled_backup.py --execute {arguments} ; }}'
+    unit = (f'ExecStart={{ argv[]=/opt/pilot/bin/python {python_flags}'
+            f'/opt/pilot/run_scheduled_backup.py --execute {arguments} ; }}')
     monkeypatch.setattr(module.subprocess, 'run', lambda *_args, **_kwargs:
                         SimpleNamespace(stdout=f'{unit}\nNeedDaemonReload={reload}\n'))
-    if passes:
+    if passes and python_flags in ('', '-B '):
         module._verify_backup_witness_argument()
     else:
         with pytest.raises(module.PilotAdapterError, match='staged journal witness'):

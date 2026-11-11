@@ -294,6 +294,8 @@ For paired database/media backup and an executable disposable restore rehearsal,
 see [BACKUP_RESTORE.md](BACKUP_RESTORE.md). `deploy.sh backup` creates only a private,
 verified PostgreSQL custom-format archive; it does not back up media.
 
+The pilot's installed backup/recovery source is a separately pinned artifact; a checkout update does not replace it. Follow the [effective unit binding runbook](OPERATIONS_TEST_RUNBOOK.md#pilot-recovery-source-binding-2026-11-11) for its five recovery/backup/watch/signal services. Execute pinned-source diagnostics with `PYTHONDONTWRITEBYTECODE=1` and Python `-B`, including child probes, then reverify the unchanged artifact. Do not exclude unexpected `.pyc` files from its strict manifest check. The backup health publisher must execute the checker from the same release; recovery dependency failure and a missed timer run must not be hidden by a still-fresh previous backup.
+
 ## CI/CD expectations
 
 Workflow: `.github/workflows/ci.yml`

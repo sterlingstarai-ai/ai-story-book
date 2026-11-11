@@ -4,6 +4,7 @@ from io import BytesIO
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -22,6 +23,23 @@ def test_only_an_explicit_clean_check_is_healthy(signal):
                    SimpleNamespace(returncode=0, stdout='{"status":"OK"}'),
                    SimpleNamespace(returncode=0, stdout='{"status":"OK","problems":["x"],"restore_authorized":false}')):
         assert signal.measurement(result) == 0
+
+
+def test_publisher_runs_its_own_release_checker_without_writing_bytecode(signal, monkeypatch, capsys):
+    assert Path(signal.CHECK) == Path(signal.__file__).resolve().with_name('check_backup_status.py')
+    run = Mock(return_value=SimpleNamespace(returncode=0, stdout=json.dumps({
+        'status': 'OK', 'problems': [], 'restore_authorized': False,
+    })))
+    send = Mock(return_value=None)
+    monkeypatch.setenv('PYTHONDONTWRITEBYTECODE', '0')
+    monkeypatch.setattr(signal.subprocess, 'run', run)
+    monkeypatch.setattr(signal, 'send', send)
+    assert signal.main() == 0
+    assert run.call_args.args[0] == ['/usr/bin/python3', '-B', signal.CHECK]
+    assert run.call_args.kwargs['env']['PYTHONDONTWRITEBYTECODE'] == '1'
+    assert run.call_args.kwargs['capture_output'] is True
+    assert send.call_args.args[0] == 1
+    assert json.loads(capsys.readouterr().out) == {'status': 'SIGNAL_SENT', 'healthy': True}
 
 
 def test_signal_contains_only_health_and_fixed_resource(signal):

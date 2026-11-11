@@ -19,11 +19,12 @@ def command(argv):
 
 def properties():
     return {
-        'ExecStart': command(['/usr/bin/python3', str(ARTIFACT / 'scripts/deploy_pilot_privacy.py'), '--recover']),
+        'ExecStart': command(['/usr/bin/python3', '-B', str(ARTIFACT / 'scripts/deploy_pilot_privacy.py'), '--recover']),
         'ExecStartPre': command([
-            '/usr/bin/python3', str(ARTIFACT / 'scripts/build_backup_candidate.py'),
+            '/usr/bin/python3', '-B', str(ARTIFACT / 'scripts/build_backup_candidate.py'),
             'verify', '--output', str(ARTIFACT), '--manifest-sha256', PIN,
         ]),
+        'Environment': 'PATH=/usr/bin PYTHONDONTWRITEBYTECODE=1',
     }
 
 
@@ -59,7 +60,7 @@ def test_drifted_verification_and_recovery_arguments_are_rejected(damage):
 def test_effective_cold_recovery_timeout_cannot_be_a_stale_or_unbounded_override(timeout):
     value = properties()
     value['ExecStart'] = command([
-        '/usr/bin/python3', str(ARTIFACT / 'scripts/backup_service_guard.py'),
+        '/usr/bin/python3', '-B', str(ARTIFACT / 'scripts/backup_service_guard.py'),
         '--recover', '--state-dir', '/var/lib/ai-story-book/backup-state',
     ])
     if timeout is not None:
@@ -78,3 +79,54 @@ def test_db_monitor_cannot_compete_with_cold_recovery(after):
     else:
         with pytest.raises(module.BindingError, match='race cold recovery'):
             module.verify_monitor_order(after)
+
+
+@pytest.mark.parametrize('stage', ['ExecStart', 'ExecStartPre'])
+def test_missing_bytecode_flag_is_rejected_for_each_pinned_python_command(stage):
+    value = properties()
+    value[stage] = value[stage].replace(' -B ', ' ')
+    with pytest.raises(module.BindingError):
+        module.verify_properties('asb-privacy-deploy-recover.service', value, ARTIFACT, PIN)
+
+
+@pytest.mark.parametrize('environment', ['', 'PYTHONDONTWRITEBYTECODE=0',
+                                        'PYTHONDONTWRITEBYTECODE=1 PYTHONDONTWRITEBYTECODE=0',
+                                        'PYTHONDONTWRITEBYTECODE='])
+def test_missing_or_drifted_bytecode_environment_is_rejected(environment):
+    value = properties()
+    value['Environment'] = environment
+    with pytest.raises(module.BindingError, match='bytecode writes'):
+        module.verify_properties('asb-privacy-deploy-recover.service', value, ARTIFACT, PIN)
+
+
+@pytest.mark.parametrize('unit,script', [
+    ('asb-backup-watch.service', 'check_backup_status.py'),
+    ('asb-backup-signal.service', 'publish_backup_health.py'),
+])
+def test_backup_health_uses_the_same_pinned_release_with_bytecode_disabled(unit, script):
+    value = properties()
+    value['ExecStart'] = command(['/usr/bin/python3', '-B', str(ARTIFACT / 'scripts' / script)])
+    module.verify_properties(unit, value, ARTIFACT, PIN)
+    value['ExecStart'] = value['ExecStart'].replace(str(ARTIFACT), '/opt/ai-story-book/current')
+    with pytest.raises(module.BindingError, match='pinned source'):
+        module.verify_properties(unit, value, ARTIFACT, PIN)
+
+
+@pytest.mark.parametrize('stop_has_bytecode_flag', [True, False])
+def test_backup_stop_recovery_disables_bytecode_writes(stop_has_bytecode_flag):
+    value = properties()
+    value['ExecStart'] = command([
+        module.UNITS['asb-backup.service'][0], '-B', str(ARTIFACT / 'scripts/run_scheduled_backup.py'),
+        '--execute',
+    ])
+    value['TimeoutStopUSec'] = '5min 30s'
+    stop = ['/usr/bin/python3'] + (['-B'] if stop_has_bytecode_flag else [])
+    value['ExecStopPost'] = command(stop + [
+        str(ARTIFACT / 'scripts/backup_service_guard.py'),
+        '--recover', '--state-dir', '/var/lib/ai-story-book/backup-state',
+    ])
+    if stop_has_bytecode_flag:
+        module.verify_properties('asb-backup.service', value, ARTIFACT, PIN)
+    else:
+        with pytest.raises(module.BindingError, match='completion uses a different recovery source'):
+            module.verify_properties('asb-backup.service', value, ARTIFACT, PIN)

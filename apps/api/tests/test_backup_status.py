@@ -13,6 +13,18 @@ def status(monkeypatch):
     return importlib.import_module('check_backup_status')
 
 
+_TIMER_OK = 'ActiveState=active\nUnitFileState=enabled\nLastTriggerUSec='
+_RECOVERY_OK = 'LoadState=loaded\nActiveState=inactive\nResult=success'
+
+
+def _unit_fields(unit, result='success'):
+    if unit == 'asb-backup.timer':
+        return _TIMER_OK
+    if unit == 'asb-backup-recover.service':
+        return _RECOVERY_OK
+    return f'LoadState=loaded\nActiveState=inactive\nExecMainStartTimestamp=\nResult={result}'
+
+
 def test_backup_health_requires_fresh_valid_success(status):
     now = datetime(2026, 11, 2, tzinfo=timezone.utc)
     record = {'version': 1, 'verified_at': now.isoformat(), 'restore_authorized': False}
@@ -57,9 +69,7 @@ def test_recorded_failure_survives_reboot_until_a_new_verified_backup(status, tm
     monkeypatch.setattr(status, 'backup_free_bytes', lambda *_: status.MIN_FREE_BYTES)
     monkeypatch.setattr(status, 'provider_recovery_pending', lambda: False)
     service_result = 'success'
-    monkeypatch.setattr(status, 'systemctl', lambda _, unit, *__: (
-        'ActiveState=active\nUnitFileState=enabled' if unit == status.BACKUP_TIMER else f'Result={service_result}'
-    ))
+    monkeypatch.setattr(status, 'systemctl', lambda _, unit, *__: _unit_fields(unit, service_result))
     runner.record_success(tmp_path)
     runner.record_failure(tmp_path, 'journal_preflight')
     failure = tmp_path / 'last-scheduled-failure.json'
@@ -110,8 +120,8 @@ def test_active_backup_timer_must_also_start_at_boot(
 ):
     def systemctl(command, unit, *_):
         if unit == 'asb-backup.timer':
-            return f'ActiveState=active\nUnitFileState={unit_file_state}' if command == 'show' else 'active'
-        return 'Result=success'
+            return f'ActiveState=active\nUnitFileState={unit_file_state}\nLastTriggerUSec=' if command == 'show' else 'active'
+        return _unit_fields(unit)
 
     monkeypatch.setattr(status, 'systemctl', systemctl)
     monkeypatch.setattr(status, 'backup_free_bytes', lambda *_: status.MIN_FREE_BYTES)
@@ -131,9 +141,7 @@ def test_health_stays_unhealthy_until_interrupted_backup_recovers(status, tmp_pa
     monkeypatch.setattr(status, 'STATE', tmp_path)
     monkeypatch.setattr(status, 'backup_free_bytes', lambda *_: status.MIN_FREE_BYTES)
     monkeypatch.setattr(status, 'provider_recovery_pending', lambda: False)
-    monkeypatch.setattr(status, 'systemctl', lambda _, unit, *__: (
-        'ActiveState=active\nUnitFileState=enabled' if unit == status.BACKUP_TIMER else 'Result=success'
-    ))
+    monkeypatch.setattr(status, 'systemctl', lambda _, unit, *__: _unit_fields(unit))
     record = tmp_path / 'last-verified-backup.json'
     record.write_text(json.dumps({
         'version': 1, 'verified_at': datetime.now(timezone.utc).isoformat(), 'restore_authorized': False,
@@ -161,7 +169,7 @@ def test_health_stays_unhealthy_until_interrupted_backup_recovers(status, tmp_pa
 ])
 def test_health_reports_only_a_failure_from_the_last_backup_process(status, monkeypatch, capsys, stage, code):
     fields = ('Result=exit-code\nExecMainPID=42\nExecMainStartTimestampMonotonic=9000000\n'
-              'ExecMainExitTimestampMonotonic=10000000')
+              'ExecMainExitTimestampMonotonic=10000000\nLoadState=loaded\nActiveState=failed\nExecMainStartTimestamp=')
 
     def entry(stage, *, timestamp=10_000_100, pid='42', unit='asb-backup.service', authorized=False,
               diagnostic=None):
@@ -190,7 +198,7 @@ def test_health_reports_only_a_failure_from_the_last_backup_process(status, monk
     monkeypatch.setattr(status, '_read_command', read_journal)
     for snapshots, matches in (([fields, fields], True),
                                ([fields, fields.replace('PID=42', 'PID=43')], False)):
-        replies = iter(['ActiveState=active\nUnitFileState=enabled', *snapshots])
+        replies = iter([_TIMER_OK, snapshots[0], _RECOVERY_OK, *snapshots[1:]])
         monkeypatch.setattr(status, 'systemctl', lambda *_: next(replies))
         assert status.main() == 1
         output = capsys.readouterr().out
@@ -202,3 +210,93 @@ def test_health_reports_only_a_failure_from_the_last_backup_process(status, monk
         assert result.get('failure_error_type') == (legacy['error_type'] if matches else None)
         assert result.get('failure_error_location') == (legacy['error_location'] if matches else None)
         assert 'private diagnostic data' not in output
+
+
+def _schedule_snapshot(now, *, trigger_age=timedelta(hours=2), completed_age=timedelta(hours=10)):
+    timer = {'LastTriggerUSec': (now - trigger_age).strftime('%a %Y-%m-%d %H:%M:%S UTC')}
+    service = {'LoadState': 'loaded', 'ActiveState': 'inactive', 'Result': 'success',
+               'ExecMainStartTimestamp': ''}
+    recovery = {'LoadState': 'loaded', 'ActiveState': 'inactive', 'Result': 'success'}
+    record = {'version': 1, 'verified_at': (now - completed_age).isoformat(), 'restore_authorized': False}
+    return timer, service, recovery, record
+
+
+def test_dependency_failure_is_unhealthy_even_with_fresh_previous_success(status, monkeypatch, capsys):
+    now = datetime.now(timezone.utc)
+    timer, service, recovery, record = _schedule_snapshot(now)
+    timer.update(ActiveState='active', UnitFileState='enabled')
+    recovery.update(ActiveState='failed', Result='exit-code')
+    snapshots = {status.BACKUP_TIMER: timer, status.BACKUP_SERVICE: service, status.RECOVERY_SERVICE: recovery}
+    monkeypatch.setattr(status, 'systemctl', lambda _, unit, *__: '\n'.join(
+        f'{key}={value}' for key, value in snapshots[unit].items()))
+    monkeypatch.setattr(status, 'backup_free_bytes', lambda *_: status.MIN_FREE_BYTES)
+    monkeypatch.setattr(status, 'provider_recovery_pending', lambda: False)
+    monkeypatch.setattr(status, '_recovery_marker_pending', lambda _: False)
+    monkeypatch.setattr(status, 'read_record', lambda path: record if path.name == 'last-verified-backup.json' else None)
+    assert status.main() == 1
+    output = capsys.readouterr().out
+    result = json.loads(output)
+    assert result['status'] == 'ALERT'
+    assert result['problems'] == ['backup_recovery_service_failed', 'scheduled_backup_not_completed']
+    assert result['failure_reason_code'] == 8
+    assert result['scheduler']['recovery_service_result'] == 'exit-code'
+    assert result['scheduler']['last_backup_started_at'] is None
+    signal = importlib.import_module('publish_backup_health')
+    process = type('Process', (), {'returncode': 1, 'stdout': output})()
+    assert signal.measurement(process) == 0
+    assert signal.failure_stage_code(process) == 8
+
+
+@pytest.mark.parametrize('changes', [
+    {'LoadState': 'not-found'}, {'ActiveState': 'failed', 'Result': 'success'},
+    {'Result': ''}, {'Result': 'unknown-private-diagnostic'}, {},
+])
+def test_recovery_failure_or_unreadable_status_fails_closed(status, changes):
+    now = datetime(2026, 11, 12, tzinfo=timezone.utc)
+    timer, service, recovery, record = _schedule_snapshot(now, completed_age=timedelta(minutes=1))
+    recovery = recovery | changes if changes else {}
+    result = status.scheduled_run_status(timer, service, recovery, record, now=now)
+    assert len(result['problems']) == 1
+    assert result['problems'][0] in {'backup_recovery_status_unavailable', 'backup_recovery_service_failed'}
+    assert status.failure_reason_code(result['problems'], 'success', None) == 8
+    assert 'unknown-private-diagnostic' not in json.dumps(result)
+
+
+@pytest.mark.parametrize(('trigger_age', 'completed_age', 'missed'), [
+    (timedelta(minutes=10), timedelta(hours=10), False),
+    (timedelta(hours=2), timedelta(minutes=30), False),  # Manual verified success after the trigger.
+    (timedelta(hours=2), timedelta(hours=2, minutes=1), True),
+    (timedelta(hours=2), timedelta(hours=10), True),
+])
+def test_timer_obligation_has_bounded_grace_and_accepts_later_manual_success(
+    status, trigger_age, completed_age, missed,
+):
+    now = datetime(2026, 11, 12, tzinfo=timezone.utc)
+    timer, service, recovery, record = _schedule_snapshot(
+        now, trigger_age=trigger_age, completed_age=completed_age,
+    )
+    result = status.scheduled_run_status(timer, service, recovery, record, now=now)
+    assert result['problems'] == (['scheduled_backup_not_completed'] if missed else [])
+    if missed:
+        assert status.failure_reason_code(result['problems'], 'success', 'journal_preflight') == 15
+
+
+@pytest.mark.parametrize('timestamp', [None, 'unparseable-private-text', 'Wed 2040-01-01 00:00:00 UTC'])
+def test_unknown_or_future_timer_metadata_is_not_reported_healthy(status, timestamp):
+    now = datetime(2026, 11, 12, tzinfo=timezone.utc)
+    timer, service, recovery, record = _schedule_snapshot(now)
+    if timestamp is None:
+        timer.clear()
+    else:
+        timer['LastTriggerUSec'] = timestamp
+    result = status.scheduled_run_status(timer, service, recovery, record, now=now)
+    assert result['problems'] == ['backup_schedule_status_unavailable']
+    assert status.failure_reason_code(result['problems'], 'success', None) == 19
+    assert 'unparseable-private-text' not in json.dumps(result)
+
+
+def test_never_triggered_timer_with_a_manual_backup_is_not_a_missed_run(status):
+    now = datetime(2026, 11, 12, tzinfo=timezone.utc)
+    timer, service, recovery, record = _schedule_snapshot(now)
+    timer['LastTriggerUSec'] = ''
+    assert status.scheduled_run_status(timer, service, recovery, record, now=now)['problems'] == []

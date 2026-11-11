@@ -4,17 +4,26 @@ This runbook is the operator-facing checklist for validating code, runtime behav
 
 ## Pilot recovery source binding (2026-11-11)
 
-The installed pilot recovery artifact is `/opt/ai-story-book/ops-releases/c7d17e24cf8e38cdd867ee6de2c27bf01c7f63f066f77e9d2a5da94c51518744` (213 verified files). Its manifest is pinned by the same hexadecimal digest. The previous 209-file artifact is retained. A future local candidate can contain additional operator tools; do not equate a new checkout with the installed artifact.
+The installed pilot recovery artifact was updated on 2026-11-12 to `/opt/ai-story-book/ops-releases/3500d9368524f2aef15a7d5fde2f878dda05ab853c78f3a88d85ec78ccde301c` (214 verified files). Its manifest is pinned by the same hexadecimal digest. The previous `c7d17e24cf8e38cdd867ee6de2c27bf01c7f63f066f77e9d2a5da94c51518744` artifact is retained and strictly verified for rollback. Its eight unexpected bytecode files were preserved with hashes in private operational quarantine. All 213 original source files matched; the process that created those bytecode files was not established. The new candidate additionally contains the checkout's `maintenance_activity.py`; it does not replace the running API/worker images. A future checkout or candidate is not automatically the installed artifact.
 
 Systemd reads drop-ins alphabetically. A numeric `99-` file still precedes unnumbered `provider-interlock.conf`; a valid pinned `ExecStartPre` does not prove that `ExecStart` runs the same source. The pilot uses `zzz-verified-release.conf`, preserving narration/provider conditions and unit ordering. Always inspect effective commands after daemon reload:
 
 ```bash
-python3 scripts/verify_pilot_recovery_units.py \
-  --artifact /opt/ai-story-book/ops-releases/c7d17e24cf8e38cdd867ee6de2c27bf01c7f63f066f77e9d2a5da94c51518744 \
-  --manifest-sha256 c7d17e24cf8e38cdd867ee6de2c27bf01c7f63f066f77e9d2a5da94c51518744
+PYTHONDONTWRITEBYTECODE=1 python3 -B \
+  /opt/ai-story-book/ops-releases/3500d9368524f2aef15a7d5fde2f878dda05ab853c78f3a88d85ec78ccde301c/scripts/verify_pilot_recovery_units.py \
+  --artifact /opt/ai-story-book/ops-releases/3500d9368524f2aef15a7d5fde2f878dda05ab853c78f3a88d85ec78ccde301c \
+  --manifest-sha256 3500d9368524f2aef15a7d5fde2f878dda05ab853c78f3a88d85ec78ccde301c
 ```
 
 This command only reads systemd properties. A pass is not a reboot or restore rehearsal. Keep the shared backup lock and every rollback marker until original container identities, worker response, strict TLS and readiness all pass. Configuration rollback journals contain credentials: never print them or copy them into acceptance artifacts. Public Cloud Run readiness must also be checked from outside the VM; a same-VM hairpin request is not the internal proxy check.
+
+The gate now covers privacy recovery, backup recovery, the scheduled backup, backup watch and backup signal: five effective services use the same release, explicit Python `-B` and child-process `PYTHONDONTWRITEBYTECODE=1`. The original three already had that environment setting; this does not identify the process that introduced the old bytecode. Apply both protections to manual diagnostics as well. Strict source verification still rejects extra `.pyc` files. The scheduler witness planner and narration preflight accept exactly one optional `-B` while preserving the reviewed command fingerprints and rejecting other interpreter flags.
+
+The health publisher executes the checker from its own release. The checker reports a failed or unreadable backup recovery dependency immediately and reports no verified completion after a real timer trigger once 75 minutes have elapsed. A successful verified manual run after that trigger also satisfies this obligation. The independent 48-hour snapshot age limit remains. The deployed Cloud Monitoring policy retains the unhealthy threshold and 2,400-second missing-signal condition, so a publisher stopped by strict source verification cannot keep an old healthy signal indefinitely. [Current failure evidence and repair](appstore/release-followup-2026-11-12.md)
+
+Manual `--verify-prerequisites` checks must also use the loaded backup service's `PATH`. The VM's default `sudo` path does not contain the installed PostgreSQL tools; the service path resolves all three tools to PostgreSQL 16.14. A manual missing-tool result does not mean the scheduled service lacks them. Preserve the actual loaded command, source and bucket fingerprints when repeating this read-only check.
+
+The 2026-11-12 repair was followed by one regular backup service run, not a manually rewritten success record. The new verification was recorded at 07:06 KST and 67 remote objects passed checksum validation. The service ran 07:02:35–07:07:43 KST with exit 0; its guarded cycle was 215.289 seconds. Service interruption remains, and that backup was not restored in this run. [Execution receipt](acceptance/2026-11-12-operations-readonly/repair-regular-backup.json)
 
 Normal backup recovery restores the API route before starting/waiting for the worker. OS cold recovery starts both roles before waiting so serial imports cannot consume the entire command budget before worker launch. Both paths retain the marker until API liveness, exclusive current-API DNS, strict proxy TLS and the exact worker reply pass. Health-only targeted ping never replaces the global active/reserved/scheduled quiescence broadcast. The ping helper arms an in-container watchdog before imports; terminating the Docker client alone is insufficient to bound that child.
 

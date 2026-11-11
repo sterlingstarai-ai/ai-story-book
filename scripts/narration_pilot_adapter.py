@@ -64,9 +64,10 @@ def _verify_backup_witness_argument():
             raise ValueError()
         argv = shlex.split(commands[0])
         option = '--journal-witness-bucket'
-        if (len(argv) < 3 or not re.fullmatch(r'python(?:3(?:\.\d+)?)?', Path(argv[0]).name)
-                or Path(argv[1]).name != 'run_scheduled_backup.py'
-                or argv[2] != '--execute' or argv.count(option) != 1):
+        script_index = 2 if len(argv) > 1 and argv[1] == '-B' else 1
+        if (len(argv) < script_index + 2 or not re.fullmatch(r'python(?:3(?:\.\d+)?)?', Path(argv[0]).name)
+                or Path(argv[script_index]).name != 'run_scheduled_backup.py'
+                or argv[script_index + 1] != '--execute' or argv.count(option) != 1):
             raise ValueError()
         witness_index = argv.index(option) + 1
         if argv[witness_index:witness_index + 1] != ['${ASB_JOURNAL_WITNESS_BUCKET}']:
