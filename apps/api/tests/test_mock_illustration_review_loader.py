@@ -162,7 +162,8 @@ print(json.dumps(result.model_dump()))
                             cwd=tmp_path, capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
     pages = json.loads(result.stdout.strip().splitlines()[-1])["pages"]
-    assert pages == [{"page_number": number, "issues": []} for number in range(5)]
+    assert pages == [{"page_number": number, "issues": [], "minor_variations": [],
+                      "action_mismatch_basis": "unspecified"} for number in range(5)]
 
 
 @pytest.mark.skipif(os.name != 'posix', reason='local review uses POSIX private files')

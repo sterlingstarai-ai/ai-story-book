@@ -30,7 +30,7 @@ class RetryableRecoveryError(GuardError):
 _API = 'asb-pilot-api'
 _WORKER = 'asb-pilot-worker'
 _NGINX = 'asb-pilot-nginx'
-_PILOT_API_ORIGIN = 'https://asb-https-edge-abvj5xczqa-uc.a.run.app'
+_PILOT_PROXY_TLS_IDENTITY = '35.209.174.246'
 _MARKER = {'version': 1, 'previously_running': [_WORKER, _API]}
 NARRATION_RECOVERY_MARKER = Path('/var/lib/ai-story-book/narration-deploy/narration-recovery.json')
 PROVIDER_ROTATION_RECOVERY_MARKER = Path('/var/lib/ai-story-book/provider-rotation/recovery.json')
@@ -160,12 +160,15 @@ class DockerRuntime:
         if remaining <= 0:
             return False
         try:
-            # Verify the Cloud Run HTTPS route used by the released client.
-            # The retired direct-IP TLS origin is no longer the app's route.
+            # Validate the backend nginx certificate and route over loopback.
+            # A VM -> Cloud Run -> same VM hairpin is not an internal recovery
+            # check. The deployment coordinator separately verifies the public
+            # Cloud Run origin from the external client before promotion.
             response = subprocess.run(
                 ['/usr/bin/curl', '-q', '--silent', '--fail', '--noproxy', '*',
                  '--max-filesize', '65536', '--max-time', '3',
-                 '--write-out', '\n%{http_code}', f'{_PILOT_API_ORIGIN}/health/live'],
+                 '--connect-to', f'{_PILOT_PROXY_TLS_IDENTITY}:443:127.0.0.1:443',
+                 '--write-out', '\n%{http_code}', f'https://{_PILOT_PROXY_TLS_IDENTITY}/health/live'],
                 capture_output=True, timeout=min(4, remaining), check=True,
                 env={'PATH': '/usr/bin:/bin'},
             )

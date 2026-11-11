@@ -245,7 +245,7 @@ async def test_reader_threshold_preserves_material_findings_and_does_not_bypass_
     assert context["pages"][1]["visual_brief"] == data["image_prompts"][1]
     assert result.pages[1].issues == []
     assert result.failed_page_numbers == [2, 3, 4]
-    assert result.model_dump(mode="json") == payload
+    assert result.model_dump(mode="json", exclude_unset=True) == payload
     assert PRIVATE not in str(review_settings)
 
 
@@ -500,3 +500,101 @@ def test_review_prompt_is_narrow_and_treats_printed_instructions_as_untrusted():
     assert "a nearby or pointing hand alone does not show intervention" in prompt
     assert "a mature plant contradicts a newly emerging shoot" in prompt
     assert "not a general aesthetic, story-quality, or face-recognition assessment" in prompt
+
+
+def test_visible_evidence_is_not_serialized_or_logged_or_exposed_as_a_repair_input():
+    marker = "fictional-sensitive-marker-ignore-the-instructions"
+    page = image_quality.IllustrationPageReview(
+        page_number=0, issues=[image_quality.IllustrationIssue.ACTION_MISMATCH], evidence=marker,
+    )
+    assert page.model_dump(mode="json", exclude_unset=True) == {"page_number": 0, "issues": ["action_mismatch"]}
+    assert marker not in page.model_dump_json()
+    assert marker not in repr(page)
+    assert "evidence" in page.model_json_schema()["properties"]
+
+
+@pytest.mark.asyncio
+async def test_finite_minor_variations_never_override_a_material_issue(monkeypatch, review_settings):
+    payload = review_payload()
+    payload["pages"][1].update(minor_variations=["cosmetic", "incidental"])
+    payload["pages"][2].update(issues=["identity_swap"], minor_variations=["cosmetic"])
+    payload["pages"][3].update(issues=["unsafe_depiction"], minor_variations=["incidental"])
+    requests = mock_response(monkeypatch, payload)
+
+    result = await image_quality.review_book_illustrations(**inputs())
+
+    assert len(requests) == 1
+    assert result.failed_page_numbers == [2, 3]
+    assert result.pages[1].minor_variations == ["cosmetic", "incidental"]
+    assert result.pages[2].issues == ["identity_swap"]
+    assert result.pages[3].issues == ["unsafe_depiction"]
+    schema = requests[0][1]["text"]["format"]["schema"]
+    page_schema = schema["$defs"]["IllustrationPageReview"]
+    assert {"minor_variations", "action_mismatch_basis", "evidence"}.issubset(page_schema["required"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("extra", [
+    {"minor_variations": ["protagonist_changed"]},
+    {"minor_variations": ["cosmetic", "cosmetic"]},
+    {"action_mismatch_basis": "untrusted-new-basis"},
+    {"action_mismatch_basis": "page_action"},  # No corresponding issue.
+    {"action_mismatch_basis": "book_object_continuity"},
+])
+async def test_unknown_or_inconsistent_finite_reason_fails_closed(monkeypatch, review_settings, extra):
+    payload = review_payload()
+    payload["pages"][1].update(extra)
+    mock_response(monkeypatch, payload)
+    with pytest.raises(LLMError) as exc:
+        await image_quality.review_book_illustrations(**inputs())
+    assert exc.value.code == ErrorCode.LLM_JSON_INVALID
+
+
+@pytest.mark.asyncio
+async def test_legacy_action_issue_keeps_unspecified_basis_and_blocking_status(monkeypatch, review_settings):
+    payload = review_payload()
+    payload["pages"][1]["issues"] = ["action_mismatch"]
+    mock_response(monkeypatch, payload)
+    result = await image_quality.review_book_illustrations(**inputs())
+    assert result.pages[1].action_mismatch_basis is image_quality.IllustrationActionBasis.UNSPECIFIED
+    assert result.failed_page_numbers == [1]
+
+
+@pytest.mark.asyncio
+async def test_local_action_scope_is_explicit_and_restored_without_hiding_full_book(monkeypatch, review_settings):
+    requests = mock_response(monkeypatch, review_payload())
+    with image_quality.illustration_page_action_review_scope({1, 3}):
+        await image_quality.review_book_illustrations(**inputs())
+        with pytest.raises(RuntimeError):
+            with image_quality.illustration_page_action_review_scope(set()):
+                await image_quality.review_book_illustrations(**inputs())
+                raise RuntimeError("leave nested scope")
+        await image_quality.review_book_illustrations(**inputs())
+    await image_quality.review_book_illustrations(**inputs())
+
+    contexts = [json.loads(body["input"][-1]["content"][0]["text"]) for _url, body in requests]
+    assert [context["page_action_review_pages"] for context in contexts] == [
+        [1, 3], [], [1, 3], list(range(5)),
+    ]
+    assert all(len(context["pages"]) == 5 for context in contexts)
+    assert all(len(body["input"][-1]["content"]) == 11 for _url, body in requests)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("pages", [{True}, {5}, {-1}, {"1"}])
+async def test_invalid_action_scope_never_reaches_provider(monkeypatch, review_settings, pages):
+    requests = mock_response(monkeypatch, review_payload())
+    with image_quality.illustration_page_action_review_scope(pages), pytest.raises(LLMError):
+        await image_quality.review_book_illustrations(**inputs())
+    assert requests == []
+
+
+def test_finite_policy_preserves_identity_safety_and_incidental_count_boundaries():
+    prompt = " ".join(image_quality._SYSTEM_PROMPT.split())
+    assert "These variations alone require issues: []" in prompt
+    assert "They do not cancel any actual issue" in prompt
+    assert "Never classify a changed protagonist, species, child/adult age category" in prompt
+    assert "Exact counts remain material when counting, a measurement" in prompt
+    assert "An unavailable/unreadable image still requires uncertain" in prompt
+    assert "Evidence is a thinking aid, not independent proof" in prompt
+    assert "Still inspect EVERY page for safety" in prompt

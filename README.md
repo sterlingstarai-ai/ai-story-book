@@ -4,6 +4,8 @@ AI Story Book is a production-oriented storybook platform with a Flutter mobile 
 
 Current launch decisions, remaining owner actions, and verification boundaries: [Launch status](docs/LAUNCH_STATUS.md).
 
+The pilot uses Flare for initial illustrations and Sunburst only for flagged-page repair. Latest full-backend rollout and store-submission status remain separate from that model setting. Verify effective pinned systemd recovery commands with the [operations runbook](docs/OPERATIONS_TEST_RUNBOOK.md#pilot-recovery-source-binding-2026-11-11).
+
 ## Release status — 2026-09-06
 
 **Public release quality remains on hold.** The fixed 15-book baseline completed all technical paths, but character consistency and text–image agreement each passed only 53.3%. A prepublication [illustration review and bounded page repair gate](docs/ILLUSTRATION_QUALITY_GATE.md) has been implemented and verified on stored error cases. It does not overwrite the failed baseline or establish zero-error generation. See [launch status](docs/LAUNCH_STATUS.md).

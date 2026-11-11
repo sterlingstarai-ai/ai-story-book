@@ -13,7 +13,7 @@ import sys
 import time
 
 from backup_service_guard import BackupServiceGuard, DockerRuntime, assert_no_narration_recovery
-from run_scheduled_backup import assert_idle_worker
+from deployment_config_journal import DeploymentConfigJournal
 
 STATE = Path('/var/lib/ai-story-book/privacy-deploy')
 MARKER = STATE / 'rollback.json'
@@ -47,26 +47,64 @@ def sync_dir():
 
 
 def rollback():
-    if not MARKER.exists():
-        return False
     # Coordinate with narration arming and the backup recovery unit. Checking
     # the marker without the shared lock would permit a restart race.
     guard = BackupServiceGuard(BACKUP_STATE, DockerRuntime())
     fd = guard._locked()
     try:
+        if not MARKER.exists() and not MARKER.is_symlink():
+            # Marker removal is the commit point. A leftover journal must never
+            # undo a committed release, even if live settings changed later.
+            DeploymentConfigJournal(STATE / 'config-journal').discard_committed()
+            return False
         assert_no_narration_recovery()
         return _rollback_locked()
     finally:
         os.close(fd)
 
 
+def _verify_original_ready(deadline):
+    """Strict local HTTPS readiness; public Cloud Run is checked externally."""
+    while time.monotonic() < deadline:
+        try:
+            result = subprocess.run(
+                ['/usr/bin/curl', '-q', '--silent', '--fail', '--noproxy', '*',
+                 '--max-filesize', '65536', '--max-time', '3',
+                 '--connect-to', '35.209.174.246:443:127.0.0.1:443',
+                 '--write-out', '\n%{http_code}', 'https://35.209.174.246/health/ready'],
+                check=True, capture_output=True, timeout=min(4, deadline - time.monotonic()),
+                env={'PATH': '/usr/bin:/bin'},
+            )
+            body, _, code = result.stdout.rpartition(b'\n')
+            payload = json.loads(body)
+            if code == b'200' and isinstance(payload, dict) and payload.get('status') == 'healthy':
+                return
+        except (OSError, subprocess.SubprocessError, ValueError):
+            pass
+        time.sleep(min(1, max(0, deadline - time.monotonic())))
+    raise RuntimeError('Original API readiness failed; rollback marker retained')
+
+
 def _rollback_locked():
-    marker = json.loads(MARKER.read_text())
-    if set(marker) != {'version', 'old', 'new'} or marker['version'] != 1:
+    if MARKER.is_symlink() or not MARKER.is_file():
         raise RuntimeError('Invalid rollback marker')
+    marker = json.loads(MARKER.read_text())
+    if (not isinstance(marker, dict)
+            or set(marker) not in ({'version', 'old', 'new'},
+                                   {'version', 'old', 'new', 'config_journal_sha256'})
+            or type(marker['version']) is not int or marker['version'] != 1):
+        raise RuntimeError('Invalid rollback marker')
+    if 'config_journal_sha256' in marker and (
+            not isinstance(marker['config_journal_sha256'], str)
+            or not re.fullmatch('[0-9a-f]{64}', marker['config_journal_sha256'])):
+        raise RuntimeError('Invalid configuration journal pin')
     for collection in ('old', 'new'):
-        if set(marker[collection]) != {API, WORKER} or any(not re.fullmatch('[0-9a-f]{64}', x) for x in marker[collection].values()):
+        if (not isinstance(marker[collection], dict) or set(marker[collection]) != {API, WORKER}
+                or any(not isinstance(x, str) or not re.fullmatch('[0-9a-f]{64}', x)
+                       for x in marker[collection].values())):
             raise RuntimeError('Invalid container identity')
+    journal = DeploymentConfigJournal(STATE / 'config-journal')
+    journal.validate_restore(expected_sha256=marker.get('config_journal_sha256'))
     for name in (API, WORKER):
         old_id, new_id = marker['old'][name], marker['new'][name]
         if not exists(old_id) or not exists(new_id):
@@ -89,12 +127,24 @@ def _rollback_locked():
                 raise RuntimeError('Original name occupied')
             docker('rename', old_id, name)
         docker('update', '--restart=unless-stopped', old_id)
+    journal.restore(expected_sha256=marker.get('config_journal_sha256'))
     for name in (WORKER, API):
         if inspect(marker['old'][name], '{{.State.Running}}') != 'true':
             docker('start', marker['old'][name])
-    docker('exec', 'asb-pilot-nginx', 'nginx', '-s', 'reload')
+    # A Docker start/reload acknowledgement is not evidence of recovery. Keep
+    # the durable marker through every identity, worker, TLS and readiness gate.
+    deadline = time.monotonic() + 300
+    runtime = DockerRuntime(deadline=deadline, startup_timeout_seconds=300)
+    for name in (API, WORKER):
+        if (inspect(name, '{{.Id}}') != marker['old'][name]
+                or inspect(name, '{{.State.Running}}') != 'true'):
+            raise RuntimeError('Original container identity or running state differs')
+    runtime.verify_recovery()
+    runtime.reload_proxy()
+    _verify_original_ready(deadline)
     MARKER.unlink()
     sync_dir()
+    journal.discard_committed()
     return True
 
 
@@ -112,12 +162,17 @@ def deploy():
 
 
 def _deploy_locked(runtime, guard):
+    # Recovery needs only stdlib helpers and Docker probes. Do not import the
+    # full backup/provider dependency graph when the boot unit only rolls back.
+    from run_scheduled_backup import assert_idle_worker
+
     STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
     st = STATE.lstat()
     if not STATE.is_dir() or STATE.is_symlink() or st.st_uid != os.geteuid() or st.st_mode & 0o077:
         raise RuntimeError('Invalid state directory')
     if MARKER.exists() or MARKER.is_symlink():
         raise RuntimeError('Previous deployment needs recovery')
+    DeploymentConfigJournal(STATE / 'config-journal').discard_committed()
     old, new = {}, {}
     marker_published = False
     for name in (API, WORKER):

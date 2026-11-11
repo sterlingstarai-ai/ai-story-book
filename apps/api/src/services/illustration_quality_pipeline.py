@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+import hashlib
+import json
 import time
 from typing import Awaitable, Callable
 import uuid
@@ -199,7 +201,9 @@ async def verify_and_repair_illustrations(
     Use the action focus only when prompts were generated for these exact texts.
     """
     from src.services.image import image_book_reference_scope, supports_image_reference
-    from src.services.image_quality import review_book_illustrations
+    from src.services.image_quality import (
+        IllustrationActionBasis, illustration_page_action_review_scope, review_book_illustrations,
+    )
 
     urls = dict(image_urls)
     original_prompts = dict(image_prompts)
@@ -211,26 +215,44 @@ async def verify_and_repair_illustrations(
     allowed_keys = {key for url in urls.values() if (key := key_from_public_url(url))}
     discarded = []
     read_cache: ObjectReadCache = {}
+    accepted_page_contexts: dict[int, bytes] = {}
 
     async def review():
         images = await _load_owned_images(urls, allowed_keys, deadline, read_cache)
+        # Keep acceptance local to this operation and these exact bytes/texts.
+        # A stable URL is insufficient: storage content or story context may
+        # have changed. Every round still loads and reviews the complete book.
+        page_contexts = {}
+        for page, (data, mime) in images.items():
+            digest = hashlib.sha256(json.dumps(
+                [title, page_texts[page], prompts[page].positive_prompt, mime],
+                ensure_ascii=False, separators=(",", ":"),
+            ).encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(data)
+            page_contexts[page] = digest.digest()
+        action_review_pages = {
+            page for page in expected if accepted_page_contexts.get(page) != page_contexts[page]
+        }
         timeout = min(REVIEW_TIMEOUT, seconds_remaining(deadline))
-        result = await asyncio.wait_for(
-            review_book_illustrations(
-                title=title,
-                page_texts=page_texts,
-                image_prompts={page: prompt.positive_prompt for page, prompt in prompts.items()},
-                images=images,
+        with illustration_page_action_review_scope(action_review_pages):
+            result = await asyncio.wait_for(
+                review_book_illustrations(
+                    title=title,
+                    page_texts=page_texts,
+                    image_prompts={page: prompt.positive_prompt for page, prompt in prompts.items()},
+                    images=images,
+                    timeout=timeout,
+                ),
                 timeout=timeout,
-            ),
-            timeout=timeout,
-        )
+            )
         # Retain an independent completeness fence even if a mocked/changed
         # provider adapter accidentally weakens its output schema.
         pages = result.pages
         if len(pages) != len(expected) or {p.page_number for p in pages} != expected:
             raise quality_failure("page_coverage_invalid")
         findings = {}
+        suppressed_local_actions = []
         for page in pages:
             issues = [str(getattr(issue, "value", issue)) for issue in page.issues]
             if any(
@@ -238,8 +260,24 @@ async def verify_and_repair_illustrations(
                 for issue in issues
             ):
                 raise quality_failure("unknown_issue")
+            if (page.page_number not in action_review_pages
+                    and getattr(page, "action_mismatch_basis", None) is IllustrationActionBasis.PAGE_ACTION):
+                # Only a newly invented local action finding on an unchanged,
+                # accepted page is suppressed. Legacy/unknown basis, global
+                # object continuity and every identity/safety/text defect keep
+                # the original fail-closed repair/publication behavior.
+                if "action_mismatch" in issues:
+                    suppressed_local_actions.append(page.page_number)
+                issues = [issue for issue in issues if issue != "action_mismatch"]
             if issues:
                 findings[page.page_number] = issues
+                accepted_page_contexts.pop(page.page_number, None)
+            else:
+                accepted_page_contexts[page.page_number] = page_contexts[page.page_number]
+        if suppressed_local_actions:
+            record_illustration_diagnostic(
+                "pipeline", "unchanged_local_action", page_numbers=suppressed_local_actions,
+            )
         return findings
 
     async def repair(page, issues, timeout, cover_passed_review):

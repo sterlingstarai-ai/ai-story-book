@@ -20,10 +20,14 @@ from src.services.image_quality import BookIllustrationReview
 from src.services.storage import canonical_media_url
 
 
-def _review(count=5, failures=None):
+def _review(count=5, failures=None, action_bases=None, minor_variations=None):
     failures = failures or {}
+    action_bases = action_bases or {}
+    minor_variations = minor_variations or {}
     return BookIllustrationReview(
-        pages=[{"page_number": n, "issues": failures.get(n, [])} for n in range(count)]
+        pages=[{"page_number": n, "issues": failures.get(n, []),
+                "action_mismatch_basis": action_bases.get(n, "unspecified"),
+                "minor_variations": minor_variations.get(n, [])} for n in range(count)]
     )
 
 
@@ -107,6 +111,155 @@ async def test_all_pages_pass_without_extra_generation(monkeypatch, review_bytes
     generate.assert_not_awaited()
     assert reviewer.await_count == 1
     assert all(isinstance(v[0], bytes) for v in reviewer.call_args.kwargs["images"].values())
+
+
+@pytest.mark.asyncio
+async def test_minor_variations_do_not_consume_repairs_or_block_a_complete_book(monkeypatch, review_bytes):
+    reviewer = AsyncMock(return_value=_review(
+        13, minor_variations={n: ["cosmetic", "incidental"] for n in range(13)},
+    ))
+    monkeypatch.setattr(image_quality, "review_book_illustrations", reviewer)
+    generate = AsyncMock()
+
+    result = await pipeline.verify_and_repair_illustrations(**_inputs(13), regenerate=generate)
+
+    assert result.repaired_pages == []
+    assert reviewer.await_count == 1
+    generate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_unchanged_accepted_local_action_is_not_reopened_after_a_sibling_repair(monkeypatch, review_bytes):
+    from src.services import illustration_diagnostics
+
+    reviews = [
+        _review(failures={1: ["readable_text"]}),
+        _review(failures={3: ["action_mismatch"]}, action_bases={3: "page_action"}),
+    ]
+    scopes = []
+    diagnostics = []
+    monkeypatch.setattr(illustration_diagnostics, "logger", SimpleNamespace(
+        warning=lambda _event, **fields: diagnostics.append(fields),
+    ))
+
+    async def review(**kwargs):
+        scopes.append(image_quality._PAGE_ACTION_REVIEW_SCOPE.get())
+        assert set(kwargs["images"]) == set(range(5))
+        return reviews.pop(0)
+
+    monkeypatch.setattr(image_quality, "review_book_illustrations", review)
+    generate = AsyncMock(return_value=canonical_media_url("jobs/q/fix-1.png"))
+
+    result = await pipeline.verify_and_repair_illustrations(**_inputs(), regenerate=generate)
+
+    assert result.repaired_pages == [1]
+    assert generate.await_count == 1 and not reviews
+    assert scopes == [frozenset(range(5)), frozenset({1})]
+    assert image_quality._PAGE_ACTION_REVIEW_SCOPE.get() is None
+    assert diagnostics == [{"quality_stage": "pipeline", "quality_reason": "unchanged_local_action",
+                            "quality_pages": [3]}]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("issue,basis", [
+    ("action_mismatch", "book_object_continuity"),
+    ("action_mismatch", "unspecified"),  # Legacy/omitted basis keeps the old fence.
+    ("identity_swap", "unspecified"),
+    ("duplicate_character", "unspecified"),
+    ("printed_instructions", "unspecified"),
+    ("readable_text", "unspecified"),
+    ("unsafe_depiction", "unspecified"),
+    ("uncertain", "unspecified"),
+])
+async def test_global_and_unclassified_findings_on_unchanged_pages_remain_material(
+    monkeypatch, review_bytes, issue, basis,
+):
+    reviewer = AsyncMock(side_effect=[
+        _review(failures={1: ["readable_text"]}),
+        _review(failures={3: [issue]}, action_bases={3: basis}, minor_variations={3: ["cosmetic"]}),
+        _review(),
+    ])
+    monkeypatch.setattr(image_quality, "review_book_illustrations", reviewer)
+    generate = AsyncMock(side_effect=lambda page, *_: canonical_media_url(f"jobs/q/fix-{page}.png"))
+
+    if issue in {"unsafe_depiction", "uncertain"}:
+        with pytest.raises(StoryBookError):
+            await pipeline.verify_and_repair_illustrations(**_inputs(), regenerate=generate)
+        assert generate.await_count == 1 and reviewer.await_count == 2
+    else:
+        result = await pipeline.verify_and_repair_illustrations(**_inputs(), regenerate=generate)
+        assert result.repaired_pages == [1, 3]
+        assert generate.await_count == 2 and reviewer.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_ignoring_a_local_action_does_not_erase_identity_issue_on_the_same_page(monkeypatch, review_bytes):
+    reviewer = AsyncMock(side_effect=[
+        _review(failures={1: ["readable_text"]}),
+        _review(failures={3: ["action_mismatch", "identity_swap"]}, action_bases={3: "page_action"}),
+        _review(),
+    ])
+    monkeypatch.setattr(image_quality, "review_book_illustrations", reviewer)
+    generate = AsyncMock(side_effect=lambda page, *_: canonical_media_url(f"jobs/q/fix-{page}.png"))
+
+    result = await pipeline.verify_and_repair_illustrations(**_inputs(), regenerate=generate)
+
+    assert result.repaired_pages == [1, 3]
+    assert generate.await_count == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("changed", ["bytes", "text", "brief"])
+async def test_changed_content_reopens_local_action_review_even_at_the_same_url(monkeypatch, changed):
+    inputs = _inputs()
+    data = {f"jobs/q/page-{page}.png": b"\x89PNG\r\n\x1a\n" + bytes([page]) for page in range(5)}
+    scopes = []
+    reviews = [
+        _review(failures={1: ["readable_text"]}),
+        _review(failures={3: ["action_mismatch"]}, action_bases={3: "page_action"}),
+        _review(),
+    ]
+
+    async def load(key, **kwargs):
+        return data[key], "image/png"
+
+    async def review(**kwargs):
+        scopes.append(image_quality._PAGE_ACTION_REVIEW_SCOPE.get())
+        return reviews.pop(0)
+
+    async def repair(page, _prompt, _urls):
+        if page == 1:
+            if changed == "bytes":
+                data["jobs/q/page-3.png"] += b"changed"
+            elif changed == "text":
+                inputs["page_texts"][3] = "달라진 본문"
+            else:
+                inputs["image_prompts"][3].positive_prompt = "A visibly different scene"
+        return inputs["image_urls"][page]
+
+    monkeypatch.setattr(pipeline, "get_object_bytes", load)
+    monkeypatch.setattr(image_quality, "review_book_illustrations", review)
+
+    result = await pipeline.verify_and_repair_illustrations(**inputs, regenerate=repair)
+
+    assert result.repaired_pages == [1, 3]
+    assert scopes[0] == frozenset(range(5))
+    assert 3 in scopes[1]
+    assert not reviews
+
+
+@pytest.mark.asyncio
+async def test_a_repair_attempt_alone_does_not_establish_action_acceptance(monkeypatch, review_bytes):
+    reviewer = AsyncMock(return_value=_review(
+        failures={3: ["action_mismatch"]}, action_bases={3: "page_action"},
+    ))
+    monkeypatch.setattr(image_quality, "review_book_illustrations", reviewer)
+    generate = AsyncMock(return_value=canonical_media_url("jobs/q/page-3.png"))
+
+    with pytest.raises(StoryBookError):
+        await pipeline.verify_and_repair_illustrations(**_inputs(), regenerate=generate)
+
+    assert generate.await_count == 2 and reviewer.await_count == 3
 
 
 @pytest.mark.asyncio

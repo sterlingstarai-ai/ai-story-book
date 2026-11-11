@@ -10,8 +10,9 @@ import pytest
 
 
 @pytest.fixture
-def guard_module():
+def guard_module(monkeypatch):
     path = Path(__file__).resolve().parents[3] / 'scripts' / 'backup_service_guard.py'
+    monkeypatch.syspath_prepend(str(path.parent))
     spec = importlib.util.spec_from_file_location('asb_backup_service_guard_test', path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -309,8 +310,9 @@ def test_proxy_reload_requires_new_workers_and_a_live_route(guard_module, monkey
 ])
 def test_proxy_liveness_probe_verifies_tls_route_and_response(guard_module, monkeypatch, response, expected):
     def run(command, **options):
-        assert command[-1] == f'{guard_module._PILOT_API_ORIGIN}/health/live'
-        assert '--connect-to' not in command
+        identity = guard_module._PILOT_PROXY_TLS_IDENTITY
+        assert command[-1] == f'https://{identity}/health/live'
+        assert command[command.index('--connect-to') + 1] == f'{identity}:443:127.0.0.1:443'
         assert not {'-k', '--insecure', '-L', '--location'}.intersection(command)
         assert options['timeout'] == 2.0
         if response is None:

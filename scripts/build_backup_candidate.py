@@ -13,6 +13,8 @@ import re
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_NAMES = (
+    'build_backup_candidate.py', 'deploy_pilot_privacy.py', 'deployment_config_journal.py',
+    'verify_pilot_recovery_units.py',
     'run_scheduled_backup.py', 'automatic_backup.py', 'backup_external.py',
     'backup_service_guard.py', 'worker_control_probe.py', 'postgres_backup_fence.py', 'publish_backup_gcs.py',
     'verify_backup_set.py', 'final_external_preflight.py',

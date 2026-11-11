@@ -2,6 +2,8 @@
 
 > 현재 출시 상태와 비공개 미디어 전환 절차: [LAUNCH_STATUS.md](LAUNCH_STATUS.md). 로컬 API는 `apps/api/.env`, 운영 Compose는 `infra/.env`를 사용합니다.
 
+시험 운영 서버의 복구 코드는 이미지와 별도로 매니페스트에 고정한다. systemd의 실제 실행 명령과 사전 검증 명령이 같은 복구 아티팩트를 가리키는지 확인한다. 숫자 접두어의 drop-in이 기존 알파벳 파일보다 나중에 적용된다고 가정하지 않는다. [고정 복구 코드 확인](OPERATIONS_TEST_RUNBOOK.md#pilot-recovery-source-binding-2026-11-11).
+
 
 This document defines the production deployment contract after the P5 hardening sweep.
 

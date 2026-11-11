@@ -13,6 +13,7 @@ _REASONS = {
     "quality_disabled", "deadline_exhausted", "correction_invalid", "asset_invalid",
     "unknown_issue", "repair_limit_exceeded", "blocking_issue", "repair_scope_invalid",
     "repair_deadline_insufficient", "recheck_failed", "pipeline_exception",
+    "unchanged_local_action",
 }
 _ISSUES = {
     "printed_instructions", "readable_text", "duplicate_character", "identity_swap",

@@ -1,5 +1,13 @@
 # 제한 베타 배포 준비
 
+## 2026-11-11 최신 후보 전환 복구와 Android 빌드 4
+
+- 기본 생성은 Flare, 검수에서 걸린 쪽만 Sunburst로 교정하는 운영 설정을 유지한다. 최신 전체 백엔드 후보는 API·워커 각각 소스 141개를 대조했으나 전환 후 프록시 복구 확인을 통과하지 못했다. 전체 후보 배포 성공으로 표시하지 않는다. 기존 Flare 운영 이미지로 되돌린 뒤 공개 주소에서 삽화 13장과 12쪽의 저장 WAV 30.65초, 캐시 바이트 일치 및 준비 상태 200을 확인했다. 새 동화·음원을 생성한 검사는 아니다. [기존 책 회귀 검사](acceptance/2026-11-11-backend-final-r5/existing-book-verification.json) · [전환 실패](acceptance/2026-11-11-backend-final-r6/phases.log)
+- 배포 설정 두 파일의 이전 바이트·권한·해시를 비공개 저널에 저장하고 복구 표식의 해시에 연결했다. 중간 쓰기 실패·재복구·외부 변경·커밋 후 잔여 정리의 검사를 추가했다. 실제 저널에는 비밀값이 있으므로 검증 산출물이나 Git에 복사하지 않는다.
+- 209개 파일의 고정 복구 패키지를 설치했다. `99-verified-release.conf` 뒤에 읽히는 기존 `provider-interlock.conf`가 실행 명령을 덮어쓰는 결함을 발견해 `zzz-verified-release.conf`로 적용 순서를 고쳤다. 검증 명령만 보는 방식 대신 실제 `ExecStart`·`ExecStartPre`·백업 후 복구 명령을 개별 대조하는 도구와 회귀 검사 6개를 추가했다. 실제 서비스의 유효 명령 대조 및 개인정보 배포 복구·백업 복구 서비스의 정상 종료를 확인했다. 이는 실제 VM 재부팅 시험이나 무중단 백업 성공을 뜻하지 않는다. [운영 복구 확인](acceptance/2026-11-11-backend-final-r6/restored-serving-state.json)
+- Android `1.0.0(4)` AAB를 서명하고 공식 bundletool로 검증했다. 음색 두 가지·낭독 스타일 세 가지의 미리듣기와 Pretendard 라이선스가 들어 있다. Google Play Alpha에 업로드하고 게시 개요에 저장했다. 현재 `검토를 위해 변경사항 13개 제출`은 불완전한 데이터 보안 선언 1건으로 비활성 상태다. 심사 제출·테스터 배포는 하지 않았다. [빌드 검증](acceptance/2026-11-11-android-build4/verification.json) · [저장 화면](acceptance/2026-11-11-android-build4/play-build4-saved.png) · [제출 차단 화면](acceptance/2026-11-11-android-build4/play-build4-review-blocker.png)
+- 보호자 메일 수집 도구는 TLS 로그인에 성공한 경우에만 무시되는 비공개 파일을 새로 저장하며 메일이나 운영 설정을 변경하지 않는다. 실제 자격증명은 아직 수집되지 않았고 운영 메일 기능은 꺼져 있다. Apple 심사 전화번호와 개인정보 신고 게시 확인도 남아 있다. 기존 요청에 대한 사용자 응답을 기다리며 인증정보를 채팅으로 받지 않는다.
+
 ## 2026-11-11 Flare 삽화 생성과 Sunburst 교정
 
 - 기본 모델을 Flare로 확정했다. Settings와 로컬·운영 Compose의 누락 시 기본값을 `gpt-image-2.6-flare`로 통일했고, 실제 로컬 설정과 운영 예시는 Sunburst 선택 교정 조합으로 맞췄다. 자동 제공자 점검에 사용되는 검증 파일의 고정 해시도 새 모델 지원 코드와 일치시켰다. 교정 직렬화·파이프라인 81개와 고정 검증 실행기 4개 검사를 통과했다.
