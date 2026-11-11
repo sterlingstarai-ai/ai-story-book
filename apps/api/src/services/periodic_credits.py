@@ -15,6 +15,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import AsyncSessionLocal
+from src.core.maintenance_activity import seconds_to_tick
 from src.core.utils import utcnow
 from src.models.db import IAPReceipt, Subscription
 from src.services.credits import SUBSCRIPTION_PLANS, credits_service
@@ -68,7 +69,7 @@ class PeriodicCredits:
                     await self.grant_due_refills(session)
             except Exception as e:  # pragma: no cover - 방어적
                 logger.error("Periodic credits error", error=str(e))
-            await asyncio.sleep(REFILL_INTERVAL_SECONDS)
+            await asyncio.sleep(seconds_to_tick(REFILL_INTERVAL_SECONDS))
 
     async def grant_due_refills(self, session: AsyncSession) -> int:
         """결제 주기가 경과한 active 구독을 갱신하고 월간 크레딧을 지급한다.

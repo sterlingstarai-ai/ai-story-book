@@ -2,10 +2,12 @@
   "displayName": "AI Story Book privacy erasure queue",
   "combiner": "OR",
   "enabled": true,
-  "notificationChannels": ["PROJECT_NOTIFICATION_CHANNEL_RESOURCE"],
+  "notificationChannels": [
+    "PROJECT_NOTIFICATION_CHANNEL_RESOURCE"
+  ],
   "documentation": {
     "mimeType": "text/markdown",
-    "content": "The privacy erasure queue has unresolved work or its monitoring signal is missing. Investigate privately; no user or object identifiers are included. A healthy signal is not proof of physical erasure or complete event capture."
+    "content": "The privacy erasure queue has unresolved work or its monitoring signal is missing. Investigate privately; no user or object identifiers are included. A healthy signal is not proof of physical erasure or complete event capture. Full dependency/queue checks run every 30 minutes; process liveness is a separate five-minute signal. Missing-signal detection allows 45 minutes. This does not change the privacy retry cadence while work is pending."
   },
   "conditions": [
     {
@@ -15,17 +17,29 @@
         "comparison": "COMPARISON_LT",
         "thresholdValue": 0.5,
         "duration": "0s",
-        "aggregations": [{"alignmentPeriod": "60s", "perSeriesAligner": "ALIGN_MIN"}]
+        "aggregations": [
+          {
+            "alignmentPeriod": "1800s",
+            "perSeriesAligner": "ALIGN_MIN"
+          }
+        ]
       }
     },
     {
       "displayName": "Privacy erasure signal missing",
       "conditionAbsent": {
         "filter": "metric.type=\"custom.googleapis.com/ai_story_book/privacy_purge_health\" AND resource.type=\"global\"",
-        "duration": "1500s",
-        "aggregations": [{"alignmentPeriod": "60s", "perSeriesAligner": "ALIGN_MEAN"}]
+        "duration": "2700s",
+        "aggregations": [
+          {
+            "alignmentPeriod": "1800s",
+            "perSeriesAligner": "ALIGN_MEAN"
+          }
+        ]
       }
     }
   ],
-  "alertStrategy": {"autoClose": "1800s"}
+  "alertStrategy": {
+    "autoClose": "3600s"
+  }
 }

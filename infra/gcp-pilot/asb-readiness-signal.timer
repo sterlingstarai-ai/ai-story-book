@@ -1,9 +1,9 @@
 [Unit]
-Description=Publish AI Story Book API readiness every five minutes
+Description=Publish full API readiness on aligned half-hour ticks
 
 [Timer]
 OnBootSec=2min
-OnUnitActiveSec=5min
+OnCalendar=*-*-* *:00,30:00 UTC
 AccuracySec=15s
 
 [Install]

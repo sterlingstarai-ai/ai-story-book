@@ -2,10 +2,12 @@
   "displayName": "AI Story Book API readiness",
   "combiner": "OR",
   "enabled": true,
-  "notificationChannels": ["PROJECT_NOTIFICATION_CHANNEL_RESOURCE"],
+  "notificationChannels": [
+    "PROJECT_NOTIFICATION_CHANNEL_RESOURCE"
+  ],
   "documentation": {
     "mimeType": "text/markdown",
-    "content": "The API readiness check is unhealthy or its monitoring signal is missing. This may include expired AI provider observations, connectivity, or a planned backup. Investigate privately; this signal does not make paid AI calls."
+    "content": "The API readiness check is unhealthy or its monitoring signal is missing. This may include expired AI provider observations, connectivity, or a planned backup. Investigate privately; this signal does not make paid AI calls. Full dependency/queue checks run every 30 minutes; process liveness is a separate five-minute signal. Missing-signal detection allows 45 minutes. This does not change the privacy retry cadence while work is pending."
   },
   "conditions": [
     {
@@ -14,18 +16,30 @@
         "filter": "metric.type=\"custom.googleapis.com/ai_story_book/api_readiness\" AND resource.type=\"global\"",
         "comparison": "COMPARISON_LT",
         "thresholdValue": 0.5,
-        "duration": "300s",
-        "aggregations": [{"alignmentPeriod": "600s", "perSeriesAligner": "ALIGN_MAX"}]
+        "duration": "0s",
+        "aggregations": [
+          {
+            "alignmentPeriod": "1800s",
+            "perSeriesAligner": "ALIGN_MIN"
+          }
+        ]
       }
     },
     {
       "displayName": "API readiness signal missing",
       "conditionAbsent": {
         "filter": "metric.type=\"custom.googleapis.com/ai_story_book/api_readiness\" AND resource.type=\"global\"",
-        "duration": "1500s",
-        "aggregations": [{"alignmentPeriod": "300s", "perSeriesAligner": "ALIGN_MEAN"}]
+        "duration": "2700s",
+        "aggregations": [
+          {
+            "alignmentPeriod": "1800s",
+            "perSeriesAligner": "ALIGN_MEAN"
+          }
+        ]
       }
     }
   ],
-  "alertStrategy": {"autoClose": "1800s"}
+  "alertStrategy": {
+    "autoClose": "3600s"
+  }
 }

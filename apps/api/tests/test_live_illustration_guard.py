@@ -250,8 +250,8 @@ def test_one_book_runtime_and_result_carry_the_same_gate_and_limits(monkeypatch,
     monkeypatch.setattr(book.subprocess, "Popen", lambda *_args, **kwargs: SimpleNamespace(poll=lambda: None))
     monkeypatch.setattr(book, "stop_process_group", lambda _process: None)
     monkeypatch.setattr(book.httpx, "get", lambda *_args, **_kwargs: SimpleNamespace(status_code=200))
-    def journey(*_args, trial_owner):
-        assert trial_owner is None
+    def journey(*_args, trial_owner, final_narration):
+        assert trial_owner is None and final_narration is False
 
     monkeypatch.setattr(book, "journey", journey)
     args = SimpleNamespace(output_dir=output, reader_profile_file=None, age="5-7", case=1, page_count=pages,

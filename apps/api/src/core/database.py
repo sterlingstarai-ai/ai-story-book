@@ -1,5 +1,5 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import sessionmaker, declarative_base, Session
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.pool import NullPool
 
@@ -111,9 +111,20 @@ def configure_for_worker() -> None:
 Base = declarative_base()
 
 
+@event.listens_for(Session, 'after_commit')
+def _wake_request_maintenance(session):
+    # Background sweeps use the unmarked factory: their own commits must never
+    # wake themselves in a tight loop. Bulk request DML is covered as well.
+    if session.info.get('wake_maintenance_after_commit'):
+        from src.core.maintenance_activity import maintenance_activity
+
+        maintenance_activity.notify()
+
+
 # Dependency
 async def get_db():
     async with AsyncSessionLocal() as session:
+        session.info['wake_maintenance_after_commit'] = True
         try:
             from src.services.privacy_journal_runtime import configured_journal
 

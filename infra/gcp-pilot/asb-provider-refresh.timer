@@ -3,7 +3,7 @@ Description=Check provider observation freshness every thirty minutes
 
 [Timer]
 OnBootSec=5min
-OnUnitActiveSec=30min
+OnCalendar=*-*-* *:00,30:00 UTC
 AccuracySec=30s
 
 [Install]

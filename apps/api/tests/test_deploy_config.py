@@ -83,7 +83,8 @@ def test_free_beta_examples_match_the_openai_candidate(name):
     from dotenv import dotenv_values
 
     values = dotenv_values(REPO_ROOT / 'infra' / name, interpolate=False)
-    assert values['IMAGE_PROVIDER'] == 'openai' and values['IMAGE_MODEL'] == 'gpt-image-2'
+    assert values['IMAGE_PROVIDER'] == 'openai' and values['IMAGE_MODEL'] == 'gpt-image-2.6-flare'
+    assert values['OPENAI_ILLUSTRATION_REPAIR_MODEL'] == 'gpt-image-2.6-sunburst'
     assert values['TTS_PROVIDER'] == 'openai_realtime'
     assert values['AUDIO_FEATURE_ENABLED'] == values['AUDIO_NARRATION_ONLY_ENABLED'] == 'true'
     assert values['OPENAI_TTS_API_KEY'] == values['OPENAI_TTS_API_KEY_FILE'] == ''

@@ -15,9 +15,10 @@ import structlog
 
 from src.core.config import settings
 from src.core.database import AsyncSessionLocal
+from src.core.maintenance_activity import maintenance_activity, seconds_to_tick
 from src.core.utils import utcnow
-from src.models.db import Book, CreditTransaction, Job
-from sqlalchemy import select, and_, func, update
+from src.models.db import Book, Character, CreditTransaction, Job, PrivacyJournalOutbox, StoragePurgeTask
+from sqlalchemy import select, and_, func, update, or_
 
 logger = structlog.get_logger()
 
@@ -53,6 +54,7 @@ class JobMonitor:
             return
 
         self._running = True
+        maintenance_activity.bind()
         self._task = asyncio.create_task(self._monitor_loop())
         logger.info("Job monitor started", interval_seconds=MONITOR_INTERVAL_SECONDS)
 
@@ -65,14 +67,19 @@ class JobMonitor:
                 await self._task
             except asyncio.CancelledError:
                 pass
+        maintenance_activity.unbind()
         logger.info("Job monitor stopped")
 
     async def _monitor_loop(self):
         """Main monitoring loop"""
         while self._running:
+            observed = maintenance_activity.version
+            cycle_started = asyncio.get_running_loop().time()
+            failed = False
             try:
                 await self.check_and_recover_jobs()
             except Exception as e:
+                failed = True
                 logger.error("Job monitor error", error_type=type(e).__name__)
 
             # M8/R1-5: 계정삭제·동의철회에서 중단·실패한 아동 PII 파기 지시(outbox)를
@@ -83,6 +90,7 @@ class JobMonitor:
 
                 await sweep_character_avatars()
             except Exception as e:
+                failed = True
                 logger.error("Character avatar sweep error", error_type=type(e).__name__)
 
             # These are independent durable work queues. A transient avatar
@@ -92,6 +100,7 @@ class JobMonitor:
 
                 await sweep_pending_purges()
             except Exception as e:
+                failed = True
                 logger.error("Storage purge sweep error", error_type=type(e).__name__)
 
             try:
@@ -102,9 +111,41 @@ class JobMonitor:
                 if journal is not None:
                     await publish_pending_events(AsyncSessionLocal, journal)
             except Exception as e:
+                failed = True
                 logger.error("Privacy journal retry failed", error_type=type(e).__name__)
 
-            await asyncio.sleep(MONITOR_INTERVAL_SECONDS)
+            try:
+                pending = await self.has_pending_work()
+            except Exception as e:
+                failed = True
+                pending = True
+                logger.error("Maintenance pending check failed", error_type=type(e).__name__)
+            # Pending/error queues keep their existing retry cadence. Only a
+            # proven empty cycle may sleep; a new request commit wakes it.
+            delay = MONITOR_INTERVAL_SECONDS if pending or failed else seconds_to_tick()
+            logger.info("Maintenance cycle complete", pending_work=pending,
+                        failed=failed, next_check_seconds=int(delay))
+            woken = await maintenance_activity.wait(observed, delay)
+            # Coalesce a burst of commits without opening another DB session.
+            elapsed = asyncio.get_running_loop().time() - cycle_started
+            if woken and elapsed < 1:
+                await asyncio.sleep(1 - elapsed)
+
+    async def has_pending_work(self):
+        async with AsyncSessionLocal() as session:
+            checks = [
+                select(Job.id).where(Job.status.in_(['queued', 'running'])).exists(),
+                select(StoragePurgeTask.id).where(StoragePurgeTask.status == 'pending').exists(),
+                select(Character.id).where(
+                    Character.from_photo.is_(True), Character.avatar_status != 'approved',
+                    Character.avatar_expires_at.isnot(None),
+                ).exists(),
+            ]
+            if settings.privacy_journal_enabled:
+                checks.append(select(PrivacyJournalOutbox.event_id).where(
+                    PrivacyJournalOutbox.published_at.is_(None),
+                ).exists())
+            return bool(await session.scalar(select(or_(*checks))))
 
     async def check_and_recover_jobs(self):
         """Check for stuck jobs and attempt recovery"""

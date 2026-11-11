@@ -1,9 +1,9 @@
 [Unit]
-Description=Publish privacy erasure queue health every five minutes
+Description=Publish privacy queue health on aligned half-hour ticks
 
 [Timer]
 OnBootSec=2min
-OnUnitActiveSec=5min
+OnCalendar=*-*-* *:00,30:00 UTC
 AccuracySec=30s
 
 [Install]

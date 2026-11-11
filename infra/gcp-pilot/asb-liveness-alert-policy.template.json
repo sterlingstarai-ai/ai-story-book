@@ -1,0 +1,45 @@
+{
+  "displayName": "AI Story Book API liveness",
+  "combiner": "OR",
+  "enabled": true,
+  "notificationChannels": [
+    "PROJECT_NOTIFICATION_CHANNEL_RESOURCE"
+  ],
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "The API process is unavailable over verified HTTPS or its five-minute signal is missing. This is process liveness, not database, storage, AI readiness or generation success. A ten-minute alignment window tolerates brief planned backup interruption."
+  },
+  "conditions": [
+    {
+      "displayName": "API liveness unhealthy",
+      "conditionThreshold": {
+        "filter": "metric.type=\"custom.googleapis.com/ai_story_book/api_liveness\" AND resource.type=\"global\"",
+        "comparison": "COMPARISON_LT",
+        "thresholdValue": 0.5,
+        "duration": "300s",
+        "aggregations": [
+          {
+            "alignmentPeriod": "600s",
+            "perSeriesAligner": "ALIGN_MAX"
+          }
+        ]
+      }
+    },
+    {
+      "displayName": "API liveness signal missing",
+      "conditionAbsent": {
+        "filter": "metric.type=\"custom.googleapis.com/ai_story_book/api_liveness\" AND resource.type=\"global\"",
+        "duration": "1500s",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_MEAN"
+          }
+        ]
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "1800s"
+  }
+}

@@ -1,0 +1,9 @@
+[Unit]
+Description=Publish API process liveness without waking an idle database
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/ai-story-book/readiness-monitor/publish_readiness_health.py --liveness
+TimeoutStartSec=60

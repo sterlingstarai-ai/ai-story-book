@@ -35,7 +35,8 @@ class Handler(BaseHTTPRequestHandler):
             body = b'x' * 65537
         else:
             self.send_response(200)
-            body = b'{"status":"healthy","services":{"provider_runtime":"healthy"}}'
+            body = (b'{"status":"alive"}' if self.path == '/health/live' else
+                    b'{"status":"healthy","services":{"provider_runtime":"healthy"}}')
         self.send_header('Content-Length', str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -102,15 +103,38 @@ class ReadinessSignalTests(unittest.TestCase):
             self.assertEqual(monitor.main(), 0)
         send.assert_not_called()
 
+    def test_real_http_liveness_cannot_be_used_as_readiness(self):
+        Handler.mode = 'healthy'
+        live_url = self.url.replace('/ready', '/live')
+        with patch.object(monitor, 'LIVENESS', live_url), patch.object(monitor, 'READINESS', live_url):
+            self.assertEqual(monitor.liveness(self.opener), 1)
+            self.assertEqual(monitor.readiness(self.opener), 0)
+        with patch.object(monitor, 'LIVENESS', self.url):
+            self.assertEqual(monitor.liveness(self.opener), 0)
+
+    def test_liveness_uses_its_own_metric_and_never_queries_readiness(self):
+        with patch.object(monitor.sys, 'argv', ['monitor', '--liveness']), \
+             patch.object(monitor, 'liveness', return_value=1), \
+             patch.object(monitor, 'readiness') as ready, \
+             patch.object(monitor, 'send') as send, patch('builtins.print'):
+            self.assertEqual(monitor.main(), 0)
+        ready.assert_not_called()
+        self.assertEqual(send.call_args.kwargs, {'metric': monitor.LIVENESS_METRIC})
+        point = monitor.payload(1, datetime.now(timezone.utc), metric=monitor.LIVENESS_METRIC)
+        self.assertEqual(point['timeSeries'][0]['metric']['type'], monitor.LIVENESS_METRIC)
+        with self.assertRaises(ValueError):
+            monitor.payload(1, datetime.now(timezone.utc), metric='untrusted_metric')
+
     def test_policy_uses_distinct_metric_and_only_channel_placeholder(self):
         repo = Path(__file__).resolve().parents[2]
         policy = json.loads((repo / 'infra/gcp-pilot/asb-readiness-alert-policy.template.json').read_text())
         self.assertEqual(policy['notificationChannels'], ['PROJECT_NOTIFICATION_CHANNEL_RESOURCE'])
         self.assertEqual(len(policy['conditions']), 2)
         threshold = policy['conditions'][0]['conditionThreshold']
-        self.assertEqual(threshold['duration'], '300s')
-        self.assertEqual(threshold['aggregations'][0]['alignmentPeriod'], '600s')
-        self.assertEqual(threshold['aggregations'][0]['perSeriesAligner'], 'ALIGN_MAX')
+        self.assertEqual(threshold['duration'], '0s')
+        self.assertEqual(threshold['aggregations'][0]['alignmentPeriod'], '1800s')
+        self.assertEqual(threshold['aggregations'][0]['perSeriesAligner'], 'ALIGN_MIN')
+        self.assertEqual(policy['conditions'][1]['conditionAbsent']['duration'], '2700s')
         for condition in policy['conditions']:
             entry = condition.get('conditionThreshold') or condition.get('conditionAbsent')
             self.assertIn(monitor.METRIC, entry['filter'])
