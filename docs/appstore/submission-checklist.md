@@ -2,7 +2,7 @@
 
 ## 현재 제출 후보 — 2026-11-11
 
-아래의 과거 등록 전 검토안과 미체크 목록을 현재 완료 판정으로 사용하지 않는다. 현재 후보는 **양쪽 1.0.0(4)**이며, 운영 백엔드는 `fccab95`의 API·워커다. 기본 Flare와 검수 실패 쪽 Sunburst 교정을 유지한다. ZDR 확인은 운영자의 별도 검토 항목이다.
+아래의 과거 등록 전 검토안과 미체크 목록을 현재 완료 판정으로 사용하지 않는다. 현재 후보는 **양쪽 1.0.0(4)**이며, 운영 백엔드는 `c0bd591`의 이미지 포장 변경을 적용한 API·워커다. 앱 소스 142개는 `fccab95`와 같다. 기본 Flare와 검수 실패 쪽 Sunburst 교정을 유지한다. ZDR 확인은 운영자의 별도 검토 항목이다.
 
 | 항목 | 직접 확인한 상태 | 남은 확인 |
 |---|---|---|
@@ -14,7 +14,7 @@
 | 실기기 | 11월 11일 iPhone 15에 설치된 앱은 1.0.0(3). 미러링은 Mac 인증 대기. Android 연결 없음 | 빌드 4를 받은 뒤 최종 운영 구성의 첫 권·13장·마지막 낭독·삭제·네트워크 복구 확인 |
 | 운영 | 최신 실행 소스·백업 연결·실제 DB 유휴 재개·기존 마지막 낭독 캐시 검증 완료 | 최신 운영 구성의 새 Flare 첫 권을 기기 흐름으로 검증. 일일 백업은 여전히 서비스 중지 구간이 있음 |
 
-근거: [패키지 해시와 공개 주소](../acceptance/2026-11-11-submission-draft-refresh/artifact-and-public-pages.json), [Play 저장 초안](../acceptance/2026-11-11-submission-draft-refresh/play-saved-draft.png), [Apple 선택 빌드·빈 심사 연락처](../acceptance/2026-11-11-submission-draft-refresh/apple-build4-review-contact.png), [내부 베타 배정](../acceptance/2026-11-11-ios-build4/internal-assignment.json), [운영 전환·검증 범위](../RELEASE_PREPARATION.md#2026-11-11-유휴-db-점검-운영-전환).
+근거: [패키지 해시와 공개 주소](../acceptance/2026-11-11-submission-draft-refresh/artifact-and-public-pages.json), [Play 저장 초안](../acceptance/2026-11-11-submission-draft-refresh/play-saved-draft.png), [스토어·기기 직접 관측](../acceptance/2026-11-11-submission-draft-refresh/state.json), [Apple 심사 초안 화면](../acceptance/2026-11-11-submission-draft-refresh/apple-build4-review-contact.png), [내부 베타 배정](../acceptance/2026-11-11-ios-build4/internal-assignment.json), [운영 전환·검증 범위](../RELEASE_PREPARATION.md#2026-11-11-유휴-db-점검-운영-전환).
 
 가족 정책 준수 표시를 추가하는 선택 배지는 활성화하지 않았다. 이 표시 선택은 아동 대상 앱의 정책 의무를 면제하거나 준수 검증을 완료하는 조치가 아니다. 미확인 조건을 체크해 제출 오류만 없애지 않는다. [Play 신고 정의·초안 저장 안내](https://support.google.com/googleplay/android-developer/answer/10787469?hl=en)
 

@@ -1,5 +1,13 @@
 # 제한 베타 배포 준비
 
+## 2026-11-11 운영 이미지의 시험·설치 도구 제거
+
+- 최신 포장 변경 `c0bd591`을 운영 API·워커에 적용했다. API는 `sha256:55f688bf37ca71bc093bf16c41af37e1cd6af9f203be625b29c6ca36ba425c0b`, 워커는 `sha256:d1024c7a83d29a61ca7be267279223b763315e13e194b0af86f0d4d70ce9530f`다. 두 실행 소스 142개는 직전 r8과 같으며 Flare 기본·실패 쪽 Sunburst 교정, 비공개 동의·키·백업 조건을 보존했다.
+- 실제 두 기본 Python에 남은 pip 24.0과 가상환경의 시험 패키지를 발견해 후보 이미지에서 제거했다. 나머지 패키지 이름·버전은 같았다. 운영 전환 후 280개 Python/Pub 이름·버전 조합의 OSV 조회에서 권고가 반환되지 않았다. OS·네이티브 코드 전체를 검사한 결과가 아니다. [범위와 수정 근거](RELEASE_SECURITY_REVIEW_2026-11-11.md)
+- 외부 공개 준비 상태 200, 정확한 워커 응답, 실제 실행 소스와 새 이미지의 백업 연결, 유효 복구 명령을 확인했다. 전환 중 502가 관측돼 무중단 배포가 아니다. 새 동화·음원을 생성하지 않았으며 보호자 메일은 계속 꺼져 있다. [운영 검증](acceptance/2026-11-11-runtime-tools-r9/runtime-and-backup-binding-audit.json) · [외부 영수증](acceptance/2026-11-11-runtime-tools-r9/external-readiness.json)
+- 전환 후 공개 주소에서 기존 가상 책의 12쪽 구성, 표지·마지막 그림, 마지막 쪽 30.65초 WAV와 이전 캐시 바이트 일치 및 준비 상태 200을 확인했다. 새 Flare 책이나 물리 기기 재생 검사가 아니다. [기존 책 확인](acceptance/2026-11-11-runtime-tools-r9/existing-book-verification.json)
+- iOS 심사 초안의 빌드 4와 빈 심사 연락처, Play Alpha 빌드 4와 미제출 상태를 재확인했다. Play 데이터 보안은 보호자 이메일·삭제 요청 주소를 보완해 5/5 미리보기에서 임시보관함에 저장했다. 공유 예외·메일 보관 조건을 확정하지 않았으며 최종 저장·검토 제출은 하지 않았다. 현재 iPhone은 빌드 3이고 미러링에 Mac 인증이 필요하며 Android 연결은 없다. [현재 제출 후보](appstore/submission-checklist.md#현재-제출-후보--2026-11-11)
+
 ## 2026-11-11 유휴 DB 점검 운영 전환
 
 - 새 코드 `fccab95`의 API·워커를 배포했다. 이미지와 실행 중인 컨테이너 안에서 소스 142개를 대조했고, Flare 기본·검수 실패 쪽 Sunburst 교정을 유지했다. 외부 공개 준비 상태 200 확인 후 전환을 확정했다. 실제 보호자 이메일은 아직 꺼져 있으며 새 동화·음원을 만들지 않았다. [외부 확인](acceptance/2026-11-11-backend-idle-r8/external-readiness.json) · [실행·백업 연결](acceptance/2026-11-11-backend-idle-r8/runtime-and-backup-binding-audit.json)

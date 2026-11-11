@@ -1,5 +1,7 @@
 # AI 동화책 제한 베타 최종 확인
 
+이 문서는 최초 공동 검토와 승인 근거를 보존한다. 이후 등록·빌드 4 업로드·운영 배포 상태와 실제로 필요한 입력은 [현재 제출 후보](submission-checklist.md#현재-제출-후보--2026-11-11)를 따른다. 아래의 과거 미등록·미활성화 상태를 현재 지시로 다시 적용하지 않는다.
+
 이름 **AI 동화책 / AI Story Book**, iOS TestFlight·Android 비공개 테스트 등록 및 업로드, 개인정보 개정 방향과 백업 보관 기준을 운영자가 승인했다. 새 첫 권 생성 및 마지막 쪽 낭독 검증 뒤 배포 서명과 업로드를 진행한다.
 
 함께 볼 자료: [7–9세 운영 동화 본문·삽화](../acceptance/2026-11-09-operating-owner-one-book/review.html) · [Android 12쪽 재생 화면](../acceptance/2026-11-09-public-api-narration/physical/android-playing.png) · [두 실기기 결과](../RELEASE_PREPARATION.md#2026-11-09-스토어-등록-전-검토). 공개 주소에서 기존 책의 마지막 쪽 재생을 확인했다. 새 초대 계정의 생성·새 낭독 시험과는 별도다.

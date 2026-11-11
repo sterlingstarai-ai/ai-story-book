@@ -26,7 +26,9 @@ Earlier OS boot trials failed first recovery and are retained. Increasing the bu
 
 ## Idle database scheduling (2026-11-11)
 
-The active r8 API and worker match all 142 source files of commit `fccab95`, with Flare primary and Sunburst only for rejected illustrations. Backup source resolution uses the registered mirror of the actual running API image; it does not assume the API copy embedded in the older recovery artifact is current. Read-only binding verification passed after rollout.
+The current r9 runtime packaging removes the virtualenv test tools and base Python installer. Its 142 application source files match r8, and the idle scheduling described here is unchanged. Both serving-image source inventories, exact worker response, external readiness 200, recovery unit bindings and the new image's backup mirror were verified after rollout. Existing cover/final illustration and unchanged 30.65-second cached final narration passed through the public origin. This did not create a new Flare story, synthesize audio, reboot the OS or run another backup. [Current rollout](RELEASE_PREPARATION.md#2026-11-11-운영-이미지의-시험설치-도구-제거)
+
+At the r8 rollout, both API and worker matched all 142 source files of commit `fccab95`, with Flare primary and Sunburst only for rejected illustrations. Backup source resolution uses the registered mirror of the actual running API image; it does not assume the API copy embedded in the older recovery artifact is current. Read-only binding verification passed after both rollouts.
 
 Frequent `/health/live` monitoring remains independent of the fresh `/health/ready` dependency check. Idle full checks align on half-hour boundaries; pending/error maintenance keeps five-minute retry and request commits wake the API monitor. There is no cached healthy readiness response. Current signal code is pinned to `2d5d8f4f5cfd325636aa022364a6ffd5d7aef83858207866c9c620d247310ae1`; readiness allows 30 seconds within a 90-second service budget after a real cold request took 15.862 seconds. Liveness remains bounded at ten seconds.
 
