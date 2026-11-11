@@ -25,6 +25,7 @@ class FakeRuntime:
         self.calls = []
         self.fail_start = False
         self.live = True
+        self.worker_live = True
 
     def running(self, name):
         return self.state[name]
@@ -42,9 +43,14 @@ class FakeRuntime:
     def reload_proxy(self):
         self.calls.append(('reload', 'asb-pilot-nginx'))
 
+    def verify_api_upstream(self):
+        self.calls.append(('probe', 'api-upstream'))
+        if not self.live:
+            raise RuntimeError('synthetic API liveness failure')
+
     def verify_recovery(self):
         self.calls.append(('probe', 'api-and-worker'))
-        if not self.live:
+        if not self.live or not self.worker_live:
             raise RuntimeError('synthetic liveness failure')
 
 
@@ -63,8 +69,9 @@ def test_backup_runs_only_after_idle_check_and_services_are_restarted(guard_modu
     assert guard.run(verify_idle=check_idle, backup=backup) == 'synthetic-result'
     assert runtime.calls == [('stop', 'asb-pilot-api'), ('stop', 'asb-pilot-worker'),
                              ('start', 'asb-pilot-worker'), ('start', 'asb-pilot-api'),
-                             ('probe', 'api-and-worker'),
-                             ('reload', 'asb-pilot-nginx')]
+                             ('probe', 'api-upstream'),
+                             ('reload', 'asb-pilot-nginx'),
+                             ('probe', 'api-and-worker')]
     assert all(runtime.state.values())
     assert not (tmp_path / 'restart-required.json').exists()
 
@@ -166,6 +173,22 @@ def test_running_but_unresponsive_services_keep_recovery_marker(guard_module, tm
     assert guard.recover() is False
 
 
+def test_live_api_is_routed_before_slow_worker_without_clearing_marker(guard_module, tmp_path):
+    runtime = FakeRuntime()
+    runtime.worker_live = False
+    guard = guard_module.BackupServiceGuard(tmp_path, runtime)
+    with pytest.raises(guard_module.RetryableRecoveryError, match='liveness check failed'):
+        guard.run(verify_idle=lambda: None, backup=lambda: None)
+    marker = tmp_path / 'restart-required.json'
+    assert marker.exists()
+    assert runtime.calls[-3:] == [
+        ('probe', 'api-upstream'), ('reload', 'asb-pilot-nginx'), ('probe', 'api-and-worker'),
+    ]
+    runtime.worker_live = True
+    assert guard.recover() is True
+    assert not marker.exists()
+
+
 @pytest.mark.parametrize('outcome, attempts', [
     ('recovered', 2), ('late_recovery', 4), ('fenced', 1), ('failed', 6),
 ])
@@ -207,7 +230,7 @@ def test_recovery_command_retries_only_while_unfenced(guard_module, monkeypatch,
     assert code == (0 if success else 1)
     assert json.loads(capsys.readouterr().out)['status'] == ('RECOVERED' if success else 'RECOVERY_FAILED')
     assert marker.exists() is not success
-    assert runtime.calls.count(('probe', 'api-and-worker')) == attempts
+    assert runtime.calls.count(('probe', 'api-upstream')) == attempts
     sleep_count = attempts if outcome == 'fenced' else attempts - 1
     assert sleeps == list(guard_module.RECOVERY_RETRY_DELAYS_SECONDS[:sleep_count])
 
@@ -260,6 +283,31 @@ def test_invalid_container_startup_budget_is_rejected(guard_module, timeout):
         guard_module.DockerRuntime(startup_timeout_seconds=timeout)
 
 
+@pytest.mark.parametrize('response', ['{"status":"alive"}', '{"status":"healthy"}', '[]', 'invalid'])
+def test_api_upstream_probe_is_bounded_and_requires_liveness(guard_module, monkeypatch, response):
+    clock = 0
+
+    def sleep(seconds):
+        nonlocal clock
+        clock += seconds
+
+    def run(command, *, timeout):
+        assert command[-1] == 'http://asb-pilot-api:8000/health/live'
+        assert 0 < timeout <= 2 - clock
+        return response
+
+    runtime = guard_module.DockerRuntime(startup_timeout_seconds=2)
+    monkeypatch.setattr(runtime, '_run', run)
+    monkeypatch.setattr(guard_module, 'time', SimpleNamespace(monotonic=lambda: clock, sleep=sleep))
+    if response == '{"status":"alive"}':
+        runtime.verify_api_upstream()
+        assert clock == 0
+    else:
+        with pytest.raises(guard_module.GuardError, match='API upstream did not report liveness'):
+            runtime.verify_api_upstream()
+        assert clock == 2
+
+
 @pytest.mark.parametrize(('new_worker', 'route_live'), [(True, True), (False, True), (True, False)])
 def test_proxy_reload_requires_new_workers_and_a_live_route(guard_module, monkeypatch, new_worker, route_live):
     clock = 0
@@ -271,7 +319,9 @@ def test_proxy_reload_requires_new_workers_and_a_live_route(guard_module, monkey
 
     def run(command, *, timeout):
         if command[0] == 'inspect':
-            return 'true'
+            return 'true' if command[-1] == 'asb-pilot-nginx' else '172.18.0.2'
+        if command[2] == 'getent':
+            return '172.18.0.2 asb-pilot-api'
         if command[2] == 'nginx':
             calls.append('reload')
             return ''
@@ -300,6 +350,31 @@ def test_proxy_reload_requires_new_workers_and_a_live_route(guard_module, monkey
         assert clock == 10
 
 
+@pytest.mark.parametrize('addresses', ['172.18.0.2', '172.18.0.3', '172.18.0.2\n172.18.0.3', '', 'bad'])
+def test_proxy_dns_rejects_a_retired_peer_even_when_the_current_one_resolves(guard_module, monkeypatch, addresses):
+    clock = 0
+
+    def sleep(seconds):
+        nonlocal clock
+        clock += seconds
+
+    def run(command, *, timeout):
+        assert 0 < timeout <= 2 - clock
+        if command[0] == 'inspect':
+            return '172.18.0.2'
+        return '\n'.join(value + ' asb-pilot-api' for value in addresses.splitlines())
+
+    runtime = guard_module.DockerRuntime()
+    monkeypatch.setattr(runtime, '_run', run)
+    monkeypatch.setattr(guard_module, 'time', SimpleNamespace(monotonic=lambda: clock, sleep=sleep))
+    if addresses == '172.18.0.2':
+        runtime._verify_proxy_dns(2)
+    else:
+        with pytest.raises(guard_module.GuardError, match='exclusively select'):
+            runtime._verify_proxy_dns(2)
+        assert clock == 2
+
+
 @pytest.mark.parametrize(('response', 'expected'), [
     (b'{"status":"alive"}\n200', True),
     (b'{"status":"alive"}\n302', False),
@@ -321,6 +396,36 @@ def test_proxy_liveness_probe_verifies_tls_route_and_response(guard_module, monk
 
     monkeypatch.setattr(guard_module.subprocess, 'run', run)
     assert guard_module.DockerRuntime()._proxy_is_live(2.0) is expected
+
+
+@pytest.mark.parametrize(('exit_code', 'reason'), [(28, 'timeout'), (60, 'tls_verification'),
+                                                 (22, 'http_failure'), (7, 'transport_failure')])
+def test_proxy_probe_diagnostic_discards_response_and_stderr(guard_module, monkeypatch, exit_code, reason):
+    private = b'private-response-must-never-appear'
+
+    def run(command, **_kwargs):
+        raise guard_module.subprocess.CalledProcessError(
+            exit_code, command, output=private, stderr=private,
+        )
+
+    monkeypatch.setattr(guard_module.subprocess, 'run', run)
+    runtime = guard_module.DockerRuntime()
+    assert runtime._proxy_is_live(2) is False
+    assert runtime._proxy_probe_failure == reason
+    assert private.decode() not in repr(runtime.__dict__)
+
+
+def test_proxy_probe_keeps_only_the_numeric_http_failure(guard_module, monkeypatch):
+    def run(command, **_kwargs):
+        raise guard_module.subprocess.CalledProcessError(
+            22, command, output=b'private-response\n502', stderr=b'private-url-or-data',
+        )
+
+    monkeypatch.setattr(guard_module.subprocess, 'run', run)
+    runtime = guard_module.DockerRuntime()
+    assert runtime._proxy_is_live(2) is False
+    assert runtime._proxy_probe_failure == 'http_502'
+    assert 'private' not in repr(runtime.__dict__)
 
 
 def test_corrupt_marker_and_parallel_run_do_not_start_or_stop_services(guard_module, tmp_path):

@@ -4,17 +4,19 @@ This runbook is the operator-facing checklist for validating code, runtime behav
 
 ## Pilot recovery source binding (2026-11-11)
 
-The installed pilot recovery artifact is `/opt/ai-story-book/ops-releases/e1cd414eb02dbcd228ac6dd03e05e0d744dd6f9bffb0bd4588d7920ac1998fbc` (209 verified files). Its manifest is pinned by the same hexadecimal digest. A future local candidate can contain additional operator tools; do not equate a new checkout with the installed artifact.
+The installed pilot recovery artifact is `/opt/ai-story-book/ops-releases/4f75ac4b2def64ee7f2e2ce0b1abb90489d39a8b3cf426d1e9fd7bc1b4f2b7eb` (210 verified files). Its manifest is pinned by the same hexadecimal digest. The previous 209-file artifact is retained. A future local candidate can contain additional operator tools; do not equate a new checkout with the installed artifact.
 
 Systemd reads drop-ins alphabetically. A numeric `99-` file still precedes unnumbered `provider-interlock.conf`; a valid pinned `ExecStartPre` does not prove that `ExecStart` runs the same source. The pilot uses `zzz-verified-release.conf`, preserving narration/provider conditions and unit ordering. Always inspect effective commands after daemon reload:
 
 ```bash
 python3 scripts/verify_pilot_recovery_units.py \
-  --artifact /opt/ai-story-book/ops-releases/e1cd414eb02dbcd228ac6dd03e05e0d744dd6f9bffb0bd4588d7920ac1998fbc \
-  --manifest-sha256 e1cd414eb02dbcd228ac6dd03e05e0d744dd6f9bffb0bd4588d7920ac1998fbc
+  --artifact /opt/ai-story-book/ops-releases/4f75ac4b2def64ee7f2e2ce0b1abb90489d39a8b3cf426d1e9fd7bc1b4f2b7eb \
+  --manifest-sha256 4f75ac4b2def64ee7f2e2ce0b1abb90489d39a8b3cf426d1e9fd7bc1b4f2b7eb
 ```
 
 This command only reads systemd properties. A pass is not a reboot or restore rehearsal. Keep the shared backup lock and every rollback marker until original container identities, worker response, strict TLS and readiness all pass. Configuration rollback journals contain credentials: never print them or copy them into acceptance artifacts. Public Cloud Run readiness must also be checked from outside the VM; a same-VM hairpin request is not the internal proxy check.
+
+Restore the API upstream and reload the verified TLS proxy before waiting for worker control replies. A slow worker must retain the recovery marker without unnecessarily delaying the HTTP route. Before reload, require Docker DNS inside nginx to resolve only to the current canonical API container. Finite proxy failure codes omit response bodies, URLs and transport stderr.
 
 ## 1. Fast path: repository root quality gate
 

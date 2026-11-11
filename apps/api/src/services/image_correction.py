@@ -78,14 +78,22 @@ def image_correction_scope(*, page_text: str, issues: list[str], source_image_ur
 def correction_scene_reference() -> str | None:
     """A trusted, already ownership-checked page can anchor a local defect edit.
 
-    Identity/cast/action defects still need the caller's approved character reference;
-    copying the erroneous character would reinforce that defect. Prompt text or
-    reviewer prose cannot choose a source URL or enter this scope.
+    Identity/cast defects still need the caller's approved character reference;
+    copying the erroneous character would reinforce that defect. An action-only
+    repair can edit the already reviewed cast and setting rather than redraw
+    the entire scene. Its adapter rules must explicitly allow changing the
+    incorrect action, pose or object state. Prompt text or reviewer prose cannot
+    choose a source URL or enter this scope.
     """
     context = _correction.get()
-    if context is None or set(context.issues) & {"identity_swap", "duplicate_character", "action_mismatch"}:
+    if context is None or set(context.issues) & {"identity_swap", "duplicate_character"}:
         return None
     return context.source_image_url
+
+
+def correction_requires_action_edit() -> bool:
+    context = _correction.get()
+    return context is not None and "action_mismatch" in context.issues
 
 
 def image_correction_active() -> bool:

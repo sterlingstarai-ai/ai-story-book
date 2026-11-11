@@ -139,8 +139,9 @@ def _rollback_locked():
         if (inspect(name, '{{.Id}}') != marker['old'][name]
                 or inspect(name, '{{.State.Running}}') != 'true'):
             raise RuntimeError('Original container identity or running state differs')
-    runtime.verify_recovery()
+    runtime.verify_api_upstream()
     runtime.reload_proxy()
+    runtime.verify_recovery()
     _verify_original_ready(deadline)
     MARKER.unlink()
     sync_dir()

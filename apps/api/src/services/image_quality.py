@@ -243,12 +243,22 @@ Check these narrow, concrete defects; use only the corresponding issue codes:
   and down its outside; watering soil near roots must not clearly direct the stream onto blossoms.
   Apply this only to visible contradictions, not hidden details or mechanisms you cannot inspect.
   Across pages, also compare a recurring story-central object with that same established object.
+  Identify it by its narrative role, not color alone. A sketch, teaching demonstration, prototype
+  and final installed object are different representations; rough models may be refined as the
+  plan develops. Do not require those representations to share one literal physical structure.
   Flag a clear, unexplained change of its identity, scale relative to the characters, or physical
   structure that changes its narrative role or function: for example, a freestanding waist-high
   collection vessel becoming a flush ground hatch. Do not confuse a separately introduced object
   or a transformation explicitly described by the story with a continuity defect.
   Normal lighting, camera angle, perspective, subtle color shifts, decoration, and plausible
   simplification that preserves the object's role and function are NOT continuity defects.
+  Compatible fittings, closures and surface details can be simplified differently when the
+  recognizable object, its core function and the visible safety conditions remain unchanged.
+  A compatible feature becoming visible or useful on a later page does not by itself replace
+  the object. Omission or lack of detail on another page is not proof that the feature cannot
+  exist. Record a harmless later-revealed detail as incidental, not book_object_continuity.
+  This does not excuse an explicitly denied feature, mutually incompatible core structures,
+  replacement of the object, or a visible change to its story-critical role or mechanism.
   A surface finish or material depiction difference alone (wood versus metal, for example) is
   not action_mismatch when the object's type, placement, and functional structure remain consistent.
   Still flag a contradiction if the text makes that material essential to the action or lesson,

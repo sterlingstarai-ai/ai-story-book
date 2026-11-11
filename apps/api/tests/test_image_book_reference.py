@@ -232,15 +232,18 @@ async def test_repair_sends_current_page_or_identity_reference_before_cover(wire
         issues=[issue], source_image_url=PAGE,
     ):
         await observe_request()
-    local = issue not in {"identity_swap", "duplicate_character", "action_mismatch"}
+    local = issue not in {"identity_swap", "duplicate_character"}
     expected_primary = PAGE if local else AVATAR
     assert wire.loaded == [expected_primary, COVER]
     refs, text = wire.sent[0]
     assert refs == [wire.objects[expected_primary][0], wire.objects[COVER][0]]
-    assert ("IMAGE1 is the generated page to edit" in text) is local
+    assert ("IMAGE1 is the generated page" in text) is local
     assert ("IMAGE1 fixes the approved character" in text) is not local
     assert "IMAGE2 is the book cover" in text
     assert CORRECTION_INSTRUCTIONS[issue] in text
+    if issue == 'action_mismatch':
+        assert 'Replace any contradicted action, actor' in text
+        assert 'Preserve its composition' not in text
 
 
 @pytest.mark.asyncio
@@ -256,7 +259,7 @@ async def test_cover_and_cast_notes_can_replace_an_incorrect_prior_scene(wire):
     ):
         await observe_request(None, prompt)
     refs, text = wire.sent[0]
-    assert refs == [wire.objects[COVER][0]]
+    assert refs == [wire.objects[PAGE][0], wire.objects[COVER][0]]
     assert f"CURRENT PAGE NARRATIVE: {narrative}" in text and notes in text
     assert prompt.positive_prompt not in text
 
@@ -274,7 +277,7 @@ async def test_action_repair_sends_supporting_character_wardrobe_to_image_provid
         issues=["action_mismatch"], source_image_url=PAGE, use_prompt_action_focus=True,
     ):
         await observe_request(None, prompt)
-    assert wire.loaded == [COVER]
+    assert wire.loaded == [PAGE, COVER]
     assert len(wire.sent) == 1
     text = wire.sent[0][1]
     assert appearance in text and prior_scene not in text

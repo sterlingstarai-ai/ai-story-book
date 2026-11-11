@@ -29,7 +29,8 @@ from src.services.provider_runtime import (
     observe_validated_provider_success,
 )
 from src.services.image_correction import (
-    correction_scene_reference, image_correction_active, provider_prompt_with_correction,
+    correction_requires_action_edit, correction_scene_reference,
+    image_correction_active, provider_prompt_with_correction,
     review_image_repair_active,
 )
 from src.core.errors import ImageError, ErrorCode, get_backoff
@@ -176,8 +177,8 @@ async def generate_image(
         prompt, use_cast_looks=bool(_book_reference_url.get()) and supports_image_reference(),
     )
     if not _portrait_conversion.get() and settings.image_provider in {"openai", "gemini"}:
-        # A local defect repair uses the generated page as its composition
-        # anchor. Identity/cast repairs retain the approved character reference.
+        # The generated page anchors compatible scene design; an action edit
+        # may change its pose/state. Identity/cast repairs keep the approved avatar.
         reference_image_url = correction_scene_reference() or reference_image_url
     if _reference_urls(reference_image_url) and not supports_image_reference():
         raise ImageError(ErrorCode.IMAGE_FAILED, "캐릭터 참조를 지원하지 않는 이미지 설정입니다.", page=prompt.page)
@@ -277,7 +278,8 @@ async def _generate_openai(prompt: ImagePrompt, reference_image_url: str | None 
             if model in {"gpt-image-1", "gpt-image-1.5"}:
                 fields["input_fidelity"] = "high"
             files = [("image[]", (
-                ("character-reference" if index == 0 else "book-cover-reference")
+                (("scene-reference" if correction_scene_reference() else "character-reference")
+                 if index == 0 else "book-cover-reference")
                 + "." + {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}[ref_mime],
                 ref_bytes, ref_mime,
             )) for index, (ref_bytes, ref_mime) in enumerate(references)]
@@ -399,20 +401,37 @@ def _reference_rules(primary_url: str | None = None) -> str:
     cover = _book_reference_url.get()
     if cover and primary_url != cover:
         if primary_url:
-            first = (
-                "IMAGE1 is the generated page to edit. Preserve its composition, cast, identities, "
-                "outfits and unaffected art; correct the specified defect, including incorrect "
-                "object geometry or water paths. "
-                if correction_scene_reference() is not None else
-                "IMAGE1 fixes the approved character's face, hair, proportions, default outfit "
-                "and garment colors. Do not redesign them for book style; omit the character when "
-                "absent from the current cast. "
-            )
+            if correction_scene_reference() is not None and correction_requires_action_edit():
+                first = (
+                    "IMAGE1 is the generated page to correct. Keep its recognizable cast, outfits, "
+                    "setting and compatible object design. Replace any contradicted action, actor, "
+                    "pose, object state or mechanism with the CURRENT PAGE NARRATIVE. Do not preserve "
+                    "the defect or copy the wrong action merely to keep the old composition. "
+                )
+            else:
+                first = (
+                    "IMAGE1 is the generated page to edit. Preserve its composition, cast, identities, "
+                    "outfits and unaffected art; correct the specified defect, including incorrect "
+                    "object geometry or water paths. "
+                    if correction_scene_reference() is not None else
+                    "IMAGE1 fixes the approved character's face, hair, proportions, default outfit "
+                    "and garment colors. Do not redesign them for book style; omit the character when "
+                    "absent from the current cast. "
+                )
             return first + "IMAGE2 is the book cover. " + _BOOK_OBJECT_RULES
         return _BOOK_SOLE_REFERENCE_RULES
     if cover and correction_scene_reference() is None:
         return _BOOK_SOLE_REFERENCE_RULES
     if correction_scene_reference() is not None:
+        if correction_requires_action_edit():
+            return (
+                "EDIT THE GENERATED STORYBOOK PAGE IN THE REFERENCE. Keep its recognizable cast, "
+                "faces, outfits, setting, compatible object design and illustration medium. "
+                "Replace any contradicted action, actor, pose, object state or mechanism with the "
+                "CURRENT PAGE NARRATIVE and CORRECTION REQUIREMENTS. The old action and composition "
+                "are not constraints when they cause the defect. Preserve the unaffected art; "
+                "do not preserve wrong contact geometry, water paths, lettering or duplication."
+            )
         return (
             "EDIT THE GENERATED STORYBOOK PAGE IN THE REFERENCE. Preserve its composition, "
             "cast, each character's face, hair, outfit, pose and illustration medium. "

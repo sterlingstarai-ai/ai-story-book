@@ -8,6 +8,7 @@ considers a completed callback proof of a usable backup.
 
 import errno
 import fcntl
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -63,6 +64,7 @@ class DockerRuntime:
             raise ValueError('Invalid container startup budget')
         self._deadline = deadline
         self._startup_timeout_seconds = startup_timeout_seconds
+        self._proxy_probe_failure = 'unavailable'
 
     def _probe_deadline(self, seconds):
         deadline = time.monotonic() + seconds
@@ -97,6 +99,22 @@ class DockerRuntime:
             raise GuardError('Unexpected container')
         self._run(['start', name], timeout=60)
 
+    def verify_api_upstream(self):
+        """Restore the HTTP route before waiting for a slow worker control reply."""
+        deadline = self._probe_deadline(self._startup_timeout_seconds)
+        while (remaining := deadline - time.monotonic()) > 0:
+            try:
+                value = json.loads(self._run(
+                    ['exec', _NGINX, 'wget', '-q', '-T', '3', '-O', '-',
+                     f'http://{_API}:8000/health/live'], timeout=min(8, remaining),
+                ))
+                if isinstance(value, dict) and value.get('status') == 'alive':
+                    return
+            except (GuardError, ValueError):
+                pass
+            time.sleep(min(1, max(0, deadline - time.monotonic())))
+        raise GuardError('API upstream did not report liveness')
+
     def verify_recovery(self):
         """Wait for the API upstream and the exact worker to answer after start."""
         from worker_control_probe import worker_control_source
@@ -130,6 +148,7 @@ class DockerRuntime:
     def reload_proxy(self):
         if self._run(['inspect', '--format', '{{.State.Running}}', _NGINX], timeout=15) != 'true':
             raise GuardError('Proxy is not running')
+        self._verify_proxy_dns(self._probe_deadline(10))
 
         def workers(timeout):
             value = self._run(['exec', _NGINX, 'pgrep', '-f', r'^nginx: worker process[[:space:]]*$'],
@@ -153,11 +172,40 @@ class DockerRuntime:
                 pass
             time.sleep(min(0.25, max(0, deadline - time.monotonic())))
         if reloaded:
-            raise GuardError('Reloaded proxy did not serve API liveness over HTTPS')
+            raise GuardError('Reloaded proxy did not serve API liveness over HTTPS: '
+                             + self._proxy_probe_failure)
         raise GuardError('Proxy did not start a new worker after reload')
+
+    def _verify_proxy_dns(self, deadline):
+        """A live response from one peer is not proof that no retired peer remains."""
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise GuardError('Proxy DNS verification time budget exhausted')
+        expected = self._run(
+            ['inspect', '--format', '{{(index .NetworkSettings.Networks "asb-pilot-net").IPAddress}}', _API],
+            timeout=min(5, remaining),
+        )
+        try:
+            address = ipaddress.IPv4Address(expected)
+            if not address.is_private or address.is_loopback or address.is_unspecified:
+                raise ValueError
+        except ValueError:
+            raise GuardError('Current API network address is invalid') from None
+        while (remaining := deadline - time.monotonic()) > 0:
+            try:
+                raw = self._run(['exec', _NGINX, 'getent', 'hosts', _API], timeout=min(5, remaining))
+                addresses = {str(ipaddress.IPv4Address(line.split()[0]))
+                             for line in raw.splitlines() if line.strip()}
+                if addresses == {expected}:
+                    return
+            except (GuardError, ValueError, IndexError):
+                pass
+            time.sleep(min(.25, max(0, deadline - time.monotonic())))
+        raise GuardError('Proxy DNS does not exclusively select the current API')
 
     def _proxy_is_live(self, remaining):
         if remaining <= 0:
+            self._proxy_probe_failure = 'time_budget'
             return False
         try:
             # Validate the backend nginx certificate and route over loopback.
@@ -174,8 +222,29 @@ class DockerRuntime:
             )
             body, _, code = response.stdout.rpartition(b'\n')
             payload = json.loads(body)
-            return code == b'200' and isinstance(payload, dict) and payload.get('status') == 'alive'
-        except (OSError, subprocess.SubprocessError, ValueError):
+            good = code == b'200' and isinstance(payload, dict) and payload.get('status') == 'alive'
+            self._proxy_probe_failure = ('unavailable' if good else
+                                         'http_' + code.decode('ascii') if re.fullmatch(rb'[0-9]{3}', code)
+                                         and code != b'200' else 'invalid_response')
+            return good
+        except subprocess.TimeoutExpired:
+            self._proxy_probe_failure = 'timeout'
+            return False
+        except subprocess.CalledProcessError as exc:
+            # Keep only finite transport reasons, never curl stderr, response
+            # bodies, URLs or provider/user data in recovery diagnostics.
+            self._proxy_probe_failure = {28: 'timeout', 60: 'tls_verification',
+                                         22: 'http_failure'}.get(exc.returncode, 'transport_failure')
+            if exc.returncode == 22 and isinstance(exc.stdout, bytes):
+                code = exc.stdout.rpartition(b'\n')[2]
+                if re.fullmatch(rb'[1-5][0-9]{2}', code) and code != b'200':
+                    self._proxy_probe_failure = 'http_' + code.decode('ascii')
+            return False
+        except OSError:
+            self._proxy_probe_failure = 'transport_unavailable'
+            return False
+        except ValueError:
+            self._proxy_probe_failure = 'invalid_response'
             return False
 
 
@@ -254,7 +323,7 @@ class BackupServiceGuard:
         if failures:
             raise RetryableRecoveryError('Service restart incomplete; recovery marker retained')
         try:
-            self._runtime.verify_recovery()
+            self._runtime.verify_api_upstream()
         except Exception:
             raise RetryableRecoveryError('Service liveness check failed; recovery marker retained') from None
         try:
@@ -263,6 +332,12 @@ class BackupServiceGuard:
             self._runtime.reload_proxy()
         except Exception:
             raise RetryableRecoveryError('Proxy reload failed; recovery marker retained') from None
+        try:
+            self._runtime.verify_recovery()
+        except Exception:
+            # HTTP reads can recover while a worker is still starting. The
+            # cycle remains unverified until the exact worker also responds.
+            raise RetryableRecoveryError('Service liveness check failed; recovery marker retained') from None
         self._marker.unlink()
         self._sync_dir()
         return True

@@ -32,6 +32,9 @@ class Runtime:
     def reload_proxy(self):
         pass
 
+    def verify_api_upstream(self):
+        assert self.states['asb-pilot-api']
+
     def verify_recovery(self):
         assert all(self.states.values())
 

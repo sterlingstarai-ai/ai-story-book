@@ -250,20 +250,25 @@ async def test_only_local_defects_use_owned_page_composition_anchor(monkeypatch,
     ):
         await image.generate_image(original, reference_image_url="https://owned.invalid/approved-avatar")
     await image.generate_image(original, reference_image_url="https://owned.invalid/approved-avatar")
-    if issue in {"identity_swap", "duplicate_character", "action_mismatch"}:
+    if issue in {"identity_swap", "duplicate_character"}:
         assert calls[0][0] == "https://owned.invalid/approved-avatar"
         assert "EDIT THE GENERATED" not in calls[0][1]
     else:
         assert calls[0][0] == "https://owned.invalid/current-page"
-        assert "Preserve its composition" in calls[0][1]
+        if issue == "action_mismatch":
+            assert "old action and composition" in calls[0][1]
+            assert "are not constraints" in calls[0][1]
+        else:
+            assert "Preserve its composition" in calls[0][1]
     assert calls[1][0] == "https://owned.invalid/approved-avatar"
     assert "EDIT THE GENERATED" not in calls[1][1]
     assert correction_scene_reference() is None
 
 
-def test_mixed_identity_and_action_defects_keep_approved_character_anchor():
+@pytest.mark.parametrize('identity_issue', ['identity_swap', 'duplicate_character'])
+def test_mixed_identity_and_action_defects_keep_approved_character_anchor(identity_issue):
     with image_correction_scope(
-        page_text="The child fills the can.", issues=["identity_swap", "action_mismatch"],
+        page_text="The child fills the can.", issues=[identity_issue, "action_mismatch"],
         source_image_url="https://owned.invalid/wrong-character-page",
     ):
         assert correction_scene_reference() is None

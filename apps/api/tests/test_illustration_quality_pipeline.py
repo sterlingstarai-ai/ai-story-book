@@ -476,7 +476,7 @@ async def test_page_repairs_use_only_the_current_cover_that_passed_full_review(m
     with image.image_book_reference_scope("https://other-book.invalid/cover.png"):
         result = await pipeline.verify_and_repair_illustrations(**original, regenerate=generate)
         assert image._book_reference_url.get() == "https://other-book.invalid/cover.png"
-    assert seen == [(page, original["image_urls"][0], None if page == 1 else original["image_urls"][page], original["image_urls"][0])
+    assert seen == [(page, original["image_urls"][0], original["image_urls"][page], original["image_urls"][0])
                     for page in (1, 3)]
     assert result.repaired_pages == [1, 3]
     assert reviewer.await_count == 2
@@ -1413,7 +1413,7 @@ async def test_twelve_page_book_uses_last_repair_for_one_remaining_defect(monkey
     calls = []
     progress = AsyncMock()
     async def repair(page, prompt, current):
-        assert correction_scene_reference() is None
+        assert correction_scene_reference() == current[page]
         consume_image_request()
         calls.append(page)
         return canonical_media_url(f"jobs/q/repaired-{page}-{len(calls)}.png")

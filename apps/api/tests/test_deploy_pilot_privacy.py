@@ -28,6 +28,9 @@ def recovery_probes(monkeypatch):
         def verify_recovery(self):
             events.append('worker-and-api')
 
+        def verify_api_upstream(self):
+            events.append('api-upstream')
+
         def reload_proxy(self):
             events.append('proxy-tls')
 
@@ -76,7 +79,7 @@ def test_partial_swap_rollback(tmp_path, monkeypatch, recovery_probes, stages, s
     assert not m.MARKER.exists()
     assert all(state[old[name]] == {"name": name, "running": True} for name in old)
     assert all(state[new[name]] == {"name": m.NEXT[name], "running": False} for name in new)
-    assert recovery_probes == ['worker-and-api', 'proxy-tls', 'ready']
+    assert recovery_probes == ['api-upstream', 'proxy-tls', 'worker-and-api', 'ready']
 
 
 @pytest.fixture
@@ -114,7 +117,7 @@ def rollback_state(tmp_path, monkeypatch, recovery_probes):
     return marker, state, recovery_probes
 
 
-@pytest.mark.parametrize('failure', ['start', 'identity', 'running', 'worker', 'proxy', 'ready'])
+@pytest.mark.parametrize('failure', ['start', 'identity', 'running', 'api', 'worker', 'proxy', 'ready'])
 def test_rollback_retains_marker_until_every_original_probe_passes(monkeypatch, rollback_state, failure):
     marker, _state, events = rollback_state
     real_docker, real_inspect = m.docker, m.inspect
@@ -138,6 +141,10 @@ def test_rollback_retains_marker_until_every_original_probe_passes(monkeypatch, 
         def verify_recovery(self):
             if failure == 'worker':
                 raise RuntimeError('worker failed')
+
+        def verify_api_upstream(self):
+            if failure == 'api':
+                raise RuntimeError('API failed')
 
         def reload_proxy(self):
             if failure == 'proxy':
@@ -181,6 +188,30 @@ def test_original_readiness_requires_local_tls_exact_200_and_healthy(monkeypatch
     assert argv[argv.index('--connect-to') + 1] == '35.209.174.246:443:127.0.0.1:443'
     assert argv[-1] == 'https://35.209.174.246/health/ready'
     assert options['check'] is True
+
+
+def test_worker_failure_restores_proxy_first_and_preserves_rollback_marker(monkeypatch, rollback_state):
+    marker, _state, events = rollback_state
+
+    class Runtime:
+        def __init__(self, **_kwargs):
+            pass
+
+        def verify_api_upstream(self):
+            events.append('api-upstream')
+
+        def reload_proxy(self):
+            events.append('proxy-tls')
+
+        def verify_recovery(self):
+            events.append('worker-failed')
+            raise RuntimeError('worker failed')
+
+    monkeypatch.setattr(m, 'DockerRuntime', Runtime)
+    with pytest.raises(RuntimeError, match='worker failed'):
+        m.rollback()
+    assert events == ['api-upstream', 'proxy-tls', 'worker-failed']
+    assert json.loads(m.MARKER.read_text()) == marker
 
 
 def test_recovery_import_does_not_import_scheduled_backup():
@@ -244,7 +275,7 @@ def test_boot_rollback_restores_partial_config_before_original_verification(
     monkeypatch.setattr(m, '_verify_original_ready', verify)
     assert m.rollback()
     assert not m.MARKER.exists() and not journal.directory.exists()
-    assert events == ['worker-and-api', 'proxy-tls', 'verified-with-journal-retained']
+    assert events == ['api-upstream', 'proxy-tls', 'worker-and-api', 'verified-with-journal-retained']
 
 
 def test_failed_original_probe_preserves_journal_and_allows_retry(monkeypatch, rollback_state, journal_env):

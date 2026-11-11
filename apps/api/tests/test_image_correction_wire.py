@@ -31,6 +31,7 @@ async def test_real_reference_payload_uses_page_for_local_defects_and_avatar_for
     loaded = []
     sent = []
     models = []
+    filenames = []
 
     async def object_bytes(key):
         loaded.append(key)
@@ -48,6 +49,7 @@ async def test_real_reference_payload_uses_page_for_local_defects_and_avatar_for
             fields = {part.get_param("name", header="content-disposition"): part
                       for part in message.iter_parts()}
             assert fields["image[]"].get_content_type() == "image/png"
+            filenames.append(fields["image[]"].get_filename())
             assert fields["n"].get_payload(decode=True) == b"1"
             assert fields["quality"].get_payload(decode=True) == b"medium"
             models.append(fields["model"].get_payload(decode=True).decode("ascii"))
@@ -87,7 +89,7 @@ async def test_real_reference_payload_uses_page_for_local_defects_and_avatar_for
     with pytest.raises(StoryBookError):
         await image.generate_image(prompt, reference_image_url=avatar_url)
 
-    local = issue not in {"identity_swap", "duplicate_character", "action_mismatch"}
+    local = issue not in {"identity_swap", "duplicate_character"}
     assert loaded == ["page-7" if local else "approved-avatar", "approved-avatar"]
     assert sent[0][0] == (page_bytes if local else avatar_bytes)
     assert ("EDIT THE GENERATED STORYBOOK PAGE" in sent[0][1]) is local
@@ -97,3 +99,6 @@ async def test_real_reference_payload_uses_page_for_local_defects_and_avatar_for
     assert "CORRECTION REQUIREMENTS" not in sent[1][1]
     if hybrid:
         assert models == ["gpt-image-2.6-sunburst", "gpt-image-2.6-flare"]
+    if provider == 'openai':
+        assert filenames == ['scene-reference.png' if local else 'character-reference.png',
+                             'character-reference.png']
