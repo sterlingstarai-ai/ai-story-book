@@ -18,6 +18,8 @@ This command only reads systemd properties. A pass is not a reboot or restore re
 
 Restore the API upstream and reload the verified TLS proxy before waiting for worker control replies. A slow worker must retain the recovery marker without unnecessarily delaying the HTTP route. Before reload, require Docker DNS inside nginx to resolve only to the current canonical API container. Finite proxy failure codes omit response bodies, URLs and transport stderr.
 
+The November 11 pilot reboot preserved an interrupted-service marker and stopped admission. The first recovery invocation failed; the provider-refresh timer's boot-time prerequisite reran recovery and it succeeded. The final image pins, strict TLS, worker reply, cleared marker and existing narration cache were verified. This is evidence of eventual boot recovery, not first-attempt reliability, backup restoration or uninterrupted service. Keep the initial failure in the record and improve cold-start recovery time separately. See [recorded reboot](acceptance/2026-11-11-backend-final-r7/reboot-audit.json).
+
 ## 1. Fast path: repository root quality gate
 
 Run from the repository root:
