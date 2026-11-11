@@ -1147,9 +1147,17 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
 
   Future<void> _showAudioError(Object error) async {
     if (await _handlePaymentRequired(error) || !mounted) return;
+    final l = AppLocalizations.of(context);
+    final apiError = _extractApiError(error);
+    final budgetExceeded = apiError?.code == 'SERVICE_BUDGET_EXCEEDED';
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(AppLocalizations.of(context).viewerAudioPlayFailed),
+        content: Text(
+          budgetExceeded
+              ? apiError!.localizedMessage(l)
+              : l.viewerAudioPlayFailed,
+        ),
+        duration: Duration(seconds: budgetExceeded ? 8 : 4),
         backgroundColor: AppColors.error,
       ),
     );

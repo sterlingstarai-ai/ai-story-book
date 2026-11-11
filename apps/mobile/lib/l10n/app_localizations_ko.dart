@@ -660,6 +660,10 @@ class AppLocalizationsKo extends AppLocalizations {
   String get errorInternal => '서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.';
 
   @override
+  String get errorServiceGenerationLimit =>
+      '서비스의 오늘 생성 한도에 도달했어요. 나중에 다시 시도해 주세요. 저장된 동화와 낭독은 계속 이용할 수 있어요.';
+
+  @override
   String get errorRateLimit => '요청이 너무 많습니다. 잠시 후 다시 시도해주세요.';
 
   @override

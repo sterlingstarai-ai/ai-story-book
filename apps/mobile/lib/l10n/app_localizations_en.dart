@@ -706,6 +706,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'A server error occurred. Please try again in a moment.';
 
   @override
+  String get errorServiceGenerationLimit =>
+      'The service has reached today\'s generation limit. Please try again later. Saved books and recordings are still available.';
+
+  @override
   String get errorRateLimit =>
       'Too many requests. Please try again in a moment.';
 

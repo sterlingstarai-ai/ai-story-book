@@ -263,6 +263,8 @@ class ApiError implements Exception {
         return retryAfter == null
             ? l.errorRateLimit
             : l.errorRateLimitWait(retryAfter!.inSeconds.toString());
+      case 'SERVICE_BUDGET_EXCEEDED':
+        return l.errorServiceGenerationLimit;
       case 'BAD_GATEWAY':
       case 'SERVICE_UNAVAILABLE':
       case 'AI_SERVICE_UNAVAILABLE':

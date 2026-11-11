@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:dio/dio.dart';
 
 import 'package:ai_story_book/core/api_error.dart';
 import 'package:ai_story_book/l10n/app_localizations.dart';
@@ -27,6 +28,7 @@ class _Api extends ApiClient {
   int creditReads = 0;
   int balance = 3;
   bool loseFirstResponse = false;
+  bool transportResponseLoss = false;
   final specs = <BookSpec>[];
   final attemptKeys = <String?>[];
   List<Character> characters = [];
@@ -40,6 +42,8 @@ class _Api extends ApiClient {
   @override
   Future<GenerationOptions> getGenerationOptions() async =>
       const GenerationOptions([BookStyle.watercolor]);
+  @override
+  Future<List<JobStatus>> getActiveBookGenerations() async => [];
   @override
   Future<int> getCreditsBalance() async {
     creditReads++;
@@ -55,6 +59,12 @@ class _Api extends ApiClient {
     attemptKeys.add(idempotencyKey);
     if (loseFirstResponse && specs.length == 1) {
       balance--;
+      if (transportResponseLoss) {
+        throw DioException(
+          requestOptions: RequestOptions(path: '/v1/books'),
+          type: DioExceptionType.receiveTimeout,
+        );
+      }
       throw ApiError(code: 'TIMEOUT', message: '', statusCode: 0);
     }
     if (balance == 0 &&
@@ -371,6 +381,31 @@ void main() {
       expect(api.attemptKeys, [api.attemptKeys.first, api.attemptKeys.first]);
       expect(api.creditReads, 0);
       expect(api.balance, 0);
+      expect(find.text('created'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'a lost transport response opens the accepted book without another tap',
+    (tester) async {
+      final api = _Api()
+        ..balance = 1
+        ..loseFirstResponse = true
+        ..transportResponseLoss = true;
+      addTearDown(api.close);
+      await _open(tester, api);
+      await tester.enterText(find.byType(TextFormField), '숲에서 친구를 만나는 이야기');
+      FocusManager.instance.primaryFocus?.unfocus();
+      final submit = find.byType(PrimaryButton);
+      await tester.ensureVisible(submit);
+      await tester.pumpAndSettle();
+      await tester.tap(submit);
+      await tester.pumpAndSettle();
+      expect(api.balance, 0);
+      expect(api.attemptKeys, hasLength(2));
+      expect(api.attemptKeys.first, api.attemptKeys.last);
+      expect(api.creditReads, 0);
       expect(find.text('created'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },

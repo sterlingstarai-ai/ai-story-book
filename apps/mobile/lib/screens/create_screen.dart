@@ -43,6 +43,7 @@ String createFailureMessage(AppLocalizations l, ApiError? error) {
     case 'UNAUTHORIZED':
     case 'FORBIDDEN':
     case 'RATE_LIMIT_EXCEEDED':
+    case 'SERVICE_BUDGET_EXCEEDED':
     case 'INTERNAL_ERROR':
     case 'PARENTAL_CONSENT_REQUIRED':
     case 'AI_SERVICE_UNAVAILABLE':

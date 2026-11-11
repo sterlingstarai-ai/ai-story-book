@@ -24,6 +24,7 @@ The pilot uses Flare for initial illustrations and Sunburst only for flagged-pag
 - Deployment model: GHCR image tag -> production compose pull -> up
 - Quality gate: repository-root `./scripts/phase-gate.sh`
 - Public-only mobile release build preparation: `scripts/build_mobile_release.py` ([deployment guide](docs/DEPLOYMENT.md)); validation by default, no store upload.
+- iOS release output is checked for device-only native platforms. Use a clean isolated source directory for store archives and check the exported IPA with `scripts/validate_ios_native_platforms.py --ipa /path/app.ipa` before upload; simulator arm64 binaries are rejected.
 - Health contract:
   - `/health/live`
   - `/health/ready`

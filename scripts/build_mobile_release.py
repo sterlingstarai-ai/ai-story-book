@@ -15,6 +15,7 @@ import subprocess
 from build_public_support_site import verify_published
 from final_external_preflight import assess_bundled_policies, mobile_url_error
 from render_legal_documents import render
+from validate_ios_native_platforms import validate_app
 
 ROOT = Path(__file__).resolve().parents[1]
 REQUIRED = {'PROD_API_URL', 'PRIVACY_POLICY_URL', 'TERMS_OF_SERVICE_URL'}
@@ -87,12 +88,15 @@ def main(argv=None):
             hash_field = 'ios_executable_sha256'
         if not artifact.is_file() or artifact.stat().st_size == 0:
             raise ValueError('Flutter completed without the expected mobile release artifact.')
+        native_platforms = validate_app(artifact.parent) if args.platform == 'ios' else None
         with artifact.open('rb') as source:
             digest = hashlib.file_digest(source, 'sha256').hexdigest()
         evidence = {'status': 'LOCAL_BUILD_NOT_SUBMITTED', 'platform': args.platform,
                     'ios_signing_verified': False, 'store_submission': False, 'production_e2e_verified': False,
                               'published_support_files_verified': verified_files,
                     hash_field: digest}
+        if native_platforms is not None:
+            evidence['ios_native_platforms'] = native_platforms
         print(json.dumps(evidence))
         return 0
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:

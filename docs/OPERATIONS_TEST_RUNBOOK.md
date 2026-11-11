@@ -89,6 +89,15 @@ Key regression coverage includes:
 
 The integration/build wrappers source `scripts/mobile-toolchain.sh` to find existing Android SDK and Android Studio JDK installations when they are absent from PATH. They do not install tools or edit shell configuration. Android native storage/device tests remain separate from headless tests. The optional iOS quality build is debug/no-codesign; use `scripts/build_mobile_release.py` with explicit public URLs for release compilation.
 
+The iOS release wrapper now rejects native simulator binaries even when their architecture is arm64. Create store archives from a clean isolated source directory that excludes simulator/Pods/native-asset build caches; preserve the current checkout. Before uploading an archive/export, run the read-only check from the repository root:
+
+```bash
+python3 scripts/validate_ios_native_platforms.py --app /path/Runner.xcarchive/Products/Applications/Runner.app
+python3 scripts/validate_ios_native_platforms.py --ipa /path/app.ipa
+```
+
+Require exit 0 and `DEVICE_NATIVE_PLATFORMS_VERIFIED`, then verify signing and store processing separately. Platform fixture tests and real artifact inspection do not establish physical playback. The focused Python gate is `cd apps/api && ./venv/bin/python -m pytest tests/test_ios_native_platforms.py tests/test_mobile_release_preparation.py -q`.
+
 ## 4. Runtime health checks
 
 Against a live API host:

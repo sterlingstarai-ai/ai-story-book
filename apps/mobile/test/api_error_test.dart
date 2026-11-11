@@ -8,6 +8,42 @@ import 'package:flutter/widgets.dart';
 import 'package:ai_story_book/core/api_error.dart';
 
 void main() {
+  test(
+    'service generation limit keeps its server refusal and localizes the reason',
+    () async {
+      final options = RequestOptions(path: '/v1/books/book/pages/5/audio');
+      final error = ApiError.fromDioException(
+        DioException(
+          requestOptions: options,
+          type: DioExceptionType.badResponse,
+          response: Response(
+            requestOptions: options,
+            statusCode: 429,
+            headers: Headers.fromMap({
+              'retry-after': ['3600'],
+            }),
+            data: {
+              'error': {
+                'code': 'SERVICE_BUDGET_EXCEEDED',
+                'message': 'raw server message',
+                'details': {'limit': 14, 'used': 15},
+              },
+              'request_id': 'budget-request',
+            },
+          ),
+        ),
+      );
+      expect(error.statusCode, 429);
+      expect(error.retryAfter, const Duration(hours: 1));
+      expect(error.details, {'limit': 14, 'used': 15});
+      for (final locale in ['ko', 'en', 'ja']) {
+        final l = await AppLocalizations.delegate.load(Locale(locale));
+        expect(error.localizedMessage(l), l.errorServiceGenerationLimit);
+        expect(error.localizedMessage(l), isNot('raw server message'));
+      }
+    },
+  );
+
   group('ApiError.fromDioException', () {
     test('PDF byte errors preserve the payment reason and request id', () {
       final options = RequestOptions(path: '/v1/books/book/pdf');

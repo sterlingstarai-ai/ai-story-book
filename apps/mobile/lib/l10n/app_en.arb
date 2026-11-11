@@ -252,6 +252,7 @@
   "errorUnauthorized": "This device’s account connection has expired. Use your recovery code in Settings to reconnect.",
   "errorForbidden": "You don't have permission for this.",
   "errorInternal": "A server error occurred. Please try again in a moment.",
+  "errorServiceGenerationLimit": "The service has reached today's generation limit. Please try again later. Saved books and recordings are still available.",
   "errorRateLimit": "Too many requests. Please try again in a moment.",
   "errorServiceUnavailable": "The server is temporarily unstable. Please try again in a moment.",
   "errorTimeout": "The request timed out. Please try again.",

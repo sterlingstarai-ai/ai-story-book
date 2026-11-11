@@ -1880,7 +1880,26 @@ class BookCreationNotifier extends AsyncNotifier<void> {
     }
 
     try {
-      final response = await api.createBook(spec, idempotencyKey: _attemptKey);
+      final attemptKey = _attemptKey!;
+      CreateBookResponse response;
+      try {
+        response = await api.createBook(spec, idempotencyKey: attemptKey);
+      } on DioException catch (error) {
+        // A lost transport response does not mean the server rejected the book.
+        // Reconcile once with the same key; explicit server refusals stay final.
+        final lostResponse = const {
+          DioExceptionType.connectionTimeout,
+          DioExceptionType.sendTimeout,
+          DioExceptionType.receiveTimeout,
+          DioExceptionType.connectionError,
+        }.contains(error.type);
+        if (error.response != null ||
+            !lostResponse ||
+            !identical(api, ref.read(apiClientProvider))) {
+          rethrow;
+        }
+        response = await api.createBook(spec, idempotencyKey: attemptKey);
+      }
       ref.invalidate(generationOptionsProvider);
       ref.invalidate(activeBookGenerationsProvider);
 

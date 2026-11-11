@@ -657,6 +657,10 @@ class AppLocalizationsJa extends AppLocalizations {
   String get errorInternal => 'サーバーエラーが発生しました。しばらくしてからもう一度お試しください。';
 
   @override
+  String get errorServiceGenerationLimit =>
+      '本日のサービス全体の生成上限に達しました。しばらくしてからもう一度お試しください。保存済みの絵本や音声は引き続き利用できます。';
+
+  @override
   String get errorRateLimit => 'リクエストが多すぎます。しばらくしてからもう一度お試しください。';
 
   @override

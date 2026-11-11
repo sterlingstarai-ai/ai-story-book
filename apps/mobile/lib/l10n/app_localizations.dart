@@ -1336,6 +1336,12 @@ abstract class AppLocalizations {
   /// **'A server error occurred. Please try again in a moment.'**
   String get errorInternal;
 
+  /// No description provided for @errorServiceGenerationLimit.
+  ///
+  /// In en, this message translates to:
+  /// **'The service has reached today\'s generation limit. Please try again later. Saved books and recordings are still available.'**
+  String get errorServiceGenerationLimit;
+
   /// No description provided for @errorRateLimit.
   ///
   /// In en, this message translates to:

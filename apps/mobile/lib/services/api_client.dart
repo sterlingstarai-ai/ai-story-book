@@ -83,7 +83,16 @@ class ApiClient {
           handler.next(response);
         },
         onError: (error, handler) {
-          final apiError = ApiError.fromDioException(error);
+          // Native clients can wrap a closed response connection as unknown.
+          // Preserve that transport classification before replacing its cause.
+          final normalizedError =
+              error.type == DioExceptionType.unknown &&
+                  error.response == null &&
+                  (error.error is SocketException ||
+                      error.error is HttpException)
+              ? error.copyWith(type: DioExceptionType.connectionError)
+              : error;
+          final apiError = ApiError.fromDioException(normalizedError);
           AppTelemetry.recordError(
             apiError,
             error.stackTrace,
@@ -97,7 +106,10 @@ class ApiClient {
             },
           );
           handler.reject(
-            error.copyWith(error: apiError, message: apiError.userMessage),
+            normalizedError.copyWith(
+              error: apiError,
+              message: apiError.userMessage,
+            ),
           );
         },
       ),

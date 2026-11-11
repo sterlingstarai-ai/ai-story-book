@@ -98,13 +98,14 @@ def test_execute_blocks_unready_bundled_documents(tmp_path, monkeypatch, capsys,
     assert 'Bundled privacy and terms' in result['message']
 
 
-@pytest.mark.parametrize('platform,relative_output,hash_field', [
-    ('ios', 'ios/iphoneos/Runner.app/Runner', 'ios_executable_sha256'),
-    ('android', 'app/outputs/bundle/release/app-release.aab', 'artifact_sha256'),
+@pytest.mark.parametrize('platform,relative_output,hash_field,native_acceptable', [
+    ('ios', 'ios/iphoneos/Runner.app/Runner', 'ios_executable_sha256', True),
+    ('ios', 'ios/iphoneos/Runner.app/Runner', 'ios_executable_sha256', False),
+    ('android', 'app/outputs/bundle/release/app-release.aab', 'artifact_sha256', True),
 ])
 @pytest.mark.parametrize('has_artifact', [True, False])
 def test_execute_requires_approved_documents_and_expected_artifact(
-    tmp_path, monkeypatch, capsys, platform, relative_output, hash_field, has_artifact,
+    tmp_path, monkeypatch, capsys, platform, relative_output, hash_field, native_acceptable, has_artifact,
 ):
     monkeypatch.setattr(release, 'ROOT', tmp_path)
     monkeypatch.setattr(release.shutil, 'which', lambda name: f'/tools/{name}')
@@ -136,6 +137,14 @@ def test_execute_requires_approved_documents_and_expected_artifact(
 
     monkeypatch.setattr(release, 'verify_published', verify)
 
+    def inspect(app):
+        assert platform == 'ios' and app.name == 'Runner.app'
+        if not native_acceptable:
+            raise ValueError('Native binary contains a non-device iOS platform.')
+        return {'status': 'DEVICE_NATIVE_PLATFORMS_VERIFIED', 'binaries': [{'file': 'Runner'}]}
+
+    monkeypatch.setattr(release, 'validate_app', inspect)
+
     def run(command, **kwargs):
         commands.append(command)
         if has_artifact:
@@ -152,12 +161,15 @@ def test_execute_requires_approved_documents_and_expected_artifact(
     result = release.main(args + ['--support-site-config', str(support)])
     assert commands[0][5:] == release.build_command(platform, release.release_configuration(valid()))
     evidence = json.loads(capsys.readouterr().out)
-    if has_artifact:
+    if has_artifact and native_acceptable:
         assert result == 0
         assert evidence['status'] == 'LOCAL_BUILD_NOT_SUBMITTED'
         assert evidence[hash_field] == hashlib.sha256(b'fixture build output').hexdigest()
         assert evidence['published_support_files_verified'] == 7
+        if platform == 'ios':
+            assert evidence['ios_native_platforms']['status'] == 'DEVICE_NATIVE_PLATFORMS_VERIFIED'
     else:
         assert result == 1
         assert evidence['status'] == 'BLOCKED'
-        assert 'expected mobile release artifact' in evidence['message']
+        expected = 'non-device iOS platform' if has_artifact else 'expected mobile release artifact'
+        assert expected in evidence['message']

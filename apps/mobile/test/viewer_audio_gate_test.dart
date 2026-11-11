@@ -5,6 +5,7 @@
 // 버튼·발음 메뉴를 숨긴다. 이 테스트는 위젯 트리에서 버튼 존재/부재를 직접 확인한다.
 import 'dart:async';
 import 'dart:io';
+import 'package:ai_story_book/core/api_error.dart';
 
 import 'package:ai_story_book/l10n/app_localizations.dart';
 import 'package:ai_story_book/models/job_status.dart';
@@ -30,6 +31,7 @@ class _StubApiClient extends ApiClient {
   int narrationRequests = 0;
   int? lastNarratedPage;
   Future<String>? pendingNarration;
+  Object? narrationError;
 
   @override
   Future<String> getPageAudioUrl(
@@ -42,6 +44,7 @@ class _StubApiClient extends ApiClient {
     narrationRequests++;
     lastNarratedPage = page;
     if (pendingNarration case final pending?) return pending;
+    if (narrationError case final error?) throw error;
     throw StateError('synthetic narration boundary');
   }
 
@@ -202,6 +205,35 @@ Future<void> _teardownViewer(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets('a service budget refusal explains why narration stopped', (
+    tester,
+  ) async {
+    final api = _StubApiClient()
+      ..narrationError = ApiError(
+        code: 'SERVICE_BUDGET_EXCEEDED',
+        message: 'raw server message',
+        statusCode: 429,
+        retryAfter: const Duration(hours: 1),
+      );
+    tester.view.physicalSize = const Size(320, 480);
+    tester.view.devicePixelRatio = 1;
+    tester.platformDispatcher.textScaleFactorTestValue = 1.4;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    await _pumpViewer(tester, audioSupported: true, api: api, stubMedia: true);
+    await tester.tap(find.text('토끼가 숲으로 갔어요.'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    final l = AppLocalizations.of(tester.element(find.byType(ViewerScreen)));
+    expect(find.text(l.errorServiceGenerationLimit), findsOneWidget);
+    expect(find.text(l.viewerAudioPlayFailed), findsNothing);
+    expect(find.text('raw server message'), findsNothing);
+    expect(api.narrationRequests, 1);
+    expect(tester.takeException(), isNull);
+    await _teardownViewer(tester);
+  });
+
   testWidgets(
     'a pending narration request stays visible and ignores repeated story taps',
     (tester) async {

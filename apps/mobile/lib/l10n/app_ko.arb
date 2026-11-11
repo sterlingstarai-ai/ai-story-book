@@ -216,6 +216,7 @@
   "errorUnauthorized": "이 기기의 계정 연결이 만료됐어요. 설정에서 복구 코드로 계정을 다시 연결해 주세요.",
   "errorForbidden": "접근 권한이 없습니다.",
   "errorInternal": "서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
+  "errorServiceGenerationLimit": "서비스의 오늘 생성 한도에 도달했어요. 나중에 다시 시도해 주세요. 저장된 동화와 낭독은 계속 이용할 수 있어요.",
   "errorRateLimit": "요청이 너무 많습니다. 잠시 후 다시 시도해주세요.",
   "errorServiceUnavailable": "서버가 일시적으로 불안정합니다. 잠시 후 다시 시도해주세요.",
   "errorTimeout": "요청 시간이 초과되었습니다. 다시 시도해주세요.",
