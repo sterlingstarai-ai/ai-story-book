@@ -807,6 +807,93 @@ async def test_checkpointed_photo_revoke_requires_photos_disabled(db_session, mo
         assert result['applied_count'] == 0 and result['restore_authorized'] is False
 
 
+async def _seed_photo_checkpoint(db, journal, *, action, residual, regrant=False, grant_state=None):
+    from src.core.utils import utcnow
+    from src.services.privacy_journal_verify import fingerprint_entries
+
+    await seed(db)
+    consent = await db.scalar(select(UserConsent).where(UserConsent.user_key == OWNER))
+    if action == 'consent_revoke':
+        consent.revoked_at = utcnow()
+        consent.granted = False
+    else:
+        consent.photos = False
+    state = (grant_state or journal.ConsentState(True, False, True, 'v1')) if action == 'consent_grant' else None
+    if state is not None:
+        consent.privacy, consent.photos, consent.data_processing = state.privacy, state.photos, state.data_processing
+        consent.granted = state.privacy and state.data_processing
+    events = [journal.JournalEntry('d' * 32, action, OWNER, 1, consent_state=state)]
+    if regrant:
+        consent.revoked_at = None
+        consent.granted = consent.photos = True
+        events.append(journal.JournalEntry('e' * 32, 'consent_grant', OWNER, 2,
+            consent_state=journal.ConsentState(True, True, True, 'v1')))
+    if residual == 'character':
+        db.add(Character(id='synthetic-photo-residual', name='Synthetic', user_key=OWNER,
+            master_description='Synthetic fixture', appearance={}, clothing={}, personality_traits=[],
+            from_photo=True, source_image_url='https://synthetic.invalid/photo.png'))
+    else:
+        (await db.get(Job, 'synthetic-restore-job')).photo_derived = True
+    for event in events:
+        db.add(PrivacyJournalOutbox(event_id=event.event_id, user_key=OWNER,
+            revision=event.revision, action=event.action, published_at=utcnow(),
+            consent_state=journal.consent_state_to_payload(event.consent_state)))
+    await db.commit()
+    return journal.JournalScan(tuple(events), 0), {
+        'journal_event_count': len(events), 'journal_sha256': fingerprint_entries(events),
+        'restore_authorized': False,
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('action', ['consent_revoke', 'photo_revoke', 'consent_grant'])
+@pytest.mark.parametrize('residual', ['character', 'job'])
+async def test_checkpointed_photo_erasure_rejects_derived_rows_without_purge_intent(
+        db_session, modules, action, residual):
+    journal, replay = modules
+    history, marker = await _seed_photo_checkpoint(db_session, journal, action=action, residual=residual)
+    assert await db_session.scalar(select(StoragePurgeTask.id)) is None
+    with pytest.raises(replay.ReplayIncomplete, match='Photo-derived checkpoint state'):
+        await replay.replay_quarantined(db_session, history, backup_marker=marker)
+    assert await db_session.get(Book, 'synthetic-restore-book') is not None
+    if residual == 'character':
+        assert await db_session.get(Character, 'synthetic-photo-residual') is not None
+    else:
+        assert (await db_session.get(Job, 'synthetic-restore-job')).photo_derived
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('residual', ['character', 'job'])
+async def test_checkpointed_photo_regrant_allows_current_authorized_derived_state(db_session, modules, residual):
+    """Preserve current permission; this does not attest a row's consent generation."""
+    journal, replay = modules
+    history, marker = await _seed_photo_checkpoint(db_session, journal,
+        action='photo_revoke', residual=residual, regrant=True)
+    result = await replay.replay_quarantined(db_session, history, backup_marker=marker)
+    assert result['applied_count'] == 0 and result['restore_authorized'] is False
+    if residual == 'character':
+        assert await db_session.get(Character, 'synthetic-photo-residual') is not None
+    else:
+        assert (await db_session.get(Job, 'synthetic-restore-job')).photo_derived
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('privacy,data_processing', [(False, True), (True, False)])
+@pytest.mark.parametrize('residual', ['character', 'job'])
+async def test_checkpointed_partial_grant_does_not_authorize_photo_residuals(
+        db_session, modules, privacy, data_processing, residual):
+    journal, replay = modules
+    history, marker = await _seed_photo_checkpoint(db_session, journal,
+        action='consent_grant', residual=residual,
+        grant_state=journal.ConsentState(privacy, True, data_processing, 'v1'))
+    consent = await db_session.scalar(select(UserConsent).where(UserConsent.user_key == OWNER))
+    assert consent.photos and not consent.granted
+    assert await db_session.scalar(select(StoragePurgeTask.id)) is None
+    with pytest.raises(replay.ReplayIncomplete, match='Photo-derived checkpoint state'):
+        await replay.replay_quarantined(db_session, history, backup_marker=marker)
+    assert await db_session.get(Book, 'synthetic-restore-book') is not None
+
+
 @pytest.mark.asyncio
 async def test_checkpointed_credential_rotation_preserves_recorded_new_key(db_session, modules):
     from datetime import datetime

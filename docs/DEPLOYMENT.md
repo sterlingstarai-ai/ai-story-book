@@ -290,7 +290,7 @@ breaks the old code will 500 the old stack during the migrate→up window.
 `cleanup` prunes containers/images/networks only — it never prunes volumes, so the
 `postgres-data`/`redis-data`/`minio-data` named volumes are safe.
 
-Production online backup completed on 2026-11-12, and its pinned database archive passed a network-isolated PostgreSQL 16 restore and H0 checkpoint check; media restoration, latest H1 replay and reopening a restored service remain separate. [Operating evidence](acceptance/2026-11-12-online-backup-rollout/first-regular-online-run-result.json) · [DB-only restore](acceptance/2026-11-12-online-backup-db-restore/verification.json).
+Production online backup completed on 2026-11-12. Its pinned database and all 67 media objects passed a current-source, network-isolated PG16/MinIO restore. The complete 58-event H0 and current checkpoint effects matched fresh source/mirror H1 observations before and after inspection, with no later events. This requires the source database to remain available and does not establish independent latest-history authority or authorize reopening a restored service. [Operating evidence](acceptance/2026-11-12-online-backup-rollout/first-regular-online-run-result.json) · [Full restore scope](ACTUAL_BACKUP_RESTORE_2026-11-12.md).
 
 See [ONLINE_BACKUP.md](ONLINE_BACKUP.md) for the online candidate's snapshot, exact media-version conditions, failure behavior and local rehearsal. An installed command or successful local test does not establish a completed operating backup; use the current runbook and launch evidence for that result. The online path does not fall back automatically to a service-stopping backup.
 

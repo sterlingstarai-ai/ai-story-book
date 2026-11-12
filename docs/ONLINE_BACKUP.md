@@ -43,6 +43,6 @@ python scripts/run_online_backup_fixture.py --report-dir /tmp/storybook-online-b
 
 운영 고정 소스는 `c37556444c2c679b909b0e1cedc50bef1ee7ac724c9c65c1aa8096ea404b14cd`의 218개 파일이다. 5개 서비스의 online 모드·엄격한 소스 검사·bytecode 0개를 확인했고 API·워커 이미지는 유지했다. 정규 백업 두 번이 각각 원격 미디어 67개 체크섬을 검증했다. 쓰기 경계는 1,410ms와 1,416ms였으며, 두 번째 실행의 공개 책 GET 37회와 설정 PATCH·저장 확인·원래 값 복원이 모두 성공했다. 컨테이너 ID·PID·시작 시각은 같았고 앱 중지·재시작은 없었다. [실제 동시 이용](acceptance/2026-11-12-online-backup-rollout/regular-online-backup-concurrent-api-v3.json)
 
-첫 세트의 DB는 네트워크 없는 PG16에 실제 복원해 스키마와 H0 58건의 전체 해시를 대조했다. 운영 원본·미디어에는 쓰지 않았다. 이 검사는 DB-only 격리 복원이며 그 실제 세트의 미디어 복원·최신 H1 재적용·운영 전환 승인은 아니다. 별도 가상 리허설의 전체 복원·H1 재적용과 구분한다. [DB 복원 범위](acceptance/2026-11-12-online-backup-db-restore/verification.json)
+첫 세트의 앞선 DB-only 검사에 이어 현재 소스의 네트워크 차단 PG16·MinIO에 DB와 미디어 67개 전체를 복원했다. 내용·메타데이터·비공개 접근과 H0 58건을 확인하고, 실제 원본·두 미러의 새 H1을 검사 전후 대조했다. H0=H1이며 신규 사건·신규 재적용은 0건이고 기존 체크포인트 효과를 확인했다. 운영 원본·미디어에는 쓰지 않았다. 이 결과는 원본 DB를 조회할 수 있는 조건의 격리 검사이며 독립 전역 최신성이나 운영 전환 승인이 아니다. [실제 전체 복원 범위](ACTUAL_BACKUP_RESTORE_2026-11-12.md)
 
 정규 checker와 publisher가 통과했고 Cloud Monitoring에서 검증 완료 후의 새 정상 지표 1 및 활성화된 2,400초 신호 부재 경보를 확인했다. 한정된 실제 실행의 증거이며 다음 자연 예약 실행·재해 복구 시간·24시간 SLA를 대신하지 않는다. [클라우드 수신 확인](acceptance/2026-11-12-online-backup-rollout/cloud-monitoring-after-online-backup.json)

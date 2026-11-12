@@ -257,7 +257,7 @@ async def _apply_replay_core(db, scan: JournalScan, *, backup_marker=None, sandb
     # Imports are delayed so journal parsing alone never initializes a DB or
     # storage client. The existing deletion helpers remain the only data path.
     from src.core.utils import utcnow
-    from src.models.db import (AccountIdentity, Book, BookDeletionReceipt, BookShare, Character, ChildProfile, PrivacyJournalOutbox,
+    from src.models.db import (AccountIdentity, Book, BookDeletionReceipt, BookShare, Character, ChildProfile, Job, PrivacyJournalOutbox,
                                StoragePurgeTask, UserConsent, VoiceProfile)
     from src.routers.characters import delete_character
     from src.routers.consent import ConsentGrantRequest, grant_consent, purge_photo_derived_data, revoke_consent
@@ -345,6 +345,22 @@ async def _apply_replay_core(db, scan: JournalScan, *, backup_marker=None, sandb
                 )
             if invalid:
                 raise ReplayIncomplete(f'Consent {stage} state disagrees; target must remain isolated')
+            photo_permission = photos and (kind != 'grant' or (consent.privacy and consent.data_processing))
+            if not photo_permission:
+                # A missing purge intent cannot prove that photo-derived data
+                # was erased. Match the canonical consent purge's two durable
+                # provenance flags, even for events already included in H0.
+                # A later grant with all three permissions supersedes this
+                # current-state check; historical consent generation is not
+                # attested by these provenance flags.
+                remaining = await session.execute(select(
+                    select(Character.id).where(Character.user_key == user_key,
+                        Character.from_photo.is_(True)).exists(),
+                    select(Job.id).where(Job.user_key == user_key,
+                        Job.photo_derived.is_(True)).exists(),
+                ))
+                if any(remaining.one()):
+                    raise ReplayIncomplete(f'Photo-derived {stage} state disagrees; target must remain isolated')
 
         credential_entries = [entry for entry in ordered if entry.action == 'credential_revoke']
         if credential_entries:
