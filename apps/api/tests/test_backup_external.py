@@ -335,3 +335,135 @@ def test_backup_blocks_mismatched_pg_major_before_backup_or_storage(inert_backup
         backup.create_backup(values, destination, ca)
     assert not destination.exists()
     client.get_paginator.assert_not_called()
+
+
+@pytest.fixture
+def online_inputs(inert_backup):
+    backup, values, destination, ca, client, commands = inert_backup
+    snapshot = Mock(environment=backup.database_environment(values, ca),
+                    cut_released=True, cut_elapsed_ms=25, snapshot_id='00000001-00000003-1')
+    frozen = {'../../escape.png': {'ETag': 'etag', 'Size': '5',
+                                  'LastModified': '2026-11-03T13:15:06Z'}}
+    return backup, values, destination, ca, client, commands, snapshot, frozen
+
+
+def test_online_backup_uses_the_released_snapshot_and_frozen_objects_only(online_inputs, monkeypatch):
+    backup, values, destination, ca, client, commands, snapshot, frozen = online_inputs
+    live_inventory = Mock(side_effect=AssertionError('A live inventory cannot replace the cut'))
+    idle = Mock(side_effect=AssertionError('Post-cut writers must be allowed'))
+    monkeypatch.setattr(backup, 'inventory', live_inventory)
+    monkeypatch.setattr(backup, 'assert_quiescent', idle)
+    result = backup.create_online_backup(values, destination, ca, snapshot=snapshot,
+                                         frozen_inventory=frozen, frozen_revision='cut_revision')
+    manifest = json.loads((destination / result['backup_set'] / 'manifest.json').read_text())
+    assert manifest['format_version'] == 1 and manifest['capture_mode'] == 'online_snapshot'
+    assert manifest['alembic_revision'] == 'cut_revision'
+    assert manifest['requires_latest_deletion_and_identity_revocations'] is True
+    assert result['capture_mode'] == 'online_snapshot'
+    assert result['snapshot'] == manifest['snapshot']
+    assert result['snapshot']['cut_elapsed_ms'] == 25 and result['snapshot']['cut_released'] is True
+    assert snapshot.snapshot_id not in json.dumps(manifest)
+    assert result['media_inventory_sha256'] == backup.inventory_fingerprint(frozen)
+    dump = next(command for command in commands if command[0] == 'pg_dump' and '--version' not in command)
+    assert dump[-2:] == ['--snapshot', snapshot.snapshot_id]
+    assert snapshot.verify.call_count == 3
+    client.get_paginator.assert_not_called()
+    live_inventory.assert_not_called()
+    idle.assert_not_called()
+    assert not any('txid_current_snapshot' in command[-1] or 'version_num FROM' in command[-1]
+                   for command in commands)
+
+
+@pytest.mark.parametrize('failure', ['deleted', 'changed_identity', 'truncated', 'lost_snapshot'])
+def test_online_capture_failure_removes_only_its_partial_set(online_inputs, failure):
+    backup, values, destination, ca, client, _commands, snapshot, frozen = online_inputs
+    destination.mkdir(mode=0o700)
+    original = destination / 'existing-backup'
+    original.write_bytes(b'preserve previous verified backup')
+    if failure == 'deleted':
+        client.get_object.side_effect = RuntimeError('private provider detail')
+    elif failure == 'changed_identity':
+        client.get_object.side_effect = lambda **_: {'Body': io.BytesIO(b'image'), 'ContentLength': 5,
+            'ETag': 'different', 'LastModified': '2026-11-03T13:15:06Z'}
+    elif failure == 'truncated':
+        client.get_object.side_effect = lambda **_: {'Body': io.BytesIO(b'i'), 'ContentLength': 5,
+            'ETag': 'etag', 'LastModified': '2026-11-03T13:15:06Z'}
+    else:
+        snapshot.verify.side_effect = [None, None, RuntimeError('fixture snapshot connection lost')]
+    with pytest.raises(Exception):
+        backup.create_online_backup(values, destination, ca, snapshot=snapshot,
+                                    frozen_inventory=frozen, frozen_revision='cut_revision')
+    assert list(destination.iterdir()) == [original]
+    assert original.read_bytes() == b'preserve previous verified backup'
+    client.get_paginator.assert_not_called()
+
+
+@pytest.mark.parametrize('attribute,value', [('cut_released', False), ('cut_elapsed_ms', True),
+                                          ('cut_elapsed_ms', -1), ('cut_elapsed_ms', 2001),
+                                          ('snapshot_id', 'invalid snapshot'),
+                                          ('environment', {'PGHOST': 'different.invalid'})])
+def test_online_backup_rejects_an_unbound_or_unreleased_snapshot_before_reads(online_inputs, attribute, value):
+    backup, values, destination, ca, client, commands, snapshot, frozen = online_inputs
+    setattr(snapshot, attribute, value)
+    with pytest.raises(backup.BackupError, match='released database cut'):
+        backup.create_online_backup(values, destination, ca, snapshot=snapshot,
+                                    frozen_inventory=frozen, frozen_revision='cut_revision')
+    assert not destination.exists() and not commands and not client.method_calls
+
+
+@pytest.mark.parametrize('bad_inventory', [None, {'key': {}}, {'key': {'ETag': '', 'Size': '1', 'LastModified': 'bad'}},
+    {'key': {'ETag': 'e', 'Size': '-1', 'LastModified': '2026-11-03T13:15:06Z'}},
+    {'key': {'ETag': 'e', 'Size': '1', 'LastModified': '2026-11-03T13:15:06Z', 'unknown': 'x'}}])
+def test_online_backup_requires_a_complete_frozen_inventory(online_inputs, bad_inventory):
+    backup, values, destination, ca, client, commands, snapshot, _frozen = online_inputs
+    with pytest.raises(backup.BackupError, match='inventory'):
+        backup.create_online_backup(values, destination, ca, snapshot=snapshot,
+                                    frozen_inventory=bad_inventory, frozen_revision='cut_revision')
+    assert not destination.exists() and not commands and not client.method_calls
+
+
+@pytest.mark.parametrize('version_matches', [True, False])
+def test_online_native_media_pins_generation_and_keeps_client_ownership(online_inputs, version_matches):
+    backup, values, destination, ca, client, _commands, snapshot, frozen = online_inputs
+    expected = frozen['../../escape.png']
+    expected.update(generation='1000', metageneration='2')
+    closed = []
+
+    class Body(io.BytesIO):
+        def close(self):
+            closed.append(True)
+            super().close()
+
+    client.get_object.side_effect = lambda **_: {
+        'Body': Body(b'image'), 'ContentLength': 5, 'ETag': 'etag',
+        'LastModified': expected['LastModified'], 'Generation': '1000',
+        'Metageneration': '2' if version_matches else '3'}
+    arguments = dict(snapshot=snapshot, frozen_inventory=frozen, frozen_revision='cut_revision',
+                     media_client=client)
+    if version_matches:
+        backup.create_online_backup(values, destination, ca, **arguments)
+    else:
+        with pytest.raises(backup.BackupError, match='version changed'):
+            backup.create_online_backup(values, destination, ca, **arguments)
+        assert not list(destination.iterdir())
+    client.get_object.assert_called_once_with(Bucket='storybook', Key='../../escape.png', IfMatch='etag',
+                                               Generation='1000', Metageneration='2')
+    assert closed == [True]
+    client.close.assert_not_called()
+
+
+@pytest.mark.parametrize('cut_timeout', [None, 2.0])
+def test_storage_client_keeps_default_limits_and_bounds_cut_requests(backup, monkeypatch, values, cut_timeout):
+    import boto3
+
+    factory = Mock()
+    monkeypatch.setattr(boto3, 'client', factory)
+    backup.storage_client(values, cut_timeout_seconds=cut_timeout)
+    configuration = factory.call_args.kwargs['config']
+    if cut_timeout is None:
+        assert configuration.connect_timeout == 15 and configuration.read_timeout == 60
+        assert configuration.retries == {'max_attempts': 2, 'mode': 'standard'}
+    else:
+        assert configuration.connect_timeout < cut_timeout / 2
+        assert configuration.read_timeout < cut_timeout / 2
+        assert configuration.retries == {'total_max_attempts': 1, 'mode': 'standard'}

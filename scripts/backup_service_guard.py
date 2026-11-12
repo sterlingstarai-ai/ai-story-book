@@ -94,6 +94,21 @@ class DockerRuntime:
             raise GuardError('Container state is unknown')
         return value == 'true'
 
+    def identity(self, name):
+        """Pin only bounded process identity fields, never container environment."""
+        if name not in (_API, _WORKER):
+            raise GuardError('Unexpected container')
+        fields = self._run(['inspect', '--format',
+            '{{.Id}} {{.Image}} {{.State.Pid}} {{.State.StartedAt}} {{.State.Running}} {{.State.OOMKilled}}',
+            name], timeout=15).split()
+        if (len(fields) != 6 or not re.fullmatch('[0-9a-f]{64}', fields[0])
+                or not re.fullmatch('sha256:[0-9a-f]{64}', fields[1])
+                or not re.fullmatch('[1-9][0-9]{0,9}', fields[2])
+                or not re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z', fields[3])
+                or fields[4:] != ['true', 'false']):
+            raise GuardError('Online service identity could not be verified')
+        return tuple(fields[:4])
+
     def stop(self, name):
         if name not in (_API, _WORKER):
             raise GuardError('Unexpected container')
@@ -278,6 +293,7 @@ class BackupServiceGuard:
             raise GuardError('A private, non-symlink state directory is required')
         self._marker = self._dir / 'restart-required.json'
         self._lock = self._dir / 'backup.lock'
+        self._online_expected = None
 
     def _timed(self, name, operation):
         if self._timings_ms is None:
@@ -409,6 +425,32 @@ class BackupServiceGuard:
             return self._run_unlocked(verify_idle=verify_idle, backup=backup)
         finally:
             os.close(fd)
+
+    def run_online(self, *, backup):
+        """Exclude deployments/recovery without stopping or restarting a service."""
+        fd = self._locked()
+        try:
+            assert_no_narration_recovery()
+            if self._marker.exists() or self._marker.is_symlink():
+                raise GuardError('Previous backup requires recovery before another run')
+            if not self._runtime.running(_API) or not self._runtime.running(_WORKER):
+                raise GuardError('Both pilot services must initially be running')
+            self._online_expected = {name: self._runtime.identity(name) for name in (_API, _WORKER)}
+            result = backup()
+            self.verify_online_identity()
+            return result
+        finally:
+            # An online failure never creates a restart marker or alters a
+            # container. Only the source/destination snapshot is discarded.
+            self._online_expected = None
+            os.close(fd)
+
+    def verify_online_identity(self):
+        """Also run immediately before publication, not only after capture."""
+        if (self._online_expected is None or any(
+                self._runtime.identity(name) != expected
+                for name, expected in self._online_expected.items())):
+            raise GuardError('A service restarted or changed during the online backup')
 
     def _run_unlocked(self, *, verify_idle, backup):
         """Caller must hold this guard's exclusive backup.lock for entire call."""

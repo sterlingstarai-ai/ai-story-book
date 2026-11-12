@@ -290,7 +290,11 @@ breaks the old code will 500 the old stack during the migrate→up window.
 `cleanup` prunes containers/images/networks only — it never prunes volumes, so the
 `postgres-data`/`redis-data`/`minio-data` named volumes are safe.
 
-For paired database/media backup and an executable disposable restore rehearsal,
+Production online backup completed on 2026-11-12, and its pinned database archive passed a network-isolated PostgreSQL 16 restore and H0 checkpoint check; media restoration, latest H1 replay and reopening a restored service remain separate. [Operating evidence](acceptance/2026-11-12-online-backup-rollout/first-regular-online-run-result.json) · [DB-only restore](acceptance/2026-11-12-online-backup-db-restore/verification.json).
+
+See [ONLINE_BACKUP.md](ONLINE_BACKUP.md) for the online candidate's snapshot, exact media-version conditions, failure behavior and local rehearsal. An installed command or successful local test does not establish a completed operating backup; use the current runbook and launch evidence for that result. The online path does not fall back automatically to a service-stopping backup.
+
+For the offline compatibility/manual path's paired database/media backup and executable disposable restore rehearsal,
 see [BACKUP_RESTORE.md](BACKUP_RESTORE.md). `deploy.sh backup` creates only a private,
 verified PostgreSQL custom-format archive; it does not back up media.
 

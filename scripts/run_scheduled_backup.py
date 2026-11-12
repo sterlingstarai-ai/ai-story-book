@@ -351,7 +351,9 @@ def _scheduler_plan(raw, config):
     witness_option = '--journal-witness-bucket'
     required = _PRIVATE_OPTIONS | _DATA_OPTIONS | (_BUCKET_OPTIONS.keys() - {witness_option})
     if (len(fields) != 2 * len(options) or len(options) != len(set(options))
-            or set(options) not in (required, required | {witness_option})):
+            or set(options) not in (required, required | {witness_option},
+                                    required | {'--capture-mode'},
+                                    required | {witness_option, '--capture-mode'})):
         raise ScheduledBackupError('Loaded scheduler arguments are unexpected')
     original = ' '.join(argv)
     environment = {}
@@ -369,7 +371,10 @@ def _scheduler_plan(raw, config):
         fields.extend((witness_option, '${ASB_JOURNAL_WITNESS_BUCKET}'))
     dry_args = ['--check-bindings']
     for option, value in zip(fields[::2], fields[1::2], strict=True):
-        if option in _BUCKET_OPTIONS:
+        if option == '--capture-mode':
+            if value not in ('offline', 'online'):
+                raise ScheduledBackupError('Unreviewed backup capture mode')
+        elif option in _BUCKET_OPTIONS:
             name = _BUCKET_OPTIONS[option]
             if value != '${' + name + '}':
                 raise ScheduledBackupError('Scheduler bucket argument is not bound to its environment')
@@ -494,6 +499,8 @@ def main(argv=None):
     parser.add_argument('--backup-bucket')
     parser.add_argument('--state-dir', type=Path)
     parser.add_argument('--output-dir', type=Path)
+    parser.add_argument('--capture-mode', choices=('offline', 'online'), default='offline',
+                        help='Online uses a bounded snapshot cut without stopping API or worker')
     args = parser.parse_args(argv)
     fingerprints = (args.expected_loaded_exec_start_sha256, args.expected_pinned_runner_sha256)
     if any(value is not None for value in fingerprints):
@@ -510,7 +517,8 @@ def main(argv=None):
         parser.error('--expected-scheduler-bindings-sha256 requires --verify-prerequisites')
     if args.plan_systemd_witness:
         if any((args.state_dir, args.env_file, args.ca_file, args.journal_key_file,
-                args.journal_bucket, args.journal_witness_bucket, args.backup_bucket, args.output_dir)):
+                args.journal_bucket, args.journal_witness_bucket, args.backup_bucket, args.output_dir,
+                args.capture_mode != 'offline')):
             parser.error('--plan-systemd-witness reads arguments from the loaded scheduler')
         return _plan_systemd_witness(fingerprints, expected_bindings=expected_bindings)
     if args.state_dir is None:
@@ -648,14 +656,19 @@ def main(argv=None):
                 # Live privacy writes can span the store listings and DB read.
                 # Retry the comparison here. The fenced checks remain single-attempt.
                 stage = 'journal_preflight'
-                for attempt in range(1, 4):
-                    try:
-                        verify_journal()
-                        break
-                    except (JournalError, JournalVerificationError):
-                        if attempt == 3:
-                            raise
-                        time.sleep(attempt)
+                if args.capture_mode == 'offline':
+                    for attempt in range(1, 4):
+                        try:
+                            verify_journal()
+                            break
+                        except (JournalError, JournalVerificationError):
+                            if attempt == 3:
+                                raise
+                            time.sleep(attempt)
+                else:
+                    # Full live equality is checked at the online snapshot cut,
+                    # not against a DB that can change during this network scan.
+                    journal.scan()
                 stage = 'local_destination_preflight'
                 require_backup_disk_headroom(
                     args.output_dir, minimum_bytes=BACKUP_DISK_RESERVE_BYTES + media_bytes,
@@ -666,11 +679,22 @@ def main(argv=None):
                     return 0
                 stage = 'guarded_backup'
                 guard = BackupServiceGuard(args.state_dir, runtime, timings_ms=timings_ms)
-                result = run_guarded_backup(guard=guard, verify_idle=verify_idle, preflight_idle=verify_idle,
-                    verify_journal=verify_journal,
-                    publication_boundary=publication_boundary,
-                    output_dir=args.output_dir, store=backup_store, run_id=uuid.uuid4().hex,
-                    media_upload_workers=2, timings_ms=timings_ms)
+                if args.capture_mode == 'online':
+                    from online_backup import run_online_backup
+                    result = run_online_backup(
+                        guard=guard, values=values, environment=environment, ca_file=args.ca_file,
+                        output_dir=args.output_dir, store=backup_store, run_id=uuid.uuid4().hex,
+                        journal=journal, session_factory=AsyncSessionLocal,
+                        verify_bindings=verify_bindings, timings_ms=timings_ms,
+                        on_snapshot_ready=lambda: print(json.dumps({
+                            'status': 'ONLINE_SNAPSHOT_CUT_RELEASED', 'services_stopped': False,
+                        }), file=sys.stderr, flush=True))
+                else:
+                    result = run_guarded_backup(guard=guard, verify_idle=verify_idle, preflight_idle=verify_idle,
+                        verify_journal=verify_journal,
+                        publication_boundary=publication_boundary,
+                        output_dir=args.output_dir, store=backup_store, run_id=uuid.uuid4().hex,
+                        media_upload_workers=2, timings_ms=timings_ms)
             record_success(args.state_dir)
         finally:
             journal_store.close()

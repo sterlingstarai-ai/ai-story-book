@@ -84,6 +84,21 @@ def test_witness_plan_rejects_changed_systemd_semantics(module, unsafe):
         module._scheduler_plan(unsafe, _SCHEDULER_CONFIG)
 
 
+@pytest.mark.parametrize('capture_mode', ['online', 'offline'])
+def test_witness_plan_preserves_the_explicit_capture_mode(module, capture_mode):
+    loaded = f'{_SCHEDULER} {_WITNESS} --capture-mode {capture_mode}'
+    report, dry_args, _ = module._scheduler_plan(_loaded_scheduler(loaded), _SCHEDULER_CONFIG)
+    assert dry_args[-2:] == ['--capture-mode', capture_mode]
+    assert report['loaded_exec_start_sha256'] == hashlib.sha256(loaded.encode()).hexdigest()
+    assert report['already_bound'] is True
+
+
+@pytest.mark.parametrize('suffix', ['--capture-mode hybrid', '--capture-mode online --capture-mode offline'])
+def test_witness_plan_rejects_ambiguous_capture_mode(module, suffix):
+    with pytest.raises(module.ScheduledBackupError):
+        module._scheduler_plan(_loaded_scheduler(f'{_SCHEDULER} {_WITNESS} {suffix}'), _SCHEDULER_CONFIG)
+
+
 @pytest.mark.parametrize('config', [
     _SCHEDULER_CONFIG.replace('ASB_JOURNAL_WITNESS_BUCKET=witness-fixture\n', ''),
     _SCHEDULER_CONFIG + 'ASB_JOURNAL_WITNESS_BUCKET=second-fixture\n',

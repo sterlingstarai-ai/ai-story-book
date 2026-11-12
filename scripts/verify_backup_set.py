@@ -56,6 +56,19 @@ def verify(folder):
         raise BackupValidationError('Unsupported backup format or database scope.')
     if manifest.get('requires_latest_deletion_and_identity_revocations') is not True:
         raise BackupValidationError('Backup does not carry the mandatory revocation replay requirement.')
+    capture_mode = manifest.get('capture_mode')
+    if capture_mode is not None and capture_mode not in ('offline', 'online_snapshot'):
+        raise BackupValidationError('Unsupported backup capture mode.')
+    if capture_mode == 'online_snapshot':
+        snapshot = manifest.get('snapshot')
+        if (not isinstance(snapshot, dict) or snapshot.get('cut_released') is not True
+                or type(snapshot.get('cut_elapsed_ms')) is not int
+                or not 0 <= snapshot['cut_elapsed_ms'] <= 2000
+                or not isinstance(snapshot.get('snapshot_sha256'), str)
+                or not re.fullmatch('[a-f0-9]{64}', snapshot['snapshot_sha256'])
+                or not isinstance(manifest.get('media_inventory_sha256'), str)
+                or not re.fullmatch('[a-f0-9]{64}', manifest['media_inventory_sha256'])):
+            raise BackupValidationError('Online snapshot metadata is incomplete or invalid.')
     total_size = checked_file(folder, manifest.get('database'), 'database.dump')
     # An empty byte stream is never a usable PostgreSQL archive, even if its
     # declared checksum and size match exactly.  This is only a necessary

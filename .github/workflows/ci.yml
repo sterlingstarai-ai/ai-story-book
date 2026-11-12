@@ -216,6 +216,23 @@ jobs:
           RESTORE_PYTHON: python
         run: ./scripts/run_backup_restore_rehearsal.sh --report-dir /tmp/storybook-restore-report
 
+      - name: Online snapshot backup and concurrent-request rehearsal
+        # Owned loopback PostgreSQL/MinIO and synthetic API/worker only. Proves
+        # snapshot/dump/replay consistency while real HTTP writes continue.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install --yes --no-install-recommends postgresql-client-16
+          docker pull postgres:16
+          python scripts/run_online_backup_fixture.py --report-dir /tmp/storybook-online-backup-report
+
+      - name: Upload online backup evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: online-backup-evidence
+          path: /tmp/storybook-online-backup-report/verification.json
+          if-no-files-found: ignore
+
       - name: Upload restore rehearsal evidence
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6

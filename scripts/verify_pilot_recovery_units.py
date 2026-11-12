@@ -22,10 +22,34 @@ UNITS = {
 }
 MONITORS = ('asb-readiness-signal.service', 'asb-privacy-purge-signal.service',
             'asb-observe-ready.service')
+BACKUP_OPTIONS = {'--env-file', '--ca-file', '--journal-key-file', '--journal-bucket',
+                  '--journal-witness-bucket', '--backup-bucket', '--state-dir', '--output-dir',
+                  '--capture-mode'}
 
 
 class BindingError(ValueError):
     pass
+
+
+def parse_properties(raw):
+    """Keep every systemctl command record; reject repeated scalar values.
+
+    systemctl emits a separate ExecStartPre= line per command. A last-value
+    dictionary would silently discard the first artifact-verification command.
+    """
+    properties = {}
+    commands = {'ExecStart', 'ExecStartPre', 'ExecStopPost'}
+    for line in raw.splitlines():
+        if '=' not in line:
+            continue
+        name, value = line.split('=', 1)
+        if name in properties:
+            if name not in commands:
+                raise BindingError('Effective service properties are ambiguous')
+            properties[name] += ' ' + value
+        else:
+            properties[name] = value
+    return properties
 
 
 def _commands(value):
@@ -35,7 +59,22 @@ def _commands(value):
         raise BindingError('Effective service command is invalid') from None
 
 
-def verify_properties(unit, properties, artifact, pin):
+def _verify_capture_mode(arguments, expected):
+    if expected not in ('online', 'offline') or not arguments or arguments[0] != '--execute':
+        raise BindingError('Effective backup capture mode is invalid')
+    fields = arguments[1:]
+    options = fields[::2]
+    values = fields[1::2]
+    if (len(fields) != 2 * len(options) or len(options) != len(set(options))
+            or any(option not in BACKUP_OPTIONS for option in options)
+            or any(value.startswith('--') for value in values)):
+        raise BindingError('Effective backup capture mode or arguments are ambiguous')
+    actual = dict(zip(options, values, strict=True)).get('--capture-mode', 'offline')
+    if actual not in ('online', 'offline') or actual != expected:
+        raise BindingError('Effective backup capture mode differs from the expected mode')
+
+
+def verify_properties(unit, properties, artifact, pin, *, expected_capture_mode='online'):
     artifact = Path(artifact)
     if (not re.fullmatch(r'[0-9a-f]{64}', pin)
             or artifact != Path('/opt/ai-story-book/ops-releases') / pin or unit not in UNITS):
@@ -53,6 +92,8 @@ def verify_properties(unit, properties, artifact, pin):
     }
     if script in expected_args and start[0][3:] != expected_args[script]:
         raise BindingError('Effective recovery arguments differ')
+    if unit == 'asb-backup.service':
+        _verify_capture_mode(start[0][3:], expected_capture_mode)
     try:
         bytecode_settings = [value.partition('=')[2] for value in shlex.split(properties.get('Environment', ''))
                              if value.partition('=')[0] == 'PYTHONDONTWRITEBYTECODE']
@@ -84,6 +125,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--artifact', required=True, type=Path)
     parser.add_argument('--manifest-sha256', required=True)
+    parser.add_argument('--expected-capture-mode', choices=('online', 'offline'), default='online')
     args = parser.parse_args()
     try:
         for unit in UNITS:
@@ -92,8 +134,9 @@ def main():
                  '-p', 'TimeoutStartUSec', '-p', 'TimeoutStopUSec', '-p', 'Environment'],
                 check=True, capture_output=True, text=True, timeout=15,
             )
-            properties = dict(line.split('=', 1) for line in result.stdout.splitlines() if '=' in line)
-            verify_properties(unit, properties, args.artifact, args.manifest_sha256)
+            properties = parse_properties(result.stdout)
+            verify_properties(unit, properties, args.artifact, args.manifest_sha256,
+                              expected_capture_mode=args.expected_capture_mode)
         for unit in MONITORS:
             result = subprocess.run(['systemctl', 'show', unit, '-p', 'After', '--value'],
                                     check=True, capture_output=True, text=True, timeout=15)
@@ -102,7 +145,8 @@ def main():
         print(json.dumps({'status': 'EFFECTIVE_UNIT_BINDING_FAILED'}))
         return 1
     print(json.dumps({'status': 'EFFECTIVE_UNIT_BINDINGS_VERIFIED', 'units': list(UNITS),
-                      'manifest_sha256': args.manifest_sha256, 'boot_monitor_order_verified': True}))
+                      'manifest_sha256': args.manifest_sha256, 'boot_monitor_order_verified': True,
+                      'expected_capture_mode': args.expected_capture_mode}))
     return 0
 
 

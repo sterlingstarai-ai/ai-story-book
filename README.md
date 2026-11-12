@@ -10,6 +10,10 @@ The pilot uses Flare for initial illustrations and Sunburst only for flagged-pag
 
 Google Play Alpha `1.0.0(5)` is active for selected testers in South Korea. Apple `1.0.0(6)` is waiting for review after the required sharing SDK privacy manifest was fixed and verified in the signed IPA. Neither status means general public release is complete. The owner is handling Google's 12-tester/14-day production-access requirement. Guardian email remains disabled; final release-device checks are separate. See the [current follow-up and evidence](docs/appstore/release-followup-2026-11-12.md).
 
+Production online backup completed on 2026-11-12, and its pinned database archive passed an isolated PostgreSQL 16 restore and H0 checkpoint check; this DB-only check does not establish media restoration, latest H1 replay or permission to reopen a restored service. [Operating evidence](docs/acceptance/2026-11-12-online-backup-rollout/first-regular-online-run-result.json) · [DB-only restore](docs/acceptance/2026-11-12-online-backup-db-restore/verification.json).
+
+The [online backup candidate](docs/ONLINE_BACKUP.md) keeps API/worker processes running and moves full snapshot validation and file transfer after its short write boundary. Its local rehearsal, installed operating mode, remote backup completion and permission to reopen a restored service are separate checks. The offline compatibility/manual paths and their earlier interruption records remain available.
+
 ## Historical release checkpoint — 2026-09-06
 
 **Public release quality remains on hold.** The fixed 15-book baseline completed all technical paths, but character consistency and text–image agreement each passed only 53.3%. A prepublication [illustration review and bounded page repair gate](docs/ILLUSTRATION_QUALITY_GATE.md) has been implemented and verified on stored error cases. It does not overwrite the failed baseline or establish zero-error generation. See [launch status](docs/LAUNCH_STATUS.md).
@@ -130,7 +134,7 @@ release or native feature certification. Use fictional inputs only. Readiness
 continues to reject mock providers with HTTP 503 even when local dependencies
 are healthy. Ctrl-C on the runtime command removes only its temporary services.
 
-For a synthetic PostgreSQL/private-media backup and restore check, run
+For the offline compatibility/manual path's synthetic PostgreSQL/private-media backup and restore check, run
 `./scripts/run_backup_restore_rehearsal.sh`. It compares restored database and media
 checksums in a second isolated stack. The operational procedure is in
 [docs/BACKUP_RESTORE.md](docs/BACKUP_RESTORE.md).

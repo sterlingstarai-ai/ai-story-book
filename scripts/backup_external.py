@@ -12,6 +12,7 @@ from functools import partial
 import hashlib
 from itertools import islice
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -65,16 +66,23 @@ def run_pg(command, environment, *, destination=None):
         raise BackupError('PostgreSQL backup/read validation failed; provider details were suppressed') from None
 
 
-def storage_client(values):
+def storage_client(values, *, cut_timeout_seconds=None):
     import boto3
     from botocore.config import Config
+    limits = {'connect_timeout': 15, 'read_timeout': 60,
+              'retries': {'max_attempts': 2, 'mode': 'standard'}}
+    if cut_timeout_seconds is not None:
+        if (type(cut_timeout_seconds) not in (int, float) or not math.isfinite(cut_timeout_seconds)
+                or not 0 < cut_timeout_seconds <= 2.0):
+            raise BackupError('Invalid online inventory timeout')
+        timeout = cut_timeout_seconds / 4
+        limits = {'connect_timeout': timeout, 'read_timeout': timeout,
+                  'retries': {'total_max_attempts': 1, 'mode': 'standard'}}
     return boto3.client('s3', endpoint_url=values['S3_ENDPOINT'],
                         aws_access_key_id=values['S3_ACCESS_KEY'],
                         aws_secret_access_key=values['S3_SECRET_KEY'],
                         region_name=values['S3_REGION'],
-                        config=Config(signature_version='s3v4', s3={'addressing_style': 'path'},
-                                      connect_timeout=15, read_timeout=60,
-                                      retries={'max_attempts': 2, 'mode': 'standard'}))
+                        config=Config(signature_version='s3v4', s3={'addressing_style': 'path'}, **limits))
 
 
 def inventory(client, bucket):
@@ -191,7 +199,9 @@ def _download_media_object(client, bucket, objects_dir, entry):
     expected_size = int(expected['Size'])
     filename = hashlib.sha256(key.encode()).hexdigest()
     path = objects_dir / filename  # Never interpret remote object keys as local paths.
-    obj = client.get_object(Bucket=bucket, Key=key, IfMatch=expected['ETag'])
+    version = ({'Generation': expected['generation'], 'Metageneration': expected['metageneration']}
+               if 'generation' in expected else {})
+    obj = client.get_object(Bucket=bucket, Key=key, IfMatch=expected['ETag'], **version)
     size = 0
     digest = hashlib.sha256()
     try:
@@ -199,6 +209,8 @@ def _download_media_object(client, bucket, objects_dir, entry):
                 or _http_last_modified(obj.get('LastModified')) != _http_last_modified(expected['LastModified'])
                 or obj.get('ContentLength') != expected_size):
             raise BackupError('Media object identity changed before download')
+        if version and any(obj.get(name) != value for name, value in version.items()):
+            raise BackupError('Media object version changed before download')
         with path.open('xb') as output:
             os.chmod(path, 0o600)
             for data in iter(lambda: obj['Body'].read(1024 * 1024), b''):
@@ -303,6 +315,98 @@ def create_backup(values, destination, ca_file, *, quiescence_check=None, fence=
         raise
     finally:
         if client is not None:
+            client.close()
+
+
+def create_online_backup(values, destination, ca_file, *, snapshot, frozen_inventory,
+                         frozen_revision, media_download_workers=2, media_client=None):
+    """Capture the supplied cut, allowing unrelated live DB/media changes.
+
+    The caller must obtain revision and inventory from the same fenced cut,
+    verify media-reference coverage and independently verify its privacy
+    checkpoint. An object's deletion or changed identity fails this backup;
+    this function never stops services, retries the cut, or authorizes restore.
+    """
+    if type(media_download_workers) is not int or media_download_workers not in (1, 2):
+        raise BackupError('Invalid media download worker count')
+    if not ca_file.is_file():
+        raise BackupError('Provider CA file is not readable on this backup host')
+    environment = database_environment(values, ca_file)
+    if (snapshot.environment != environment or snapshot.cut_released is not True
+            or not isinstance(snapshot.snapshot_id, str)
+            or not re.fullmatch('[0-9A-Fa-f-]{1,80}', snapshot.snapshot_id)
+            or type(snapshot.cut_elapsed_ms) is not int or not 0 <= snapshot.cut_elapsed_ms <= 2000):
+        raise BackupError('Online backup snapshot is not the released database cut')
+    if not isinstance(frozen_revision, str) or not re.fullmatch('[A-Za-z0-9_]{1,100}', frozen_revision):
+        raise BackupError('Online backup schema revision is invalid')
+    if not isinstance(frozen_inventory, dict):
+        raise BackupError('Online backup inventory is invalid')
+    objects = {}
+    for key, metadata in frozen_inventory.items():
+        if (not isinstance(key, str) or not key or not isinstance(metadata, dict)
+                or set(metadata) not in ({'ETag', 'Size', 'LastModified'},
+                                        {'ETag', 'Size', 'LastModified', 'generation', 'metageneration'})
+                or any(not isinstance(value, str) or not value for value in metadata.values())
+                or not re.fullmatch('[0-9]{1,20}', metadata['Size'])):
+            raise BackupError('Online backup inventory is invalid')
+        if 'generation' in metadata and any(
+                re.fullmatch('[1-9][0-9]{0,19}', metadata[name]) is None
+                for name in ('generation', 'metageneration')):
+            raise BackupError('Online backup object version is invalid')
+        _http_last_modified(metadata['LastModified'])
+        objects[key] = dict(metadata)
+    snapshot_id = snapshot.snapshot_id
+    snapshot_metadata = {'snapshot_sha256': hashlib.sha256(snapshot_id.encode()).hexdigest(),
+                         'cut_elapsed_ms': snapshot.cut_elapsed_ms, 'cut_released': True}
+    snapshot.verify()
+    query = ['psql', '-X', '--no-password', '--tuples-only', '--no-align', '--set', 'ON_ERROR_STOP=1', '-c']
+    verify_database_backup_tools(environment, query)
+    if destination.exists() and (destination.is_symlink() or destination.stat().st_mode & 0o077):
+        raise BackupError('Backup destination must be a private directory (0700), without a symlink')
+    destination.mkdir(parents=True, exist_ok=True, mode=0o700)
+    folder = Path(tempfile.mkdtemp(prefix='.partial-external-', dir=destination))
+    final = destination / folder.name.replace('.partial-external-', 'external-', 1)
+    client = media_client
+    owns_client = media_client is None
+    try:
+        objects_dir = folder / 'objects'
+        objects_dir.mkdir(mode=0o700)
+        dump = folder / 'database.dump'
+        with dump.open('xb') as output:
+            os.chmod(dump, 0o600)
+            run_pg(['pg_dump', '--no-password', '--format=custom', '--schema=public',
+                    '--no-owner', '--no-privileges', '--snapshot', snapshot_id], environment, destination=output)
+        run_pg(['pg_restore', '--list', str(dump)], environment)
+        snapshot.verify()
+        if snapshot.snapshot_id != snapshot_id or snapshot.cut_released is not True:
+            raise BackupError('Online backup snapshot changed')
+        if client is None:
+            client = storage_client(values)
+        media = _download_media(client, values['S3_BUCKET'], objects_dir, objects, media_download_workers)
+        snapshot.verify()
+        if snapshot.snapshot_id != snapshot_id or snapshot.cut_released is not True:
+            raise BackupError('Online backup snapshot changed')
+        manifest = {'format_version': 1, 'capture_mode': 'online_snapshot',
+                    'snapshot': snapshot_metadata,
+                    'media_inventory_sha256': inventory_fingerprint(objects),
+                    'created_at': datetime.now(timezone.utc).isoformat(),
+                    'database_scope': 'public', 'alembic_revision': frozen_revision,
+                    'database': {'file': 'database.dump', 'sha256': file_hash(dump), 'size': dump.stat().st_size},
+                    'api_image': values['API_IMAGE'], 'worker_image': values['WORKER_IMAGE'],
+                    'objects': media, 'restore_verified': False,
+                    'requires_latest_deletion_and_identity_revocations': True}
+        path = folder / 'manifest.json'
+        path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n')
+        os.chmod(path, 0o600)
+        folder.rename(final)
+        return {'status': 'BACKUP_CREATED_NOT_RESTORE_VERIFIED', 'capture_mode': 'online_snapshot',
+                'snapshot': snapshot_metadata, 'object_count': len(media), 'backup_set': final.name,
+                'contains_private_data': True, 'media_inventory_sha256': inventory_fingerprint(objects)}
+    except BaseException:
+        shutil.rmtree(folder, ignore_errors=False)
+        raise
+    finally:
+        if client is not None and owns_client:
             client.close()
 
 

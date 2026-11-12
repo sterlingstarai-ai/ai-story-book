@@ -20,6 +20,7 @@ SCRIPT_NAMES = (
     'verify_backup_set.py', 'final_external_preflight.py',
     'narration_marker_exec_condition.py', 'narration_deploy_safety.py',
     'provider_rotation_quarantine.py', 'check_backup_status.py', 'publish_backup_health.py',
+    'online_backup.py', 'online_privacy_checkpoint.py', 'online_media_references.py', 'online_gcs_media.py',
 )
 UNIT_NAMES = ('asb-backup.service', 'asb-backup.timer', 'asb-backup-recover.service',
               'asb-readiness-signal.service', 'asb-privacy-purge-signal.service', 'asb-observe-ready.service',

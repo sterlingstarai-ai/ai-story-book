@@ -30,6 +30,9 @@ class FakeRuntime:
     def running(self, name):
         return self.state[name]
 
+    def identity(self, name):
+        return (name, 'fixture-image', 'fixture-start', 100)
+
     def stop(self, name):
         self.calls.append(('stop', name))
         self.state[name] = False
@@ -52,6 +55,57 @@ class FakeRuntime:
         self.calls.append(('probe', 'api-and-worker'))
         if not self.live or not self.worker_live:
             raise RuntimeError('synthetic liveness failure')
+
+
+@pytest.mark.parametrize('fail', [False, True])
+def test_online_guard_keeps_services_running_and_never_creates_restart_marker(guard_module, tmp_path, fail):
+    runtime = FakeRuntime()
+    guard = guard_module.BackupServiceGuard(tmp_path, runtime)
+
+    def capture():
+        assert all(runtime.state.values())
+        assert not (tmp_path / 'restart-required.json').exists()
+        contender = guard_module.BackupServiceGuard(tmp_path, runtime)
+        with pytest.raises(guard_module.RetryableRecoveryError):
+            contender.run_online(backup=lambda: pytest.fail('concurrent backup must not run'))
+        if fail:
+            raise ValueError('synthetic capture failure')
+        return 'snapshot-result'
+
+    if fail:
+        with pytest.raises(ValueError, match='synthetic capture failure'):
+            guard.run_online(backup=capture)
+    else:
+        assert guard.run_online(backup=capture) == 'snapshot-result'
+    assert all(runtime.state.values())
+    assert runtime.calls == []
+    assert not (tmp_path / 'restart-required.json').exists()
+
+
+def test_online_guard_refuses_pending_recovery_without_restarting_services(guard_module, tmp_path):
+    (tmp_path / 'restart-required.json').write_text('{}')
+    runtime = FakeRuntime()
+    guard = guard_module.BackupServiceGuard(tmp_path, runtime)
+    with pytest.raises(guard_module.GuardError, match='Previous backup requires recovery'):
+        guard.run_online(backup=lambda: pytest.fail('unsafe capture'))
+    assert runtime.calls == []
+    assert (tmp_path / 'restart-required.json').read_text() == '{}'
+
+
+def test_online_guard_detects_restart_even_if_running_is_true(guard_module, tmp_path):
+    runtime = FakeRuntime()
+    original = runtime.identity
+    guard = guard_module.BackupServiceGuard(tmp_path, runtime)
+
+    def capture():
+        runtime.identity = lambda name: (*original(name)[:3], 200)
+        guard.verify_online_identity()
+
+    with pytest.raises(guard_module.GuardError, match='restarted or changed'):
+        guard.run_online(backup=capture)
+    assert runtime.calls == []
+    assert all(runtime.state.values())
+    assert not (tmp_path / 'restart-required.json').exists()
 
 
 def test_backup_runs_only_after_idle_check_and_services_are_restarted(guard_module, tmp_path):

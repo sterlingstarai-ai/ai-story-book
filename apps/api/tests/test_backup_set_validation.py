@@ -42,6 +42,34 @@ def test_verified_files_do_not_claim_restore_or_revocation_replay(backup_set):
     assert 'synthetic/book.png' not in json.dumps(result)
 
 
+@pytest.mark.parametrize('fault', [None, 'unknown_mode', 'missing_snapshot', 'held_lock',
+                                  'cut_timeout', 'boolean_time', 'snapshot_hash', 'inventory_hash'])
+def test_online_manifest_requires_complete_bounded_cut_metadata(backup_set, fault):
+    folder, manifest = backup_set
+    manifest.update(capture_mode='online_snapshot', media_inventory_sha256='a' * 64,
+                    snapshot={'snapshot_sha256': 'b' * 64, 'cut_elapsed_ms': 500, 'cut_released': True})
+    if fault == 'unknown_mode':
+        manifest['capture_mode'] = 'unchecked'
+    elif fault == 'missing_snapshot':
+        del manifest['snapshot']
+    elif fault == 'held_lock':
+        manifest['snapshot']['cut_released'] = False
+    elif fault == 'cut_timeout':
+        manifest['snapshot']['cut_elapsed_ms'] = 2001
+    elif fault == 'boolean_time':
+        manifest['snapshot']['cut_elapsed_ms'] = True
+    elif fault == 'snapshot_hash':
+        manifest['snapshot']['snapshot_sha256'] = 'unknown'
+    elif fault == 'inventory_hash':
+        manifest['media_inventory_sha256'] = None
+    (folder / 'manifest.json').write_text(json.dumps(manifest))
+    if fault:
+        with pytest.raises(backup.BackupValidationError):
+            backup.verify(folder)
+    else:
+        assert backup.verify(folder)['restore_verified'] is False
+
+
 def test_matching_empty_database_archive_and_boolean_version_are_rejected(backup_set):
     folder, manifest = backup_set
     (folder / 'database.dump').write_bytes(b'')
