@@ -338,13 +338,8 @@ jobs:
           arch: x86_64
           disable-animations: true
           working-directory: apps/mobile
-          # Give each native suite its own Flutter driver and Dart VM service.
-          # Reusing the driver after a reinstall intermittently lost the VM during discovery.
-          script: >
-            bash -c 'set -o pipefail; for suite in integration_test/*_test.dart; do
-            flutter test "$suite" -d emulator-5554 --reporter expanded || {
-            adb -s emulator-5554 logcat -b crash -d -t 50; exit 1; };
-            done 2>&1 | tee integration-output.log'
+          # One APK keeps the emulator attached to the same Dart VM throughout the suites.
+          script: bash -c 'set -o pipefail; python3 ../../scripts/ci-android-integration.py 2>&1 | tee integration-output.log'
 
       - name: Check Flutter coverage threshold
         run: |
