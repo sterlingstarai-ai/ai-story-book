@@ -246,9 +246,10 @@ jobs:
 
       - name: Live E2E journey (full generation pipeline)
         # TESTING=false 실서버로 전체 생성 파이프라인(create→done)+성장·또래·오디오게이트·
-        # IDOR·동의철회를 검증. SQLite+mock providers라 키·Postgres·Redis 불필요.
+        # IDOR·동의철회를 검증. 격리된 PostgreSQL·Redis와 mock 공급자로 검증.
         # (R2 이후 이미지 업로드가 실제로 일어나므로 위 MinIO 스텝에 의존한다.)
         env:
+          RATE_LIMIT_REQUESTS: '30'
           S3_ENDPOINT: http://localhost:9000
           S3_REGION: us-east-1
           S3_ADDRESSING_STYLE: path

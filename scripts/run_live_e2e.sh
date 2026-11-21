@@ -1,11 +1,11 @@
 #!/bin/bash
 # =============================================================================
-# run_live_e2e.sh - 라이브 백엔드 E2E 여정을 오프라인(SQLite+mock)으로 구동
+# run_live_e2e.sh - 라이브 백엔드 E2E 여정을 격리된 PostgreSQL과 mock 공급자로으로 구동
 # =============================================================================
 # TESTING=true(in-process pytest)는 생성 백그라운드 태스크를 건너뛰므로, 전체 생성
 # 파이프라인(create→done)을 검증하려면 TESTING=false로 실서버를 띄워야 한다.
-# 이 스크립트는 스키마 생성 → uvicorn 기동(mock providers·SQLite) → e2e_journey.py 실행
-# → 서버 종료까지 수행한다(키·Postgres·Redis 불필요).
+# 이 스크립트는 스키마 마이그레이션 → uvicorn 기동(mock providers·PostgreSQL) → e2e_journey.py 실행
+# → 서버 종료까지 수행한다(공급자 키 불필요, 일회용 로컬 Docker PostgreSQL·Redis 사용).
 # 그림 검사는 모든 페이지를 명시적으로 반환하는 결정적 테스트 대역이다.
 # 실제 비전 판정이나 그림 품질 합격을 검증하지 않는다.
 #
@@ -26,7 +26,8 @@ cd "$ROOT_DIR/apps/api"
 
 PYTHON="${PYTHON:-python}"
 PORT="${PORT:-8077}"
-DB_FILE="live_e2e.db"
+PROJECT="storybook-journey-$("$PYTHON" -c 'import uuid; print(uuid.uuid4().hex)')"
+COMPOSE=(docker compose -p "$PROJECT" -f "$ROOT_DIR/infra/docker-compose.e2e.yml")
 MOCK_QA_STARTUP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/storybook-mock-qa.XXXXXX")"
 SERVER_LOG="$MOCK_QA_STARTUP_DIR/server.log"
 SVPID=""
@@ -35,24 +36,31 @@ cleanup() {
     kill "$SVPID" 2>/dev/null || true
     wait "$SVPID" 2>/dev/null || true
   fi
-  rm -f "$DB_FILE"
+  "${COMPOSE[@]}" down --volumes >/dev/null 2>&1 || true
   rm -rf "$MOCK_QA_STARTUP_DIR"
 }
 trap cleanup EXIT
 
 "$PYTHON" "$ROOT_DIR/scripts/mock_illustration_review.py" "$MOCK_QA_STARTUP_DIR"
 
+# Media writes hold a PostgreSQL transaction lock during the real S3 upload.
+"${COMPOSE[@]}" up -d --wait --wait-timeout 90 postgres redis
+PG_BINDING="$("${COMPOSE[@]}" port postgres 5432)"
+REDIS_BINDING="$("${COMPOSE[@]}" port redis 6379)"
 export TESTING=false USE_CELERY=false \
   LLM_PROVIDER=mock IMAGE_PROVIDER=mock TTS_PROVIDER=mock \
   PHOTO_ANALYSIS_PROVIDER=mock PHOTO_PROCESSING_ENABLED=false \
   ILLUSTRATION_QUALITY_ENABLED=true STORYBOOK_MOCK_QA=illustration-review-v1 \
   PYTHONPATH="$MOCK_QA_STARTUP_DIR:$ROOT_DIR/apps/api" \
-  DATABASE_URL="sqlite+aiosqlite:///./${DB_FILE}" \
+  DATABASE_URL="postgresql+asyncpg://runtime_test:disposable-runtime-password@127.0.0.1:${PG_BINDING##*:}/runtime_test" \
+  DATABASE_SSL_MODE="" DATABASE_SSL_ROOT_CERT="" DATABASE_MIGRATION_URL="" \
+  REDIS_URL="redis://127.0.0.1:${REDIS_BINDING##*:}/0" \
   S3_ENDPOINT="${S3_ENDPOINT:-http://localhost:9000}" \
   S3_ACCESS_KEY="${S3_ACCESS_KEY:-minioadmin}" \
   S3_SECRET_KEY="${S3_SECRET_KEY:-minioadmin123}" \
   S3_BUCKET="${S3_BUCKET:-storybook}" \
   S3_PUBLIC_URL="${S3_PUBLIC_URL:-${S3_ENDPOINT:-http://localhost:9000}/${S3_BUCKET:-storybook}}" \
+  DAILY_GENERATION_BUDGET="${DAILY_GENERATION_BUDGET:-12}" \
   RATE_LIMIT_REQUESTS="${RATE_LIMIT_REQUESTS:-100000}"
 
 # 스토리지가 없으면 생성이 IMAGE_FAILED로 죽는다. 원인을 알 수 없는 잡 실패 9건 대신
@@ -63,30 +71,13 @@ if ! curl -fsS "${S3_ENDPOINT}/minio/health/live" >/dev/null 2>&1; then
   echo "   실행: docker compose -f infra/docker-compose.yml up -d minio"
   exit 1
 fi
-# CI에는 Redis가 떠 있어 rate limiter가 활성(로컬은 fail-open)이므로, 단일 여정이 분당
-# 한도(기본 10)에 걸리지 않도록 한도를 크게 둔다. 레이트리밋 자체는 단위테스트가 검증.
-
-rm -f "$DB_FILE"
-
-echo "==> 스키마 생성(SQLite)"
-"$PYTHON" - <<'PY'
-import asyncio
-from src.core.database import async_engine
-from src.models.db import Base
 
 
-async def main():
-    async with async_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    await async_engine.dispose()
-
-
-asyncio.run(main())
-print("schema ready")
-PY
+echo "==> 일회용 PostgreSQL 마이그레이션"
+"$PYTHON" -m alembic upgrade head
 
 echo "==> 서버 기동(TESTING=false, mock providers + mock illustration review, port=$PORT)"
-nohup "$PYTHON" -m uvicorn src.main:app --host 127.0.0.1 --port "$PORT" \
+nohup "$PYTHON" -m uvicorn src.main:app --no-access-log --host 127.0.0.1 --port "$PORT" \
   > "$SERVER_LOG" 2>&1 &
 SVPID=$!
 
