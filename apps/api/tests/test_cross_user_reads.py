@@ -20,7 +20,7 @@ from httpx import AsyncClient
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models.db import Book, ChildProfile, Job, Page
+from src.models.db import Book, ChildProfile, Job, Page, StoryDraftDB
 
 OWNER = {"X-User-Key": "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa"}
 ATTACKER = {"X-User-Key": "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb"}
@@ -76,8 +76,13 @@ async def test_book_detail_read_blocked_for_other_user(
     """타인이 소유한 책 상세를 읽을 수 없다(제목·본문 누출 0)."""
     await _seed_owner_resources(db_session)
 
+    db_session.add(StoryDraftDB(job_id=JOB_ID, draft={"characters": [
+        {"role": "support", "name": "구름"}, {"role": "main", "name": "하루"},
+    ]}))
+    await db_session.commit()
     owner_res = await client.get(f"/v1/books/{BOOK_ID}/detail", headers=OWNER)
     assert owner_res.status_code == 200, owner_res.text
+    assert owner_res.json()["protagonist_name"] == "하루"
     assert SECRET_TITLE in owner_res.text  # 양성 대조: 소유자는 읽힌다
 
     res = await client.get(f"/v1/books/{BOOK_ID}/detail", headers=ATTACKER)

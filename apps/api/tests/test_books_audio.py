@@ -15,7 +15,12 @@ class _FakeScalarResult:
         return self._page
 
 
-class _FakeDbSession:
+class _FakeNarrationSession:
+    def get_bind(self):
+        return SimpleNamespace(dialect=SimpleNamespace(name="sqlite"))
+
+
+class _FakeDbSession(_FakeNarrationSession):
     def __init__(self, pages):
         self._pages = list(pages)
         self._index = 0
@@ -26,6 +31,10 @@ class _FakeDbSession:
         pass
 
     async def scalar(self, _query):
+        from src.models.db import AccountIdentity
+
+        if _query.is_select and _query.column_descriptions[0]["entity"] is AccountIdentity:
+            return None
         row = self._pages[self._index - 1]
         return row[-1] if isinstance(row, tuple) else row
 
@@ -41,7 +50,7 @@ class _FakeDbSession:
 
     async def commit(self):
         self.commit_calls += 1
-        if self.commit_calls == 2:
+        if self.commit_calls == 3:
             raise RuntimeError("commit failed")
 
     async def rollback(self):
@@ -92,7 +101,7 @@ async def test_generate_audio_pages_rolls_back_and_continues_after_commit_failur
             with patch("src.services.job_runners.storage_service.upload_bytes", new=upload_mock):
                 await generate_audio_pages("book-123", pages)
 
-    assert fake_db.commit_calls == 4
+    assert fake_db.commit_calls == 6
     assert fake_db.rollback_calls == 1
     assert synthesize_mock.await_count == 2
     assert upload_mock.await_count == 2
@@ -136,14 +145,14 @@ async def test_get_page_audio_rolls_back_when_commit_fails():
             with pytest.raises(InternalServerError):
                 await get_page_audio("book-123", 1, db=fake_db, user_key="user-123")
 
-    assert fake_db.commit_calls == 2
+    assert fake_db.commit_calls == 3
     assert fake_db.rollback_calls == 1
 
 
 # ---- H3: 오디오 언어 5종(ja/zh/es 한국어 보이스 오합성 제거) ----
 
 
-class _FakeDbSessionOK:
+class _FakeDbSessionOK(_FakeNarrationSession):
     """commit이 실패하지 않는 세션(H3 정상 경로 테스트용)."""
 
     def __init__(self, rows):
@@ -155,6 +164,10 @@ class _FakeDbSessionOK:
         pass
 
     async def scalar(self, _query):
+        from src.models.db import AccountIdentity
+
+        if _query.is_select and _query.column_descriptions[0]["entity"] is AccountIdentity:
+            return None
         row = self._rows[self._index - 1]
         return row[-1] if isinstance(row, tuple) else row
 
@@ -324,59 +337,28 @@ async def test_batch_audio_marks_job_failed_on_timeout():
 
 
 @pytest.mark.asyncio
-async def test_batch_audio_returns_pollable_job_id():
-    """POST /audio가 폴링 가능한 audio_ job_id를 반환한다."""
+@pytest.mark.parametrize("photo_derived", [False, True])
+async def test_batch_audio_returns_pollable_job_id(db_session, monkeypatch, photo_derived):
     from fastapi import BackgroundTasks
 
+    from src.core.config import settings
+    from src.models.db import Job, Page, UserConsent
     from src.routers import books
+    from tests.factories import make_book_rows
 
-    book = SimpleNamespace(
-        id="book-1", user_key="user-1", target_age="5-7", language="ko", profile_id=None
-    )
-    page = SimpleNamespace(
-        id="page-1", page_number=1, text="hi", text_ko="안녕", text_en="hi"
-    )
-
-    class _OkSession:
-        def __init__(self):
-            self._results = [
-                _FakeScalarResult(book),  # select(Book)
-                SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [page])),  # pages
-            ]
-            self._i = 0
-            self.added = []
-
-        async def execute(self, _q):
-            r = self._results[self._i]
-            self._i += 1
-            return r
-
-        def add(self, obj):
-            self.added.append(obj)
-
-        async def commit(self):
-            pass
-
-        async def rollback(self):
-            pass
-
-    fake_db = _OkSession()
-
-    async def _noop_enforce(*_a, **_k):
-        return None
-
-    with patch.object(books, "_enforce_free_plan_feature_access", new=_noop_enforce), patch.object(
-        books, "_assert_book_profile_scope", new=lambda *a, **k: None
-    ):
-        result = await books.generate_book_audio(
-            "book-1",
-            BackgroundTasks(),
-            db=fake_db,
-            user_key="user-1",
-            profile_id=None,
-        )
-
+    monkeypatch.setattr(settings, "require_parental_consent_in_testing", True)
+    rows = make_book_rows([("book-1", "user-1")])
+    next(row for row in rows if isinstance(row, Job)).photo_derived = photo_derived
+    db_session.add_all(rows)
+    db_session.add(UserConsent(user_key="user-1", granted=True, data_processing=True,
+                               privacy=True, photos=photo_derived))
+    await db_session.flush()
+    db_session.add(Page(book_id="book-1", page_number=1, text="hi"))
+    await db_session.commit()
+    result = await books.generate_book_audio("book-1", BackgroundTasks(), db=db_session,
+                                             user_key="user-1", profile_id=None)
     assert result["status"] == "processing"
     assert result["job_id"].startswith("audio_")
-    # audio_ Job 행이 생성됨(폴링 대상).
-    assert any(getattr(o, "id", "").startswith("audio_") for o in fake_db.added)
+    pending = await db_session.get(Job, result["job_id"])
+    assert pending.status == "queued"
+    assert pending.photo_derived is photo_derived

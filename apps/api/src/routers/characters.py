@@ -28,6 +28,7 @@ from src.models.dto import (
     ImagePrompt,
 )
 from src.models.db import Character
+from src.services.photo_lifecycle import lock_photo_account
 from src.services.photo_character import photo_character_service, validate_text_character
 from src.services.purge_queue import run_purge_tasks
 from src.services.privacy_journal_transaction import prepare_transaction_event, publish_committed_event
@@ -295,6 +296,7 @@ async def create_character(
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
 ):
+    await lock_photo_account(db, user_key)
     await require_parental_consent(db, user_key)
     """
     새 캐릭터 저장
@@ -367,6 +369,7 @@ async def rename_character(
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
 ):
+    await lock_photo_account(db, user_key)
     await require_parental_consent(db, user_key)
     character = (await db.execute(select(Character).where(
         Character.id == character_id, Character.user_key == user_key,
@@ -412,6 +415,7 @@ async def create_character_from_preset(
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
 ):
+    await lock_photo_account(db, user_key)
     await require_parental_consent(db, user_key)
     """기본 캐릭터 프리셋으로 주인공 캐릭터를 생성한다(아이 이름 지정 가능).
 
@@ -557,7 +561,6 @@ async def delete_character(
     캐릭터 삭제
     """
     from src.services.data_deletion import prepare_character_deletion
-    from src.services.photo_lifecycle import lock_photo_account
 
     await lock_photo_account(db, user_key)
     result = await db.execute(select(Character).where(Character.id == character_id))
@@ -635,10 +638,16 @@ async def create_character_from_text(
             **payload,
         )
 
+        # Erasure or consent withdrawal may have completed during generation.
+        await lock_photo_account(db, user_key)
+        await require_parental_consent(db, user_key)
         db.add(character)
         await db.commit()
         return response
 
+    except APIError:
+        await db.rollback()
+        raise
     except Exception as e:
         try:
             await db.rollback()

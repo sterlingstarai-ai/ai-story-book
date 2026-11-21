@@ -47,6 +47,7 @@ async def test_create_and_public_render(client, db_session):
 
     pub = await client.get(f"/share/{token}")
     assert pub.status_code == 200
+    assert pub.headers["cache-control"] == "private, no-store"
     assert "용감한 토끼의 모험" in pub.text  # 제목·본문 노출
     assert "옛날 옛날" in pub.text
     # 검색 비노출
@@ -81,7 +82,9 @@ async def test_revoke_then_public_404(client, db_session):
 
     rv = await client.post("/v1/books/sb3/share/revoke", headers=H)
     assert rv.status_code == 200
-    assert (await client.get(f"/share/{token}")).status_code == 404
+    revoked = await client.get(f"/share/{token}")
+    assert revoked.status_code == 404
+    assert revoked.headers["cache-control"] == "private, no-store"
 
 
 @pytest.mark.asyncio

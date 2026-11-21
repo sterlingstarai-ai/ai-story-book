@@ -9,6 +9,7 @@ services:
       - "443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ${NGINX_TRUSTED_EDGE_CONFIG:-./nginx/trusted-edge.conf}:/etc/nginx/trusted-edge.conf:ro
       # H9: TLS 인증서(fullchain.pem/privkey.pem). certbot 이 여기에 발급/갱신한다.
       - ./nginx/ssl:/etc/nginx/ssl:ro
       # H9: Let's Encrypt HTTP-01 챌린지 webroot(nginx 80 리스너가 서빙).
@@ -81,6 +82,7 @@ services:
       - GENERATION_ALLOWED_USER_HASHES=${GENERATION_ALLOWED_USER_HASHES:-}
       - STORE_REVIEW_PASS_HASH=${STORE_REVIEW_PASS_HASH:-}
       - STORE_REVIEW_ACCOUNT_SLOTS=${STORE_REVIEW_ACCOUNT_SLOTS:-}
+      - REVIEW_SANDBOX_ALLOWLIST=${REVIEW_SANDBOX_ALLOWLIST:-}
       - PROVIDER_USAGE_PRICES_JSON=${PROVIDER_USAGE_PRICES_JSON:-}
       # Image
       - IMAGE_PROVIDER=${IMAGE_PROVIDER}

@@ -3,13 +3,30 @@
 from src.core.config import settings
 
 
-def purchase_capabilities() -> dict[str, bool]:
+CREDIT_PACK_PRODUCTS = {
+    "credit_pack_1": 1,
+    "credit_pack_5": 5,
+    "credit_pack_10": 10,
+}
+
+SUBSCRIPTION_PRODUCTS = {
+    "subscription_basic": "basic",
+    "subscription_premium": "premium",
+}
+
+
+def review_sandbox_products() -> set[str]:
+    raw = settings.review_sandbox_allowlist or ""
+    return {p.strip() for p in raw.split(",") if p.strip()}
+
+
+def purchase_capabilities(*, apple_review: bool = False) -> dict[str, bool]:
     enabled = settings.purchases_enabled and settings.iap_verification_mode == "strict"
     # The mobile client uses StoreKit 2, so legacy shared-secret configuration
     # alone cannot advertise a working Apple checkout. Native notifications also
     # keep paid renewals/refunds synchronized without a custom adapter.
     apple = bool(
-        enabled
+        (enabled or (apple_review and settings.iap_verification_mode == "strict"))
         and settings.apple_bundle_id
         and (
             settings.apple_notification_environment == "Sandbox"

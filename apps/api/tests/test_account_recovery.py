@@ -107,8 +107,9 @@ async def test_unknown_modern_device_never_bootstraps_legacy_account(client):
     assert response.status_code == 401
 
 
+@pytest.mark.parametrize("access_mode", ["invite_only", "open"])
 async def test_store_review_pass_claims_only_reserved_private_slots(
-    client, headers, user_key, db_session, monkeypatch
+    client, headers, user_key, db_session, monkeypatch, access_mode
 ):
     slots = [str(uuid.uuid4()) for _ in range(3)]
     journal = PrivacyJournal(FakeStore(), b"k" * 32)
@@ -123,7 +124,7 @@ async def test_store_review_pass_claims_only_reserved_private_slots(
     )
     await db_session.commit()
     passcode = "ASB-R1-" + secrets.token_urlsafe(32)
-    monkeypatch.setattr(settings, "generation_access_mode", "invite_only")
+    monkeypatch.setattr(settings, "generation_access_mode", access_mode)
     monkeypatch.setattr(settings, "free_plan_first_book_trial", True)
     monkeypatch.setattr(settings, "generation_allowed_user_hashes", ",".join(
         generation_identity_hash(key) for key in [user_key, *slots]

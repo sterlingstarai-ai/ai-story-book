@@ -1,6 +1,13 @@
 {
   admin off
   auto_https off
+  # Required deployment setting: only the actual Cloud Run serving peers.
+  # Never set this to all addresses or trust the caller's leftmost XFF entry.
+  servers {
+    trusted_proxies static {$CLOUD_RUN_TRUSTED_PROXY_CIDRS}
+    trusted_proxies_strict
+    client_ip_headers X-Forwarded-For
+  }
   log {
     output discard
   }
@@ -14,6 +21,8 @@
     }
     reverse_proxy https://10.128.0.2:443 {
       header_up Host 35.209.174.246
+      # Collapse the verified chain to one address for nginx's real_ip module.
+      header_up X-Forwarded-For {client_ip}
       transport http {
         tls_server_name 35.209.174.246
         dial_timeout 5s

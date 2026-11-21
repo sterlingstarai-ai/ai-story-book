@@ -14,13 +14,14 @@
 
 import asyncio
 import os
+from pathlib import Path
 import subprocess
 import sys
 import time
 import uuid
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -39,12 +40,27 @@ requires_celery = pytest.mark.skipif(
 )
 
 
-def _worker_env(queue: str) -> dict:
+@pytest.fixture
+def mock_review_startup(tmp_path, monkeypatch):
+    # Use the same mock vision adapter as the real-runtime gate. It validates
+    # the complete book and MinIO image bytes with the production quality gate on.
+    monkeypatch.syspath_prepend(str(Path(API_ROOT).parents[1] / "scripts"))
+    from mock_illustration_review import write_startup_loader
+
+    startup = tmp_path / "worker-startup"
+    write_startup_loader(startup)
+    return startup
+
+
+def _worker_env(queue: str, mock_review_startup: Path) -> dict:
     """워커 subprocess 환경 — 프로덕션 구성(TESTING=false, USE_CELERY=true, 실PG)."""
     env = dict(os.environ)
     env.update(
         {
             "TESTING": "false",
+            "STORYBOOK_MOCK_QA": "illustration-review-v1",
+            "ILLUSTRATION_QUALITY_ENABLED": "true",
+            "PYTHONPATH": os.pathsep.join(filter(None, [str(mock_review_startup), env.get("PYTHONPATH")])),
             "USE_CELERY": "true",
             "DATABASE_URL": PG_URL,
             "REDIS_URL": REDIS_URL,
@@ -119,11 +135,17 @@ print("SEQUENTIAL_OK")
 
 async def _prepare_job(engine, job_id: str, user_key: str) -> None:
     """PG에 스키마 보장 + 잡/크레딧 시드."""
-    from src.models.db import Base
+    from src.models.db import Base, UserConsent
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     async with engine.begin() as conn:
+        # Direct seeding bypasses the normal admission route. Model the same
+        # active guardian decision that a real queued job requires.
+        if not await conn.scalar(select(UserConsent.id).where(UserConsent.user_key == user_key).limit(1)):
+            await conn.execute(UserConsent.__table__.insert().values(
+                user_key=user_key, privacy=True, data_processing=True, granted=True,
+            ))
         await conn.execute(
             text(
                 "INSERT INTO jobs (id, status, progress, current_step, user_key, created_at, updated_at)"
@@ -153,7 +175,7 @@ def _wait_job(engine, job_id: str, timeout: int = 60):
 
 
 @requires_celery
-def test_worker_completes_two_sequential_book_jobs():
+def test_worker_completes_two_sequential_book_jobs(mock_review_startup):
     """같은 워커 프로세스에서 태스크를 **2연속** 실행해도 둘 다 done에 도달한다.
 
     2연속이 핵심이다: 첫 태스크가 풀에 커넥션을 남기고 루프를 닫으므로, 두 번째
@@ -162,7 +184,7 @@ def test_worker_completes_two_sequential_book_jobs():
     두 번째도 즉시 실패했다.
     """
     queue = f"c1test{uuid.uuid4().hex[:8]}"
-    env = _worker_env(queue)
+    env = _worker_env(queue, mock_review_startup)
     # 하네스도 asyncio.run 을 반복 호출하므로 NullPool 고정 — 그렇지 않으면 하네스가
     # 검증 대상과 같은 이유로 죽어 제품 결함과 구분되지 않는다.
     engine = create_async_engine(PG_URL, echo=False, poolclass=NullPool)
@@ -180,7 +202,7 @@ def test_worker_completes_two_sequential_book_jobs():
                 "--loglevel=info", "--concurrency=1", "--pool=solo", "-Q", queue,
             ],
             cwd=API_ROOT, env=env,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            stderr=subprocess.STDOUT,
         )
         time.sleep(12)  # 워커 부팅
         assert worker.poll() is None, "워커가 기동 직후 종료됨"
@@ -225,7 +247,7 @@ def test_worker_completes_two_sequential_book_jobs():
 
 
 @requires_celery
-def test_worker_records_failure_and_refunds_on_error():
+def test_worker_records_failure_and_refunds_on_error(mock_review_startup):
     """태스크가 실패하면 잡이 `failed`로 **기록**된다.
 
     수정 전에는 실패 마킹 경로도 같은 `run_async` 버그로 죽어 잡이 `queued`에 잔류했다
@@ -233,7 +255,7 @@ def test_worker_records_failure_and_refunds_on_error():
     실패시켜 '실패가 실패로 기록되는지'만 본다.
     """
     queue = f"c1fail{uuid.uuid4().hex[:8]}"
-    env = _worker_env(queue)
+    env = _worker_env(queue, mock_review_startup)
     # 하네스도 asyncio.run 을 반복 호출하므로 NullPool 고정 — 그렇지 않으면 하네스가
     # 검증 대상과 같은 이유로 죽어 제품 결함과 구분되지 않는다.
     engine = create_async_engine(PG_URL, echo=False, poolclass=NullPool)
@@ -249,7 +271,7 @@ def test_worker_records_failure_and_refunds_on_error():
                 "--loglevel=info", "--concurrency=1", "--pool=solo", "-Q", queue,
             ],
             cwd=API_ROOT, env=env,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            stderr=subprocess.STDOUT,
         )
         time.sleep(12)
         assert worker.poll() is None, "워커가 기동 직후 종료됨"
@@ -301,7 +323,7 @@ async def _book_and_page(engine, job_id: str, page_number: int = 1):
 
 
 @requires_celery
-def test_worker_completes_page_regeneration_job():
+def test_worker_completes_page_regeneration_job(mock_review_startup):
     """R1: 페이지 재생성이 **실 워커**에서 완주하고 본문이 실제로 바뀐다.
 
     R1 이전에는 재생성이 USE_CELERY와 무관하게 API 프로세스에서만 돌았고
@@ -311,7 +333,7 @@ def test_worker_completes_page_regeneration_job():
     '완주'만 보면 no-op 도 done 이 되므로 **본문 변경**까지 단언한다(e2e_journey 동일 기준).
     """
     queue = f"c1regen{uuid.uuid4().hex[:8]}"
-    env = _worker_env(queue)
+    env = _worker_env(queue, mock_review_startup)
     engine = create_async_engine(PG_URL, echo=False, poolclass=NullPool)
     user_key = str(uuid.uuid4())
     job_id = f"job_c1regen_{uuid.uuid4().hex[:10]}"
@@ -326,7 +348,7 @@ def test_worker_completes_page_regeneration_job():
                 "--loglevel=info", "--concurrency=1", "--pool=solo", "-Q", queue,
             ],
             cwd=API_ROOT, env=env,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            stderr=subprocess.STDOUT,
         )
         time.sleep(12)
         assert worker.poll() is None, "워커가 기동 직후 종료됨"

@@ -188,7 +188,7 @@ async def grant_consent(
         # Commit the new consent together with its erasure outbox. A crash
         # between two commits must not leave photos off with no deletion plan.
         failed_keys = await purge_photo_derived_data(
-            db, user_key, reason="consent_photos_off"
+            db, user_key, reason="consent_photos_off", withdraw_mandatory=not consent.granted
         )
         if failed_keys:
             logger.warning(
@@ -243,7 +243,7 @@ async def get_consent(
 
 
 async def purge_photo_derived_data(
-    db: AsyncSession, user_key: str, *, reason: str
+    db: AsyncSession, user_key: str, *, reason: str, withdraw_mandatory: bool = False
 ) -> list[str]:
     """사진/그림 파생(from_photo) 캐릭터와 그 파생물 전부를 파기한다. 반환: 실패 키 목록.
 
@@ -272,16 +272,31 @@ async def purge_photo_derived_data(
     # New jobs retain the flag even after individual character deletion, and
     # may have no Book yet (failed/queued/in-flight generation).
     await preserve_photo_derived_jobs(db, user_key, character_ids)
+    affected = Job.photo_derived.is_(True)
+    if withdraw_mandatory:
+        # Remove uncompleted book creation, editing and narration jobs so a later
+        # re-grant cannot revive a broker message or an in-memory worker.
+        creation = or_(Job.id.startswith("job_", autoescape=True),
+                       Job.id.startswith("series_", autoescape=True),
+                       Job.id.startswith("regen_", autoescape=True),
+                       Job.id.startswith("inpaint_", autoescape=True),
+                       Job.id.startswith("audio_", autoescape=True))
+        affected = or_(affected, creation & Job.status.in_(("queued", "running")))
     job_rows = await db.execute(
         select(Job.id, Job.status, Job.image_keys).where(
-            Job.user_key == user_key, Job.photo_derived.is_(True)
-        )
+            Job.user_key == user_key, affected
+        ).order_by(Job.id).with_for_update()
     )
     jobs = list(job_rows.all())
     job_ids = [job_id for job_id, _, _ in jobs]
     active_job_ids = {
         job_id for job_id, status, _ in jobs if status in {"queued", "running"}
     }
+    from src.services.credits import credits_service
+
+    for job_id, status, _ in jobs:
+        if status in {"queued", "running", "failed"}:
+            await credits_service.refund_for_job(db, user_key, job_id, commit=False)
     book_rows = await db.execute(
         select(Book.id, Book.job_id).where(
             Book.user_key == user_key, Book.job_id.in_(job_ids)
@@ -386,7 +401,7 @@ async def revoke_consent(
         ))
 
     failed_keys = await purge_photo_derived_data(
-        db, user_key, reason="consent_revoke"
+        db, user_key, reason="consent_revoke", withdraw_mandatory=True
     )
     await publish_committed_event(db, journal_event)
     if failed_keys:

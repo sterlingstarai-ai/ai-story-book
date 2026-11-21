@@ -42,6 +42,21 @@ def events(text='안녕하세요.', status='completed', pcm=b'\0\0\x01\0'):
 
 
 @pytest.mark.asyncio
+async def test_withdrawal_prevents_text_frame_after_socket_opens(monkeypatch):
+    from src.core.exceptions import AuthorizationError
+    from src.services.generation_consent import provider_consent_scope
+
+    monkeypatch.setattr(settings, 'openai_tts_api_key', 'fake-key')
+    connection = Connection([])
+    monkeypatch.setattr('src.services.realtime_tts.websockets.connect', lambda *a, **kw: connection)
+    async def withdrawn(_session):
+        raise AuthorizationError()
+    with provider_consent_scope(withdrawn), pytest.raises(AuthorizationError):
+        await synthesize_realtime('합성 테스트')
+    assert [frame['type'] for frame in connection.sent] == ['session.update']
+
+
+@pytest.mark.asyncio
 async def test_realtime_audio_is_wav_and_exact_transcript(monkeypatch):
     monkeypatch.setattr(settings, 'openai_tts_api_key', 'fake-key')
     conn = Connection(events())

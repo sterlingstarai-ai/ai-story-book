@@ -172,7 +172,7 @@ async def test_apple_v2_notification_uses_nested_verified_transaction(monkeypatc
     )
     decoded = SimpleNamespace(
         notificationType="DID_RENEW",
-        data=SimpleNamespace(signedTransactionInfo="inner", signedRenewalInfo=None),
+        data=SimpleNamespace(signedTransactionInfo="inner", signedRenewalInfo=None, environment="Production"),
         signedDate=100,
     )
     decoder = AsyncMock(return_value=decoded)
@@ -180,7 +180,7 @@ async def test_apple_v2_notification_uses_nested_verified_transaction(monkeypatc
     tx_verifier = AsyncMock(return_value=transaction)
     monkeypatch.setattr(notices, "verify_apple_transaction", tx_verifier)
     event = await notices.decode_apple_notification("outer")
-    tx_verifier.assert_awaited_once_with("inner")
+    tx_verifier.assert_awaited_once_with("inner", environment="Production")
     assert event.grants_cycle and event.original_transaction_id == "original"
 
 
@@ -390,7 +390,7 @@ def test_legacy_apple_secret_does_not_advertise_unconfigured_storekit2(monkeypat
     assert purchase_capabilities()["apple_purchases_supported"] is False
 
 
-def test_google_licensed_review_requires_explicit_product_allowlist(monkeypatch):
+def test_google_license_purchase_requires_authenticated_review_context(monkeypatch):
     monkeypatch.setattr(settings, "testing", False)
     monkeypatch.setattr(settings, "enable_test_hooks", False)
     monkeypatch.setattr(settings, "review_sandbox_allowlist", "credit_pack_1")
@@ -399,6 +399,9 @@ def test_google_licensed_review_requires_explicit_product_allowlist(monkeypatch)
         "expected_transaction_id": "GPA.1",
         "is_subscription": False,
     }
-    iap_verifier._assert_google_purchase_valid(**args, expected_product_id="credit_pack_1")
+    iap_verifier._assert_google_purchase_valid(**args, review_sandbox=True)
     with pytest.raises(ValidationError):
-        iap_verifier._assert_google_purchase_valid(**args, expected_product_id="credit_pack_10")
+        iap_verifier._assert_google_purchase_valid(**args)
+    args["google_data"]["purchaseType"] = 1
+    with pytest.raises(ValidationError):
+        iap_verifier._assert_google_purchase_valid(**args, review_sandbox=True)

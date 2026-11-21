@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'book_media_store.dart';
+import 'share_staging.dart';
 import 'book_deletion_journal.dart';
 
 /// One registry per app session: every scoped downloader shares its barriers.
@@ -222,6 +223,7 @@ class BookMediaRegistry {
           .map((scope) => _stores[scope]!.shutdown()),
     );
     final base = await baseDirectory();
+    await ShareStaging.clean(base, scopes: scopes);
     final root = '${await base.resolveSymbolicLinks()}/asb_book_media_v1';
     final type = await FileSystemEntity.type(root, followLinks: false);
     if (type != FileSystemEntityType.notFound &&

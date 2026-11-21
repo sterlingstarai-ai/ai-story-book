@@ -18,6 +18,7 @@ from functools import partial
 from ..core.config import settings
 from src.core.cost_budget import require_daily_generation_budget
 from src.core.gemini_tts_budget import require_gemini_tts_request_budget
+from src.services.generation_consent import post_with_consent
 from src.services.provider_runtime import (
     begin_provider_request, observe_invalid_provider_response,
     observe_provider_credentials_unavailable, observe_provider_response, observe_validated_provider_success,
@@ -169,7 +170,8 @@ class OpenAITTSProvider(BaseTTSProvider):
             payload["instructions"] += " " + STYLE_DIRECTIONS[style]
         observation = begin_provider_request("openai", settings.openai_tts_model, "tts", key)
         async with httpx.AsyncClient(timeout=60) as client:
-            response = await client.post(
+            response = await post_with_consent(
+                client,
                 "https://api.openai.com/v1/audio/speech",
                 json=payload,
                 headers={"Authorization": f"Bearer {key}"},
@@ -344,7 +346,7 @@ class GeminiCloudTTSProvider(BaseTTSProvider):
         observation = begin_provider_request("google_gemini", "gemini-2.5-flash-tts", "tts", project)
         try:
             async with httpx.AsyncClient(timeout=60) as client:
-                response = await client.post("https://texttospeech.googleapis.com/v1/text:synthesize",
+                response = await post_with_consent(client, "https://texttospeech.googleapis.com/v1/text:synthesize",
                     json=payload, headers={"Authorization": f"Bearer {token}", "x-goog-user-project": project})
         except httpx.HTTPError:
             raise ValueError("Gemini TTS request failed") from None
@@ -407,7 +409,8 @@ class GoogleTTSProvider(BaseTTSProvider):
 
         observation = begin_provider_request("google", "google-tts", "tts", self.api_key)
         async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(
+            response = await post_with_consent(
+                client,
                 f"{self.base_url}?key={self.api_key}",
                 json=payload,
             )
@@ -467,7 +470,8 @@ class ElevenLabsProvider(BaseTTSProvider):
 
         observation = begin_provider_request("elevenlabs", "elevenlabs-tts", "tts", self.api_key)
         async with httpx.AsyncClient(timeout=60) as client:
-            response = await client.post(
+            response = await post_with_consent(
+                client,
                 f"{self.base_url}/{voice_id}",
                 json=payload,
                 headers={

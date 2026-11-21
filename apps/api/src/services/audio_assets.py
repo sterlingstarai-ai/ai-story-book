@@ -10,7 +10,7 @@ from sqlalchemy import delete, or_, select, update
 from src.core.consent import require_parental_consent
 from src.core.exceptions import APIError
 from src.core.rate_limit import rate_limiter
-from src.models.db import Book, NarrationVariant, Page
+from src.models.db import Book, NarrationVariant, Page, UserConsent
 from src.services.audio_text import audio_texts
 from src.services.purge_queue import cancel_purge_task, enqueue_purge_keys
 from src.services.realtime_tts import RealtimeTranscriptMismatch
@@ -71,12 +71,13 @@ class NarrationSource:
     text: str
     text_ko: str | None
     text_en: str | None
+    consent_id: int | None = None
 
     @classmethod
-    def from_page(cls, book, page):
+    def from_page(cls, book, page, *, consent_id=None):
         return cls(book.id, page.id, page.page_number, book.user_key,
                    book.language, book.target_age, page.text,
-                   getattr(page, "text_ko", None), getattr(page, "text_en", None))
+                   getattr(page, "text_ko", None), getattr(page, "text_en", None), consent_id)
 
     @property
     def texts(self):
@@ -115,9 +116,40 @@ async def retire_page_variants(db, page_id, *, user_key):
     await db.execute(delete(NarrationVariant).where(NarrationVariant.page_id == page_id))
 
 
+async def _authorize_narration_owner(db, source: NarrationSource, job_id):
+    from src.services.generation_consent import require_active_book_job
+    from src.services.photo_lifecycle import lock_photo_account
+
+    if job_id is None:
+        await lock_photo_account(db, source.user_key)
+        current = await require_parental_consent(db, source.user_key)
+        if current is not None and current != source.consent_id:
+            # Optional photo preferences also create decisions. An uninterrupted
+            # chain of mandatory grants remains valid for an ordinary book.
+            interrupted = source.consent_id is None or await db.scalar(select(UserConsent.id).where(
+                UserConsent.user_key == source.user_key, UserConsent.id >= source.consent_id,
+                UserConsent.granted.is_(False),
+            ).limit(1)) is not None
+            if interrupted:
+                raise APIError(403, "PARENTAL_CONSENT_REQUIRED", "동의가 변경되었습니다. 낭독을 다시 요청해주세요.")
+    else:
+        await require_active_book_job(db, job_id, source.user_key)
+
+
+async def authorize_narration(db, source: NarrationSource, *, job_id=None):
+    await _authorize_narration_owner(db, source, job_id)
+    current = await db.scalar(select(Page).where(
+        Page.id == source.page_id, Page.book_id == source.book_id,
+        select(Book.id).where(Book.id == source.book_id, Book.user_key == source.user_key,
+                              Book.language == source.book_language).exists(),
+    ).execution_options(populate_existing=True))
+    if not source.matches(current):
+        raise ValueError("Narration page changed or is no longer available")
+
+
 async def publish_variant(db, source: NarrationSource, language, voice, url, guard, style="legacy", provider="openai"):
     """Publish one variant only if ownership, consent, and page text still match."""
-    await require_parental_consent(db, source.user_key)
+    await _authorize_narration_owner(db, source, None)
     page = await db.scalar(select(Page).where(
         Page.id == source.page_id, Page.book_id == source.book_id,
         select(Book.id).where(Book.id == source.book_id, Book.user_key == source.user_key,
@@ -149,14 +181,14 @@ async def store_narration(db, book_id, page_number, language, audio_bytes, *, us
     return url, guard
 
 
-async def publish_narration(db, source: NarrationSource, language, url, guard):
+async def publish_narration(db, source: NarrationSource, language, url, guard, *, job_id=None):
     """Only one matching, still-empty page slot may adopt the new file.
 
     SQL predicates protect PostgreSQL and SQLite alike; an ORM identity-map read
     followed by assignment would allow two concurrent generators to orphan the
     first file. Losing attempts keep their previously committed cleanup guard.
     """
-    await require_parental_consent(db, source.user_key)
+    await _authorize_narration_owner(db, source, job_id)
     column = getattr(Page, f"audio_url_{language}") if language in {"ko", "en"} else Page.audio_url
     predicates = [Page.id == source.page_id, Page.book_id == source.book_id,
                   Page.text == source.text, Page.text_ko == source.text_ko,
@@ -183,5 +215,6 @@ async def publish_narration(db, source: NarrationSource, language, url, guard):
     if source.matches(current):
         existing = narration_url(current, language, source.book_language)
         if existing:
+            await db.commit()
             return existing
     raise ValueError("Narration page changed or is no longer available")

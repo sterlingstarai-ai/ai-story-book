@@ -16,7 +16,7 @@ from urllib.parse import quote
 import httpx
 
 PROJECT = 'gen-lang-client-0308507618'
-CONFIG = '/tmp/asb-runtime-20261102'
+from gcloud_operator_config import operator_gcloud_config
 API = Path(__file__).resolve().parents[1] / 'apps' / 'api'
 sys.path.insert(0, str(API))
 
@@ -29,7 +29,7 @@ from src.services.privacy_journal_verify import fingerprint_entries  # noqa: E40
 
 
 def main():
-    env = dict(os.environ, CLOUDSDK_CONFIG=CONFIG)
+    env = dict(os.environ, CLOUDSDK_CONFIG=operator_gcloud_config())
     result = {'status': 'FAILED', 'synthetic_data_only': True, 'same_google_account': True,
               'independent_administration_proven': False, 'restore_authorized': False}
     owned = {}

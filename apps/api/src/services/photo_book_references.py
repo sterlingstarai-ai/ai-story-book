@@ -23,7 +23,7 @@ async def validate_photo_book_selection(db, user_key: str, character_ids: list[s
         return None
     rows = list((await db.scalars(select(Character).where(
         Character.id.in_(character_ids), Character.user_key == user_key,
-    ))).all())
+    ).execution_options(populate_existing=True))).all())
     if len(rows) != len(set(character_ids)):
         raise AuthorizationError("선택한 캐릭터를 확인할 수 없습니다.")
     photos = [c for c in rows if c.from_photo]

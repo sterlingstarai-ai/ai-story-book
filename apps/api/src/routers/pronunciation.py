@@ -19,6 +19,7 @@ from src.core.database import get_db
 from src.core.dependencies import get_profile_id, get_user_key, validate_profile_ownership
 from src.core.exceptions import ValidationError
 from src.models.db import PronunciationLog
+from src.services.photo_lifecycle import lock_photo_account
 from src.services.growth import growth_service
 from src.services.stt import stt_service
 
@@ -106,6 +107,7 @@ async def evaluate_pronunciation(
     user_key: str = Depends(get_user_key),
     profile_id: Optional[str] = Depends(get_profile_id),
 ):
+    await lock_photo_account(db, user_key)
     await require_parental_consent(db, user_key)
     # R4/IDOR: book_id 소유권 미검증이면 남의 책 id로 로그를 남겨 타인의 성장 지표를
     # 오염시킬 수 있고, 존재하지 않는 id는 운영(PG)에서 FK 위반 500이 된다. 형제 write
@@ -188,6 +190,11 @@ async def evaluate_pronunciation_audio(
     )
     score, feedback = _score_pronunciation(transcript, expected_text)
 
+    # Revalidate after STT, with the account locked through publication.
+    await lock_photo_account(db, user_key)
+    await require_parental_consent(db, user_key)
+    await validate_profile_ownership(db, user_key, profile_id)
+    await growth_service.assert_book_not_foreign(db, book_id, user_key, profile_id=profile_id)
     log = PronunciationLog(
         user_key=user_key,
         book_id=book_id,

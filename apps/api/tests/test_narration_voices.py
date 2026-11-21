@@ -28,7 +28,7 @@ class _LockRedis:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(("provider", "expected_voice"), [("openai", "onyx"), ("google_gemini", "Puck")])
-async def test_free_trial_narrates_all_pages_of_only_the_trial_book(
+async def test_trial_and_purchased_credit_books_include_page_narration(
     client, headers, db_session, monkeypatch, provider, expected_voice,
 ):
     from src.core.generation_access import generation_identity_hash
@@ -83,15 +83,24 @@ async def test_free_trial_narrates_all_pages_of_only_the_trial_book(
         return await client.get(f"/v1/books/{book_id}/pages/{page}/audio", headers=headers,
                                 params={"language": "ko", "voice": "deep", "style": "animated"})
 
+    # Uncharged books cannot inherit the purchased book's narration entitlement.
+    later_spend = await db_session.scalar(select(CreditTransaction).where(
+        CreditTransaction.reference_id == later.job_id, CreditTransaction.transaction_type == "usage",
+    ))
+    later_spend.reference_id = "unrelated-job"
+    await db_session.commit()
     assert (await narration(later_id, 1)).status_code == 402
+    later_spend.reference_id = later.job_id
+    await db_session.commit()
+    assert (await narration(later_id, 1)).status_code == 200
     for page in range(1, 13):
         response = await narration(trial_id, page)
         assert response.status_code == 200, response.text
     assert (await narration(trial_id, 12)).status_code == 200
     await db_session.delete(trial)
     await db_session.commit()
-    assert (await narration(later_id, 1)).status_code == 402
-    assert synth.await_count == 12
+    assert (await narration(later_id, 1)).status_code == 200
+    assert synth.await_count == 13
     synth.assert_any_await("12번째 동화 본문", target_age="7-9", language="ko",
                            voice=expected_voice, style="animated")
 

@@ -150,6 +150,33 @@ async def test_queued_audio_rechecks_revoked_consent_before_provider(db_session,
 
 
 @pytest.mark.asyncio
+async def test_removed_audio_job_cannot_send_text_even_with_current_consent(db_session, monkeypatch):
+    from src.services.job_runners import generate_audio_pages
+    from src.services.tts import OpenAITTSProvider, tts_service
+    from src.models.db import Job
+    from src.services.storage import storage_service
+
+    book, page, _ = await _narration_book(db_session)
+    monkeypatch.setattr(settings, "openai_tts_api_key", "test-only")
+    monkeypatch.setattr(settings, "require_parental_consent_in_testing", True)
+    monkeypatch.setattr(tts_service, "_provider", OpenAITTSProvider())
+    monkeypatch.setattr("src.services.tts.require_daily_generation_budget", AsyncMock())
+    monkeypatch.setattr(storage_service, "upload_bytes", AsyncMock(return_value="https://cdn.example.com/test.mp3"))
+    send = AsyncMock(return_value=httpx.Response(200, content=b"ID3-test", headers={"content-type": "audio/mpeg"}))
+    monkeypatch.setattr(httpx.AsyncClient, "post", send)
+    result = await generate_audio_pages(book.id, [{"page_id": page.id, "page_number": 1}],
+                                        audio_job_id="audio_withdrawn")
+    assert result == (0, [1])
+    send.assert_not_awaited()
+
+    db_session.add(Job(id="audio_active", user_key=book.user_key, status="running"))
+    await db_session.commit()
+    assert await generate_audio_pages(book.id, [{"page_id": page.id, "page_number": 1}],
+                                      audio_job_id="audio_active") == (1, [])
+    send.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_queued_audio_reads_current_database_text(db_session, monkeypatch):
     from src.services.job_runners import generate_audio_pages
     from src.services.storage import storage_service
@@ -238,3 +265,81 @@ async def test_consent_revoked_during_tts_keeps_cleanup_and_no_published_audio(d
         await publish_narration(db_session, source, "en", url, guard)
     await db_session.refresh(page)
     assert page.audio_url_en is None and guard.status == "pending"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stage,mandatory_withdrawal", [
+    ("dispatch", True), ("publish", True), ("dispatch", False),
+])
+async def test_on_demand_narration_rechecks_admission_without_holding_reader(
+    db_session, monkeypatch, stage, mandatory_withdrawal,
+):
+    from sqlalchemy import select
+    from src.core import database
+    from src.core.exceptions import APIError
+    from src.core.rate_limit import rate_limiter
+    from src.models.db import StoragePurgeTask
+    from src.routers.books import get_page_audio
+    from src.routers.consent import ConsentGrantRequest, grant_consent, revoke_consent
+    from src.services.storage import storage_service
+    from src.services.tts import OpenAITTSProvider, tts_service
+    from tests.test_narration_voices import _LockRedis
+
+    book, page, _ = await _narration_book(db_session)
+    owner, book_id = book.user_key, book.id
+    monkeypatch.setattr(settings, "require_parental_consent_in_testing", True)
+    monkeypatch.setattr(settings, "openai_tts_api_key", "test-only")
+    monkeypatch.setattr(rate_limiter, "get_redis", AsyncMock(return_value=_LockRedis()))
+    monkeypatch.setattr(tts_service, "_provider", OpenAITTSProvider())
+
+    async def change_decision():
+        # The caller must have released its pool connection before external I/O.
+        assert not db_session.in_transaction()
+        async with database.AsyncSessionLocal() as other:
+            if mandatory_withdrawal:
+                await revoke_consent(db=other, user_key=owner)
+            await grant_consent(ConsentGrantRequest(privacy=True, data_processing=True, photos=False),
+                                db=other, user_key=owner)
+
+    async def budget(_operation):
+        assert not db_session.in_transaction()
+        if stage == "dispatch":
+            await change_decision()
+
+    async def upload(*_args, **_kwargs):
+        if stage == "publish":
+            await change_decision()
+        return "https://cdn.example.com/render.mp3"
+
+    monkeypatch.setattr("src.services.tts.require_daily_generation_budget", budget)
+    monkeypatch.setattr(storage_service, "upload_bytes", upload)
+    send = AsyncMock(return_value=httpx.Response(200, content=b"ID3-test", headers={"content-type": "audio/mpeg"}))
+    monkeypatch.setattr(httpx.AsyncClient, "post", send)
+    async def narrate():
+        return await get_page_audio(book_id, 1, language="en", db=db_session, user_key=owner, profile_id=None)
+
+    if mandatory_withdrawal:
+        with pytest.raises(APIError) as denied:
+            await narrate()
+        assert denied.value.error_code == "PARENTAL_CONSENT_REQUIRED"
+        await db_session.refresh(page)
+        assert page.audio_url_en is None
+        if stage == "publish":
+            send.assert_awaited_once()
+            guard = await db_session.scalar(select(StoragePurgeTask).where(
+                StoragePurgeTask.user_key == owner, StoragePurgeTask.reason == "incomplete_narration"))
+            assert guard.status == "pending"
+        else:
+            send.assert_not_awaited()
+    else:
+        assert (await narrate())["audio_url"].endswith("render.mp3")
+        send.assert_awaited_once()
+
+
+def test_legacy_broker_narration_without_admission_never_dispatches(monkeypatch):
+    from src.services import tasks
+    runner = AsyncMock()
+    monkeypatch.setattr("src.services.job_runners.run_audio_job", runner)
+    result = tasks.generate_audio_task.run("synthetic-book", [], "5-7", "ko")
+    assert result == {"status": "skipped", "reason": "missing_job_id"}
+    runner.assert_not_called()

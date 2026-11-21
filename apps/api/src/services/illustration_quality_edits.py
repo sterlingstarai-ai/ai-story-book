@@ -276,6 +276,9 @@ async def edit_verified_page(
         )
         seconds_remaining(deadline, reserve=0)
         async with AsyncSessionLocal() as db:
+            from src.services.generation_consent import check_current_generation
+
+            await check_current_generation(db)
             _, pages = await _locked_snapshot(db, snapshot)
             operation = None
             if operation_job_id:

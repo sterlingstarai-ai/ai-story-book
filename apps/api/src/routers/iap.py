@@ -4,16 +4,20 @@ Apple/Google 영수증 검증 및 웹훅 처리
 """
 
 from datetime import datetime, timedelta, timezone
+import hashlib
 import hmac
 from typing import Optional, Literal
 
 from fastapi import APIRouter, Depends, Header
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select
+from sqlalchemy import false, func, or_, select, text, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
+from src.core.billing_feature import CREDIT_PACK_PRODUCTS, SUBSCRIPTION_PRODUCTS, review_sandbox_products
 from src.core.config import settings
 from src.core.database import get_db
 from src.core.dependencies import get_user_key
@@ -22,6 +26,7 @@ from src.core.utils import utcnow
 from src.models.db import (
     AccountIdentity, CreditTransaction, IAPReceipt, IapWebhookEvent, Subscription, UserCredits,
 )
+from src.services.account_recovery import is_claimed_store_review_slot
 from src.services.credits import SUBSCRIPTION_PLANS, credits_service
 from src.services.iap_verifier import _strip_google_order_suffix, iap_verifier
 from src.services.purchase_claims import claim_purchase
@@ -60,21 +65,10 @@ class IAPWebhookRequest(BaseModel):
     payload: Optional[dict] = None
 
 
-CREDIT_PACK_PRODUCTS = {
-    "credit_pack_1": 1,
-    "credit_pack_5": 5,
-    "credit_pack_10": 10,
-}
-
-SUBSCRIPTION_PRODUCTS = {
-    "subscription_basic": "basic",
-    "subscription_premium": "premium",
-}
-
-
-def _review_sandbox_allowlist() -> set:
-    raw = settings.review_sandbox_allowlist or ""
-    return {p.strip() for p in raw.split(",") if p.strip()}
+def _legacy_sandbox_receipt(receipt: IAPReceipt) -> bool:
+    payload = receipt.payload or {}
+    environment = payload.get("verification_environment") or (payload.get("native_store_event") or {}).get("environment")
+    return receipt.platform in {"apple", "google"} and environment == "Sandbox"
 
 
 def _subscription_expired(verification, *, is_subscription: bool = True) -> bool:
@@ -117,6 +111,25 @@ def _resolve_reward(product_id: str) -> tuple[int, Optional[str]]:
             "supported": [*CREDIT_PACK_PRODUCTS.keys(), *SUBSCRIPTION_PRODUCTS.keys()],
         },
     )
+
+
+async def _lock_store_settlement(db: AsyncSession, platform: str, *identifiers: Optional[str]) -> None:
+    """Serialize receipt and notification writers even before the receipt exists."""
+    if db.get_bind().dialect.name == "sqlite":
+        # SQLite has one writer. Begin a physical write transaction before either
+        # side looks for the other's row, including with legacy sqlite3 handling.
+        await db.execute(update(IAPReceipt).where(false()).values(status=IAPReceipt.status))
+        return
+    # Apple renewals share an original ID. Google order suffixes identify a
+    # cycle, while linked purchase tokens can join a replacement to its parent.
+    keys = set()
+    for identifier in identifiers:
+        if identifier:
+            family = _strip_google_order_suffix(identifier) if platform in {"google", "google_sandbox"} else identifier
+            digest = hashlib.sha256(f"storybook:iap-settle:v1:{platform}:{family}".encode()).digest()
+            keys.add(int.from_bytes(digest[:8], "big", signed=True))
+    for key in sorted(keys):
+        await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
 
 
 def _store_period(subscription: Subscription, verification) -> None:
@@ -191,22 +204,32 @@ async def verify_iap(
     )
     credits_to_add, plan = _resolve_reward(product_id)
     resolved_is_subscription = plan is not None
+    review_slot = await is_claimed_store_review_slot(db, user_key)
+    if review_slot and product_id not in review_sandbox_products():
+        raise ValidationError("이 상품은 심사 계정에 허용되지 않았습니다.")
+    ledger_platform = f"{request.platform}_sandbox" if review_slot else request.platform
 
     # 빠른 정직-재시도 dedup: 같은 사용자가 같은 transaction_id로 재전송하면 스토어
     # 재호출 없이 즉시 already_processed. (정본 dedup은 아래 store_transaction_id 기준.)
-    existing_by_client = (
-        await db.execute(
-            select(IAPReceipt).where(
-                IAPReceipt.platform == request.platform,
-                IAPReceipt.transaction_id == transaction_id,
-            )
-        )
-    ).scalar_one_or_none()
+    client_receipt = select(IAPReceipt).where(
+        IAPReceipt.platform == ledger_platform, IAPReceipt.transaction_id == transaction_id,
+    ).execution_options(populate_existing=True)
+    existing_by_client = await db.scalar(client_receipt)
     if (
         existing_by_client
         and existing_by_client.user_key == user_key
+        and existing_by_client.product_id == product_id
         and not resolved_is_subscription
+        and not _legacy_sandbox_receipt(existing_by_client)
     ):
+        await _lock_store_settlement(
+            db, ledger_platform, transaction_id, existing_by_client.store_transaction_id,
+            (existing_by_client.payload or {}).get("original_transaction_id"),
+            existing_by_client.purchase_token,
+        )
+        await db.refresh(existing_by_client, with_for_update=True)
+        await _reapply_orphan_events(db, existing_by_client)
+        await db.commit()
         return IAPVerifyResponse(
             status="already_processed",
             transaction_id=existing_by_client.transaction_id,
@@ -222,18 +245,15 @@ async def verify_iap(
         purchase_token=purchase_token,
         receipt_data=receipt_data,
         is_subscription=resolved_is_subscription,
+        review_sandbox=review_slot,
     )
 
     if not verification.verified:
         raise ValidationError("스토어 검증에 실패했습니다.")
 
-    # L10/G8: 운영에서 Sandbox 영수증(Apple 21007 폴백)은 무결제 테스터 영수증이므로 지급
-    # 차단한다. 앱스토어 리뷰/TestFlight용 REVIEW_SANDBOX_ALLOWLIST 상품만 예외.
-    if (
-        not settings.testing
-        and verification.environment == "Sandbox"
-        and product_id not in _review_sandbox_allowlist()
-    ):
+    environment = (verification.environment or "").lower()
+    local_fixture = settings.testing and verification.source.startswith("local_") and not review_slot
+    if not local_fixture and environment != ("sandbox" if review_slot else "production"):
         raise ValidationError(
             "샌드박스 영수증은 운영에서 지급되지 않습니다.",
             details={"code": "sandbox_not_allowed"},
@@ -251,6 +271,15 @@ async def verify_iap(
     # 리플레이 방지의 정본 키: 스토어가 검증해 돌려준 식별자. 클라이언트가 transaction_id를
     # 바꿔가며 같은 영수증을 재제출해도 store_transaction_id는 동일하므로 차단된다.
     store_txn = verification.store_transaction_id or transaction_id
+    original_txn = verification.raw.get("original_transaction_id") or (
+        _strip_google_order_suffix(store_txn) if request.platform == "google" else store_txn
+    )
+    await _lock_store_settlement(
+        db, ledger_platform, store_txn, original_txn, transaction_id, purchase_token,
+    )
+    # The first lookup preceded store verification and another receipt may have
+    # claimed this client alias in the meantime.
+    existing_by_client = await db.scalar(client_receipt)
     if existing_by_client and existing_by_client.store_transaction_id != store_txn:
         # Google restore can reuse the initial client order ID after renewal.
         # Persist the newly verified store order as its own transaction claim.
@@ -266,10 +295,7 @@ async def verify_iap(
             "verification_environment": verification.environment,
             "verification": verification.raw,
             "client_transaction_id": transaction_id,
-            "original_transaction_id": verification.raw.get("original_transaction_id")
-            or (
-                _strip_google_order_suffix(store_txn) if request.platform == "google" else store_txn
-            ),
+            "original_transaction_id": original_txn,
             "expires_date_ms": verification.expires_date_ms,
         }
         if extra:
@@ -281,16 +307,23 @@ async def verify_iap(
         await db.execute(
             select(IAPReceipt)
             .where(
-                IAPReceipt.platform == request.platform,
+                IAPReceipt.platform == ledger_platform,
                 IAPReceipt.store_transaction_id == store_txn,
             )
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
 
     if existing:
+        if _legacy_sandbox_receipt(existing):
+            raise ValidationError("기존 구매의 스토어 환경이 다릅니다.")
+        # Old releases could commit a grant before applying a queued refund.
+        # Settle that historical state even when no new credits are due.
+        await _reapply_orphan_events(db, existing)
         entitlement_erased = bool((existing.payload or {}).get("entitlement_erased"))
         if existing.user_key == user_key and not entitlement_erased:
+            await db.commit()
             return IAPVerifyResponse(
                 status="already_processed",
                 transaction_id=existing.transaction_id,
@@ -302,6 +335,7 @@ async def verify_iap(
             # Consumables are not restorable entitlements. Keep the receipt with
             # the account that received its credits so a later refund targets the
             # original grant instead of an unrelated reinstallation account.
+            await db.commit()
             return IAPVerifyResponse(
                 status="already_processed",
                 transaction_id=transaction_id,
@@ -314,6 +348,7 @@ async def verify_iap(
         # 크레딧팩은 스토어가 복원해주지 않으므로 재지급하지 않는다(구독만 재활성).
         previous_user_key = existing.user_key
         if existing.status in {"refunded", "expired"}:
+            await db.commit()
             raise ValidationError("종료 또는 환불된 결제는 복원할 수 없습니다.")
         # Preserve funding provenance before a receipt moves or loses its FK.
         previous_sub = await db.get(Subscription, existing.subscription_id) if existing.subscription_id else None
@@ -332,45 +367,30 @@ async def verify_iap(
         existing.user_key = user_key
         existing.status = "restored"
         existing.payload = restored_payload
-        try:
-            if plan:
-                # 만료 영수증(MA1)은 어떤 권한도 이전하지 않는다 — active 구독 재활성 금지로
-                # 무한 리필을 막고, 그 연장선에서 부작용 두 가지도 함께 차단한다:
-                #  · 이전 소유자의 expire를 건너뛴다. 만료 영수증은 아무것도 이전하지 않는데
-                #    expire만 실행되면, 그 사이 새로 결제한 같은 plan 구독까지 소멸한다(#14).
-                #  · 이전 소유자 구독을 가리키던 참조를 끊는다. 남겨두면 그 소유자의 계정
-                #    삭제가 FK 위반으로 500이 되어 법적 삭제권이 봉쇄된다(#7/H5).
-                if _subscription_expired(verification):
-                    existing.subscription_id = None
-                else:
-                    # Transfer only the receipt's entitlement, including cancelled paid time.
-                    if previous_user_key != user_key and not entitlement_erased:
-                        await credits_service.expire_active_subscription_for_plan(
-                            db, previous_user_key, plan, commit=False,
-                            subscription_id=existing.subscription_id,
-                        )
-                    # 복원은 월간 크레딧을 재지급하지 않는다(G1).
-                    restored_sub = await credits_service.create_subscription(
-                        db, user_key, plan, commit=False, grant_credits=False
+        if plan:
+            # 만료 영수증(MA1)은 어떤 권한도 이전하지 않는다 — active 구독 재활성 금지로
+            # 무한 리필을 막고, 그 연장선에서 부작용 두 가지도 함께 차단한다:
+            #  · 이전 소유자의 expire를 건너뛴다. 만료 영수증은 아무것도 이전하지 않는데
+            #    expire만 실행되면, 그 사이 새로 결제한 같은 plan 구독까지 소멸한다(#14).
+            #  · 이전 소유자 구독을 가리키던 참조를 끊는다. 남겨두면 그 소유자의 계정
+            #    삭제가 FK 위반으로 500이 되어 법적 삭제권이 봉쇄된다(#7/H5).
+            if _subscription_expired(verification):
+                existing.subscription_id = None
+            else:
+                # Transfer only the receipt's entitlement, including cancelled paid time.
+                if previous_user_key != user_key and not entitlement_erased:
+                    await credits_service.expire_active_subscription_for_plan(
+                        db, previous_user_key, plan, commit=False,
+                        subscription_id=existing.subscription_id,
                     )
-                    _store_period(restored_sub, verification)
-                    existing.subscription_id = restored_sub.id  # H5
-                    existing.payload = {**existing.payload, "entitlement_erased": False}
-            await db.commit()
-        except IntegrityError:
-            # 동시 복원 경쟁 패자 — 현재 상태 재조회 후 멱등 반환.
-            await db.rollback()
-            active = await credits_service.get_active_subscription(db, user_key)
-            return IAPVerifyResponse(
-                status="restored",
-                transaction_id=transaction_id,
-                product_id=product_id,
-                credits_added=0,
-                plan=active.plan if active else plan,
-                verification_source=verification.source,
-            )
-        # 선도착 환불/취소 웹훅(orphan)을 이 영수증에 sticky 재적용(H4).
-        await _reapply_orphan_events(db, existing)
+                # 복원은 월간 크레딧을 재지급하지 않는다(G1).
+                restored_sub = await credits_service.create_subscription(
+                    db, user_key, plan, commit=False, grant_credits=False
+                )
+                _store_period(restored_sub, verification)
+                existing.subscription_id = restored_sub.id  # H5
+                existing.payload = {**existing.payload, "entitlement_erased": False}
+        await db.commit()
         logger.info(
             "IAP entitlement restored to new user_key",
             platform=request.platform,
@@ -386,7 +406,16 @@ async def verify_iap(
             verification_source=verification.source,
         )
 
-    first_grant = await claim_purchase(db, request.platform, store_txn)
+    if review_slot:
+        # Before environment-separated keys, a sandbox purchase could already
+        # have issued a grant. Do not issue a second one under its new key.
+        legacy = await db.scalar(select(IAPReceipt).where(
+            IAPReceipt.platform == request.platform, IAPReceipt.store_transaction_id == store_txn,
+        ))
+        if legacy and _legacy_sandbox_receipt(legacy):
+            return IAPVerifyResponse(status="already_processed", transaction_id=transaction_id,
+                                     product_id=product_id, verification_source=verification.source)
+    first_grant = await claim_purchase(db, ledger_platform, store_txn)
     if not first_grant and plan is None:
         return IAPVerifyResponse(
             status="already_processed", transaction_id=transaction_id,
@@ -441,12 +470,12 @@ async def verify_iap(
                         amount=renewal_credits,
                         transaction_type="subscription",
                         description="스토어에서 확인한 구독 갱신 크레딧",
-                        reference_id=f"iap:{request.platform}:{store_txn}",
+                        reference_id=f"iap:{ledger_platform}:{store_txn}",
                         commit=False,
                     )
             receipt = IAPReceipt(
                 user_key=user_key,
-                platform=request.platform,
+                platform=ledger_platform,
                 product_id=product_id,
                 transaction_id=transaction_id,
                 store_transaction_id=store_txn,
@@ -456,19 +485,13 @@ async def verify_iap(
                 payload=_build_payload({"granted_credits": renewal_credits}),
             )
             db.add(receipt)
-            committed = True
-            try:
-                await db.commit()
-            except IntegrityError:
-                await db.rollback()
-                committed = False
-            if committed:
-                await _reapply_orphan_events(db, receipt)
+            await _reapply_orphan_events(db, receipt)
+            await db.commit()
             return IAPVerifyResponse(
                 status="already_subscribed",
                 transaction_id=transaction_id,
                 product_id=product_id,
-                credits_added=renewal_credits if committed else 0,
+                credits_added=0 if receipt.status == "refunded" else renewal_credits,
                 plan=plan,
                 verification_source=verification.source,
             )
@@ -476,83 +499,66 @@ async def verify_iap(
     # 보상 지급 + 영수증 기록을 단일 트랜잭션으로 묶는다(F3: 더블그랜트/고아 방지).
     # 동시 요청 중 패자는 store_transaction_id UNIQUE 위반으로 IntegrityError → 전체
     # 롤백되어 보상도 함께 취소된다.
-    try:
-        new_sub = None
-        subscription_grant = 0
-        cycle_allocation = 0
-        if plan:
-            # 만료 영수증(MA1)은 active 구독을 만들지 않는다(무한 리필 차단). 영수증만 기록.
-            if not _subscription_expired(verification):
-                subscription_grant, cycle_allocation = await _plan_change_credit_grant(
-                    db, plan, active_subscription, verification.raw.get("purchase_date_ms")
-                )
-                if not first_grant:
-                    subscription_grant = 0
-                # H3/R2-1: 취소 후 재결제 — 잔여 cancelled 행은 이 결제로 대체(종료)한다.
-                await credits_service.supersede_cancelled_subscription_for_plan(db, user_key, plan)
-                new_sub = await credits_service.create_subscription(
-                    db, user_key, plan, commit=False, grant_credits=False
-                )
-                _store_period(new_sub, verification)
-                if subscription_grant:
-                    await credits_service.add_credits(
-                        db,
-                        user_key,
-                        amount=subscription_grant,
-                        transaction_type="subscription",
-                        description="스토어에서 확인한 구독 크레딧",
-                        reference_id=str(new_sub.id),
-                        commit=False,
-                    )
-        elif credits_to_add > 0:
-            await credits_service.add_credits(
-                db=db,
-                user_key=user_key,
-                amount=credits_to_add,
-                transaction_type="purchase",
-                description=f"IAP 크레딧 팩 {credits_to_add}개",
-                reference_id=store_txn,
-                commit=False,
+    new_sub = None
+    subscription_grant = 0
+    cycle_allocation = 0
+    if plan:
+        # 만료 영수증(MA1)은 active 구독을 만들지 않는다(무한 리필 차단). 영수증만 기록.
+        if not _subscription_expired(verification):
+            subscription_grant, cycle_allocation = await _plan_change_credit_grant(
+                db, plan, active_subscription, verification.raw.get("purchase_date_ms")
             )
-
-        receipt = IAPReceipt(
+            if not first_grant:
+                subscription_grant = 0
+            # H3/R2-1: 취소 후 재결제 — 잔여 cancelled 행은 이 결제로 대체(종료)한다.
+            await credits_service.supersede_cancelled_subscription_for_plan(db, user_key, plan)
+            new_sub = await credits_service.create_subscription(
+                db, user_key, plan, commit=False, grant_credits=False
+            )
+            _store_period(new_sub, verification)
+            if subscription_grant:
+                await credits_service.add_credits(
+                    db,
+                    user_key,
+                    amount=subscription_grant,
+                    transaction_type="subscription",
+                    description="스토어에서 확인한 구독 크레딧",
+                    reference_id=str(new_sub.id),
+                    commit=False,
+                )
+    elif credits_to_add > 0:
+        await credits_service.add_credits(
+            db=db,
             user_key=user_key,
-            platform=request.platform,
-            product_id=product_id,
-            transaction_id=transaction_id,
-            store_transaction_id=store_txn,
-            purchase_token=purchase_token,
-            status="verified",
-            # H5: 웹훅이 이 영수증의 구독만 갱신하도록 연결.
-            subscription_id=new_sub.id if new_sub else None,
-            payload=_build_payload(
-                {
-                    "granted_credits": subscription_grant if new_sub and plan else credits_to_add,
-                    "cycle_allocated_credits": cycle_allocation,
-                }
-            ),
-        )
-        db.add(receipt)
-        await db.commit()
-    except IntegrityError:
-        # 동시 요청 패자(또는 client transaction_id 충돌) — 보상은 롤백됨.
-        await db.rollback()
-        logger.info(
-            "IAP concurrent duplicate rejected",
-            platform=request.platform,
-            store_transaction_id=store_txn,
-        )
-        return IAPVerifyResponse(
-            status="already_processed",
-            transaction_id=transaction_id,
-            product_id=product_id,
-            credits_added=0,
-            plan=None,
+            amount=credits_to_add,
+            transaction_type="purchase",
+            description=f"IAP 크레딧 팩 {credits_to_add}개",
+            reference_id=store_txn,
+            commit=False,
         )
 
-    # 선도착 환불/취소 웹훅(orphan)을 이 영수증에 sticky 재적용(H4).
+    receipt = IAPReceipt(
+        user_key=user_key,
+        platform=ledger_platform,
+        product_id=product_id,
+        transaction_id=transaction_id,
+        store_transaction_id=store_txn,
+        purchase_token=purchase_token,
+        status="verified",
+        # H5: 웹훅이 이 영수증의 구독만 갱신하도록 연결.
+        subscription_id=new_sub.id if new_sub else None,
+        payload=_build_payload(
+            {
+                "granted_credits": subscription_grant if new_sub and plan else credits_to_add,
+                "cycle_allocated_credits": cycle_allocation,
+            }
+        ),
+    )
+    db.add(receipt)
     await _reapply_orphan_events(db, receipt)
-
+    await db.commit()
+    if receipt.status == "refunded":
+        credits_to_add = 0
     logger.info(
         "IAP receipt verified",
         platform=request.platform,
@@ -741,6 +747,9 @@ async def _reapply_orphan_events(db: AsyncSession, receipt: IAPReceipt) -> None:
     선도착·store 식별자 환불/취소 통지가 유실되지 않고 여기서 반영된다. created_at 순 +
     _apply_status_to_receipt의 sticky 우선순위로 정합.
     """
+    # API sessions disable autoflush. Native reconciliation must see the new
+    # receipt and its grant while both still belong to the caller's transaction.
+    await db.flush()
     match_clauses = [
         IapWebhookEvent.transaction_id == receipt.transaction_id,
         IapWebhookEvent.transaction_id == receipt.store_transaction_id,
@@ -751,7 +760,7 @@ async def _reapply_orphan_events(db: AsyncSession, receipt: IAPReceipt) -> None:
             IapWebhookEvent.payload["native_store_event"]["original_transaction_id"].as_string()
             == original
         )
-    if receipt.platform == "google":
+    if receipt.platform in {"google", "google_sandbox"}:
         # H4/#6: Google 갱신 주문 orderId는 base에 '..N' 접미가 붙는다. 접미사가 붙은
         # orderId로 선도착한 환불/취소 웹훅은 base로 verify된 영수증과 원문 등호로는
         # 절대 매칭되지 않아 결정이 영구 유실된다(환불된 구독이 active로 남아 매월 리필).
@@ -774,23 +783,30 @@ async def _reapply_orphan_events(db: AsyncSession, receipt: IAPReceipt) -> None:
                     or_(*match_clauses),
                 )
                 .order_by(IapWebhookEvent.created_at.asc(), IapWebhookEvent.id.asc())
+                .with_for_update()
             )
         )
         .scalars()
         .all()
     )
-    if not events:
-        return
     for event in events:
         native = (event.payload or {}).get("native_store_event")
         if isinstance(native, dict):
-            await _apply_native_event(StoreEvent(**native), db, commit=False)
+            if native.get("environment") is None and event.platform == "google" and event.status == "refunded":
+                # Previous versions omitted the environment on authenticated Google
+                # refunds. Bind them only to the exact verified order in this ledger.
+                if event.transaction_id != receipt.store_transaction_id or _legacy_sandbox_receipt(receipt):
+                    continue
+                native = {**native, "environment": "Production"}
+            outcome = await _apply_native_event(StoreEvent(**native), db, commit=False)
+            if outcome["status"] == "accepted_orphan":
+                continue
         else:
             await _apply_status_to_receipt(
                 receipt=receipt, status=event.status, payload=event.payload, db=db
             )
         event.applied = True
-    await db.commit()
+        await db.flush()
 
 
 async def _apply_webhook_status(
@@ -801,6 +817,7 @@ async def _apply_webhook_status(
 ) -> dict:
     # 매칭: 클라이언트 transaction_id 또는 스토어 store_transaction_id 양쪽(Google은
     # order suffix 정규화). 스토어가 store 식별자로만 보내는 환불 통지의 유실을 막는다.
+    await _lock_store_settlement(db, platform, request.transaction_id)
     normalized = (
         _strip_google_order_suffix(request.transaction_id)
         if platform == "google"
@@ -822,19 +839,7 @@ async def _apply_webhook_status(
         # 미기록 트랜잭션(선도착·store 식별자): 200 ignored로 재시도를 죽이면 결정이 유실된다.
         # IapWebhookEvent로 적재(멱등)해 결정을 보존하고 verify 시 sticky 재적용한다. 적재
         # 실패(IntegrityError 외)는 재시도 유도 위해 5xx로 전파.
-        db.add(
-            IapWebhookEvent(
-                platform=platform,
-                transaction_id=request.transaction_id,
-                status=request.status,
-                payload=request.payload,
-                applied=False,
-            )
-        )
-        try:
-            await db.commit()
-        except IntegrityError:
-            await db.rollback()  # 중복 웹훅 — 이미 보존됨(멱등)
+        await _persist_orphan_event(db, platform, request.transaction_id, request.status, request.payload)
         return {
             "status": "accepted_orphan",
             "message": "Persisted for reconciliation at verify time",
@@ -859,6 +864,16 @@ async def _apply_webhook_status(
         "platform": platform,
         "receipt_status": receipt.status,
     }
+
+
+async def _persist_orphan_event(
+    db: AsyncSession, platform: str, transaction_id: str, status: str, payload: Optional[dict],
+) -> None:
+    insert = sqlite_insert if db.get_bind().dialect.name == "sqlite" else pg_insert
+    await db.execute(insert(IapWebhookEvent).values(
+        platform=platform, transaction_id=transaction_id, status=status, payload=payload, applied=False,
+    ).on_conflict_do_nothing(index_elements=["platform", "transaction_id", "status"]))
+    await db.commit()
 
 
 async def _require_webhook_secret(
@@ -908,16 +923,24 @@ async def _apply_native_event(event: StoreEvent, db: AsyncSession, *, commit: bo
     notifications for one cycle serialize; database uniqueness is the final guard.
     Older refunds may claw back only their own grant, never expire a newer cycle.
     """
-    if (
-        event.environment == "Sandbox"
-        and not settings.testing
-        and event.product_id not in _review_sandbox_allowlist()
-    ):
+    if event.environment not in {"Production", "Sandbox"}:
+        raise ValidationError("알림의 스토어 환경을 확인할 수 없습니다.")
+    sandbox = event.environment == "Sandbox"
+    review_products = review_sandbox_products() if sandbox else set()
+    if sandbox and (not settings.store_review_account_slots or not review_products
+                    or (event.product_id and event.product_id not in review_products)):
         raise ValidationError("허용되지 않은 샌드박스 알림입니다.")
+    ledger_platform = f"{event.platform}_sandbox" if sandbox else event.platform
+    if commit:
+        # Replayed orphans already run under the receipt writer's transaction.
+        await _lock_store_settlement(
+            db, ledger_platform, event.transaction_id, event.original_transaction_id,
+            event.purchase_token, event.linked_purchase_token,
+        )
     exact = await db.scalar(
         select(IAPReceipt)
         .where(
-            IAPReceipt.platform == event.platform,
+            IAPReceipt.platform == ledger_platform,
             IAPReceipt.store_transaction_id == event.transaction_id,
         )
         .with_for_update()
@@ -941,30 +964,28 @@ async def _apply_native_event(event: StoreEvent, db: AsyncSession, *, commit: bo
             anchor = await db.scalar(
                 select(IAPReceipt)
                 .where(
-                    IAPReceipt.platform == event.platform,
+                    IAPReceipt.platform == ledger_platform,
                     or_(*matches),
                 )
                 .order_by(IAPReceipt.created_at.desc(), IAPReceipt.id.desc())
                 .with_for_update()
             )
     if anchor is None:
+        if not commit:
+            # A client alias or Google order prefix matched the pending row,
+            # but the native event has no verified receipt to apply to yet.
+            return {"status": "accepted_orphan"}
         # Persist before ack so notification-before-client-verification is safe.
-        db.add(
-            IapWebhookEvent(
-                platform=event.platform,
-                transaction_id=event.transaction_id,
-                status=event.status,
-                payload=event.persisted_payload(),
-                applied=False,
-            )
+        await _persist_orphan_event(
+            db, ledger_platform, event.transaction_id, event.status, event.persisted_payload(),
         )
-        if commit:
-            try:
-                await db.commit()
-            except IntegrityError:
-                await db.rollback()
         return {"status": "accepted_orphan"}
     product = event.product_id or anchor.product_id
+    if sandbox and (product not in review_products or not await is_claimed_store_review_slot(db, anchor.user_key)):
+        raise ValidationError("이 심사 계정의 샌드박스 구매를 확인할 수 없습니다.")
+    if _legacy_sandbox_receipt(anchor):
+        # Historic test receipts could be stored in the commercial namespace.
+        raise ValidationError("알림과 기존 구매의 스토어 환경이 다릅니다.")
     plan = SUBSCRIPTION_PRODUCTS.get(product)
     subscription = (
         await db.get(Subscription, anchor.subscription_id) if anchor.subscription_id else None
@@ -974,7 +995,7 @@ async def _apply_native_event(event: StoreEvent, db: AsyncSession, *, commit: bo
         subscription.calendar_refill_enabled = False
     now_ms = int(utcnow().replace(tzinfo=timezone.utc).timestamp() * 1000)
     expiry = event.expires_date_ms or (
-        int((exact.payload or {}).get("expires_date_ms", 0)) if exact else 0
+        int((exact.payload or {}).get("expires_date_ms") or 0) if exact else 0
     )
     current_end = (
         int(subscription.current_period_end.replace(tzinfo=timezone.utc).timestamp() * 1000)
@@ -1011,7 +1032,7 @@ async def _apply_native_event(event: StoreEvent, db: AsyncSession, *, commit: bo
     if receipt is None:
         receipt = IAPReceipt(
             user_key=anchor.user_key,
-            platform=event.platform,
+            platform=ledger_platform,
             product_id=product,
             transaction_id=event.transaction_id,
             store_transaction_id=event.transaction_id,
@@ -1020,6 +1041,7 @@ async def _apply_native_event(event: StoreEvent, db: AsyncSession, *, commit: bo
             status="verified",
             payload={
                 "original_transaction_id": event.original_transaction_id,
+                "verification_environment": event.environment,
                 "credit_grant_user_key": anchor.user_key,
                 "granted_credits": 0,
             },
@@ -1046,7 +1068,7 @@ async def _apply_native_event(event: StoreEvent, db: AsyncSession, *, commit: bo
         if replacement_grant is not None or (
             event.grants_cycle and expiry > current_end and exact is None
         ):
-            first_grant = await claim_purchase(db, event.platform, event.transaction_id)
+            first_grant = await claim_purchase(db, ledger_platform, event.transaction_id)
             granted = (
                 replacement_grant
                 if replacement_grant is not None
@@ -1061,7 +1083,7 @@ async def _apply_native_event(event: StoreEvent, db: AsyncSession, *, commit: bo
                     amount=granted,
                     transaction_type="subscription",
                     description="스토어에서 확인한 구독 갱신 크레딧",
-                    reference_id=f"iap:{event.platform}:{event.transaction_id}",
+                    reference_id=f"iap:{ledger_platform}:{event.transaction_id}",
                     commit=False,
                 )
         if expiry >= current_end:
@@ -1136,7 +1158,18 @@ async def google_native_notification(
     authorization: Optional[str] = Header(default=None),
 ):
     await verify_google_push_identity(authorization)
-    event = await decode_google_notification(request.model_dump())
+
+    async def known_order_environment(order_id: str, token: str) -> str | None:
+        receipts = (await db.scalars(select(IAPReceipt).where(
+            IAPReceipt.platform.in_(("google", "google_sandbox")),
+            IAPReceipt.store_transaction_id == order_id, IAPReceipt.purchase_token == token,
+        ))).all()
+        if len(receipts) != 1:
+            return None
+        receipt = receipts[0]
+        return "Sandbox" if receipt.platform == "google_sandbox" or _legacy_sandbox_receipt(receipt) else "Production"
+
+    event = await decode_google_notification(request.model_dump(), known_order_environment=known_order_environment)
     if event is None:
         return {"status": "acknowledged"}
     try:

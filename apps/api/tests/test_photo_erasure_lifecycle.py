@@ -18,12 +18,14 @@ from src.models.db import (
     Book,
     BookShare,
     Character,
+    CreditTransaction,
     ImagePromptsDB,
     Job,
     Page,
     StoragePurgeTask,
     StoryDraftDB,
     UserConsent,
+    UserCredits,
 )
 from src.routers.consent import ConsentGrantRequest, grant_consent, revoke_consent
 from src.services import purge_queue
@@ -333,6 +335,9 @@ async def test_withdrawal_erases_flagged_failed_jobs_without_characters(
                        photo_derived=True, image_keys=["images/legacy/failed.png"]))
     db_session.add(Job(id="text-job", user_key=OWNER, status="failed", photo_derived=False))
     db_session.add(Job(id="other-photo-job", user_key=OTHER, status="failed", photo_derived=True))
+    db_session.add(UserCredits(user_key=OWNER, credits=0, total_used=1))
+    db_session.add(CreditTransaction(user_key=OWNER, amount=-1, balance_after=0, transaction_type="usage",
+                                     reference_id="failed-photo-job", description="synthetic"))
     await db_session.flush()
     db_session.add(StoryDraftDB(job_id="failed-photo-job", draft={"synthetic": True}))
     db_session.add(ImagePromptsDB(job_id="failed-photo-job", prompts={"synthetic": True}))
@@ -345,6 +350,9 @@ async def test_withdrawal_erases_flagged_failed_jobs_without_characters(
     async with sessions() as request:
         await revoke_consent(db=request, user_key=OWNER)
     async with sessions() as verification:
+        assert await verification.scalar(select(CreditTransaction.amount).where(
+            CreditTransaction.reference_id == "failed-photo-job", CreditTransaction.transaction_type == "refund",
+        )) == 1
         assert await verification.get(Job, "failed-photo-job") is None
         assert await verification.get(Job, "text-job") is not None
         assert await verification.get(Job, "other-photo-job") is not None
@@ -451,3 +459,58 @@ async def test_mandatory_withdrawal_erases_shared_photo_assets(
     assert await db_session.get(BookShare, 'withdrawn-share') is None
     assert await db_session.get(Character, 'photo-character') is None
     assert await _has_active_photo_consent(db_session, OWNER) is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("withdrawal", ["revoke", "mandatory_off", "photos_only"])
+async def test_pending_text_book_consent_is_checked_after_regrant(
+    db_session, fake_storage, monkeypatch, withdrawal,
+):
+    from unittest.mock import AsyncMock
+
+    from src.core.config import settings
+    from src.core.exceptions import AuthorizationError
+    from src.services import orchestrator
+    from src.services.generation_consent import post_with_consent, provider_consent_scope, require_active_book_job
+
+    monkeypatch.setattr(settings, "require_parental_consent_in_testing", True)
+    _grant(db_session)
+    job = Job(id="job_consent_regression", user_key=OWNER, status="queued")
+    db_session.add_all([job, UserCredits(user_key=OWNER, credits=2, total_used=1),
+                        CreditTransaction(user_key=OWNER, amount=-1, balance_after=2, transaction_type="usage",
+                                          reference_id=job.id, description="synthetic")])
+    await db_session.commit()
+    sessions = _sessions(db_session)
+    async with sessions() as request:
+        if withdrawal == "revoke":
+            await revoke_consent(db=request, user_key=OWNER)
+        else:
+            await grant_consent(ConsentGrantRequest(
+                privacy=True, photos=False, data_processing=withdrawal == "photos_only",
+            ), db=request, user_key=OWNER)
+    async with sessions() as request:
+        await grant_consent(ConsentGrantRequest(privacy=True, photos=True, data_processing=True),
+                            db=request, user_key=OWNER)
+
+    async def authorize(db):
+        await require_active_book_job(db, job.id, OWNER)
+
+    async with sessions() as verification:
+        refunds = (await verification.scalars(select(CreditTransaction.id).where(
+            CreditTransaction.reference_id == job.id, CreditTransaction.transaction_type == "refund",
+        ))).all()
+        assert len(refunds) == (0 if withdrawal == "photos_only" else 1)
+
+    transport = AsyncMock()
+    with provider_consent_scope(authorize):
+        if withdrawal == "photos_only":
+            await post_with_consent(transport, "https://example.invalid/")
+            transport.post.assert_awaited_once()
+        else:
+            with pytest.raises(AuthorizationError):
+                await post_with_consent(transport, "https://example.invalid/")
+            transport.post.assert_not_awaited()
+            moderate = AsyncMock()
+            monkeypatch.setattr(orchestrator, "moderate_input", moderate)
+            await orchestrator.start_book_generation(job.id, None, OWNER)
+            moderate.assert_not_awaited()

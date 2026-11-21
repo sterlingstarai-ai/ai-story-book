@@ -11,6 +11,7 @@ from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel, ConfigDict, Field
 import structlog
 
+from src.services.generation_consent import post_with_consent
 from src.core.config import settings
 from src.core.errors import LLMError, ErrorCode
 from src.core.i18n import SUPPORTED_LANGUAGES, language_display_name
@@ -429,7 +430,8 @@ async def _call_anthropic(
 
     async with httpx.AsyncClient(timeout=settings.llm_timeout) as client:
         attempt = begin_provider_request(settings.llm_provider, settings.llm_model, "llm", settings.llm_api_key)
-        response = await client.post(
+        response = await post_with_consent(
+            client,
             "https://api.anthropic.com/v1/messages",
             headers={
                 "x-api-key": settings.llm_api_key,
@@ -520,7 +522,8 @@ async def _call_gemini(
 
     async with httpx.AsyncClient(timeout=settings.llm_timeout) as client:
         attempt = begin_provider_request(settings.llm_provider, settings.llm_model, "llm", settings.llm_api_key)
-        response = await client.post(
+        response = await post_with_consent(
+            client,
             f"{_GEMINI_LLM_BASE_URL}/{settings.llm_model}:generateContent",
             headers={"Content-Type": "application/json", "x-goog-api-key": settings.llm_api_key},
             json={

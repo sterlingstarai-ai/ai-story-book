@@ -7,6 +7,7 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'user_service.dart';
 import 'scoped_reading_progress.dart';
+import 'share_staging.dart';
 
 const localMediaCleanupPendingKey = 'local_media_cleanup_pending_v1';
 const bookMediaCleanupPlanKey = 'book_media_cleanup_plan_v1';
@@ -95,6 +96,9 @@ Future<void> purgeAppImageCache() async {
 }
 
 Future<void> ensureSharedImageCacheEmpty(Directory temporary) async {
+  if (await ShareStaging.legacyFiles(temporary)) {
+    throw StateError('Historical shared export ownership is unresolved');
+  }
   final root = await temporary.resolveSymbolicLinks();
   final directory = Directory('$root/${DefaultCacheManager.key}');
   if (await directory.exists()) {
@@ -112,6 +116,7 @@ Future<void> ensureSharedImageCacheEmpty(Directory temporary) async {
 /// This may erase offline data belonging to other accounts or profiles.
 Future<void> clearUnattributedLegacyData(SharedPreferences preferences) async {
   final temporary = await getTemporaryDirectory();
+  await ShareStaging.legacyFiles(temporary, remove: true);
   final root = await temporary.resolveSymbolicLinks();
   final directory = Directory('$root/${DefaultCacheManager.key}');
   if (await directory.exists() &&

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:ai_story_book/services/book_media_store.dart';
+import 'package:ai_story_book/services/share_staging.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -47,6 +48,99 @@ void main() {
     final request = await store.beginDeletion(book, profileDigest: profile);
     await store.confirmDeletion(book, request, profileDigest: profile);
   }
+
+  test('sharing removes sources on dismissal and failure', () async {
+    final store = createStore();
+    for (final fail in [false, true]) {
+      late File source;
+      final run = store.share(
+        'book-a',
+        extension: 'pdf',
+        bytes: [1, 2],
+        present: (file) async {
+          source = file;
+          expect(await file.readAsBytes(), [1, 2]);
+          if (fail) throw StateError('chooser failed');
+          return false;
+        },
+      );
+      if (fail) {
+        await expectLater(run, throwsStateError);
+      } else {
+        await run;
+      }
+      expect(await source.exists(), isFalse);
+    }
+  });
+
+  test(
+    'book purge drains sharing and removes only matching native handoff copies',
+    () async {
+      final store = createStore();
+      final shown = Completer<File>();
+      final close = Completer<bool>();
+      final share = store.share(
+        'book-a',
+        extension: 'jpg',
+        bytes: [5],
+        present: (file) {
+          shown.complete(file);
+          return close.future;
+        },
+      );
+      final source = await shown.future;
+      final android = await Directory('${temporary.path}/share_plus').create();
+      final name = source.uri.pathSegments.last;
+      final copy = await source.copy('${android.path}/$name');
+      final other = await source.copy(
+        '${android.path}/${name.replaceFirst(store.scopeDigest, 'b' * 64)}',
+      );
+      await confirm(store, 'book-a');
+      final purge = store.purgeBook('book-a');
+      close.complete(true);
+      await share;
+      await purge;
+      expect(await source.exists(), isFalse);
+      expect(await copy.exists(), isFalse);
+      expect(await other.exists(), isTrue);
+      await expectLater(
+        store.share(
+          'book-a',
+          extension: 'jpg',
+          bytes: [1],
+          present: (_) async => true,
+        ),
+        throwsStateError,
+      );
+    },
+  );
+
+  test(
+    'startup cleans interrupted shares and expired Android copies; legacy cleanup requires confirmation',
+    () async {
+      final staging = await Directory(
+        '${temporary.path}/asb_share_staging_v1',
+      ).create();
+      final plugin = await Directory('${temporary.path}/share_plus').create();
+      final name =
+          'asb-share-${'a' * 64}-${'b' * 64}-00000000-0000-4000-8000-000000000001.pdf';
+      final file = await File('${staging.path}/$name').writeAsString('story');
+      final copy = await file.copy('${plugin.path}/$name');
+      await copy.setLastModified(DateTime(2020));
+      final legacy = await file.copy('${temporary.path}/old story.pdf');
+      final cover = await file.copy('${plugin.path}/old_cover.jpg');
+      final other = await file.copy('${temporary.path}/unrelated.jpg');
+      await ShareStaging.clean(temporary);
+      expect(await file.exists(), isFalse);
+      expect(await copy.exists(), isFalse);
+      expect(await ShareStaging.legacyFiles(temporary), isTrue);
+      expect(await legacy.exists(), isTrue);
+      await ShareStaging.legacyFiles(temporary, remove: true);
+      expect(await legacy.exists(), isFalse);
+      expect(await cover.exists(), isFalse);
+      expect(await other.exists(), isTrue);
+    },
+  );
 
   test(
     'an unconfirmed request survives restart without deleting local media',

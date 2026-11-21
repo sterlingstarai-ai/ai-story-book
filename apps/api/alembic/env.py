@@ -88,6 +88,7 @@ def run_migrations_online() -> None:
         database_url,
         connect_args=database_connect_args,
         poolclass=pool.NullPool,
+        hide_parameters=True,
     )
 
     with connectable.connect() as connection:

@@ -16,13 +16,16 @@ R1: 이 함수들은 원래 `routers/books.py`에 있었고 항상 FastAPI Backg
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from typing import Optional
 
 import structlog
 from sqlalchemy import select, update
 
 from src.core.errors import ErrorCode, StoryBookError, client_safe_message
-from src.core.config import settings
+from src.core.exceptions import AuthorizationError
+from src.services.generation_consent import provider_consent_scope, require_active_book_job
+from src.services.image import image_storage_scope
 from src.core.utils import utcnow
 from src.models.db import Book, Job, Page
 from src.services.orchestrator import inpaint_page, regenerate_page
@@ -54,6 +57,30 @@ async def set_regen_job_status(
         await session.commit()
 
 
+@asynccontextmanager
+async def _page_edit_scope(operation_id: str, original_job_id: str, book_id: str):
+    from src.core.database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as db:
+        owner = await db.scalar(select(Book.user_key).where(
+            Book.id == book_id, Book.job_id == original_job_id,
+        ))
+        if not owner:
+            raise AuthorizationError()
+
+    async def check(db):
+        await require_active_book_job(db, operation_id, owner)
+        if not await db.scalar(select(Book.id).where(
+            Book.id == book_id, Book.job_id == original_job_id, Book.user_key == owner,
+        )):
+            raise AuthorizationError()
+
+    async with AsyncSessionLocal() as db:
+        await check(db)
+    with provider_consent_scope(check), image_storage_scope(f"jobs/{operation_id}/edits"):
+        yield
+
+
 async def run_regeneration_job(
     regen_job_id: str,
     original_job_id: str,
@@ -71,14 +98,15 @@ async def run_regeneration_job(
     )
 
     try:
-        await regenerate_page(
-            job_id=original_job_id,
-            book_id=book_id,
-            page_number=page_number,
-            mode=mode,
-            feedback=feedback,
-            **({"operation_job_id": regen_job_id} if getattr(settings, "illustration_quality_enabled", False) else {}),
-        )
+        async with _page_edit_scope(regen_job_id, original_job_id, book_id):
+            await regenerate_page(
+                job_id=original_job_id,
+                book_id=book_id,
+                page_number=page_number,
+                mode=mode,
+                feedback=feedback,
+                operation_job_id=regen_job_id,
+            )
     except Exception as e:
         # M12: SafetyError 등 도메인 에러 코드(SAFETY_INPUT/OUTPUT)를 UNKNOWN으로 뭉개지 않는다.
         error_code = (
@@ -127,14 +155,15 @@ async def run_inpaint_job(
         current_step="부분 재생성 중...",
     )
     try:
-        await inpaint_page(
-            job_id=original_job_id,
-            book_id=book_id,
-            page_number=page_number,
-            mask_url=mask_url,
-            region_prompt=region_prompt,
-            **({"operation_job_id": inpaint_job_id} if getattr(settings, "illustration_quality_enabled", False) else {}),
-        )
+        async with _page_edit_scope(inpaint_job_id, original_job_id, book_id):
+            await inpaint_page(
+                job_id=original_job_id,
+                book_id=book_id,
+                page_number=page_number,
+                mask_url=mask_url,
+                region_prompt=region_prompt,
+                operation_job_id=inpaint_job_id,
+            )
     except Exception as e:
         # M12: 도메인 에러 코드(SAFETY_INPUT 등)를 보존.
         error_code = (
@@ -177,8 +206,11 @@ async def run_audio_job(
     """책 오디오 생성 백그라운드 태스크 (5분 타임아웃).
 
     L5: 결과를 audio_ Job 상태로 표면화 — 타임아웃/전체 실패는 failed(에러코드 포함),
-    부분/전체 성공은 done. audio_job_id가 없으면(구 호출 경로) 로그만 남긴다.
+    부분/전체 성공은 done. 작업 ID가 없으면 철회 상태를 확인할 수 없어 실행을 건너뛴다.
     """
+    if not audio_job_id:
+        return
+    await set_regen_job_status(audio_job_id, status="running", progress=0, current_step="오디오 생성 중")
     try:
         succeeded, failed_pages = await asyncio.wait_for(
             generate_audio_pages(
@@ -186,6 +218,7 @@ async def run_audio_job(
                 pages=pages,
                 target_age=target_age,
                 default_language=default_language,
+                audio_job_id=audio_job_id,
             ),
             timeout=300,
         )
@@ -216,8 +249,6 @@ async def run_audio_job(
             )
         return
 
-    if not audio_job_id:
-        return
     if succeeded == 0 and failed_pages:
         await set_regen_job_status(
             audio_job_id,
@@ -246,6 +277,7 @@ async def generate_audio_pages(
     pages: list[dict],
     target_age: str = "5-7",
     default_language: str = "ko",
+    audio_job_id: Optional[str] = None,
 ):
     """실제 오디오 생성 로직 (페이지별 상태 추적)"""
     from src.core.database import AsyncSessionLocal
@@ -258,7 +290,7 @@ async def generate_audio_pages(
             try:
                 from src.core.consent import require_parental_consent
                 from src.services.audio_assets import (
-                    NarrationSource, narration_url, publish_narration, store_narration,
+                    NarrationSource, authorize_narration, narration_url, publish_narration, store_narration,
                 )
 
                 # Queue payloads identify work, never authorize it or freeze its
@@ -267,27 +299,31 @@ async def generate_audio_pages(
                     .execution_options(populate_existing=True))).scalar_one_or_none()
                 if book is None:
                     raise ValueError("Narration book is no longer available")
-                await require_parental_consent(db, book.user_key)
+                consent_id = await require_parental_consent(db, book.user_key)
                 page = (await db.execute(select(Page).where(
                     Page.id == page_data["page_id"], Page.book_id == book_id,
                     Page.page_number == page_data["page_number"])
                     .execution_options(populate_existing=True))).scalar_one_or_none()
                 if page is None:
                     raise ValueError("Narration page is no longer available")
-                source = NarrationSource.from_page(book, page)
+                source = NarrationSource.from_page(book, page, consent_id=consent_id)
                 if not source.texts:
                     raise ValueError("Page contains no narration text")
-                for language, source_text in source.texts.items():
-                    if narration_url(page, language, source.book_language):
-                        continue
-                    # A previous language may have taken a while to synthesize.
-                    await require_parental_consent(db, source.user_key)
-                    audio_bytes = await tts_service.synthesize_page(
-                        source_text, target_age=source.target_age, language=language)
+                missing = [(language, value) for language, value in source.texts.items()
+                           if not narration_url(page, language, source.book_language)]
+                # End the read transaction before a transport opens its own session.
+                await db.commit()
+                for language, source_text in missing:
+                    async def check_dispatch(session):
+                        await authorize_narration(session, source, job_id=audio_job_id)
+
+                    with provider_consent_scope(check_dispatch):
+                        audio_bytes = await tts_service.synthesize_page(
+                            source_text, target_age=source.target_age, language=language)
                     url, guard = await store_narration(
                         db, book_id, source.page_number, language, audio_bytes,
                         user_key=source.user_key)
-                    await publish_narration(db, source, language, url, guard)
+                    await publish_narration(db, source, language, url, guard, job_id=audio_job_id)
                 succeeded += 1
 
             except Exception as e:

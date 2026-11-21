@@ -7,46 +7,12 @@ from src.models.dto import CharacterAppearance, CharacterClothing, CreateCharact
 from src.routers.characters import create_character, create_character_from_text, delete_character
 
 
-class _FakeScalarResult:
-    def __init__(self, value):
-        self._value = value
-
-    def scalar_one_or_none(self):
-        return self._value
-
-
-class _FailingCommitDbSession:
-    def __init__(self, execute_results=None):
-        self._execute_results = list(execute_results or [])
-        self._execute_index = 0
-        self.rollback_calls = 0
-        self.deleted_items = []
-        self.added_items = []
-
-    async def execute(self, _query):
-        value = self._execute_results[self._execute_index]
-        self._execute_index += 1
-        return _FakeScalarResult(value)
-
-    def add(self, obj):
-        self.added_items.append(obj)
-
-    async def delete(self, obj):
-        self.deleted_items.append(obj)
-
-    async def commit(self):
-        raise RuntimeError("commit failed")
-
-    async def refresh(self, _obj):
-        return None
-
-    async def rollback(self):
-        self.rollback_calls += 1
-
-
 @pytest.mark.asyncio
-async def test_create_character_rolls_back_on_commit_failure():
-    db = _FailingCommitDbSession()
+async def test_create_character_rolls_back_on_commit_failure(db_session, monkeypatch):
+    db = db_session
+    monkeypatch.setattr(db, "commit", AsyncMock(side_effect=RuntimeError("commit failed")))
+    rollback = AsyncMock(wraps=db.rollback)
+    monkeypatch.setattr(db, "rollback", rollback)
     request = CreateCharacterRequest(
         name="토리",
         master_description="용감한 토끼 캐릭터",
@@ -70,8 +36,9 @@ async def test_create_character_rolls_back_on_commit_failure():
     with pytest.raises(InternalServerError):
         await create_character(request=request, db=db, user_key="user-12345678")
 
-    assert db.rollback_calls == 1
-    assert len(db.added_items) == 1
+    db.commit.assert_awaited_once()
+    rollback.assert_awaited_once()
+    assert not db.new
 
 
 @pytest.mark.asyncio
@@ -93,9 +60,12 @@ async def test_delete_character_rolls_back_on_commit_failure(db_session, monkeyp
 
 
 @pytest.mark.asyncio
-async def test_create_character_from_text_rolls_back_on_commit_failure(monkeypatch):
+async def test_create_character_from_text_rolls_back_on_commit_failure(monkeypatch, db_session):
     monkeypatch.setattr("src.routers.characters.consume_generation_budget", AsyncMock())
-    db = _FailingCommitDbSession()
+    db = db_session
+    monkeypatch.setattr(db, "commit", AsyncMock(side_effect=RuntimeError("commit failed")))
+    rollback = AsyncMock(wraps=db.rollback)
+    monkeypatch.setattr(db, "rollback", rollback)
     mock_character_data = {
         "name": "토리",
         "master_description": "5살 귀여운 토끼 캐릭터",
@@ -130,5 +100,6 @@ async def test_create_character_from_text_rolls_back_on_commit_failure(monkeypat
                 user_key="user-12345678",
             )
 
-    assert db.rollback_calls == 1
-    assert len(db.added_items) == 1
+    db.commit.assert_awaited_once()
+    rollback.assert_awaited_once()
+    assert not db.new

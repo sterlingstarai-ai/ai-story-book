@@ -1,14 +1,16 @@
 {
-  "version": "2026-09-08",
-  "status": "prepared_not_registered",
+  "version": "2026-11-22",
+  "apple_status": "products_created_not_submitted",
+  "apple_storefront": "KOR",
+  "google_status": "prepared_not_registered",
   "reference_currency": "KRW",
   "localized_store_price_is_authoritative": true,
   "products": [
-    {"id": "credit_pack_1", "type": "consumable", "credits": 1, "reference_price": 5900},
-    {"id": "credit_pack_5", "type": "consumable", "credits": 5, "reference_price": 27900},
-    {"id": "credit_pack_10", "type": "consumable", "credits": 10, "reference_price": 52900},
-    {"id": "subscription_basic", "type": "auto_renewing_subscription", "period": "P1M", "credits": 5, "reference_price": 24900},
-    {"id": "subscription_premium", "type": "auto_renewing_subscription", "period": "P1M", "credits": 10, "reference_price": 44900}
+    {"id": "credit_pack_1", "type": "consumable", "credits": 1, "reference_price": 8900},
+    {"id": "credit_pack_5", "type": "consumable", "credits": 5, "reference_price": 36900},
+    {"id": "credit_pack_10", "type": "consumable", "credits": 10, "reference_price": 64900},
+    {"id": "subscription_basic", "type": "auto_renewing_subscription", "period": "P1M", "credits": 5, "reference_price": 29900},
+    {"id": "subscription_premium", "type": "auto_renewing_subscription", "period": "P1M", "credits": 10, "reference_price": 49900}
   ],
-  "account_actions_remaining": ["Create the app and exact products in both store consoles after the final joint review", "Set store reference prices and localization", "Configure Apple V2 notifications and Google authenticated Pub/Sub push", "Run licensed store sandbox purchase, renewal, cancellation, refund and restoration tests"]
+  "account_actions_remaining": ["Activate the Apple Paid Apps Agreement after the Account Holder updates legal entity information", "Complete Apple sandbox verification before submitting the products with the app", "Register the Google catalog when that platform is scheduled", "Configure Apple V2 notifications and Google authenticated Pub/Sub push", "Run licensed store sandbox purchase, renewal, cancellation, refund and restoration tests"]
 }

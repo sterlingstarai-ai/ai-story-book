@@ -280,3 +280,162 @@ async def test_book_delete_waits_for_verified_edit_and_erases_latest_image(photo
         assert await verification.get(Book, book_id) is None
         assert await verification.scalar(select(Page.id).where(Page.book_id == book_id)) is None
     assert ("keys", page_key) in deleted_assets
+
+
+async def test_withdrawal_waits_for_http_body_but_not_model_response(photo_pg, monkeypatch):
+    """Real HTTPX/HTTPCore events on loopback, real PG locks, synthetic bytes."""
+    import httpx
+    from src.core import database
+    from src.core.exceptions import APIError
+    from src.services.generation_consent import post_with_consent, provider_consent_scope, require_active_book_job
+
+    maker, (owner, _), _ = photo_pg
+    monkeypatch.setattr(database, "AsyncSessionLocal", maker)
+    await _grant(maker, owner)
+    job_id = f"job_{uuid.uuid4().hex}"
+    async with maker() as db:
+        db.add(Job(id=job_id, user_key=owner, status="running"))
+        await db.commit()
+
+    sending, allow_body, received, allow_response = (asyncio.Event() for _ in range(4))
+    requests = []
+
+    async def handle(reader, writer):
+        try:
+            await reader.readuntil(b"\r\n\r\n")
+            requests.append(await reader.readuntil(b"\r\n0\r\n\r\n"))
+            received.set()
+            await allow_response.wait()
+            writer.write(b"HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n")
+            await writer.drain()
+        finally:
+            writer.close()
+            await writer.wait_closed()
+
+    async def payload():
+        sending.set()
+        await allow_body.wait()
+        yield b"synthetic"
+
+    async def authorize(db):
+        await require_active_book_job(db, job_id, owner)
+
+    started = asyncio.get_running_loop().create_future()
+
+    async def withdraw():
+        async with maker() as db:
+            started.set_result(await db.scalar(text("SELECT pg_backend_pid()")))
+            await revoke_consent(db=db, user_key=owner)
+
+    async with await asyncio.start_server(handle, "127.0.0.1", 0) as server:
+        url = f"http://127.0.0.1:{server.sockets[0].getsockname()[1]}/"
+        async with httpx.AsyncClient(trust_env=False) as client:
+            with provider_consent_scope(authorize):
+                request = asyncio.create_task(post_with_consent(client, url, content=payload()))
+                withdrawal = None
+                try:
+                    await asyncio.wait_for(sending.wait(), 5)
+                    withdrawal = asyncio.create_task(withdraw())
+                    await _assert_waiting_in_postgres(maker, await started, withdrawal)
+                    allow_body.set()
+                    await asyncio.wait_for(received.wait(), 5)
+                    await asyncio.wait_for(withdrawal, 5)
+                    assert not request.done()
+                    with pytest.raises(APIError) as denied:
+                        await post_with_consent(client, url, content=b"synthetic")
+                    assert denied.value.error_code == "PARENTAL_CONSENT_REQUIRED"
+                    allow_response.set()
+                    assert (await asyncio.wait_for(request, 5)).status_code == 204
+                    assert len(requests) == 1
+                finally:
+                    allow_body.set()
+                    allow_response.set()
+                    await _finish(request)
+                    if withdrawal is not None:
+                        await _finish(withdrawal)
+
+
+async def test_sla_monitor_does_not_hold_job_row_while_waiting_for_withdrawal(photo_pg):
+    from src.services.job_monitor import job_monitor
+
+    maker, (owner, _), _ = photo_pg
+    await _grant(maker, owner)
+    job_id = f"job_{uuid.uuid4().hex}"
+    async with maker() as setup:
+        setup.add(Job(id=job_id, user_key=owner, status="running"))
+        await setup.commit()
+    started = asyncio.get_running_loop().create_future()
+
+    async def expire():
+        async with maker() as db:
+            job = await db.get(Job, job_id)
+            started.set_result(await db.scalar(text("SELECT pg_backend_pid()")))
+            await job_monitor._mark_job_failed(db, job, "SLA_BREACH", "synthetic timeout")
+            await db.commit()
+
+    async with maker() as withdrawal:
+        await lock_photo_account(withdrawal, owner)
+        task = asyncio.create_task(expire())
+        try:
+            await _assert_waiting_in_postgres(maker, await started, task)
+            await asyncio.wait_for(revoke_consent(db=withdrawal, user_key=owner), 5)
+            await asyncio.wait_for(task, 5)
+        finally:
+            await _finish(task)
+    async with maker() as verification:
+        assert await verification.get(Job, job_id) is None
+
+
+@pytest.mark.parametrize("tracked", [False, True])
+async def test_narration_dispatch_completes_with_one_connection(photo_pg, monkeypatch, tracked):
+    from unittest.mock import AsyncMock
+
+    import httpx
+    from sqlalchemy.pool import AsyncAdaptedQueuePool
+    from src.core import database
+    from src.core.rate_limit import rate_limiter
+    from src.routers.books import get_page_audio
+    from src.services.job_runners import generate_audio_pages
+    from src.services.storage import storage_service
+    from src.services.tts import OpenAITTSProvider, tts_service
+    from tests.factories import make_book_rows
+    from tests.test_narration_voices import _LockRedis
+
+    setup, (owner, _), _ = photo_pg
+    await _grant(setup, owner)
+    book_id, operation = f"book-{uuid.uuid4().hex}", f"audio_{uuid.uuid4().hex}"
+    async with setup() as db:
+        rows = make_book_rows([(book_id, owner)])
+        book = next(row for row in rows if isinstance(row, Book))
+        book.target_age = "3-5"
+        db.add_all(rows)
+        db.add(Job(id=operation, user_key=owner, status="running"))
+        await db.flush()
+        page = Page(book_id=book_id, page_number=1, text="합성 본문")
+        db.add(page)
+        await db.commit()
+        page_id = page.id
+
+    engine = create_async_engine(PG_URL, poolclass=AsyncAdaptedQueuePool, pool_size=1,
+                                 max_overflow=0, pool_timeout=1)
+    maker = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
+    monkeypatch.setattr(database, "AsyncSessionLocal", maker)
+    monkeypatch.setattr(rate_limiter, "get_redis", AsyncMock(return_value=_LockRedis()))
+    monkeypatch.setattr(settings, "openai_tts_api_key", "synthetic")
+    monkeypatch.setattr(tts_service, "_provider", OpenAITTSProvider())
+    monkeypatch.setattr("src.services.tts.require_daily_generation_budget", AsyncMock())
+    monkeypatch.setattr(storage_service, "upload_bytes", AsyncMock(return_value="https://example.invalid/voice.mp3"))
+    send = AsyncMock(return_value=httpx.Response(200, content=b"ID3-test", headers={"content-type": "audio/mpeg"}))
+    monkeypatch.setattr(httpx.AsyncClient, "post", send)
+    try:
+        if tracked:
+            result = await generate_audio_pages(book_id, [{"page_id": page_id, "page_number": 1}],
+                                                audio_job_id=operation)
+            assert result == (1, [])
+        else:
+            async with maker() as db:
+                result = await get_page_audio(book_id, 1, language="ko", db=db, user_key=owner, profile_id=None)
+                assert result["audio_url"].endswith("voice.mp3")
+        send.assert_awaited_once()
+    finally:
+        await engine.dispose()

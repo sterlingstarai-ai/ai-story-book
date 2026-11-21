@@ -153,6 +153,7 @@ class BookResult {
   final String coverImageUrl;
   final List<PageResult> pages;
   final String? characterId;
+  final String? protagonistName;
   // 책 언어(H3: 오디오·발음을 실제 책 언어로 요청하기 위해 필요)
   final String? language;
   // 시리즈 정보
@@ -172,6 +173,7 @@ class BookResult {
     required this.coverImageUrl,
     required this.pages,
     this.characterId,
+    this.protagonistName,
     this.language,
     this.seriesId,
     this.seriesIndex,
@@ -215,6 +217,7 @@ class BookResult {
       ),
       pages: pages,
       characterId: JsonParsing.asOptionalString(json['character_id']),
+      protagonistName: JsonParsing.asOptionalString(json['protagonist_name']),
       language: JsonParsing.asOptionalString(json['language']),
       seriesId: JsonParsing.asOptionalString(json['series_id']),
       seriesIndex: JsonParsing.asOptionalInt(
@@ -247,6 +250,7 @@ class BookResult {
       'cover_image_url': coverImageUrl,
       'pages': pages.map((page) => page.toJson()).toList(),
       if (characterId != null) 'character_id': characterId,
+      if (protagonistName != null) 'protagonist_name': protagonistName,
       if (language != null) 'language': language,
       if (seriesId != null) 'series_id': seriesId,
       if (seriesIndex != null) 'series_index': seriesIndex,

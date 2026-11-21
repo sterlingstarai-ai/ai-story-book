@@ -25,9 +25,11 @@ import structlog
 
 from src.core.config import settings
 from src.core.book_assets import build_generation_warnings, build_page_asset_status
+from src.services.generation_consent import check_current_generation, provider_consent_scope, require_active_book_job
 from src.services.provider_runtime import record_generation_stage, record_job_provider_usage
 from src.services.story_integrity import requires_long_korean_story
 
+from src.core.exceptions import APIError
 from src.core.errors import (
     StoryBookError,
     ErrorCode,
@@ -150,6 +152,9 @@ async def run_step(
             else:
                 raise
 
+        except APIError:
+            raise
+
         except Exception as e:
             last_exc = e
             logger.error(
@@ -198,6 +203,7 @@ async def update_job_status(job_id: str, step: str, progress: int):
     from sqlalchemy import update
 
     async with AsyncSessionLocal() as session:
+        await check_current_generation(session)
         await session.execute(
             update(Job)
             .where(Job.id == job_id, Job.status.in_(["queued", "running"]))
@@ -363,7 +369,10 @@ async def start_book_generation(
     from src.services.openai_contract import openai_book_connection_scope
     from src.services.provider_runtime import job_provider_usage
 
-    with job_provider_usage(job_id):
+    async def check_consent(db):
+        await require_active_book_job(db, job_id, user_key)
+
+    with job_provider_usage(job_id), provider_consent_scope(check_consent):
         async with openai_book_connection_scope():
             return await _start_bounded_book_generation(job_id, spec, user_key, series_id, series_index)
 
@@ -645,8 +654,6 @@ async def _start_book_generation(
         await mark_job_failed(job_id, e.code, e.message)
 
     except Exception as e:
-        from src.core.exceptions import APIError
-
         if isinstance(e, APIError):
             code = ErrorCode(e.error_code) if e.error_code in ErrorCode._value2member_map_ else ErrorCode.IMAGE_FAILED
             await mark_job_failed(job_id, code, e.message)
@@ -1346,17 +1353,11 @@ async def package_book(
 
     async with AsyncSessionLocal() as session:
         try:
-            from src.services.photo_lifecycle import lock_photo_account
-            from src.core.consent import require_photo_consent
-
-            await lock_photo_account(session, user_key)
+            await require_active_book_job(session, job_id, user_key)
             if series_id:
                 from src.services.series_ownership import owned_series
 
                 await owned_series(session, series_id, user_key)
-            publication_job = await session.get(Job, job_id)
-            if publication_job is not None and publication_job.photo_derived:
-                await require_photo_consent(session, user_key)
             # Publish the book and its successful job state in one transaction.
             # This conditional write also locks out an SLA failure racing with
             # packaging; a job already failed/refunded must not deliver a book.
@@ -1575,6 +1576,7 @@ async def save_story_draft(job_id: str, story: StoryDraft):
     from src.models.db import StoryDraftDB
 
     async with AsyncSessionLocal() as session:
+        await check_current_generation(session)
         existing = (
             await session.execute(
                 select(StoryDraftDB).where(StoryDraftDB.job_id == job_id)
@@ -1595,6 +1597,7 @@ async def save_image_prompts(job_id: str, prompts: ImagePrompts):
     from src.models.db import ImagePromptsDB
 
     async with AsyncSessionLocal() as session:
+        await check_current_generation(session)
         existing = (
             await session.execute(
                 select(ImagePromptsDB).where(ImagePromptsDB.job_id == job_id)
@@ -1710,6 +1713,32 @@ async def regenerate_page(
                     message="재생성된 내용이 안전 기준을 통과하지 못했습니다",
                     is_input=False,
                 )
+        # N1/#10: 교체된 구버전 이미지 키를 커밋 후 파기하기 위해 캡처.
+        replaced_image_url = None
+        new_image_url = None
+        orphaned_image_url = None
+
+        if mode in ["image", "both"]:
+            # Generate new image
+            if page.image_prompt:
+                import random
+
+                from src.models.dto import ImagePrompt
+
+                regen_prompt = ImagePrompt(
+                    page=page_number,
+                    positive_prompt=page.image_prompt,
+                    negative_prompt="text, letters, words, watermark, blurry, deformed",
+                    seed=random.randint(1, 2147483647),
+                    aspect_ratio="3:4",
+                )
+                image_url = await generate_image(regen_prompt, reference_image_url=character_reference)
+                if image_url:
+                    replaced_image_url = page.image_url
+                    new_image_url = image_url
+
+        await _finish_page_edit(session, operation_job_id, book.user_key)
+        if mode in ["text", "both"]:
             # Lock the current row only after provider work: concurrent narration
             # may have completed since the initial read. Retire those actual URLs
             # atomically with the rewritten text, rather than losing an audio file.
@@ -1753,30 +1782,6 @@ async def regenerate_page(
             if hasattr(page, "audio_url_en"):
                 page.audio_url_en = None
 
-        # N1/#10: 교체된 구버전 이미지 키를 커밋 후 파기하기 위해 캡처.
-        replaced_image_url = None
-        new_image_url = None
-        orphaned_image_url = None
-
-        if mode in ["image", "both"]:
-            # Generate new image
-            if page.image_prompt:
-                import random
-
-                from src.models.dto import ImagePrompt
-
-                regen_prompt = ImagePrompt(
-                    page=page_number,
-                    positive_prompt=page.image_prompt,
-                    negative_prompt="text, letters, words, watermark, blurry, deformed",
-                    seed=random.randint(1, 2147483647),
-                    aspect_ratio="3:4",
-                )
-                image_url = await generate_image(regen_prompt, reference_image_url=character_reference)
-                if image_url:
-                    replaced_image_url = page.image_url
-                    new_image_url = image_url
-
         page.updated_at = utcnow()
 
         if new_image_url:
@@ -1808,6 +1813,22 @@ async def regenerate_page(
     logger.info(
         "Page regeneration complete", book_id=book_id, page=page_number, mode=mode
     )
+
+
+async def _finish_page_edit(session, operation_id: str | None, owner: str) -> None:
+    """Publish the legacy page and complete its cancellation target atomically."""
+    if operation_id is None:
+        return
+    from sqlalchemy import update
+    from src.models.db import Job
+    from src.core.exceptions import AuthorizationError
+
+    await require_active_book_job(session, operation_id, owner)
+    completed = await session.execute(update(Job).where(
+        Job.id == operation_id, Job.user_key == owner, Job.status.in_(("queued", "running")),
+    ).values(status="done", progress=100, current_step="완료", updated_at=utcnow()))
+    if completed.rowcount != 1:
+        raise AuthorizationError("종료된 페이지 수정 요청입니다.")
 
 
 def _fenced_image_update(page_id, expected_url, new_url):
@@ -1929,6 +1950,7 @@ async def inpaint_page(
             replaced_image_url = page.image_url
             new_image_url = image_url
 
+        await _finish_page_edit(session, operation_job_id, book.user_key)
         page.updated_at = utcnow()
 
         if new_image_url:
@@ -2018,6 +2040,7 @@ async def start_series_generation(
                 # 외부에서 전달된 series_id가 유효하지 않으면 신규 시리즈로 대체
                 series_id = None
 
+        await require_active_book_job(session, job_id, user_key)
         if not series_id:
             series_id = (
                 f"series_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"

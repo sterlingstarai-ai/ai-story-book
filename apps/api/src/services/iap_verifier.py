@@ -45,6 +45,7 @@ class IAPVerifierService:
         purchase_token: Optional[str] = None,
         receipt_data: Optional[str] = None,
         is_subscription: bool = False,
+        review_sandbox: bool = False,
     ) -> IAPVerificationResult:
         mode = (settings.iap_verification_mode or "local").strip().lower()
         if mode not in {"local", "hybrid", "strict"}:
@@ -57,6 +58,7 @@ class IAPVerifierService:
                 transaction_id=transaction_id,
                 receipt_data=receipt_data,
                 is_subscription=is_subscription,
+                review_sandbox=review_sandbox,
             )
         if platform == "google":
             return await self._verify_google(
@@ -65,6 +67,7 @@ class IAPVerifierService:
                 transaction_id=transaction_id,
                 purchase_token=purchase_token,
                 is_subscription=is_subscription,
+                review_sandbox=review_sandbox,
             )
 
         raise ValidationError("지원하지 않는 플랫폼입니다.", details={"platform": platform})
@@ -77,6 +80,7 @@ class IAPVerifierService:
         transaction_id: str,
         receipt_data: Optional[str],
         is_subscription: bool = False,
+        review_sandbox: bool = False,
     ) -> IAPVerificationResult:
         if not receipt_data:
             raise ValidationError("Apple 영수증(receipt_data)이 필요합니다.")
@@ -86,7 +90,9 @@ class IAPVerifierService:
         if receipt_data.count(".") == 2 and mode != "local":
             from src.services.store_notifications import verify_apple_transaction
 
-            transaction = await verify_apple_transaction(receipt_data)
+            transaction = await verify_apple_transaction(
+                receipt_data, environment="Sandbox" if review_sandbox else None
+            )
             if transaction.transactionId != transaction_id or transaction.productId != product_id:
                 raise ValidationError("Apple 서명 거래가 요청과 일치하지 않습니다.")
             if transaction.revocationDate is not None:
@@ -223,6 +229,7 @@ class IAPVerifierService:
         transaction_id: str,
         purchase_token: Optional[str],
         is_subscription: bool,
+        review_sandbox: bool = False,
     ) -> IAPVerificationResult:
         if not purchase_token:
             raise ValidationError("Google purchase_token이 필요합니다.")
@@ -263,7 +270,7 @@ class IAPVerifierService:
                 google_data=google_data,
                 expected_transaction_id=transaction_id,
                 is_subscription=is_subscription,
-                expected_product_id=product_id,
+                review_sandbox=review_sandbox,
             )
         except ValidationError:
             if mode == "hybrid":
@@ -460,7 +467,7 @@ class IAPVerifierService:
         google_data: dict,
         expected_transaction_id: str,
         is_subscription: bool,
-        expected_product_id: Optional[str] = None,
+        review_sandbox: bool = False,
     ) -> None:
         order_id = _coerce_str(google_data.get("orderId"))
         if order_id is None:
@@ -486,15 +493,8 @@ class IAPVerifierService:
         # 라이선스 테스터 계정 하나로 크레딧·구독을 무한 발급할 수 있다.
         # (1 = 프로모 코드, 2 = 리워드 — 이들도 무결제이므로 함께 막는다.)
         purchase_type = google_data.get("purchaseType")
-        review_products = {
-            value.strip()
-            for value in (settings.review_sandbox_allowlist or "").split(",")
-            if value.strip()
-        }
-        permitted_review = purchase_type == 0 and expected_product_id in review_products
-        if purchase_type is not None and not (
-            settings.testing or settings.enable_test_hooks or permitted_review
-        ):
+        if purchase_type is not None and not (type(purchase_type) is int
+                                               and purchase_type == 0 and review_sandbox):
             raise ValidationError(
                 "무결제(테스트/프로모) 구매는 운영에서 지급되지 않습니다.",
                 details={"purchase_type": purchase_type},

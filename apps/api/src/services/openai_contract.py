@@ -16,6 +16,7 @@ from http.cookiejar import CookieJar, DefaultCookiePolicy
 import httpx
 import structlog
 
+from src.services.generation_consent import post_with_consent
 from src.core.errors import ErrorCode, LLMError
 from src.services.structured_output import provider_output_schema
 from src.services.provider_runtime import (
@@ -58,9 +59,9 @@ async def _post_openai(url, payload, api_key, timeout):
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     get_client = _BOOK_CLIENT.get()
     if get_client is not None:
-        return await get_client().post(url, headers=headers, json=payload, timeout=timeout)
+        return await post_with_consent(get_client(), url, headers=headers, json=payload, timeout=timeout)
     async with httpx.AsyncClient(timeout=timeout) as client:
-        return await client.post(url, headers=headers, json=payload)
+        return await post_with_consent(client, url, headers=headers, json=payload)
 
 RESPONSES_MODELS = frozenset({"gpt-6-astra", "gpt-5.6-sol", "gpt-5.6"})
 MAX_RESPONSE_OUTPUT_TOKENS = 32_000

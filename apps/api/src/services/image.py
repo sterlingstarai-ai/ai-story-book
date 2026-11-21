@@ -19,6 +19,7 @@ import asyncio
 import structlog
 from PIL import Image, UnidentifiedImageError
 
+from src.services.generation_consent import post_with_consent
 from src.core.config import settings
 from src.services.storage import media_url
 from src.services.image_request_budget import (
@@ -283,7 +284,8 @@ async def _generate_openai(prompt: ImagePrompt, reference_image_url: str | None 
                 + "." + {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}[ref_mime],
                 ref_bytes, ref_mime,
             )) for index, (ref_bytes, ref_mime) in enumerate(references)]
-            response = await client.post(
+            response = await post_with_consent(
+                client,
                 "https://api.openai.com/v1/images/edits",
                 headers={"Authorization": f"Bearer {settings.image_api_key}"},
                 data=fields,
@@ -291,7 +293,8 @@ async def _generate_openai(prompt: ImagePrompt, reference_image_url: str | None 
                 files=dict(files) if len(files) == 1 else files,
             )
         else:
-            response = await client.post(
+            response = await post_with_consent(
+                client,
                 "https://api.openai.com/v1/images/generations",
                 headers={
                     "Authorization": f"Bearer {settings.image_api_key}",
@@ -558,7 +561,8 @@ async def _generate_gemini(
         await wait_for_image_cooldown(settings.image_timeout)
         consume_image_request()
         attempt = begin_provider_request(settings.image_provider, settings.image_model, "image", settings.image_api_key)
-        response = await client.post(
+        response = await post_with_consent(
+            client,
             f"{_GEMINI_BASE_URL}/{settings.image_model}:generateContent",
             headers={"Content-Type": "application/json", "x-goog-api-key": settings.image_api_key},
             json=body,
@@ -746,7 +750,8 @@ async def _generate_replicate(prompt: ImagePrompt) -> str:
         # Create prediction
         consume_image_request()
         attempt = begin_provider_request(settings.image_provider, settings.image_model, "image", settings.image_api_key)
-        response = await client.post(
+        response = await post_with_consent(
+            client,
             "https://api.replicate.com/v1/predictions",
             headers={
                 "Authorization": f"Token {settings.image_api_key}",
@@ -886,7 +891,8 @@ async def _generate_fal(prompt: ImagePrompt) -> str:
     async with httpx.AsyncClient(timeout=settings.image_timeout) as client:
         consume_image_request()
         attempt = begin_provider_request(settings.image_provider, settings.image_model, "image", settings.image_api_key)
-        response = await client.post(
+        response = await post_with_consent(
+            client,
             endpoint,
             headers={
                 "Authorization": f"Key {settings.image_api_key}",

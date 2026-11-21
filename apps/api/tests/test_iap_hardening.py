@@ -466,8 +466,7 @@ async def test_sandbox_receipt_blocked_in_production(client, db_session, monkeyp
 
 
 @pytest.mark.asyncio
-async def test_sandbox_receipt_allowed_when_in_allowlist(client, db_session, monkeypatch):
-    """allowlist에 있는 상품은 Sandbox여도 지급(심사 통과)."""
+async def test_allowlisted_product_does_not_authorize_an_ordinary_account(client, db_session, monkeypatch):
     monkeypatch.setattr(settings, "testing", False)
     monkeypatch.setattr(settings, "review_sandbox_allowlist", "credit_pack_10")
 
@@ -481,8 +480,8 @@ async def test_sandbox_receipt_allowed_when_in_allowlist(client, db_session, mon
         "platform": "apple", "product_id": "credit_pack_10",
         "transaction_id": "sb-ok-tx", "receipt_data": "AAAA",
     }, headers={"X-User-Key": user})
-    assert r.status_code == 200, r.text
-    assert r.json()["credits_added"] == 10
+    assert r.status_code == 400, r.text
+    assert await _balance(db_session, user) == 0
 
 
 @pytest.mark.asyncio

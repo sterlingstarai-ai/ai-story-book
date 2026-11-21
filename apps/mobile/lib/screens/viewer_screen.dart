@@ -677,10 +677,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
       return;
     }
 
-    await _showCompletionCelebration(streak);
+    await _showCompletionCelebration(streak, book);
   }
 
-  Future<void> _showCompletionCelebration(int streak) async {
+  Future<void> _showCompletionCelebration(int streak, BookResult book) async {
     final l = AppLocalizations.of(context);
     _completionConfettiController
       ..stop()
@@ -766,14 +766,29 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                     ),
                     const SizedBox(height: AppSpacing.xl),
                     PrimaryButton(
-                      text: l.viewerCreateNextStory,
+                      text: book.characterId != null || book.protagonistName != null
+                          ? l.viewerNextWithHero
+                          : l.viewerCreateNextStory,
                       onPressed: () {
                         Navigator.pop(dialogContext);
                         Navigator.pushNamedAndRemoveUntil(
                           context,
                           '/create',
                           (route) => route.isFirst,
+                          arguments: {
+                            'characterId': book.characterId,
+                            'protagonistName': book.protagonistName,
+                            'language': book.language,
+                          },
                         );
+                      },
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    SecondaryButton(
+                      text: l.viewerReadThisAgain,
+                      onPressed: () {
+                        Navigator.pop(dialogContext);
+                        Navigator.pushReplacementNamed(context, '/viewer', arguments: book.bookId);
                       },
                     ),
                     const SizedBox(height: AppSpacing.md),
@@ -2666,26 +2681,31 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     if (!await ensureAgeGate(context, ref) || !mounted) return;
     final l = AppLocalizations.of(context);
     try {
+      final api = ref.read(apiClientProvider);
+      final media = await ref.read(bookMediaStoreProvider.future);
+      if (!mounted || !identical(api, ref.read(apiClientProvider))) return;
       final request = await HttpClient().getUrl(Uri.parse(book.coverImageUrl));
       final response = await request.close();
       final bytes = await consolidateHttpClientResponseBytes(response);
 
-      final directory = await getTemporaryDirectory();
-      final fileName =
-          '${book.title.replaceAll(RegExp(r'[\\\\/:*?\"<>|]'), '_').replaceAll(' ', '_')}_cover.jpg';
-      final file = File('${directory.path}/$fileName');
-      await file.writeAsBytes(bytes);
-      if (!mounted) {
-        return;
-      }
-
-      final box = context.findRenderObject() as RenderBox?;
-      await Share.shareXFiles(
-        [XFile(file.path)],
-        text: l.viewerShareCoverText(book.title),
-        sharePositionOrigin: box != null
-            ? box.localToGlobal(Offset.zero) & box.size
-            : const Rect.fromLTWH(0, 0, 100, 100),
+      await media.store.share(
+        book.bookId,
+        extension: 'jpg',
+        bytes: bytes,
+        present: (file) async {
+          if (!mounted || !identical(api, ref.read(apiClientProvider))) {
+            return false;
+          }
+          final box = context.findRenderObject() as RenderBox?;
+          final result = await Share.shareXFiles(
+            [XFile(file.path)],
+            text: l.viewerShareCoverText(book.title),
+            sharePositionOrigin: box != null
+                ? box.localToGlobal(Offset.zero) & box.size
+                : const Rect.fromLTWH(0, 0, 100, 100),
+          );
+          return result.status != ShareResultStatus.dismissed;
+        },
       );
     } catch (_) {
       if (!mounted) {
@@ -2704,27 +2724,33 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     if (!await ensureAgeGate(context, ref) || !mounted) return;
     final l = AppLocalizations.of(context);
     try {
+      final api = ref.read(apiClientProvider);
+      final media = await ref.read(bookMediaStoreProvider.future);
+      if (!mounted || !identical(api, ref.read(apiClientProvider))) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(l.viewerPdfGenerating)));
 
-      final apiClient = ref.read(apiClientProvider);
-      final pdfBytes = await apiClient.downloadPdf(book.bookId);
+      final pdfBytes = await api.downloadPdf(book.bookId);
 
-      final directory = await getTemporaryDirectory();
-      final fileName =
-          '${book.title.replaceAll(RegExp(r'[\\\\/:*?\"<>|]'), '_').replaceAll(' ', '_')}.pdf';
-      final file = File('${directory.path}/$fileName');
-      await file.writeAsBytes(pdfBytes);
-      if (!mounted) return;
-
-      final box = context.findRenderObject() as RenderBox?;
-      await Share.shareXFiles(
-        [XFile(file.path)],
-        text: l.viewerSharePdfText(book.title),
-        sharePositionOrigin: box != null
-            ? box.localToGlobal(Offset.zero) & box.size
-            : const Rect.fromLTWH(0, 0, 100, 100),
+      await media.store.share(
+        book.bookId,
+        extension: 'pdf',
+        bytes: pdfBytes,
+        present: (file) async {
+          if (!mounted || !identical(api, ref.read(apiClientProvider))) {
+            return false;
+          }
+          final box = context.findRenderObject() as RenderBox?;
+          final result = await Share.shareXFiles(
+            [XFile(file.path)],
+            text: l.viewerSharePdfText(book.title),
+            sharePositionOrigin: box != null
+                ? box.localToGlobal(Offset.zero) & box.size
+                : const Rect.fromLTWH(0, 0, 100, 100),
+          );
+          return result.status != ShareResultStatus.dismissed;
+        },
       );
     } catch (e) {
       if (await _handlePaymentRequired(e)) {

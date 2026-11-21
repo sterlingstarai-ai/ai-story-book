@@ -10,7 +10,7 @@ from src.models.db import AccountIdentity
 
 
 async def lock_photo_account(db: AsyncSession, user_key: str) -> None:
-    """Lock before consent/character/job rows; never retain it over provider I/O.
+    """Lock before consent/character/job rows. At provider dispatch, hold through the body send.
 
     An unenrolled legacy account has no AccountIdentity row to lock. PostgreSQL's
     transaction advisory lock also covers that gap without creating an identity

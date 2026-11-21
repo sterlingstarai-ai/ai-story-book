@@ -125,6 +125,11 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
     _didHandleRouteArgs = true;
     final args = ModalRoute.of(context)?.settings.arguments;
     if (args is Map) {
+      final name = args['protagonistName'];
+      if (name is String && name.trim().isNotEmpty && name.runes.length <= 40) {
+        _protagonistController.text = name.trim();
+        _editedName = true;
+      }
       final topic = args['topic'];
       if (topic is String) {
         _topicController.text = topic.trim();
@@ -156,7 +161,10 @@ class _CreateScreenState extends ConsumerState<CreateScreen> {
     }
     // 이야기 언어 기본값을 현재 UI 로캘에서 추론(글로벌 — 지원 언어가 아니면 영어).
     const supportedStoryLangs = {'ko', 'en', 'ja'};
-    final localeCode = Localizations.localeOf(context).languageCode;
+    final previousLanguage = args is Map ? args['language'] : null;
+    final localeCode = previousLanguage is String && supportedStoryLangs.contains(previousLanguage)
+        ? previousLanguage
+        : Localizations.localeOf(context).languageCode;
     _selectedLanguage = supportedStoryLangs.contains(localeCode)
         ? localeCode
         : 'en';

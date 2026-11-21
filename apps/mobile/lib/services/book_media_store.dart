@@ -6,6 +6,7 @@ import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'book_deletion_journal.dart';
+import 'share_staging.dart';
 
 class PendingBookDeletion {
   const PendingBookDeletion(this.bookId, this.requestId, this.profileDigest);
@@ -382,6 +383,43 @@ class BookMediaStore {
     }
   }
 
+  /// Hold the deletion barrier through presentation so a late share cannot
+  /// recreate an attachment after the corresponding book has been purged.
+  Future<void> share(
+    String bookId, {
+    required String extension,
+    required List<int> bytes,
+    required Future<bool> Function(File) present,
+  }) async {
+    final token = _bookToken(bookId);
+    await _serialized(() async {
+      if (_closed || _blocked(token)) {
+        throw StateError('Book media is unavailable');
+      }
+      _active[token] = (_active[token] ?? 0) + 1;
+    });
+    try {
+      await ShareStaging.run(
+        base: await baseDirectory(),
+        scope: scopeDigest,
+        bookToken: token,
+        extension: extension,
+        bytes: bytes,
+        present: (file) async => await canRead(bookId) && await present(file),
+      );
+    } finally {
+      await _serialized(() async {
+        final remaining = (_active[token] ?? 1) - 1;
+        if (remaining == 0) {
+          _active.remove(token);
+          _drained.remove(token)?.complete();
+        } else {
+          _active[token] = remaining;
+        }
+      });
+    }
+  }
+
   /// Returns only a currently tracked, non-deleted regular file.
   Future<File?> lookup(
     String bookId,
@@ -637,6 +675,11 @@ class BookMediaStore {
     });
 
     if (drain != null) await drain.future.timeout(drainTimeout);
+    await ShareStaging.clean(
+      await baseDirectory(),
+      scopes: {scopeDigest},
+      bookToken: token,
+    );
     final directory = await _bookDirectory(token, create: false);
     if (await FileSystemEntity.type(directory.path, followLinks: false) !=
         FileSystemEntityType.notFound) {

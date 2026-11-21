@@ -175,18 +175,23 @@ def test_child_facing_release_blocks_google_generative_ai(realtime_free_beta, fi
     ("DAILY_JOB_LIMIT_PER_USER", "0"),
     ("MAX_PENDING_JOBS_PER_USER", "0"),
     ("MAX_PENDING_JOBS", "0"),
-    ("GENERATION_ACCESS_MODE", "open"),
+    ("GENERATION_ACCESS_MODE", "paused"),
     ("FREE_PLAN_FIRST_BOOK_TRIAL", "false"),
     ("PURCHASES_ENABLED", "true"),
     ("TTS_PROVIDER", "openai"),
     ("TTS_PROVIDER", "google_gemini"),
     ("AUDIO_FEATURE_ENABLED", "false"),
 ])
-def test_free_beta_requires_complete_book_capacity_and_invited_access(realtime_free_beta, field, value):
+def test_free_beta_requires_complete_book_capacity_and_available_access(realtime_free_beta, field, value):
     result = preflight.assess({**realtime_free_beta, field: value}, free_beta=True)
     assert result["status"] == "BLOCKED"
     gate = "TTS_PROVIDER" if field == "AUDIO_FEATURE_ENABLED" else field
     assert any(item.startswith(gate + " (") for item in result["invalid_configuration"])
+
+
+def test_public_first_book_keeps_limits_and_does_not_require_an_invitation(realtime_free_beta):
+    values = {**realtime_free_beta, "GENERATION_ACCESS_MODE": "open", "GENERATION_ALLOWED_USER_HASHES": ""}
+    assert preflight.assess(values, free_beta=True)["status"] == "CONFIGURED_NOT_VERIFIED"
 
 
 def test_free_beta_accepts_one_slot_at_each_book_guardrail(realtime_free_beta):

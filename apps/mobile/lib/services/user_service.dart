@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
@@ -34,9 +35,36 @@ class UserService {
   static const _secureOptions = AndroidOptions(
     encryptedSharedPreferences: true,
   );
+  static const _iosSecureOptions = IOSOptions(
+    accessibility: KeychainAccessibility.unlocked_this_device,
+    synchronizable: false,
+  );
   static const _defaultSecureStorage = FlutterSecureStorage(
     aOptions: _secureOptions,
+    iOptions: _iosSecureOptions,
   );
+  static const _securityChannel = MethodChannel('ai_story_book/security');
+  static Future<void>? _deviceProtection;
+
+  static Future<void> _protectDeviceCredentials(
+    FlutterSecureStorage secure,
+  ) async {
+    if (kIsWeb ||
+        defaultTargetPlatform != TargetPlatform.iOS ||
+        !identical(secure, _defaultSecureStorage)) {
+      return;
+    }
+    try {
+      // Native SecItemUpdate changes attributes in place. The locked storage
+      // plugin deletes/re-adds when rewriting an item with new accessibility.
+      await (_deviceProtection ??= _securityChannel.invokeMethod<void>(
+        'protectDeviceCredentials',
+      ));
+    } catch (_) {
+      _deviceProtection = null;
+      throw const UserKeyUnavailable();
+    }
+  }
 
   /// 부팅 시 [bootstrapUserKey] 가 채우는 프로세스 캐시.
   ///
@@ -64,6 +92,7 @@ class UserService {
 
     String? key;
     try {
+      await _protectDeviceCredentials(secure);
       key = await secure.read(key: _userKeyKey);
     } catch (_) {
       // 읽기 실패는 신규 설치가 아니다. 기존 키를 절대 덮어쓰지 않는다.
@@ -74,7 +103,8 @@ class UserService {
       throw const UserKeyUnavailable();
     }
 
-    if (!_isValidKey(key)) {
+    var secureKeyVerified = _isValidKey(key);
+    if (!secureKeyVerified) {
       final legacy = prefs.getString(_userKeyKey);
       if (_isValidKey(legacy)) {
         // 이관: 보안 저장소에 먼저 쓰고, 성공했을 때만 평문 제거.
@@ -83,13 +113,28 @@ class UserService {
             key: _userKeyKey,
             value: legacy,
             aOptions: _secureOptions,
+            iOptions: _iosSecureOptions,
           );
-          await prefs.remove(_userKeyKey);
-          key = legacy;
+          if (await secure.read(key: _userKeyKey) != legacy) {
+            throw const UserKeyUnavailable();
+          }
+          secureKeyVerified = true;
         } catch (_) {
           debugPrint('user_key 보안 저장소 이관 실패(다음 부팅에서 재시도)');
-          key = legacy; // 이관 실패 시에도 계정은 유지 — 다음 부팅에서 재시도.
         }
+        key = legacy;
+      }
+    }
+
+    // A previous launch may have stopped after the secure write committed.
+    if (secureKeyVerified && prefs.containsKey(_userKeyKey)) {
+      try {
+        if (!await prefs.remove(_userKeyKey)) throw const UserKeyUnavailable();
+      } catch (_) {
+        // SharedPreferences removes from its memory cache before the disk write.
+        // Reload storage so retrying bootstrap in the same process sees it again.
+        await prefs.reload();
+        throw const UserKeyUnavailable();
       }
     }
 
@@ -103,6 +148,7 @@ class UserService {
           key: _userKeyKey,
           value: key,
           aOptions: _secureOptions,
+          iOptions: _iosSecureOptions,
         );
         if (await secure.read(key: _userKeyKey) != key) {
           throw const UserKeyUnavailable();
@@ -150,6 +196,7 @@ class UserService {
         key: _pendingRecoveryKey,
         value: key,
         aOptions: _secureOptions,
+        iOptions: _iosSecureOptions,
       );
       if (await _secureStorage.read(key: _pendingRecoveryKey) != key) {
         throw const UserKeyUnavailable();
@@ -162,6 +209,7 @@ class UserService {
 
   Future<String?> pendingRecoveryKey() async {
     try {
+      await _protectDeviceCredentials(_secureStorage);
       final key = await _secureStorage.read(key: _pendingRecoveryKey);
       if (key != null &&
           !RegExp(r'^asb_device_[A-Za-z0-9_-]{43}$').hasMatch(key)) {
@@ -175,9 +223,11 @@ class UserService {
 
   Future<void> discardPendingRecoveryKey() async {
     try {
+      await _protectDeviceCredentials(_secureStorage);
       await _secureStorage.delete(
         key: _pendingRecoveryKey,
         aOptions: _secureOptions,
+        iOptions: _iosSecureOptions,
       );
     } catch (_) {
       throw const UserKeyUnavailable();
@@ -201,6 +251,7 @@ class UserService {
         key: _userKeyKey,
         value: key,
         aOptions: _secureOptions,
+        iOptions: _iosSecureOptions,
       );
       if (await _secureStorage.read(key: _userKeyKey) != key) {
         throw const UserKeyUnavailable();
@@ -256,6 +307,7 @@ class UserService {
   }) async {
     _credentialUnavailable = true;
     try {
+      await _protectDeviceCredentials(_secureStorage);
       if (!await _prefs.setBool(deletionCommittedKey, true)) {
         throw const UserKeyUnavailable();
       }
@@ -264,6 +316,7 @@ class UserService {
         key: _userKeyKey,
         value: key,
         aOptions: _secureOptions,
+        iOptions: _iosSecureOptions,
       );
       if (await _secureStorage.read(key: _userKeyKey) != key) {
         throw const UserKeyUnavailable();
@@ -307,7 +360,12 @@ class UserService {
     _cachedUserKey = null;
     await _prefs.remove(_userKeyKey);
     try {
-      await _secureStorage.delete(key: _userKeyKey, aOptions: _secureOptions);
+      await _protectDeviceCredentials(_secureStorage);
+      await _secureStorage.delete(
+        key: _userKeyKey,
+        aOptions: _secureOptions,
+        iOptions: _iosSecureOptions,
+      );
       await _prefs.remove(_initializedKey);
     } catch (_) {
       debugPrint('user_key 삭제 실패');
@@ -318,6 +376,7 @@ class UserService {
   static void resetCacheForTest() {
     _cachedUserKey = null;
     _credentialUnavailable = false;
+    _deviceProtection = null;
   }
 
   String? getActiveProfileId() {

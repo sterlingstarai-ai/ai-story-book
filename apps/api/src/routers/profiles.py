@@ -97,6 +97,7 @@ async def create_profile(
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
 ):
+    await lock_photo_account(db, user_key)
     await require_parental_consent(db, user_key)
     count_result = await db.execute(
         select(ChildProfile).where(ChildProfile.user_key == user_key)
@@ -146,6 +147,7 @@ async def update_profile(
     db: AsyncSession = Depends(get_db),
     user_key: str = Depends(get_user_key),
 ):
+    await lock_photo_account(db, user_key)
     await require_parental_consent(db, user_key)
     result = await db.execute(
         select(ChildProfile).where(

@@ -43,7 +43,7 @@ from src.models.dto import (
     RetellRequest,
     RetellResponse,
 )
-from src.models.db import ChildProfile, Job, Book, Page, Character, CreditTransaction
+from src.models.db import ChildProfile, Job, Book, Page, Character, CreditTransaction, StoryDraftDB
 from src.models.dto import Style
 from src.models.generation_options import GenerationOptionsResponse
 from src.services.orchestrator import start_book_generation
@@ -252,7 +252,7 @@ async def _enforce_free_plan_feature_access(
     user_key: str,
     feature: str,
     *,
-    trial_narration_job_id: str | None = None,
+    narration_job_id: str | None = None,
 ) -> None:
     if not _is_free_plan_policy_enabled():
         return
@@ -263,8 +263,8 @@ async def _enforce_free_plan_feature_access(
 
     if (
         settings.free_plan_first_book_trial
-        and trial_narration_job_id is not None
-        and await credits_service.first_book_trial_job(db, user_key) == trial_narration_job_id
+        and narration_job_id is not None
+        and await credits_service.book_credit_spent(db, user_key, narration_job_id)
     ):
         return
 
@@ -394,6 +394,11 @@ async def _create_job_with_credit(
     existing = await _existing_creation_response(db, user_key, idempotency_key, profile_id)
     if existing:
         return existing
+    from src.services.photo_book_references import validate_photo_book_selection
+
+    await require_parental_consent(db, user_key)
+    await _validate_profile_ownership(db, user_key, profile_id)
+    photo_character = await validate_photo_book_selection(db, user_key, character_ids or [])
     from src.services.provider_runtime import ensure_generation_available
     await ensure_generation_available()
     has_credits = await credits_service.has_credits(db, user_key, required=1)
@@ -440,9 +445,6 @@ async def _create_job_with_credit(
         await check_guardrails(db, user_key)
         if validated_style is not None:
             await _enforce_free_plan_create_limits(db, user_key, validated_style)
-        from src.services.photo_book_references import selection_is_photo_derived
-
-        photo_derived = await selection_is_photo_derived(db, user_key, character_ids or [])
         job = Job(
             id=job_id,
             status="queued",
@@ -451,7 +453,7 @@ async def _create_job_with_credit(
             user_key=user_key,
             profile_id=profile_id,
             idempotency_key=idempotency_key,
-            photo_derived=photo_derived,
+            photo_derived=photo_character is not None,
         )
         db.add(job)
         await db.flush()
@@ -1017,7 +1019,15 @@ async def get_book_detail(
         raise NotFoundError("Book", book_id)
 
     book, pages, assets = completed
-    return _build_book_dict(book, pages, learning_assets=assets, include_job_id=True)
+    detail = _build_book_dict(book, pages, learning_assets=assets, include_job_id=True)
+    # Books created without a saved Character still have a named lead in their draft.
+    cast = await db.scalar(select(StoryDraftDB.draft["characters"]).where(StoryDraftDB.job_id == book.job_id))
+    if isinstance(cast, list):
+        detail["protagonist_name"] = next((
+            member["name"] for member in cast if isinstance(member, dict)
+            and member.get("role") == "main" and isinstance(member.get("name"), str)
+        ), None)
+    return detail
 
 
 @router.post(
@@ -1039,6 +1049,9 @@ async def regenerate_book_page(
     - feedback: 재생성 시 반영할 피드백
     """
     # Verify job exists and is done
+    from src.services.photo_lifecycle import lock_photo_account
+
+    await lock_photo_account(db, user_key)
     result = await db.execute(select(Job).where(Job.id == job_id))
     job = result.scalar_one_or_none()
 
@@ -1171,6 +1184,9 @@ async def inpaint_book_page(
             },
         )
 
+    from src.services.photo_lifecycle import lock_photo_account
+
+    await lock_photo_account(db, user_key)
     result = await db.execute(select(Job).where(Job.id == job_id))
     job = result.scalar_one_or_none()
     if not job:
@@ -1219,7 +1235,6 @@ async def inpaint_book_page(
 
     # 마스크 업로드 → S3
     mask_key = f"masks/{book.id}/{page_number}/{uuid.uuid4().hex}.png"
-    mask_url = await storage_service.upload_bytes(mask_bytes, mask_key, "image/png")
 
     inpaint_job_id = (
         f"inpaint_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
@@ -1236,6 +1251,10 @@ async def inpaint_book_page(
         # F2: 마스크 키를 잡에 기록 — 계정 삭제(전 잡 image_keys 수집)가 이 고아를 파기.
         image_keys=[mask_key],
     )
+    from src.services.purge_queue import cancel_purge_task, enqueue_purge_keys
+    from src.services.generation_consent import require_active_book_job
+
+    mask_guard = enqueue_purge_keys(db, user_key=user_key, reason="inpaint_mask_upload", keys=[mask_key])[0]
     db.add(inpaint_job)
     try:
         await db.commit()
@@ -1249,6 +1268,19 @@ async def inpaint_book_page(
             error=str(e),
         )
         raise InternalServerError("부분 재생성 작업 생성에 실패했습니다.") from e
+
+    try:
+        mask_url = await storage_service.upload_bytes(mask_bytes, mask_key, "image/png")
+        await require_active_book_job(db, inpaint_job_id, user_key)
+        if not await db.scalar(select(Book.id).where(Book.id == book.id, Book.user_key == user_key)):
+            raise NotFoundError("Book", book.id)
+        cancel_purge_task(mask_guard)
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        await set_regen_job_status(inpaint_job_id, status="failed", progress=100,
+                                  current_step="마스크 업로드 실패", error_code="IMAGE_FAILED")
+        raise
 
     await _dispatch_long_running_job(
         celery_task_name="inpaint_page_task",
@@ -1808,6 +1840,12 @@ async def generate_book_audio(
     # H1/G9: 오디오 비활성 배포에서는 provider 해석 실패 500 대신 명시적 미지원으로 차단.
     (require_narration_supported if settings.audio_narration_only_enabled else require_audio_supported)()
 
+    # Keep the source, current consent and admission in the same transaction
+    # as withdrawal. The plan check below performs only a local database read.
+    from src.services.photo_lifecycle import lock_photo_account
+    from src.services.photo_book_references import existing_book_is_photo_derived
+
+    await lock_photo_account(db, user_key)
     # Fetch book
     book_result = await db.execute(select(Book).where(Book.id == book_id))
     book = book_result.scalar_one_or_none()
@@ -1834,13 +1872,17 @@ async def generate_book_audio(
     # 잡 상태(done/failed)로 표면화되고 GET /v1/books/{job_id}로 폴링 가능(형제 regen/inpaint와 대칭).
     from src.core.generation_access import require_generation_access
     require_generation_access(user_key)
+    photo_derived = await existing_book_is_photo_derived(db, book)
+    if photo_derived:
+        await require_photo_consent(db, user_key)
     audio_job_id = f"audio_{utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
     audio_job = Job(
         id=audio_job_id,
-        status="running",
+        status="queued",
         progress=0,
         current_step="오디오 생성 대기 중",
         user_key=user_key,
+        photo_derived=photo_derived,
         profile_id=book.profile_id,
     )
     db.add(audio_job)
@@ -1991,7 +2033,7 @@ async def _resolve_page_audio(book_id, page_number, language, voice, style, db, 
                                    getattr(page, "text_en", None), book_language)
     if language not in text_by_language:
         raise ValidationError("요청한 언어의 본문이 아직 준비되지 않았습니다.")
-    await require_parental_consent(db, user_key)
+    consent_id = await require_parental_consent(db, user_key)
 
     if voice != "default" or style != "legacy":
         from src.core.audio_feature import narration_voice_selection_supported, narration_style_selection_supported
@@ -2015,17 +2057,17 @@ async def _resolve_page_audio(book_id, page_number, language, voice, style, db, 
     if cached_only:
         return {"audio_url": None}
 
-    # Keep the existing 3–5 exception and include narration in the trial book.
+    # Preserve the 3–5 exception. Other ages can narrate books made with a spent credit.
     target_age = str(getattr(book, "target_age", "") or "").strip()
     if target_age != "3-5":
         await _enforce_free_plan_feature_access(
-            db, user_key, "audio", trial_narration_job_id=book.job_id,
+            db, user_key, "audio", narration_job_id=book.job_id,
         )
 
     # 없으면 즉시 생성
     try:
         from src.services.audio_assets import NarrationSource
-        source = NarrationSource.from_page(book, page)
+        source = NarrationSource.from_page(book, page, consent_id=consent_id)
         source_text = text_by_language[language]
         from src.core.generation_access import require_generation_access
         require_generation_access(user_key)
@@ -2035,9 +2077,15 @@ async def _resolve_page_audio(book_id, page_number, language, voice, style, db, 
                          {"warm": "coral", "deep": "cedar" if selected_provider == "openai_realtime" else "onyx"})
             voice_args = {} if voice == "default" else {"voice": voice_map[voice]}
             style_args = {} if style == "legacy" else {"style": style}
-            audio_bytes = await tts_service.synthesize_page(
-                source_text, target_age=getattr(book, "target_age", None), language=language, **voice_args, **style_args,
-            )
+            from functools import partial
+            from src.services.audio_assets import authorize_narration
+            from src.services.generation_consent import provider_consent_scope
+
+            authorize = partial(authorize_narration, source=source)
+            with provider_consent_scope(authorize):
+                audio_bytes = await tts_service.synthesize_page(
+                    source_text, target_age=source.target_age, language=language, **voice_args, **style_args,
+                )
             from src.services.audio_assets import publish_narration, publish_variant, store_narration
             url, guard = await store_narration(db, book_id, page_number, language, audio_bytes, user_key=user_key)
             if voice == "default" and style == "legacy":
@@ -2059,6 +2107,9 @@ async def _resolve_page_audio(book_id, page_number, language, voice, style, db, 
             else:
                 audio_url = await variant_url(db, page.id, language, voice, style, settings.tts_provider.strip().lower())
             if not audio_url:
+                # The transport takes a fresh session when sending. Release this
+                # read transaction before waiting for budget, network or model work.
+                await db.commit()
                 # Finish well before lock expiry; uncertain failures retain it.
                 try:
                     audio_url = await asyncio.wait_for(generate_audio(), timeout=240)

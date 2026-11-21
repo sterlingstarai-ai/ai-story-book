@@ -72,7 +72,8 @@ class AppLocalizationsJa extends AppLocalizations {
   String get onboardingSlide4Subtitle => 'テーマを選んで、最初の絵本を作りましょう。';
 
   @override
-  String get firstBookTrialOffer => '体験対象の新規アカウントでは、イラストと朗読付きの最初の絵本を1冊無料で作れます。';
+  String get firstBookTrialOffer =>
+      '新しいアカウントでは最初の絵本を1冊無料で作れます。イラストと韓国語の朗読をお楽しみください。';
 
   @override
   String get firstBookTrialIllustratedOffer => 'イラスト付きの最初の絵本を1冊無料で作れます。';
@@ -1738,6 +1739,13 @@ class AppLocalizationsJa extends AppLocalizations {
   String get planFeaturesPremium => '月10冊作成|すべての機能|プレミアムTTS|優先処理';
 
   @override
+  String get creditsAppleRenewalNotice =>
+      '毎月自動で更新されます。次回の請求を停止するには、更新の24時間前までにApp Storeで解約してください。';
+
+  @override
+  String get creditsManageAppleSubscription => 'App Storeでサブスクリプションを管理';
+
+  @override
   String get creditsStorePriceNotice => '購入画面でストアの価格をご確認ください';
 
   @override
@@ -2103,6 +2111,19 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get viewerCompletionMessage => '最後のページまで読みました。次の絵本も始めてみましょうか？';
+
+  @override
+  String get viewerReadThisAgain => 'この絵本をもう一度読む';
+
+  @override
+  String get viewerNextWithHero => '同じ主人公で次のお話を作る';
+
+  @override
+  String get creditsSingleIncludes =>
+      'オリジナル絵本1冊分の買い切りです。標準の12ページには表紙1枚と本文の挿絵12枚が付きます。短い8ページも選べます。';
+
+  @override
+  String get creditsSingleNarration => '韓国語の絵本は最後のページまで読み聞かせを楽しめます。';
 
   @override
   String get viewerCreateNextStory => '次の絵本を作る';
@@ -3142,7 +3163,10 @@ class AppLocalizationsJa extends AppLocalizations {
   String get recoveryCopy => '復元コードをコピー';
 
   @override
-  String get recoveryCopied => '復元コードをコピーしました。安全に保管してください。';
+  String get recoveryCopied => '復元コードをコピーしました。60秒以内に安全な場所に貼り付けてください。';
+
+  @override
+  String get recoveryCopyFailed => '安全にコピーできませんでした。表示されたコードを手動で記録してください。';
 
   @override
   String get recoverySavedCheck => 'コード全体をこのアプリ以外の安全な場所に保存しました。';

@@ -188,13 +188,18 @@ class JobMonitor:
             )
             sla_breach_jobs = sla_breach.scalars().all()
 
+            # Commit each transition and refund together. Never hold a credit row
+            # while waiting for the next job: erasure locks all affected jobs
+            # before settling that account's credits.
             # Process stuck running jobs
             for job in stuck_running_jobs:
                 await self._handle_stuck_job(session, job, "STUCK_RUNNING")
+                await session.commit()
 
             # Process stuck queued jobs
             for job in stuck_queued_jobs:
                 await self._handle_stuck_job(session, job, "STUCK_QUEUED")
+                await session.commit()
 
             # Process SLA breach jobs (mark failed immediately, no retry)
             for job in sla_breach_jobs:
@@ -205,8 +210,7 @@ class JobMonitor:
                         "SLA_BREACH",
                         f"Job exceeded SLA of {settings.job_sla_seconds}s",
                     )
-
-            await session.commit()
+                    await session.commit()
 
             # Log summary
             total_processed = (
@@ -282,6 +286,14 @@ class JobMonitor:
         done 잡을 failed로 되돌리지 않는다(H10 fence). 조건부 UPDATE로 전이 성공(rowcount==1)
         시에만 환불해, 워커가 완주해 done이 된 잡을 SLA 틱이 failed+환불로 뒤집는 것을 막는다.
         """
+        from src.core.exceptions import AuthorizationError
+        from src.services.photo_lifecycle import lock_photo_account
+
+        try:
+            await lock_photo_account(session, job.user_key)
+        except AuthorizationError:
+            # Account erasure won after the monitor enumerated its candidates.
+            return
         result = await session.execute(
             update(Job)
             .where(Job.id == job.id, Job.status.in_(["queued", "running"]))

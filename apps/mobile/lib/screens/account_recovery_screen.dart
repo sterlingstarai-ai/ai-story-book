@@ -1,10 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../l10n/app_localizations.dart';
 import '../providers/providers.dart';
 import '../services/user_service.dart';
+import '../services/recovery_clipboard.dart';
 import '../utils/constants.dart';
 import '../widgets/age_gate_dialog.dart';
 
@@ -36,6 +38,8 @@ class AccountRecoveryScreen extends ConsumerStatefulWidget {
 class _AccountRecoveryScreenState extends ConsumerState<AccountRecoveryScreen> {
   final _input = TextEditingController();
   final _confirmation = TextEditingController();
+  final _clipboard = RecoveryClipboard();
+  bool _copying = false;
   bool _busy = false;
   bool _loading = true;
   bool _enabled = false;
@@ -59,6 +63,7 @@ class _AccountRecoveryScreenState extends ConsumerState<AccountRecoveryScreen> {
 
   @override
   void dispose() {
+    unawaited(_clipboard.dispose().catchError((Object _) {}));
     _input.dispose();
     _confirmation.dispose();
     super.dispose();
@@ -158,6 +163,7 @@ class _AccountRecoveryScreenState extends ConsumerState<AccountRecoveryScreen> {
   Future<void> _confirmSaved() async {
     final code = _code;
     if (_busy ||
+        _copying ||
         code == null ||
         !_saved ||
         _confirmation.text != code.substring(code.length - 6)) {
@@ -165,6 +171,7 @@ class _AccountRecoveryScreenState extends ConsumerState<AccountRecoveryScreen> {
     }
     setState(() => _busy = true);
     try {
+      await _clipboard.clear();
       await ref
           .read(sharedPreferencesProvider)
           .setBool(UserService.recoveryBackupNeededKey, false);
@@ -178,8 +185,34 @@ class _AccountRecoveryScreenState extends ConsumerState<AccountRecoveryScreen> {
           _saved = false;
         });
       }
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _error = AppLocalizations.of(context).recoveryCopyFailed,
+        );
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _copyCode(String code) async {
+    if (_busy || _copying) return;
+    setState(() => _copying = true);
+    final l = AppLocalizations.of(context);
+    try {
+      await _clipboard.copy(code);
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.recoveryCopied)));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.recoveryCopyFailed)));
+    } finally {
+      if (mounted) setState(() => _copying = false);
     }
   }
 
@@ -241,7 +274,7 @@ class _AccountRecoveryScreenState extends ConsumerState<AccountRecoveryScreen> {
                           ).colorScheme.surfaceContainerHighest,
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: SelectableText(
+                        child: Text(
                           code,
                           style: const TextStyle(
                             fontFamily: 'monospace',
@@ -254,13 +287,9 @@ class _AccountRecoveryScreenState extends ConsumerState<AccountRecoveryScreen> {
                         style: OutlinedButton.styleFrom(
                           minimumSize: const Size(64, 64),
                         ),
-                        onPressed: () async {
-                          await Clipboard.setData(ClipboardData(text: code));
-                          if (!context.mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(l.recoveryCopied)),
-                          );
-                        },
+                        onPressed: _busy || _copying
+                            ? null
+                            : () => _copyCode(code),
                         icon: const Icon(Icons.copy),
                         label: Text(l.recoveryCopy),
                       ),

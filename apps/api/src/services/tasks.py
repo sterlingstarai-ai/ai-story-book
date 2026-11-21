@@ -374,7 +374,10 @@ async def _run_tracked_job_async(job_id: str, label: str, coro_factory) -> dict:
         return {"status": "skipped", "reason": "already_claimed_or_missing", "job_id": job_id}
 
     await coro_factory()
-    if await _get_job_status_async(job_id) == "failed":
+    final_status = await _get_job_status_async(job_id)
+    if final_status is None:
+        return {"status": "skipped", "reason": "job_removed", "job_id": job_id}
+    if final_status == "failed":
         return {"status": "failed", "job_id": job_id}
     logger.info("Long-running job completed", job_id=job_id, label=label)
     return {"status": "success", "job_id": job_id}
@@ -492,10 +495,9 @@ def generate_audio_task(
 
     logger.info("Starting audio generation task", book_id=book_id, job_id=audio_job_id)
     if not audio_job_id:
-        # 잡 추적 없는 구 호출 경로 — 멱등 가드가 볼 상태 행이 없다.
-        return run_async(
-            run_audio_job(book_id, pages, target_age, default_language, None)
-        )
+        # An old broker message has no durable admission record. A current
+        # re-grant cannot authorize a request from before withdrawal.
+        return {"status": "skipped", "reason": "missing_job_id"}
     return run_async(
         _run_tracked_job_async(
             audio_job_id,

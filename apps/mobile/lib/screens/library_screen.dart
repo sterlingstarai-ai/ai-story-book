@@ -6,7 +6,6 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:uuid/uuid.dart';
 import '../core/api_error.dart';
@@ -288,12 +287,6 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     return l.libraryErrorGeneric;
   }
 
-  String _sanitizeFileName(String title) {
-    return title
-        .replaceAll(RegExp(r'[\\\\/:*?\"<>|]'), '_')
-        .replaceAll(' ', '_');
-  }
-
   Future<void> _shareBook(LibraryBook book) async {
     if (!await ensureAgeGate(context, ref) || !mounted) return;
     final l = AppLocalizations.of(context);
@@ -303,7 +296,12 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
         ? box.localToGlobal(Offset.zero) & box.size
         : const Rect.fromLTWH(0, 0, 100, 100);
 
+    final api = ref.read(apiClientProvider);
+    BookMediaContext? media;
     try {
+      final ready = await ref.read(bookMediaStoreProvider.future);
+      media = ready;
+      if (!mounted || !identical(api, ref.read(apiClientProvider))) return;
       final request = await HttpClient().getUrl(Uri.parse(book.coverImageUrl));
       final response = await request.close();
       final bytes = await consolidateHttpClientResponseBytes(response);
@@ -312,15 +310,21 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
         throw const FileSystemException('empty cover image response');
       }
 
-      final directory = await getTemporaryDirectory();
-      final fileName = '${_sanitizeFileName(book.title)}_cover.jpg';
-      final file = File('${directory.path}/$fileName');
-      await file.writeAsBytes(bytes, flush: true);
-
-      await Share.shareXFiles(
-        [XFile(file.path)],
-        text: message,
-        sharePositionOrigin: origin,
+      await ready.store.share(
+        book.id,
+        extension: 'jpg',
+        bytes: bytes,
+        present: (file) async {
+          if (!mounted || !identical(api, ref.read(apiClientProvider))) {
+            return false;
+          }
+          final result = await Share.shareXFiles(
+            [XFile(file.path)],
+            text: message,
+            sharePositionOrigin: origin,
+          );
+          return result.status != ShareResultStatus.dismissed;
+        },
       );
       return;
     } catch (_) {
@@ -328,6 +332,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     }
 
     try {
+      if (media == null || !await media.store.canRead(book.id)) return;
+      if (!mounted || !identical(api, ref.read(apiClientProvider))) return;
       await Share.share(message, sharePositionOrigin: origin);
     } catch (_) {
       if (!mounted) {

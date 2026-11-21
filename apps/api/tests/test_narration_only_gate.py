@@ -1,6 +1,6 @@
 """Narration can be enabled independently without exposing pronunciation."""
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Response
 
 from src.core import audio_feature as gate
 from src.core.config import settings
@@ -22,7 +22,7 @@ async def test_narration_only_advertises_no_pronunciation(monkeypatch):
     gate.require_narration_supported()
     with pytest.raises(HTTPException):
         gate.require_audio_supported()
-    caps = await get_capabilities()
+    caps = await get_capabilities(Response())
     assert caps['narration_supported'] is True
     assert caps['audio_supported'] is False
     assert caps['narration_audio_provider'] == 'google_gemini'

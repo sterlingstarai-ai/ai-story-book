@@ -26,7 +26,7 @@ def _first_book_trial_grant_id(user_key: str):
     ).scalar_subquery()
 
 
-def _first_book_trial_spends(user_key: str, grant_id):
+def _book_credit_spends(user_key: str):
     refund = aliased(CreditTransaction)
     was_refunded = select(refund.id).where(
         refund.user_key == user_key,
@@ -35,7 +35,7 @@ def _first_book_trial_spends(user_key: str, grant_id):
     ).exists()
     return select(CreditTransaction.reference_id).where(
         CreditTransaction.user_key == user_key,
-        CreditTransaction.id > grant_id,
+        CreditTransaction.amount < 0,
         CreditTransaction.transaction_type == "usage",
         ~was_refunded,
     )
@@ -51,13 +51,13 @@ SUBSCRIPTION_PLANS = {
     },
     "basic": {
         "name": "베이직",
-        "price": 24900,  # KRW reference; storefront price is authoritative.
+        "price": 29900,  # KRW reference; storefront price is authoritative.
         "credits_per_month": 5,
         "features": ["월 5권 생성", "모든 스타일", "PDF", "기본 TTS"],
     },
     "premium": {
         "name": "프리미엄",
-        "price": 44900,
+        "price": 49900,
         "credits_per_month": 10,
         "features": ["월 10권 생성", "모든 기능", "프리미엄 TTS", "우선 처리"],
     },
@@ -126,18 +126,16 @@ class CreditsService:
             transaction_type="bonus", reference_id=_FIRST_BOOK_TRIAL_REFERENCE, description="첫 동화 무료 체험"))
         await db.flush()
 
-    async def first_book_trial_job(self, db: AsyncSession, user_key: str) -> str | None:
-        """Identify the first non-refunded spend after the one-time trial grant."""
-        # Keep the original spend even when its book has since been deleted.
-        spends = _first_book_trial_spends(user_key, _first_book_trial_grant_id(user_key))
-        return await db.scalar(spends.order_by(CreditTransaction.id).limit(1))
+    async def book_credit_spent(self, db: AsyncSession, user_key: str, job_id: str) -> bool:
+        spend = _book_credit_spends(user_key).where(CreditTransaction.reference_id == job_id)
+        return bool(await db.scalar(select(spend.exists())))
 
     async def first_book_trial_available(self, db: AsyncSession, user_key: str) -> bool:
         """Check signup or unspent trial eligibility without creating credits."""
         balances = select(UserCredits.user_key).where(UserCredits.user_key == user_key)
         ledger = select(CreditTransaction.id).where(CreditTransaction.user_key == user_key).exists()
         grant_id = _first_book_trial_grant_id(user_key)
-        spent = _first_book_trial_spends(user_key, grant_id).exists()
+        spent = _book_credit_spends(user_key).where(CreditTransaction.id > grant_id).exists()
         return bool(await db.scalar(select(or_(
             and_(~balances.exists(), ~ledger),
             and_(balances.where(UserCredits.credits > 0).exists(), grant_id.is_not(None), ~spent),

@@ -22,12 +22,12 @@ ROOT = Path(__file__).resolve().parents[1]
 PROJECT = 'gen-lang-client-0308507618'
 ZONE = 'us-central1-c'
 GCLOUD = '/opt/homebrew/bin/gcloud'
-CONFIG = '/tmp/asb-owner-session'
+from gcloud_operator_config import operator_gcloud_config
 
 
 def cloud(*args, timeout=90):
     env = os.environ.copy()
-    env['CLOUDSDK_CONFIG'] = CONFIG
+    env['CLOUDSDK_CONFIG'] = operator_gcloud_config()
     return subprocess.run([GCLOUD, *args, '--project', PROJECT, '--quiet'],
                           env=env, text=True, capture_output=True, timeout=timeout)
 

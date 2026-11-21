@@ -321,8 +321,7 @@ class Settings(BaseSettings):
     allow_unverified_subscribe: bool = False
     # 설정 시 IAP 웹훅에 ?token= 일치를 요구(미설정=무검증 — 운영에선 반드시 설정).
     iap_webhook_secret: str = ""
-    # 앱스토어 리뷰/TestFlight 심사용 Sandbox 영수증을 운영에서 지급 허용할 상품 id 목록
-    # (콤마 구분). 이 목록 외 Sandbox 영수증은 운영에서 지급 차단(L10/G8).
+    # Sandbox SKUs for claimed, journal-backed store-review accounts only.
     review_sandbox_allowlist: str = ""
 
     # 공유 링크 기본 도메인(예: https://share.aistorybook.app). 미설정 시 요청 호스트에서 구성.

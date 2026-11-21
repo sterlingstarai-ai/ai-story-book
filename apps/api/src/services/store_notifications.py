@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import json
@@ -46,11 +47,11 @@ class StoreEvent:
         return {"native_store_event": values}
 
 
-def apple_verifier():
+def apple_verifier(environment: str):
     from appstoreserverlibrary.models.Environment import Environment
     from appstoreserverlibrary.signed_data_verifier import SignedDataVerifier
 
-    env = settings.apple_notification_environment
+    env = environment
     if env not in {"Production", "Sandbox"}:
         raise AuthorizationError("Apple 알림 환경이 구성되지 않았습니다.")
     paths = [p.strip() for p in settings.apple_root_ca_paths.split(",") if p.strip()]
@@ -72,19 +73,34 @@ def apple_verifier():
         raise AuthorizationError("Apple 서명 검증 설정을 읽을 수 없습니다.") from exc
 
 
-async def _apple_decode(signed: str, method: str):
+async def _apple_decode(signed: str, method: str, *, environment: str | None = None,
+                        allow_review_fallback: bool = False):
+    from appstoreserverlibrary.signed_data_verifier import VerificationException, VerificationStatus
+
     # Decode only after certificate-chain / signature / bundle / environment checks.
-    verifier = apple_verifier()
+    expected = environment or settings.apple_notification_environment
+
+    def decode():
+        try:
+            return getattr(apple_verifier(expected), method)(signed)
+        except VerificationException as exc:
+            # Apple can omit appAppleId on a Sandbox notification. The second
+            # verifier still enforces Apple's chain, bundle and Sandbox environment.
+            if not (allow_review_fallback and expected == "Production"
+                    and settings.review_sandbox_allowlist and settings.store_review_account_slots
+                    and exc.status in {VerificationStatus.INVALID_ENVIRONMENT,
+                                       VerificationStatus.INVALID_APP_IDENTIFIER}):
+                raise
+            return getattr(apple_verifier("Sandbox"), method)(signed)
+
     try:
-        return await asyncio.wait_for(
-            asyncio.to_thread(getattr(verifier, method), signed), timeout=30
-        )
+        return await asyncio.wait_for(asyncio.to_thread(decode), timeout=30)
     except Exception as exc:
         raise AuthorizationError("Apple 서명을 확인할 수 없습니다.") from exc
 
 
-async def verify_apple_transaction(signed: str):
-    return await _apple_decode(signed, "verify_and_decode_signed_transaction")
+async def verify_apple_transaction(signed: str, *, environment: str | None = None):
+    return await _apple_decode(signed, "verify_and_decode_signed_transaction", environment=environment)
 
 
 def _enum(value: Any) -> str | None:
@@ -92,17 +108,21 @@ def _enum(value: Any) -> str | None:
 
 
 async def decode_apple_notification(signed: str) -> StoreEvent | None:
-    notification = await _apple_decode(signed, "verify_and_decode_notification")
+    notification = await _apple_decode(signed, "verify_and_decode_notification", allow_review_fallback=True)
     kind = _enum(notification.notificationType)
     if kind == "TEST":
         return None
     data = notification.data
     if data is None or not data.signedTransactionInfo:
         return None  # Summary / consumption-request events do not grant access.
-    transaction = await verify_apple_transaction(data.signedTransactionInfo)
+    environment = _enum(data.environment)
+    if environment not in {"Production", "Sandbox"}:
+        raise AuthorizationError("Apple 알림의 스토어 환경을 확인할 수 없습니다.")
+    transaction = await verify_apple_transaction(data.signedTransactionInfo, environment=environment)
     renewal = None
     if data.signedRenewalInfo:
-        renewal = await _apple_decode(data.signedRenewalInfo, "verify_and_decode_renewal_info")
+        renewal = await _apple_decode(data.signedRenewalInfo, "verify_and_decode_renewal_info",
+                                      environment=environment)
     status = {
         "SUBSCRIBED": "active",
         "DID_RENEW": "active",
@@ -182,6 +202,10 @@ def _rfc3339_ms(value: Any) -> int | None:
 
 
 async def google_subscription(token: str) -> dict:
+    return await _google_purchase_v2(token, "subscriptionsv2")
+
+
+async def _google_purchase_v2(token: str, resource: str) -> dict:
     from src.services.iap_verifier import iap_verifier
 
     access = await asyncio.to_thread(iap_verifier._resolve_google_access_token)
@@ -189,7 +213,7 @@ async def google_subscription(token: str) -> dict:
     if not access or not package:
         raise AuthorizationError("Google Publisher API가 구성되지 않았습니다.")
     base = settings.google_play_verify_base_url.rstrip("/")
-    url = f"{base}/androidpublisher/v3/applications/{quote(package, safe='')}/purchases/subscriptionsv2/tokens/{quote(token, safe='')}"
+    url = f"{base}/androidpublisher/v3/applications/{quote(package, safe='')}/purchases/{resource}/tokens/{quote(token, safe='')}"
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             response = await client.get(url, headers={"Authorization": f"Bearer {access}"})
@@ -203,7 +227,9 @@ async def google_subscription(token: str) -> dict:
         raise ValidationError("Google 구매 상태를 다시 확인할 수 없습니다.") from exc
 
 
-async def decode_google_notification(envelope: dict) -> StoreEvent | None:
+async def decode_google_notification(
+    envelope: dict, *, known_order_environment: Callable[[str, str], Awaitable[str | None]] | None = None
+) -> StoreEvent | None:
     message = envelope.get("message")
     encoded = message.get("data") if isinstance(message, dict) else None
     try:
@@ -249,6 +275,7 @@ async def decode_google_notification(envelope: dict) -> StoreEvent | None:
                 product_id=product,
                 status="refunded",
                 purchase_token=token,
+                environment="Sandbox" if purchase.get("purchaseType") == 0 else "Production",
             )
         # Voided purchases carry a store-authenticated order ID. No grant is ever
         # made from this message; reconciliation can only revoke that exact receipt.
@@ -256,12 +283,26 @@ async def decode_google_notification(envelope: dict) -> StoreEvent | None:
         if isinstance(voided, dict) and isinstance(voided.get("orderId"), str):
             if voided.get("refundType", 1) != 1:
                 raise ValidationError("부분 환불은 수량을 확인한 후 처리해야 합니다.")
+            token = voided.get("purchaseToken")
+            if not isinstance(token, str) or not token or len(token) > 500:
+                raise ValidationError("Google 환불 구매 토큰이 올바르지 않습니다.")
+            product_type = voided.get("productType")
+            if type(product_type) is not int or product_type not in (1, 2):
+                raise ValidationError("Google 환불 상품 유형이 올바르지 않습니다.")
+            # RTDN authenticates the order and token. A known exact purchase still
+            # settles after Google stops serving the historical purchase resource.
+            environment = await known_order_environment(voided["orderId"], token) if known_order_environment else None
+            if not environment:
+                purchase = await _google_purchase_v2(token, "subscriptionsv2" if product_type == 1 else "productsv2")
+                test_field = "testPurchase" if product_type == 1 else "testPurchaseContext"
+                environment = "Sandbox" if test_field in purchase else "Production"
             return StoreEvent(
                 platform="google",
                 transaction_id=voided["orderId"],
                 product_id="",
                 status="refunded",
-                purchase_token=voided.get("purchaseToken"),
+                purchase_token=token,
+                environment=environment,
                 original_transaction_id=voided["orderId"].split("..", 1)[0],
             )
         return None

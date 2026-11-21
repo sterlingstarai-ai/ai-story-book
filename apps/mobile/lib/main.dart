@@ -16,6 +16,8 @@ import 'screens/account_recovery_screen.dart';
 import 'services/analytics.dart';
 import 'services/iap_platform_init.dart';
 import 'services/user_service.dart';
+import 'services/share_staging.dart';
+import 'package:path_provider/path_provider.dart';
 import 'utils/app_theme.dart';
 import 'widgets/age_gate_dialog.dart';
 import 'widgets/account_bootstrap.dart';
@@ -74,6 +76,9 @@ void main() async {
           onRestore: (context) =>
               openAccountRecovery(context, ref, restoreOnly: true),
           initialize: () async {
+            if (!kIsWeb) {
+              await ShareStaging.clean(await getTemporaryDirectory());
+            }
             await ref.read(accountRecoveryServiceProvider).initialize();
             await UserService.bootstrapUserKey(prefs);
             await ref

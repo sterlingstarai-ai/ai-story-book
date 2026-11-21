@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../l10n/app_localizations.dart';
 import '../providers/providers.dart';
 import '../utils/constants.dart';
+import '../widgets/age_gate_dialog.dart';
 
 class ProfilesScreen extends ConsumerStatefulWidget {
   const ProfilesScreen({super.key});
@@ -411,6 +412,8 @@ class _ProfilesScreenState extends ConsumerState<ProfilesScreen> {
     if (!confirmed || !mounted) {
       return;
     }
+
+    if (!await showAgeGateDialog(context, ref) || !mounted) return;
 
     setState(() => _isSubmitting = true);
     try {

@@ -27,6 +27,7 @@ from src.core.exceptions import APIError, AuthorizationError, NotFoundError, Val
 from src.core.utils import utcnow
 from src.models.db import AccountIdentity, Character, StoragePurgeTask, UserConsent
 from src.models.dto import CreateCharacterRequest, ImagePrompt
+from src.services.generation_consent import provider_consent_scope
 from src.services.image import generate_image, image_storage_scope, portrait_conversion_scope
 from src.services.image_request_budget import image_request_budget
 from src.services.photo_character import photo_character_service
@@ -381,6 +382,13 @@ async def _mark_avatar_failed(character_id: str, version: int, code: str) -> Non
         await db.commit()
 
 
+async def _require_active_attempt(db, character_id: str, version: int, user_key: str) -> None:
+    await _account_and_consent(db, user_key, lock=True)
+    character = await _owned_character(db, character_id, user_key)
+    if character.avatar_version != version or character.avatar_status != "generating" or _expired(character):
+        raise avatar_conflict("AVATAR_SOURCE_UNAVAILABLE")
+
+
 async def _avatar_attempt(character_id: str, version: int, user_key: str) -> bool:
     from src.services.photo_processing import ensure_photo_processing_ready
 
@@ -416,6 +424,8 @@ async def _avatar_attempt(character_id: str, version: int, user_key: str) -> boo
     ensure_photo_processing_ready()
     analyzer = (photo_character_service.create_character_from_drawing if kind == "drawing"
                 else photo_character_service.create_character_from_photo)
+    async with AsyncSessionLocal() as db:
+        await _require_active_attempt(db, character_id, version, user_key)
     data = await analyzer(image_data=clean, user_name=name, style=style)
     values = _description_values(data, name, style)
     async with AsyncSessionLocal() as db:
@@ -455,7 +465,11 @@ async def _avatar_attempt(character_id: str, version: int, user_key: str) -> boo
 async def generate_character_avatar(character_id: str, version: int, user_key: str) -> bool:
     """One paid image attempt. No hidden retry or replacement of approved media."""
     try:
-        return await asyncio.wait_for(_avatar_attempt(character_id, version, user_key), AVATAR_TIMEOUT_SECONDS)
+        async def check_consent(db):
+            await _require_active_attempt(db, character_id, version, user_key)
+
+        with provider_consent_scope(check_consent):
+            return await asyncio.wait_for(_avatar_attempt(character_id, version, user_key), AVATAR_TIMEOUT_SECONDS)
     except asyncio.CancelledError:
         await _mark_avatar_failed(character_id, version, "AVATAR_INTERRUPTED")
         raise

@@ -102,6 +102,7 @@ Future<void> _open(
   WidgetTester tester,
   _Api api, {
   Future<ActiveChildProfile?>? profile,
+  Map<String, dynamic> routeArgs = const {},
   bool startPhoto = false,
   bool fromProfileWatcher = false,
   _PreviewPlayer? previewPlayer,
@@ -157,7 +158,7 @@ Future<void> _open(
             buildAppRoute(
               RouteSettings(
                 name: '/create',
-                arguments: {'startPhotoCharacter': startPhoto},
+                arguments: {'startPhotoCharacter': startPhoto, ...routeArgs},
               ),
             ),
         ],
@@ -177,6 +178,23 @@ Finder get _name => find.byWidgetPredicate(
 );
 
 void main() {
+  for (final valid in [true, false]) {
+    testWidgets('continuation carries a valid hero and language or uses profile defaults ($valid)', (tester) async {
+      final api = _Api();
+      await _open(tester, api, profile: Future.value(_profile), routeArgs: {
+        'protagonistName': valid ? '하루' : 123,
+        'language': valid ? 'ja' : ['invalid'],
+        'topic': '다 같이 도서관에 가는 이야기',
+      });
+      final submit = find.byType(PrimaryButton);
+      await tester.ensureVisible(submit);
+      await tester.tap(submit);
+      await tester.pumpAndSettle();
+      expect(api.specs.single.protagonistName, valid ? '하루' : '토리');
+      expect(api.specs.single.language, valid ? 'ja' : 'ko');
+    });
+  }
+
   testWidgets('creation previews then saves a selected style', (tester) async {
     tester.view.physicalSize = const Size(320, 480);
     tester.view.devicePixelRatio = 1;

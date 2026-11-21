@@ -235,10 +235,14 @@ class GceInstanceTransport:
 
 
 class GceInfrastructure:
-    def __init__(self, config_dir='/tmp/asb-owner-session'):
-        if not isinstance(config_dir, str) or not os.path.isabs(config_dir):
-            raise ValueError('GCE configuration path must be absolute')
-        self.env = dict(os.environ, CLOUDSDK_CONFIG=config_dir, CLOUDSDK_CORE_DISABLE_FILE_LOGGING='true')
+    def __init__(self, config_dir=None):
+        self.config_dir = config_dir
+
+    @property
+    def env(self):
+        from gcloud_operator_config import operator_gcloud_config
+        return dict(os.environ, CLOUDSDK_CONFIG=operator_gcloud_config(self.config_dir),
+                    CLOUDSDK_CORE_DISABLE_FILE_LOGGING='true')
 
     def identity(self, directory):
         path = Path(directory) / 'identity'

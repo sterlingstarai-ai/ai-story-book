@@ -471,3 +471,83 @@ async def test_clawback_partial_unique_blocks_double_insert_on_real_postgres(
             {"uk": user_key},
         )
         await pg_session.commit()
+
+
+@pytest.mark.asyncio
+async def test_profile_waits_for_inflight_erasure_then_rejects_write(pg_session):
+    import asyncio
+
+    from src.core.exceptions import AuthorizationError
+    from src.models.db import ChildProfile
+    from src.routers.profiles import ProfileCreateRequest, create_profile
+    from src.services.account_recovery import resolve_user_key, revoke_deleted_account
+    from src.services.photo_lifecycle import lock_photo_account
+
+    owner = str(uuid.uuid4())
+    sessions = async_sessionmaker(pg_session.bind, expire_on_commit=False)
+    async with sessions() as writer:
+        assert await resolve_user_key(writer, owner) == owner
+        writer_pid = await writer.scalar(text("SELECT pg_backend_pid()"))
+        await lock_photo_account(pg_session, owner)
+        await revoke_deleted_account(pg_session, owner, owner)
+
+        pending = asyncio.create_task(create_profile(
+            ProfileCreateRequest(name="synthetic"), db=writer, user_key=owner,
+        ))
+        try:
+            async with asyncio.timeout(5):
+                while not await pg_session.scalar(text(
+                    "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE pid=:pid AND NOT granted)"
+                ), {"pid": writer_pid}):
+                    if pending.done():
+                        pytest.fail("Profile insert did not wait for erasure")
+                    await asyncio.sleep(0.01)
+            await pg_session.commit()
+            with pytest.raises(AuthorizationError):
+                await asyncio.wait_for(pending, timeout=5)
+        finally:
+            await pg_session.rollback()
+            if not pending.done():
+                pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)
+    assert await pg_session.scalar(select(ChildProfile.id).where(ChildProfile.user_key == owner)) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation_kind", ["regen", "inpaint"])
+async def test_queued_page_edit_rejects_revoked_and_regranted_job(pg_session, monkeypatch, operation_kind):
+    from unittest.mock import AsyncMock
+
+    import src.core.database as database
+    from src.core.config import settings
+    from src.routers.consent import ConsentGrantRequest, grant_consent, revoke_consent
+    from src.services import job_runners
+
+    owner, source, book_id = str(uuid.uuid4()), uuid.uuid4().hex, uuid.uuid4().hex
+    operation = f"{operation_kind}_{uuid.uuid4().hex}"
+    sessions = async_sessionmaker(pg_session.bind, expire_on_commit=False)
+    monkeypatch.setattr(database, "AsyncSessionLocal", sessions)
+    monkeypatch.setattr(settings, "require_parental_consent_in_testing", True)
+    pg_session.add(Job(id=source, user_key=owner, status="done"))
+    await pg_session.flush()
+    pg_session.add_all([
+        Book(id=book_id, job_id=source, user_key=owner, title="test", style="watercolor",
+             target_age="5-7", language="ko"),
+        Job(id=operation, user_key=owner, status="queued"),
+        UserConsent(user_key=owner, granted=True, privacy=True, data_processing=True, photos=False),
+    ])
+    await pg_session.commit()
+    async with sessions() as request:
+        await revoke_consent(db=request, user_key=owner)
+        await grant_consent(ConsentGrantRequest(privacy=True, data_processing=True, photos=False),
+                            db=request, user_key=owner)
+    model_work = AsyncMock()
+    if operation_kind == "regen":
+        monkeypatch.setattr(job_runners, "regenerate_page", model_work)
+        await job_runners.run_regeneration_job(operation, source, book_id, 1, "image", None)
+    else:
+        monkeypatch.setattr(job_runners, "inpaint_page", model_work)
+        await job_runners.run_inpaint_job(operation, source, book_id, 1, "mask", "edit")
+    model_work.assert_not_awaited()
+    assert await pg_session.get(Job, operation) is None
+    assert await pg_session.get(Book, book_id) is not None

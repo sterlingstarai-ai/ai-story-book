@@ -235,8 +235,8 @@ def assess(values, *, free_beta=False):
             ("MAX_PENDING_JOBS", 500),
         ):
             count_limit(name, 1, " (at least one slot required for the first book)", default=default)
-        if access_mode != "invite_only":
-            invalid.append("GENERATION_ACCESS_MODE (invite_only required for free beta)")
+        if access_mode not in {"open", "invite_only"}:
+            invalid.append("GENERATION_ACCESS_MODE (first-book creation must be available)")
         if not enabled("FREE_PLAN_FIRST_BOOK_TRIAL"):
             invalid.append("FREE_PLAN_FIRST_BOOK_TRIAL (one signup book required for free beta)")
         if purchases:

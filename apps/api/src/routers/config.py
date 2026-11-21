@@ -1,20 +1,45 @@
 """클라이언트가 기능 가용성을 사전 조회하는 가벼운 capability 엔드포인트."""
 
-from fastapi import APIRouter
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Header, Response
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
+from src.core.database import get_db
+from src.core.exceptions import APIError
 from src.core.generation_access import generation_invitation_supported
 from src.core.audio_feature import audio_supported, narration_supported, voice_profiles_supported, narration_voice_selection_supported, narration_style_selection_supported
 from src.core.pod_feature import pod_ordering_supported
-from src.core.billing_feature import purchase_capabilities
+from src.core.billing_feature import (
+    CREDIT_PACK_PRODUCTS, SUBSCRIPTION_PRODUCTS, purchase_capabilities, review_sandbox_products,
+)
 from src.services.image import supports_inpaint
+from src.services.account_recovery import is_claimed_store_review_slot, resolve_user_key
 
 router = APIRouter()
 
 
 @router.get("/capabilities")
-async def get_capabilities() -> dict:
+async def get_capabilities(
+    response: Response,
+    x_user_key: Annotated[str | None, Header()] = None,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
     """배포 환경 기능 가용성. 클라이언트 UI 게이팅용(예: 부분 재생성 메뉴 노출 여부)."""
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Vary"] = "X-User-Key"
+    apple_review = False
+    # The released wallet shows the entire catalog behind one Apple capability.
+    if (x_user_key and x_user_key.startswith("asb_device_") and settings.store_review_account_slots
+            and review_sandbox_products().issuperset((*CREDIT_PACK_PRODUCTS, *SUBSCRIPTION_PRODUCTS))):
+        try:
+            owner = await resolve_user_key(db, x_user_key)
+        except APIError as exc:
+            if exc.status_code not in {400, 401}:
+                raise
+        else:
+            apple_review = await is_claimed_store_review_slot(db, owner)
     return {
         "free_first_book_trial": settings.free_plan_first_book_trial,
         "generation_invitation_supported": generation_invitation_supported(),
@@ -24,6 +49,7 @@ async def get_capabilities() -> dict:
         # 클라이언트는 이 값으로 낭독 버튼/발음 메뉴를 숨긴다(비활성 구성 500 방지).
         "audio_supported": audio_supported(),
         "narration_supported": narration_supported(),
+        "credit_book_narration_supported": settings.free_plan_first_book_trial and narration_supported(),
         "narration_cached_lookup_supported": narration_supported(),
         "narration_voice_selection_supported": narration_voice_selection_supported(),
         "narration_style_selection_supported": narration_style_selection_supported(),
@@ -33,5 +59,5 @@ async def get_capabilities() -> dict:
         "narration_preview_provider": "google_gemini" if narration_style_selection_supported() and settings.tts_provider.strip().lower() == "google_gemini" else None,
         "voice_profiles_supported": voice_profiles_supported(),
         "pod_ordering_supported": pod_ordering_supported(),
-        **purchase_capabilities(),
+        **purchase_capabilities(apple_review=apple_review),
     }

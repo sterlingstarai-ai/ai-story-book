@@ -69,6 +69,32 @@ class _FakeSecureStorage extends FlutterSecureStorage {
   }
 }
 
+class _InterruptedRemoval extends Fake implements SharedPreferences {
+  bool onDisk = true;
+  bool cached = true;
+  bool failOnce = true;
+
+  @override
+  bool containsKey(String key) => cached;
+
+  @override
+  Future<bool> remove(String key) async {
+    cached = false;
+    if (failOnce) {
+      failOnce = false;
+      return false;
+    }
+    onDisk = false;
+    return true;
+  }
+
+  @override
+  Future<void> reload() async => cached = onDisk;
+
+  @override
+  Future<bool> setBool(String key, bool value) async => true;
+}
+
 void main() {
   setUp(UserService.resetCacheForTest);
 
@@ -93,6 +119,28 @@ void main() {
       expect(secure.store['user_key'], legacyKey);
       // 평문은 사라진다 — 이게 없으면 백업·기기이전 유출 경로가 그대로 남는다.
       expect(prefs.getString('user_key'), isNull);
+    });
+
+    test('restart after the secure write removes the remaining plaintext key', () async {
+      const key = '11111111-2222-4333-8444-555555555555';
+      SharedPreferences.setMockInitialValues({'user_key': key});
+      final prefs = await SharedPreferences.getInstance();
+      final secure = _FakeSecureStorage()..store['user_key'] = key;
+      expect(await UserService.bootstrapUserKey(prefs, secureStorage: secure), key);
+      expect(prefs.containsKey('user_key'), isFalse);
+      expect(secure.writeCalls, 0);
+    });
+
+    test('failed plaintext removal retries against persisted state', () async {
+      const key = '11111111-2222-4333-8444-555555555555';
+      final secure = _FakeSecureStorage()..store['user_key'] = key;
+      final prefs = _InterruptedRemoval();
+      await expectLater(UserService.bootstrapUserKey(prefs, secureStorage: secure),
+          throwsA(isA<UserKeyUnavailable>()));
+      expect(prefs.onDisk, isTrue);
+      expect(await UserService.bootstrapUserKey(prefs, secureStorage: secure), key);
+      expect(prefs.onDisk, isFalse);
+      expect(secure.writeCalls, 0);
     });
 
     test('보안 저장소 쓰기가 실패하면 평문을 지우지 않는다(자격증명 유실 방지)', () async {

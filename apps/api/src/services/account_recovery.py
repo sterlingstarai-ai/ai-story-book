@@ -206,6 +206,26 @@ async def recover_account(
     return code, now
 
 
+async def is_claimed_store_review_slot(db: AsyncSession, user_key: str) -> bool:
+    """Require a provisioned reservation and a currently enrolled review device."""
+    if not journal_attached(db) or user_key not in settings.store_review_account_slots.split(","):
+        return False
+    identity = await db.get(AccountIdentity, user_key)
+    reserved = credential_hash(user_key, kind="store-review-reservation")
+    if (identity is None or identity.deleted or not identity.recovery_code_created_at
+            or not identity.device_key_hash
+            or identity.device_key_hash in {reserved, credential_hash(user_key, kind="device")}):
+        return False
+    # The operator publishes this domain-separated marker before issuing the pass.
+    # Listing an ordinary enrolled UUID does not turn it into a review account.
+    return bool(await db.scalar(select(PrivacyJournalOutbox.event_id).where(
+        PrivacyJournalOutbox.user_key == user_key,
+        PrivacyJournalOutbox.action == "credential_revoke",
+        PrivacyJournalOutbox.published_at.is_not(None),
+        PrivacyJournalOutbox.credential_state["device_hash"].as_string() == reserved,
+    ).limit(1)))
+
+
 async def _claim_store_review_slot(
     db: AsyncSession, device_hash: str, invalid: APIError
 ) -> tuple[str | None, datetime]:
@@ -213,7 +233,7 @@ async def _claim_store_review_slot(
     slots = settings.store_review_account_slots.split(",")
     if (
         not journal_attached(db)
-        or not generation_invitation_supported()
+        or not (settings.generation_access_mode == "open" or generation_invitation_supported())
         or not 1 <= len(slots) <= 32
         or len(slots) != len(set(slots))
         or not all(_LEGACY_KEY_RE.fullmatch(slot) and generation_access_allowed(slot) for slot in slots)

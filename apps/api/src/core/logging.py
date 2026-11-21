@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import logging
+import traceback
 
 import structlog
 
@@ -18,6 +19,35 @@ _PRIVATE_FIELDS = {
 _URL = re.compile(r"https?://[^\s\"'<>]+", re.IGNORECASE)
 _UUID = re.compile(r"\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b", re.IGNORECASE)
 _RECOVERY_SECRET = re.compile(r"(?:ASB-R1-|asb_device_)[A-Za-z0-9_-]{43}")
+
+
+def _redact_log_text(value: str) -> str:
+    value = _RECOVERY_SECRET.sub("[redacted-credential]", value)
+    value = _URL.sub("[redacted-url]", value)
+    return _UUID.sub("[redacted-id]", value)
+
+
+def _protect_stdlib_exceptions() -> None:
+    # Configure at record creation, before Uvicorn/Celery's own (or later-added)
+    # handlers format tracebacks. A root logger filter does not filter children.
+    previous = logging.getLogRecordFactory()
+    if getattr(previous, "_asb_redacts_exceptions", False):
+        return
+
+    def factory(*args, **kwargs):
+        record = previous(*args, **kwargs)
+        if record.name.split(".", 1)[0] in {"uvicorn", "celery", "sqlalchemy"}:
+            record.msg = _redact_log_text(record.getMessage())
+            record.args = ()
+        if record.exc_info:
+            record.exc_text = _redact_log_text("".join(traceback.format_exception(*record.exc_info)))
+            record.exc_info = None
+        if record.stack_info:
+            record.stack_info = _redact_log_text(record.stack_info)
+        return record
+
+    factory._asb_redacts_exceptions = True
+    logging.setLogRecordFactory(factory)
 
 
 def redact_log_data(_logger, _method, event_dict):
@@ -46,6 +76,7 @@ def redact_log_data(_logger, _method, event_dict):
 
 
 def configure_logging() -> None:
+    _protect_stdlib_exceptions()
     # HTTP client INFO logs include the complete signed URL outside structlog.
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)

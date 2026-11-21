@@ -31,12 +31,13 @@ def make_async_url(url: str) -> str:
 database_url = _require_database_url()
 _TLS_OPTIONS = {"ssl_mode": settings.database_ssl_mode, "ssl_root_cert": settings.database_ssl_root_cert}
 sync_database_url, _ = database_options(database_url, asynchronous=False, **_TLS_OPTIONS)
-engine = create_engine(sync_database_url, echo=settings.debug)
+engine = create_engine(sync_database_url, echo=settings.debug, hide_parameters=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Async engine (for API)
 async_database_url, _async_connect_args = database_options(database_url, asynchronous=True, **_TLS_OPTIONS)
-_ASYNC_ENGINE_KWARGS = {"echo": settings.debug, "connect_args": _async_connect_args}
+_ASYNC_ENGINE_KWARGS = {"echo": settings.debug, "connect_args": _async_connect_args,
+                        "hide_parameters": True}
 # A suspended provider may close pooled connections.  Check on checkout only;
 # unlike a periodic heartbeat this does not keep an idle database active.
 if async_database_url.startswith("postgresql+psycopg://"):

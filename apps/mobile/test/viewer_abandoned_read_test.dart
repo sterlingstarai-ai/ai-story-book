@@ -76,6 +76,9 @@ final _sessionApiProvider =
 BookResult _book() => BookResult(
       bookId: 'read-session-book',
       title: '세 장의 이야기',
+      characterId: 'hero-1',
+      protagonistName: '하루',
+      language: 'ko',
       coverImageUrl: '',
       pages: [
         for (var page = 1; page <= 3; page++)
@@ -124,7 +127,10 @@ Future<ProviderContainer> _pumpViewer(
               )
             : viewer,
         initialRoute: withBackStack ? '/viewer' : null,
-        routes: withBackStack ? {'/viewer': (_) => viewer} : const {},
+        routes: {
+          '/viewer': (_) => viewer,
+          '/create': (_) => const Scaffold(body: Text('creation draft')),
+        },
       ),
     ),
   );
@@ -148,6 +154,29 @@ Future<void> _closeViewer(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets('completion opens a draft with the same hero and a reread alternative', (tester) async {
+    final api = _ReadingApi();
+    await _pumpViewer(tester, api);
+    for (var i = 0; i < 3; i++) {
+      await _nextPage(tester);
+    }
+    final finish = find.byKey(const Key('viewer-finish-reading'));
+    await tester.ensureVisible(finish);
+    await tester.tap(finish);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 450));
+    expect(find.text('이 책 다시 읽기'), findsOneWidget);
+    final next = find.text('같은 주인공으로 다음 동화 만들기');
+    await tester.ensureVisible(next);
+    await tester.tap(next);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 450));
+    final draft = tester.element(find.text('creation draft'));
+    expect(ModalRoute.of(draft)!.settings.arguments,
+        {'characterId': 'hero-1', 'protagonistName': '하루', 'language': 'ko'});
+    expect(api.records, hasLength(1));
+  });
+
   testWidgets('closing after a story page records exactly one abandoned read',
       (tester) async {
     final api = _ReadingApi();

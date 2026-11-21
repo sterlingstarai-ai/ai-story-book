@@ -75,7 +75,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         # Prevent clickjacking
         response.headers["X-Frame-Options"] = "DENY"
-        if request.url.path.startswith("/v1/"):
+        if request.url.path.startswith(("/v1/", "/share/")):
             response.headers["Cache-Control"] = "private, no-store"
         # Prevent MIME type sniffing
         response.headers["X-Content-Type-Options"] = "nosniff"

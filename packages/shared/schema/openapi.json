@@ -6788,6 +6788,24 @@
       "get": {
         "description": "배포 환경 기능 가용성. 클라이언트 UI 게이팅용(예: 부분 재생성 메뉴 노출 여부).",
         "operationId": "get_capabilities_v1_config_capabilities_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-user-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Key"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -6799,6 +6817,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Get Capabilities",

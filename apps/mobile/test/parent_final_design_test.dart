@@ -31,6 +31,14 @@ class _Api extends ApiClient {
   List<Map<String, dynamic>> transactions = [];
   List<Map<String, dynamic>> profiles = [];
   Map<String, dynamic>? createdProfile;
+  final deletedProfiles = <String>[];
+
+  @override
+  Future<void> deleteProfile(String profileId) async {
+    deletedProfiles.add(profileId);
+    profiles.removeWhere((profile) => profile['id'] == profileId);
+  }
+
   @override
   Future<Map<String, dynamic>> getReadingReport({
     String period = 'weekly',
@@ -307,6 +315,56 @@ void main() {
       expect(find.text('첫 프로필 만들기'), findsOneWidget);
     },
   );
+  testWidgets('profile deletion requires a fresh parental challenge', (
+    tester,
+  ) async {
+    final api = _Api()
+      ..profiles = [
+        {
+          'id': 'test-profile',
+          'name': '시우',
+          'age_band': '5-7',
+          'is_default': true,
+        },
+      ];
+    await _pump(
+      tester,
+      const ProfilesScreen(),
+      api,
+      size: const Size(400, 760),
+    );
+    await tester.pumpAndSettle();
+    final context = tester.element(find.byType(ProfilesScreen));
+    final l = AppLocalizations.of(context);
+    ProviderScope.containerOf(
+      context,
+    ).read(parentalControlServiceProvider).markAgeGateVerified();
+
+    Future<void> confirmDeletion() async {
+      await tester.tap(find.byType(PopupMenuButton<String>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l.profilesDeleteAction));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(TextButton, l.profilesDeleteAction));
+      await tester.pumpAndSettle();
+      expect(find.text(l.ageGateTitle), findsOneWidget);
+    }
+
+    await confirmDeletion();
+    await tester.tap(find.text(l.ageGateCancel));
+    await tester.pumpAndSettle();
+    expect(api.deletedProfiles, isEmpty);
+
+    await confirmDeletion();
+    final prompt = find.textContaining(' × ');
+    final factors = tester.widget<Text>(prompt).data!.split(' ');
+    final answer = int.parse(factors[0]) * int.parse(factors[2]);
+    await tester.enterText(find.byType(TextField), answer.toString());
+    await tester.tap(find.widgetWithText(ElevatedButton, l.ageGateConfirm));
+    await tester.pumpAndSettle();
+    expect(api.deletedProfiles, ['test-profile']);
+  });
+
   testWidgets(
     'profile form submission and cancel do not dispose a live input',
     (tester) async {

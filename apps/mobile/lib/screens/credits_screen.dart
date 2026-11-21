@@ -9,8 +9,12 @@ import '../l10n/app_localizations.dart';
 import '../core/purchase_availability.dart';
 import '../providers/providers.dart';
 import '../services/analytics.dart';
+import '../services/public_links.dart';
+import 'legal_document_screen.dart';
 import '../utils/constants.dart';
 import '../widgets/age_gate_dialog.dart';
+import '../widgets/narration_style_previews.dart';
+import '../services/page_audio_playback.dart';
 import '../widgets/common_widgets.dart';
 
 /// M15: 구독 플랜명을 안정 키(plan id)로 로컬라이즈한다. 서버는 한국어 name을
@@ -90,6 +94,8 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
   bool _restoreInFlight = false;
   bool _loadingStorePrices = false;
   final Map<String, String> _storePrices = {};
+
+  bool get _usesAppStore => !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
 
   bool get _purchasesSupported => ref
       .read(capabilitiesProvider)
@@ -527,7 +533,14 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
           if (isCancelled) ...[
             const SizedBox(height: AppSpacing.md),
             Text(l.creditsCancelNotice, style: AppTextStyles.caption),
-          ] else ...[
+          ],
+          if (_usesAppStore && _subscriptionProductMap.containsKey(subscription['plan'])) ...[
+            const SizedBox(height: AppSpacing.md),
+            TextButton(
+              onPressed: _manageAppleSubscription,
+              child: Text(l.creditsManageAppleSubscription),
+            ),
+          ] else if (!_usesAppStore && !isCancelled) ...[
             const SizedBox(height: AppSpacing.md),
             TextButton(
               onPressed: () => _showCancelSubscriptionDialog(),
@@ -695,6 +708,24 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
           ),
           if (!isCurrentPlan && planId != 'free' && planId.isNotEmpty) ...[
             const SizedBox(height: AppSpacing.md),
+            if (_usesAppStore) ...[
+              Text(l.creditsAppleRenewalNotice, style: AppTextStyles.bodySmall),
+              Wrap(
+                children: [
+                  for (final document in LegalDocument.values)
+                    TextButton(
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => LegalDocumentScreen(document: document),
+                        ),
+                      ),
+                      child: Text(document == LegalDocument.privacy
+                          ? l.settingsPrivacyPolicy
+                          : l.settingsTermsOfService),
+                    ),
+                ],
+              ),
+            ],
             PrimaryButton(
               text: l.creditsSubscribe,
               onPressed: () => _subscribe(planId),
@@ -728,6 +759,7 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
     required int credits,
   }) {
     final l = AppLocalizations.of(context);
+    final caps = ref.watch(capabilitiesProvider).valueOrNull;
     return Container(
       margin: const EdgeInsets.only(bottom: AppSpacing.md),
       padding: const EdgeInsets.all(AppSpacing.md),
@@ -771,6 +803,22 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
             ],
           ),
           const SizedBox(height: AppSpacing.md),
+          if (credits == 1) ...[
+            Text(l.creditsSingleIncludes),
+            if (caps?['credit_book_narration_supported'] == true) ...[
+              Text(l.creditsSingleNarration),
+              if (caps?['narration_style_selection_supported'] == true)
+                ExpansionTile(
+                  title: Text(l.createNarrationPreviewTitle),
+                  children: [
+                    NarrationStylePreviews(
+                      voice: narrationVoiceOrDefault(ref.read(sharedPreferencesProvider).getString(narrationVoicePreferenceKey)),
+                    ),
+                  ],
+                ),
+            ],
+            const SizedBox(height: AppSpacing.sm),
+          ],
           OutlinedButton(
             style: OutlinedButton.styleFrom(minimumSize: const Size(64, 64)),
             onPressed: () => _buyCreditPack(productId),
@@ -1049,6 +1097,17 @@ class _CreditsScreenState extends ConsumerState<CreditsScreen> {
       final l = AppLocalizations.of(context);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(l.creditsCannotStartStorePurchase)),
+      );
+    }
+  }
+
+  Future<void> _manageAppleSubscription() async {
+    final opened = await ref.read(publicLinksProvider).open(
+      'https://apps.apple.com/account/subscriptions',
+    );
+    if (!opened && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppLocalizations.of(context).settingsPageOpenError)),
       );
     }
   }

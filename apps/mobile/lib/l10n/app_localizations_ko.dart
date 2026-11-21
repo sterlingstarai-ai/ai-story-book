@@ -73,7 +73,7 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get firstBookTrialOffer =>
-      '체험 대상인 새 계정은 그림과 낭독이 포함된 첫 동화책 한 권을 무료로 만들 수 있어요.';
+      '처음 시작하는 계정은 첫 동화 한 권이 무료예요. 그림으로 읽고 한국어 낭독으로도 들어 보세요.';
 
   @override
   String get firstBookTrialIllustratedOffer =>
@@ -1740,6 +1740,13 @@ class AppLocalizationsKo extends AppLocalizations {
   String get planFeaturesPremium => '월 10권 생성|모든 기능|프리미엄 TTS|우선 처리';
 
   @override
+  String get creditsAppleRenewalNotice =>
+      '구독은 매월 자동으로 갱신돼요. 다음 결제를 원하지 않으면 갱신 24시간 전까지 App Store에서 취소해 주세요.';
+
+  @override
+  String get creditsManageAppleSubscription => 'App Store에서 구독 관리';
+
+  @override
   String get creditsStorePriceNotice => '결제창에서 스토어 가격을 확인해 주세요';
 
   @override
@@ -2105,6 +2112,19 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get viewerCompletionMessage => '마지막 페이지까지 읽었어요. 다음 동화도 시작해볼까요?';
+
+  @override
+  String get viewerReadThisAgain => '이 책 다시 읽기';
+
+  @override
+  String get viewerNextWithHero => '같은 주인공으로 다음 동화 만들기';
+
+  @override
+  String get creditsSingleIncludes =>
+      '맞춤 동화 한 권을 만드는 이용권이에요. 기본 12쪽에는 표지 1장과 본문 삽화 12장이 들어가요. 짧은 8쪽도 고를 수 있어요. 한 번만 결제해요.';
+
+  @override
+  String get creditsSingleNarration => '한국어 동화는 마지막 쪽까지 낭독으로 들을 수 있어요.';
 
   @override
   String get viewerCreateNextStory => '다음 동화 만들기';
@@ -3145,7 +3165,10 @@ class AppLocalizationsKo extends AppLocalizations {
   String get recoveryCopy => '복구 코드 복사';
 
   @override
-  String get recoveryCopied => '복구 코드를 복사했어요. 안전한 곳에 보관해 주세요.';
+  String get recoveryCopied => '복구 코드를 복사했어요. 60초 안에 안전한 곳에 붙여넣어 주세요.';
+
+  @override
+  String get recoveryCopyFailed => '안전하게 복사하지 못했어요. 화면의 코드를 직접 기록해 주세요.';
 
   @override
   String get recoverySavedCheck => '전체 코드를 앱 밖의 안전한 곳에 저장했어요.';

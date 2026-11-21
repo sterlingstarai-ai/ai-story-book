@@ -229,7 +229,7 @@ abstract class AppLocalizations {
   /// No description provided for @firstBookTrialOffer.
   ///
   /// In en, this message translates to:
-  /// **'Eligible new accounts can make one free storybook with illustrations and narration.'**
+  /// **'Your first storybook is free with a new account. Read the illustrations together or listen to the Korean narration.'**
   String get firstBookTrialOffer;
 
   /// No description provided for @firstBookTrialIllustratedOffer.
@@ -3352,6 +3352,18 @@ abstract class AppLocalizations {
   /// **'10 books / month|All features|Premium TTS|Priority processing'**
   String get planFeaturesPremium;
 
+  /// No description provided for @creditsAppleRenewalNotice.
+  ///
+  /// In en, this message translates to:
+  /// **'Your subscription renews monthly. To avoid the next charge, cancel in the App Store at least 24 hours before renewal.'**
+  String get creditsAppleRenewalNotice;
+
+  /// No description provided for @creditsManageAppleSubscription.
+  ///
+  /// In en, this message translates to:
+  /// **'Manage subscription in the App Store'**
+  String get creditsManageAppleSubscription;
+
   /// No description provided for @creditsStorePriceNotice.
   ///
   /// In en, this message translates to:
@@ -4041,6 +4053,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'You read to the last page. Shall we start the next storybook?'**
   String get viewerCompletionMessage;
+
+  /// No description provided for @viewerReadThisAgain.
+  ///
+  /// In en, this message translates to:
+  /// **'Read this book again'**
+  String get viewerReadThisAgain;
+
+  /// No description provided for @viewerNextWithHero.
+  ///
+  /// In en, this message translates to:
+  /// **'Make another story with this hero'**
+  String get viewerNextWithHero;
+
+  /// No description provided for @creditsSingleIncludes.
+  ///
+  /// In en, this message translates to:
+  /// **'Create one personalized book. The standard 12-page book includes a cover and 12 page illustrations. You can also choose 8 pages. This is a one-time purchase.'**
+  String get creditsSingleIncludes;
+
+  /// No description provided for @creditsSingleNarration.
+  ///
+  /// In en, this message translates to:
+  /// **'Korean stories include narration through the last page.'**
+  String get creditsSingleNarration;
 
   /// No description provided for @viewerCreateNextStory.
   ///
@@ -5885,8 +5921,14 @@ abstract class AppLocalizations {
   /// No description provided for @recoveryCopied.
   ///
   /// In en, this message translates to:
-  /// **'Recovery code copied. Store it safely.'**
+  /// **'Recovery code copied. Paste it into safe storage within 60 seconds.'**
   String get recoveryCopied;
+
+  /// No description provided for @recoveryCopyFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not copy securely. Save the displayed code manually.'**
+  String get recoveryCopyFailed;
 
   /// No description provided for @recoverySavedCheck.
   ///

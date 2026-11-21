@@ -485,3 +485,26 @@ async def test_sweep_rechecks_claim_after_reading_stale_queue_snapshot(
     await db_session.refresh(row)
     assert row.avatar_status == "generating"
     assert row.avatar_started_at is not None
+
+
+@pytest.mark.asyncio
+async def test_withdrawal_while_copying_normalized_photo_prevents_analysis(
+    client, headers, user_key, avatar_io, monkeypatch,
+):
+    monkeypatch.setattr(settings, "require_parental_consent_in_testing", True)
+    flags = {"privacy": True, "data_processing": True, "photos": True}
+    assert (await client.post("/v1/consent", headers=headers, json=flags)).status_code == 200
+    body = await _upload(client, headers)
+    original_upload = storage.storage_service.upload_bytes
+
+    async def upload_then_withdraw(data, key, content_type):
+        url = await original_upload(data, key, content_type)
+        if key.endswith("/source.jpg"):
+            assert (await client.post("/v1/consent/revoke", headers=headers)).status_code == 200
+            assert (await client.post("/v1/consent", headers=headers, json=flags)).status_code == 200
+        return url
+
+    monkeypatch.setattr(storage.storage_service, "upload_bytes", upload_then_withdraw)
+    assert not await avatars.generate_character_avatar(body["character_id"], 1, user_key)
+    assert avatar_io["analysis"] == 0
+    assert avatar_io["image"] == 0

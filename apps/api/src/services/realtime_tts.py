@@ -15,6 +15,8 @@ import websockets
 from websockets.exceptions import InvalidStatus
 
 from src.core.config import settings
+from src.core.exceptions import APIError
+from src.services.generation_consent import send_with_consent
 from src.services.narration_style import STYLE_DIRECTIONS
 
 MODEL = 'gpt-realtime-2.1-mini'
@@ -123,7 +125,7 @@ async def synthesize_realtime(text, voice='default', *, language='ko', style='le
                     'type': 'realtime', 'output_modalities': ['audio'],
                     'audio': {'output': {'format': {'type': 'audio/pcm', 'rate': _PCM_RATE}, 'voice': VOICES[voice]}},
                 }}))
-                await conn.send(json.dumps({'type': 'response.create', 'response': {
+                await send_with_consent(conn.send, json.dumps({'type': 'response.create', 'response': {
                     'conversation': 'none', 'output_modalities': ['audio'],
                     'instructions': instructions,
                     'input': [{'type': 'message', 'role': 'user', 'content': [{'type': 'input_text', 'text': text}]}],
@@ -147,7 +149,7 @@ async def synthesize_realtime(text, voice='default', *, language='ko', style='le
                         break
                 else:
                     raise ValueError('Realtime connection closed before completion')
-    except asyncio.CancelledError:
+    except (asyncio.CancelledError, APIError):
         raise
     except InvalidStatus as error:
         raise RealtimeSynthesisError(error.response.status_code) from None

@@ -78,7 +78,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get firstBookTrialOffer =>
-      'Eligible new accounts can make one free storybook with illustrations and narration.';
+      'Your first storybook is free with a new account. Read the illustrations together or listen to the Korean narration.';
 
   @override
   String get firstBookTrialIllustratedOffer =>
@@ -1831,6 +1831,14 @@ class AppLocalizationsEn extends AppLocalizations {
       '10 books / month|All features|Premium TTS|Priority processing';
 
   @override
+  String get creditsAppleRenewalNotice =>
+      'Your subscription renews monthly. To avoid the next charge, cancel in the App Store at least 24 hours before renewal.';
+
+  @override
+  String get creditsManageAppleSubscription =>
+      'Manage subscription in the App Store';
+
+  @override
   String get creditsStorePriceNotice => 'Confirm your store price at checkout';
 
   @override
@@ -2220,6 +2228,20 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get viewerCompletionMessage =>
       'You read to the last page. Shall we start the next storybook?';
+
+  @override
+  String get viewerReadThisAgain => 'Read this book again';
+
+  @override
+  String get viewerNextWithHero => 'Make another story with this hero';
+
+  @override
+  String get creditsSingleIncludes =>
+      'Create one personalized book. The standard 12-page book includes a cover and 12 page illustrations. You can also choose 8 pages. This is a one-time purchase.';
+
+  @override
+  String get creditsSingleNarration =>
+      'Korean stories include narration through the last page.';
 
   @override
   String get viewerCreateNextStory => 'Make the next storybook';
@@ -3310,7 +3332,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get recoveryCopy => 'Copy recovery code';
 
   @override
-  String get recoveryCopied => 'Recovery code copied. Store it safely.';
+  String get recoveryCopied =>
+      'Recovery code copied. Paste it into safe storage within 60 seconds.';
+
+  @override
+  String get recoveryCopyFailed =>
+      'Could not copy securely. Save the displayed code manually.';
 
   @override
   String get recoverySavedCheck => 'I saved the full code outside this app.';

@@ -38,7 +38,12 @@ def completed_response():
 
 
 @pytest.mark.asyncio
-async def test_book_jobs_share_transport_with_per_request_options_and_close(monkeypatch):
+async def test_book_jobs_share_transport_with_per_request_options_and_close(monkeypatch, db_session):
+    from src.models.db import Job
+
+    jobs = ("qa-book-one", "qa-book-two")
+    db_session.add_all(Job(id=job_id, user_key="fixture-owner", status="running") for job_id in jobs)
+    await db_session.commit()
     clients = []
     requests = []
     original_client = httpx.AsyncClient
@@ -65,15 +70,16 @@ async def test_book_jobs_share_transport_with_per_request_options_and_close(monk
         assert await asyncio.gather(request("review", 12), request("learning", 4)) == ['{"name":"별이"}'] * 2
 
     monkeypatch.setattr(orchestrator, "_start_bounded_book_generation", generate)
-    for job_id in ("qa-book-one", "qa-book-two"):
+    for job_id in jobs:
         await orchestrator.start_book_generation(job_id, None, "fixture-owner")
         assert len(clients) == (1 if job_id == "qa-book-one" else 2)
         assert clients[-1].is_closed
 
-    assert [request.headers["Authorization"] for request in requests] == [
-        "Bearer fixture-story", "Bearer fixture-review", "Bearer fixture-learning",
-    ] * 2
-    assert [request.extensions["timeout"]["read"] for request in requests] == [3, 12, 4] * 2
+    for group in (requests[:3], requests[3:]):
+        assert group[0].headers["Authorization"] == "Bearer fixture-story"
+        assert {request.headers["Authorization"]: request.extensions["timeout"]["read"] for request in group} == {
+            "Bearer fixture-story": 3, "Bearer fixture-review": 12, "Bearer fixture-learning": 4,
+        }
     assert all("Cookie" not in request.headers and json.loads(request.content)["store"] is False for request in requests)
 
 

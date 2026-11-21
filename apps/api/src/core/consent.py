@@ -42,13 +42,15 @@ async def latest_active_consent(
     ) else None
 
 
-async def require_parental_consent(db: AsyncSession, user_key: str) -> None:
-    """Require the latest mandatory consent before collecting/processing child data."""
+async def require_parental_consent(db: AsyncSession, user_key: str) -> int | None:
+    """Require active mandatory consent and return the decision ID for in-flight work."""
     if not _is_parental_consent_enabled():
         return
-    if await latest_active_consent(db, user_key) is None:
+    active = await latest_active_consent(db, user_key)
+    if active is None:
         raise APIError(403, "PARENTAL_CONSENT_REQUIRED",
                        "보호자 동의를 확인한 뒤 다시 시도해주세요.")
+    return active.id
 
 
 async def _has_active_photo_consent(db: AsyncSession, user_key: str) -> bool:

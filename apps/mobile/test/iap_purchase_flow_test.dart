@@ -14,6 +14,7 @@ import 'package:ai_story_book/screens/credits_screen.dart';
 import 'package:ai_story_book/services/api_client.dart';
 import 'package:ai_story_book/services/iap_service.dart';
 import 'package:ai_story_book/services/service_availability.dart';
+import 'package:ai_story_book/services/public_links.dart';
 import 'package:ai_story_book/widgets/credit_shortage_modal.dart';
 
 // C3 — IAP 검증 실패 시 finally에서 completePurchase 무조건 호출 → 소모성 대금 영구 유실.
@@ -135,10 +136,11 @@ class _SpyIapService extends IapService {
 }
 
 class _FakeApiClient extends ApiClient {
-  _FakeApiClient({this.verifyThrows = false})
+  _FakeApiClient({this.verifyThrows = false, this.subscription})
       : super(baseUrl: 'http://test', userKey: 'u', enableLogging: false);
 
   final bool verifyThrows;
+  final Map<String, dynamic>? subscription;
   int verifyCalls = 0;
 
   @override
@@ -152,7 +154,7 @@ class _FakeApiClient extends ApiClient {
 
   @override
   Future<Map<String, dynamic>> getCreditsStatus() async =>
-      <String, dynamic>{'credits': 3, 'subscription': null};
+      <String, dynamic>{'credits': 3, 'subscription': subscription};
 
   @override
   Future<List<dynamic>> getTransactions(
@@ -167,9 +169,11 @@ Widget _harness({
   Map<String, dynamic> capabilities = const {'purchases_supported': false},
   double textScale = 1,
   bool prioritizeCreditPacks = false,
+  PublicLinks? links,
 }) {
   return ProviderScope(
     overrides: [
+      if (links != null) publicLinksProvider.overrideWithValue(links),
       sharedPreferencesProvider.overrideWithValue(prefs),
       iapServiceProvider.overrideWithValue(iap),
       apiClientProvider.overrideWithValue(api),
@@ -191,6 +195,32 @@ Widget _harness({
 }
 
 void main() {
+  testWidgets('iOS subscribers manage renewal with Apple when new purchases are closed',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final iap = _SpyIapService();
+    addTearDown(iap.controller.close);
+    Uri? opened;
+    await tester.pumpWidget(_harness(
+      prefs: await SharedPreferences.getInstance(),
+      iap: iap,
+      api: _FakeApiClient(subscription: {'plan': 'basic', 'status': 'active'}),
+      links: PublicLinks(launch: (uri) async {
+        opened = uri;
+        return true;
+      }),
+    ));
+    await tester.pumpAndSettle();
+    final l = await AppLocalizations.delegate.load(const Locale('ko'));
+    final manage = find.text(l.creditsManageAppleSubscription);
+    await tester.ensureVisible(manage);
+    await tester.tap(manage);
+    await tester.pumpAndSettle();
+    expect(opened, Uri.parse('https://apps.apple.com/account/subscriptions'));
+    expect(find.text(l.creditsCancelSubscription), findsNothing);
+    expect(find.text(l.creditsSubscriptionCancelled), findsNothing);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
   for (final paid in [false, true]) {
     testWidgets('credit shortage exposes working actions only (paid=$paid)', (
       tester,
@@ -284,12 +314,17 @@ void main() {
         capabilities: const {
           'purchases_supported': true,
           'google_purchases_supported': true,
+          'credit_book_narration_supported': true,
+          'narration_style_selection_supported': true,
         },
         prioritizeCreditPacks: true,
       ),
     );
     await tester.pumpAndSettle();
     final l = await AppLocalizations.delegate.load(const Locale('ko'));
+    expect(find.text(l.creditsSingleIncludes), findsOneWidget);
+    expect(find.text(l.creditsSingleNarration), findsOneWidget);
+    expect(find.text(l.createNarrationPreviewTitle), findsOneWidget);
     final pack = find.text(l.creditsPackTitle);
     final plans = find.text(l.creditsPlansTitle);
     expect(tester.getTopLeft(pack).dy, lessThan(tester.getTopLeft(plans).dy));

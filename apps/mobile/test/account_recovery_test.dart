@@ -508,6 +508,17 @@ void main() {
   testWidgets(
     'backup save requires explicit check and suffix confirmation in a short large-text viewport',
     (tester) async {
+      const security = MethodChannel('ai_story_book/security');
+      final clipboardCalls = <MethodCall>[];
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(security, (call) async {
+        clipboardCalls.add(call);
+        return call.method == 'copyRecoveryCode'
+            ? 'synthetic-clipboard-handle'
+            : null;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(security, null));
       tester.view.physicalSize = const Size(320, 480);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
@@ -548,6 +559,14 @@ void main() {
       await tester.tap(find.text('Create recovery code'));
       await tester.pumpAndSettle();
       expect(find.text(_replacement), findsOneWidget);
+      expect(find.byType(SelectableText), findsNothing);
+      await tester.ensureVisible(find.text('Copy recovery code'));
+      await tester.tap(find.text('Copy recovery code'));
+      await tester.pumpAndSettle();
+      expect(clipboardCalls.single.method, 'copyRecoveryCode');
+      expect(clipboardCalls.single.arguments, _replacement);
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       var confirm = find.widgetWithText(FilledButton, 'Confirm saved code');
       expect(tester.widget<FilledButton>(confirm).onPressed, isNull);
@@ -564,6 +583,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text(_replacement), findsNothing);
       expect(prefs.getBool(UserService.recoveryBackupNeededKey), false);
+      expect(clipboardCalls.last.method, 'clearRecoveryCode');
+      expect(clipboardCalls.last.arguments, 'synthetic-clipboard-handle');
       expect(
         tester
             .widget<OutlinedButton>(
