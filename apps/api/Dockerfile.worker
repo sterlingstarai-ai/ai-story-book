@@ -27,9 +27,12 @@ FROM python:3.11-slim as production
 
 WORKDIR /app
 
-# Install runtime dependencies
+# Refresh inherited runtime libraries as well as application dependencies.
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    libc-bin \
+    libc6 \
     libpq5 \
+    zlib1g \
     && rm -rf /var/lib/apt/lists/*
 
 # Patch the base interpreter's setuptools and its vendored packages as well.
