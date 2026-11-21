@@ -188,3 +188,83 @@ def test_share_redirect_upstream_failure_and_internal_error_page_never_log_token
     logs = command("docker", "logs", proxies["nginx"])
     assert "/ordinary-diagnostic" in logs
     assert (token in logs) is BASELINE
+
+
+def test_pilot_edge_authenticates_to_nginx_while_direct_tls_retains_peer(tmp_path):
+    """Normal HTTPS through the edge presents its client certificate to nginx."""
+    import ipaddress
+
+    network = "asb-mtls-" + uuid.uuid4().hex[:10]
+    nginx_name = network + "-nginx"
+    caddy_name = network + "-caddy"
+    edge = ROOT / "infra/gcp-pilot/cloud-run-https-edge"
+    pilot = ROOT / "infra/gcp-pilot/nginx-edge-mtls"
+    cert_dir = tmp_path / "pki"
+    cert_dir.mkdir()
+    command("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+            "-subj", "/CN=Fixture CA", "-keyout", str(cert_dir / "ca.key"), "-out", str(cert_dir / "client-ca.pem"))
+    for name, usage in (("server", "serverAuth"), ("client", "clientAuth")):
+        command("openssl", "req", "-new", "-newkey", "rsa:2048", "-nodes", "-subj", "/CN=" + name,
+                "-keyout", str(cert_dir / (name + ".key")), "-out", str(cert_dir / (name + ".csr")))
+        (cert_dir / (name + ".ext")).write_text(
+            "extendedKeyUsage=" + usage + "\n" + ("subjectAltName=IP:35.209.174.246\n" if name == "server" else ""))
+        command("openssl", "x509", "-req", "-in", str(cert_dir / (name + ".csr")), "-days", "1",
+                "-CA", str(cert_dir / "client-ca.pem"), "-CAkey", str(cert_dir / "ca.key"), "-CAcreateserial",
+                "-extfile", str(cert_dir / (name + ".ext")), "-out", str(cert_dir / (name + ".crt")))
+    (cert_dir / "client.pem").write_bytes((cert_dir / "client.crt").read_bytes() + (cert_dir / "client.key").read_bytes())
+    nginx_config = tmp_path / "nginx.conf"
+    nginx_config.write_text("""
+events {}
+http {
+  include /address-map.conf;
+  server {
+    listen 443 ssl;
+    ssl_certificate /server.crt;
+    ssl_certificate_key /server.key;
+    include /client-tls.conf;
+    location / { return 200 "$ssl_client_verify|$asb_client_address|$remote_addr"; }
+  }
+}""")
+    caddy_config = tmp_path / "Caddyfile"
+    caddy_config.write_text((edge / "Caddyfile").read_text().replace("10.128.0.2:443", "origin:443").replace(
+        "transport http {", "transport http {\n        tls_trust_pool file /origin-ca.pem"))
+    command("docker", "network", "create", network)
+    try:
+        command("docker", "run", "-d", "--name", nginx_name, "--network", network, "--network-alias", "origin",
+                "-p", "127.0.0.1::443", "-v", f"{nginx_config}:/etc/nginx/nginx.conf:ro",
+                "-v", f"{pilot / 'address-map.conf'}:/address-map.conf:ro",
+                "-v", f"{pilot / 'client-tls.conf'}:/client-tls.conf:ro",
+                "-v", f"{cert_dir / 'client-ca.pem'}:/etc/letsencrypt/asb-edge-trust/client-ca.pem:ro",
+                "-v", f"{cert_dir / 'server.crt'}:/server.crt:ro", "-v", f"{cert_dir / 'server.key'}:/server.key:ro",
+                "nginx:1.27-alpine")
+        command("docker", "run", "-d", "--name", caddy_name, "--network", network, "-p", "127.0.0.1::8080",
+                "-v", f"{caddy_config}:/etc/caddy/Caddyfile:ro",
+                "-v", f"{edge / 'upstream-client-auth.caddy'}:/etc/caddy/upstream-client-auth.caddy:ro",
+                "-v", f"{edge / 'start-caddy.sh'}:/entry:ro",
+                "-v", f"{cert_dir / 'client.pem'}:/var/run/asb-edge/client.pem:ro",
+                "-v", f"{cert_dir / 'client-ca.pem'}:/origin-ca.pem:ro",
+                "-e", "CLOUD_RUN_TRUSTED_PROXY_CIDRS=127.0.0.1/32", "-e", "ASB_EDGE_CLIENT_AUTH=mtls",
+                "caddy:2.11.2-alpine", "/bin/sh", "/entry")
+        nginx_port = command("docker", "port", nginx_name, "443").rsplit(":", 1)[1]
+        edge_port = command("docker", "port", caddy_name, "8080").rsplit(":", 1)[1]
+        for _ in range(40):
+            try:
+                result = httpx.get(f"http://127.0.0.1:{edge_port}/health/live", timeout=2)
+                if result.status_code == 200:
+                    break
+            except httpx.TransportError:
+                pass
+            time.sleep(.1)
+        else:
+            pytest.fail("Authenticated proxy did not become ready")
+        verified, client_ip, transport_peer = result.text.split("|")
+        assert verified == "SUCCESS"
+        assert ipaddress.ip_address(client_ip) != ipaddress.ip_address(transport_peer)
+        direct = httpx.get(f"https://127.0.0.1:{nginx_port}/health/live", verify=False)
+        verified, client_ip, transport_peer = direct.text.split("|")
+        assert verified == "NONE"
+        assert ipaddress.ip_address(client_ip) == ipaddress.ip_address(transport_peer)
+    finally:
+        for name in (caddy_name, nginx_name):
+            subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+        subprocess.run(["docker", "network", "rm", network], capture_output=True)

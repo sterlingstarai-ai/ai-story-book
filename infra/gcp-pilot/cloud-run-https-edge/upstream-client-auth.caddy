@@ -1,0 +1,2 @@
+# Secret Manager mounts the pinned client certificate and private key in one PEM.
+tls_client_auth /var/run/asb-edge/client.pem /var/run/asb-edge/client.pem

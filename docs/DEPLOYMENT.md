@@ -98,6 +98,37 @@ set both variables to an unused subnet and an address inside it before recreatin
 the Compose network. Other deployment topologies must set `FORWARDED_ALLOW_IPS`
 to their actual trusted proxy addresses; do not use `*` on an exposed API.
 
+### Google pilot on Direct VPC egress
+
+The pilot authenticates Caddy to nginx with a dedicated client certificate.
+Direct VPC egress addresses can change and the default subnet also serves other
+workloads. Keep `set_real_ip_from` empty for that subnet.
+
+* Mount a numeric Secret Manager version containing the leaf certificate and
+  matching private key at `/var/run/asb-edge/client.pem`. Grant the edge service
+  account accessor on that secret. Set `ASB_EDGE_CLIENT_AUTH=mtls` and pin
+  `CLOUD_RUN_TRUSTED_PROXY_CIDRS` to the measured Cloud Run serving peer.
+  Recheck that peer following ingress changes. Keep private keys out of images,
+  source, command arguments and logs.
+* Install the public CA at `/etc/letsencrypt/asb-edge-trust/client-ca.pem` in
+  nginx. Include the pilot's `nginx-edge-mtls/address-map.conf` in the `http`
+  block and `client-tls.conf` in its TLS server. Key both limit zones on
+  `$asb_client_address` and send that same value as the sole `X-Forwarded-For`
+  and `X-Real-IP` in proxied API and share requests. A client authenticated by
+  that CA can supply the forwarded address. Direct TLS clients use their socket
+  address.
+* Pin nginx's private bridge address in Docker IPAM and pass that single address
+  to Uvicorn's `FORWARDED_ALLOW_IPS`. Keep API membership and host port
+  restrictions. Verify the explicit IPAM assignment across container recreation.
+* Rotate before certificate expiry. Install old and new public CAs together,
+  validate nginx and reload. Add the new credential as a separate numeric secret
+  version and deploy a tagged edge revision at zero public traffic. Read
+  `/v1/characters/presets` from two independently routed clients. Verify their
+  separate anonymous read buckets, VM-local TLS and public readiness, then shift
+  traffic. Retain the previous revision and credential through the rollback
+  window. Restore its traffic assignment first if promotion fails. Retire the old
+  CA and secret version after the rollback window.
+
 ## TLS termination (H9 — required before any real traffic)
 
 **Until this section is done, the edge serves plain HTTP and `X-User-Key` — the only

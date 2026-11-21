@@ -21,10 +21,11 @@
     }
     reverse_proxy https://10.128.0.2:443 {
       header_up Host 35.209.174.246
-      # Collapse the verified chain to one address for nginx's real_ip module.
+      # Send the single address verified at the managed ingress.
       header_up X-Forwarded-For {client_ip}
       transport http {
         tls_server_name 35.209.174.246
+        import {$ASB_EDGE_TLS_INCLUDE:/etc/caddy/unused-client-auth-*.caddy}
         dial_timeout 5s
         response_header_timeout 125s
       }
