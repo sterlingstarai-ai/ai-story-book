@@ -1,0 +1,22 @@
+// GitHub's shared runners can hit Maven Central's per-IP limit while Gradle
+// resolves Kotlin through the plugin portal. Google's Central mirror serves
+// the same published artifacts. Keep all other plugins on their usual sources.
+def kotlinCentral = { repositories ->
+    repositories.maven {
+        name = 'GoogleCentralKotlinMirror'
+        url = 'https://maven-central.storage-download.googleapis.com/maven2/'
+        content { includeGroupByRegex('org[.]jetbrains([.].*)?') }
+    }
+}
+
+gradle.beforeSettings { settings ->
+    kotlinCentral(settings.pluginManagement.repositories)
+    kotlinCentral(settings.dependencyResolutionManagement.repositories)
+}
+gradle.settingsEvaluated { settings ->
+    // Adding an explicit mirror also disables Gradle's implicit plugin portal.
+    def repos = settings.pluginManagement.repositories
+    if (repos.findByName('Gradle Central Plugin Repository') == null) {
+        repos.gradlePluginPortal()
+    }
+}

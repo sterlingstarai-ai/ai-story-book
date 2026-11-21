@@ -39,7 +39,8 @@ permissions:
 jobs:
   api-test:
     name: API Tests + Coverage
-    runs-on: ubuntu-latest
+    # The backup rehearsal requires PostgreSQL 16 client binaries.
+    runs-on: ubuntu-24.04
 
     services:
       postgres:
@@ -324,7 +325,9 @@ jobs:
           java-version: '17'
 
       - name: Select the Android JDK for Flutter
-        run: flutter config --jdk-dir="$JAVA_HOME"
+        run: |
+          flutter config --jdk-dir="$JAVA_HOME"
+          install -Dm644 .github/ci-maven.init.gradle "${GRADLE_USER_HOME:-$HOME/.gradle}/init.d/ci-maven.gradle"
 
       - name: Enable Android KVM
         run: |
@@ -438,7 +441,9 @@ jobs:
           java-version: '17'
 
       - name: Select the Android JDK for Flutter
-        run: flutter config --jdk-dir="$JAVA_HOME"
+        run: |
+          flutter config --jdk-dir="$JAVA_HOME"
+          install -Dm644 .github/ci-maven.init.gradle "${GRADLE_USER_HOME:-$HOME/.gradle}/init.d/ci-maven.gradle"
 
       - name: Install mobile dependencies
         working-directory: apps/mobile
