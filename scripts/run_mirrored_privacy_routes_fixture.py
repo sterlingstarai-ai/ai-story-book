@@ -54,8 +54,10 @@ async def main():
             self.states[name] = False
         def start(self, name):
             self.states[name] = True
+        def verify_api_upstream(self):
+            assert self.states['asb-pilot-api']
         def reload_proxy(self):
-            pass
+            self.verify_api_upstream()
         def verify_recovery(self):
             assert all(self.states.values())
 
