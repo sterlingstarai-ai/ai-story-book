@@ -323,6 +323,9 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Select the Android JDK for Flutter
+        run: flutter config --jdk-dir="$JAVA_HOME"
+
       - name: Enable Android KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -427,6 +430,15 @@ jobs:
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
+
+      - name: Set up Java for the Android build
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Select the Android JDK for Flutter
+        run: flutter config --jdk-dir="$JAVA_HOME"
 
       - name: Install mobile dependencies
         working-directory: apps/mobile
