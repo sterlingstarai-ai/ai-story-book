@@ -93,14 +93,8 @@ jobs:
 
       - name: Check for security vulnerabilities (advisory)
         working-directory: apps/api
-        # CI-1 후속: safety 무료 DB가 **존재하지 않는 수정 버전**을 요구해 게이트가 원리적으로
-        # 충족 불가하다(실측: python-multipart→0.0.31, pytest→9.0.3, python-dotenv→1.2.2 모두
-        # PyPI 미존재. dotenv는 이미 최신 1.2.1인데도 상향을 요구). 실제 취약점이 아니라 DB 품질
-        # 문제이므로 advisory로 낮춘다.
-        #
-        # 중요(감사 M2 'silent safety' 재발 방지): `|| echo`로 종료코드를 삼키지 않는다 —
-        # continue-on-error로 **실패가 노란색으로 보이게** 두고, 차단 정본은 Trivy fs
-        # (CRITICAL+HIGH 하드 블로킹)가 담당한다. 출시 후 safety DB 품질을 재평가한다.
+        # Keep all Safety findings visible. The Trivy filesystem gate below
+        # blocks HIGH and CRITICAL findings.
         continue-on-error: true
         run: safety check -r requirements.txt --output text
 
@@ -344,7 +338,13 @@ jobs:
           arch: x86_64
           disable-animations: true
           working-directory: apps/mobile
-          script: bash -c 'set -o pipefail; flutter test integration_test/ -d emulator-5554 2>&1 | tee integration-output.log'
+          # Give each native suite its own Flutter driver and Dart VM service.
+          # Reusing the driver after a reinstall intermittently lost the VM during discovery.
+          script: >
+            bash -o pipefail -c 'for suite in integration_test/*_test.dart; do
+            flutter test "$suite" -d emulator-5554 --reporter expanded || {
+            adb -s emulator-5554 logcat -b crash -d -t 50; exit 1; };
+            done 2>&1 | tee integration-output.log'
 
       - name: Check Flutter coverage threshold
         run: |
