@@ -151,11 +151,12 @@ jobs:
       # 컨테이너 command 를 지정할 수 없어(minio 는 `server /data` 인자가 필수) 스텝에서 띄운다.
       - name: Start MinIO (object storage for live generation steps)
         run: |
+          docker build -t storybook-minio-test:2025-09-07 -f infra/Dockerfile.minio-test infra
           docker run -d --name ci-minio \
             -p 9000:9000 \
             -e MINIO_ROOT_USER=minioadmin \
             -e MINIO_ROOT_PASSWORD=minioadmin123 \
-            quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e server /data
+            storybook-minio-test:2025-09-07 server /data
           for i in $(seq 1 30); do
             if curl -fsS http://localhost:9000/minio/health/live >/dev/null 2>&1; then
               echo "MinIO ready"; exit 0
