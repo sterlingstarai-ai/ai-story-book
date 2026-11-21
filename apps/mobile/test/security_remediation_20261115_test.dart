@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:ai_story_book/services/recovery_clipboard.dart';
 import 'package:ai_story_book/services/user_service.dart';
@@ -95,7 +96,9 @@ void main() {
         final args = Map<String, dynamic>.from(call.arguments as Map);
         // The plugin selects options with dart:io.Platform, independent of
         // Flutter's platform override. Actual iOS attributes have native tests.
-        expect(args['options']['synchronizable'], 'false');
+        if (Platform.isIOS || Platform.isMacOS) {
+          expect(args['options']['synchronizable'], 'false');
+        }
         if (call.method == 'read') return values[args['key']];
         if (call.method == 'write') values[args['key']] = args['value'];
         if (call.method == 'delete') values.remove(args['key']);
